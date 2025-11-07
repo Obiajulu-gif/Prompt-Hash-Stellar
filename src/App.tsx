@@ -1,13 +1,21 @@
-import { Button, Icon, Layout } from "@stellar/design-system";
-import "./App.module.css";
-import ConnectAccount from "./components/ConnectAccount.tsx";
-import { Routes, Route, Outlet, NavLink } from "react-router-dom";
+// import { Button, Icon, Layout } from "@stellar/design-system";
+// import "./App.module.css";
+// import ConnectAccount from "./components/ConnectAccount.tsx";
+import { 
+  Routes, 
+  Route, 
+  Outlet, 
+  // NavLink
+} from "react-router-dom";
 import Home from "./pages/Home";
 import Debugger from "./pages/Debugger.tsx";
+import BrowsePage from "./pages/browse/page.jsx";
+import SellPage from "./pages/sell/page.tsx";
+import ChatHome from "./pages/chat/page.tsx";
 
 const AppLayout: React.FC = () => (
-  <main>
-    <Layout.Header
+  <main className="bg-black">
+    {/* <Layout.Header
       projectId="My App"
       projectTitle="My App"
       contentRight={
@@ -35,9 +43,9 @@ const AppLayout: React.FC = () => (
           <ConnectAccount />
         </>
       }
-    />
+    /> */}
     <Outlet />
-    <Layout.Footer>
+    {/* <Layout.Footer>
       <span>
         © {new Date().getFullYear()} My App. Licensed under the{" "}
         <a
@@ -49,7 +57,7 @@ const AppLayout: React.FC = () => (
         </a>
         .
       </span>
-    </Layout.Footer>
+    </Layout.Footer> */}
   </main>
 );
 
@@ -58,6 +66,9 @@ function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route path="/" element={<Home />} />
+        <Route path="/browse" element={<BrowsePage />}/>
+        <Route path="/sell" element={<SellPage />}/>
+        <Route path="/chat" element={<ChatHome />} />
         <Route path="/debug" element={<Debugger />} />
         <Route path="/debug/:contractName" element={<Debugger />} />
       </Route>

@@ -1,0 +1,42 @@
+{
+  "name": "prompthash-server",
+  "version": "1.0.0",
+  "description": "server for the prompthash on stellar",
+  "bin": {
+    "contacts": "./build/index.js"
+  },
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "dev": "nodemon --watch src --exec ts-node src/server.ts",
+    "start": "node build/server.js"
+  },
+  "files": [
+    "build"
+  ],
+  "keywords": [
+    "AI",
+    "NFT",
+    "Blockchain",
+    "Stellar",
+    "Scaffold",
+    "Stellar"
+  ],
+  "author": "wilfrid",
+  "license": "MIT",
+  "dependencies": {
+    "@ai-sdk/openai": "^1.2.5",
+    "ai": "^4.1.61",
+    "express": "^5.1.0",
+    "express-async-handler": "^1.2.0",
+    "mongoose": "^8.19.3",
+    "nodemon": "^3.1.10",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.0",
+    "ts-node": "^10.9.2"
+  }
+}
