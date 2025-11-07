@@ -3,10 +3,10 @@ members = ["contracts/*"]
 resolver = "2"
 
 [workspace.package]
-authors = ["AhaLabs"]
+authors = ["Birdmannn, OWK50GA"]
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/theahaco/scaffold-stellar"
+repository = "https://github.com/Birdmannn/prompt-hash"
 version = "0.0.1"
 
 [workspace.dependencies.soroban-sdk]
