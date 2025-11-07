@@ -50,7 +50,7 @@ export const GuessTheNumber = () => {
       ) : (
         <Box gap="sm" direction="row" align="end" justify="end" wrap="wrap">
           <Input
-            label="Guess a number from 1 to 10!"
+            label="Guess a number from 1 to 10!p"
             id="guess"
             fieldSize="lg"
             error={guessedIt === false && "Wrong! Guess again."}
