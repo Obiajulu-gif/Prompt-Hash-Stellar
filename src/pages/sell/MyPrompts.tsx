@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ethers } from "ethers";
+import { useState } from "react";
+// import { ethers } from "ethers";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,9 +25,9 @@ interface Prompt {
 }
 
 const MyPrompts = () => {
-	const [userPrompts, setUserPrompts] = useState<Prompt[]>([]);
-	const [isLoading, setIsLoading] = useState<boolean>(true);
-	const [error, setError] = useState<string | null>(null);
+	const [userPrompts, _setUserPrompts] = useState<Prompt[]>([]);
+	const [isLoading, _setIsLoading] = useState<boolean>(true);
+	const [error, _setError] = useState<string | null>(null);
 	const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
 	const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 	const [salePrice, setSalePrice] = useState<string>("");
@@ -41,13 +41,13 @@ const MyPrompts = () => {
 		type: "success",
 	});
 
-	const showAlert = (message: string, type: "success" | "error") => {
-		setAlert({
-			isOpen: true,
-			message,
-			type,
-		});
-	};
+	// const showAlert = (message: string, type: "success" | "error") => {
+	// 	setAlert({
+	// 		isOpen: true,
+	// 		message,
+	// 		type,
+	// 	});
+	// };
 
 	// useEffect(() => {
 	// 	fetchUserPrompts();

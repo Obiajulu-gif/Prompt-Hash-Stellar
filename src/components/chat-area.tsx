@@ -63,7 +63,7 @@ const formatMessageContent = (content: string): string => {
 export function ChatArea({
 	conversation,
 	isTyping,
-	customerName,
+	// customerName,
 	onSendMessage,
 	onImprovePrompt,
 	onReaction,
@@ -149,7 +149,7 @@ export function ChatArea({
 						variant="outline"
 						size="sm"
 						onClick={onSaveConversation}
-						className="transition-all hover:bg-blue-50 flex items-center gap-1 hidden sm:flex"
+						className="transition-all hover:bg-blue-50 items-center gap-1 hidden sm:flex"
 					>
 						<Save size={16} />
 						<span className="hidden sm:inline">Save conversation</span>

@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Button, Text, Modal, Profile } from "@stellar/design-system";
+import { Button, Profile } from "@stellar/design-system";
 import { useWallet } from "../hooks/useWallet";
-import { useWalletBalance } from "../hooks/useWalletBalance";
+// import { useWalletBalance } from "../hooks/useWalletBalance";
 import { connectWallet, disconnectWallet } from "../util/wallet";
 
 export const WalletButton = () => {
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const { address, isPending } = useWallet();
-  const { xlm, ...balance } = useWalletBalance();
+  // const { 
+  //   // xlm, 
+  //   // ...balance 
+  // } = useWalletBalance();
   const buttonLabel = isPending ? "Loading..." : "Connect";
 
   if (!address) {

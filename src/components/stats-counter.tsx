@@ -26,6 +26,7 @@ export default function StatsCounter() {
 		const timer = setInterval(() => {
 			step++;
 
+			// @ts-ignore
 			const progress = Math.easeInOutCubic(step / steps);
 
 			setCounts({
@@ -44,7 +45,8 @@ export default function StatsCounter() {
 	}, []);
 
 	// Easing function
-	Math.easeInOutCubic = (t) =>
+	// @ts-ignore
+	Math.easeInOutCubic = (t: number) =>
 		t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
 
 	return (

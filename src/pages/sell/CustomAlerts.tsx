@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { CheckCircle, XCircle, X } from "lucide-react";
 
 interface AlertProps {

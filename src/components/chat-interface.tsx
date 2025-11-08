@@ -22,7 +22,10 @@ export function ChatInterface() {
 		},
 	]);
 
-	const [customerName, setCustomerName] = useState("GS");
+	const [
+		customerName, 
+		_setCustomerName
+	] = useState("GS");
 	const [isTyping, setIsTyping] = useState(false);
 	const [selectedModel, setSelectedModel] =
 		useState<AIModel>("gemini-2.5-flash");

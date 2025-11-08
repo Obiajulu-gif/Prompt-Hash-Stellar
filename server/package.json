@@ -27,6 +27,7 @@
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/openai": "^1.2.5",
+    "@typescript-eslint/parser": "^8.46.3",
     "ai": "^4.1.61",
     "express": "^5.1.0",
     "express-async-handler": "^1.2.0",

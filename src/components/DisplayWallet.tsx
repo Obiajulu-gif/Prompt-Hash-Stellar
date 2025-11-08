@@ -1,6 +1,3 @@
-"use client";
-
-import { useRef } from "react";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -12,14 +9,17 @@ import {
 import { Button } from "./ui/button";
 import {
 	LogOut,
-	Loader2,
+	// Loader2,
 	Wallet,
 	Copy,
 	ExternalLink,
 	AlertCircle,
 	X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { 
+	// useEffect, 
+	useState 
+} from "react";
 // import { useConnect, useDisconnect } from "@starknet-react/core";
 // import { ConnectWallet } from "./connect-wallet";
 import ConnectAccount from "./ConnectAccount";
@@ -31,11 +31,11 @@ declare global {
 }
 
 const DisplayWallet = () => {
-	const [isConnected, setIsConnected] = useState(false);
-	const [account, setAccount] = useState<string | null>(null);
-	const [isLoading, setIsLoading] = useState(false);
+	const [isConnected, _setIsConnected] = useState(false);
+	const [account, _setAccount] = useState<string | null>(null);
+	// const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const isConnectingRef = useRef(false);
+	// const isConnectingRef = useRef(false);
 
 	// const { connect: starknetConnect, connectors: starknetConnectors } = useConnect();
 	// const { disconnect } = useDisconnect();
@@ -142,24 +142,24 @@ const DisplayWallet = () => {
 	// 	}
 	// };
 
-	const registerUser = async (address: string) => {
-		try {
-			const response = await fetch("/api/user", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ walletAddress: address }),
-			});
+	// const registerUser = async (address: string) => {
+	// 	try {
+	// 		const response = await fetch("/api/user", {
+	// 			method: "POST",
+	// 			headers: {
+	// 				"Content-Type": "application/json",
+	// 			},
+	// 			body: JSON.stringify({ walletAddress: address }),
+	// 		});
 
-			if (!response.ok) {
-				const data = await response.json();
-				throw new Error(data.error || "Failed to register user");
-			}
-		} catch (apiError: any) {
-			console.error("API Error:", apiError);
-		}
-	};
+	// 		if (!response.ok) {
+	// 			const data = await response.json();
+	// 			throw new Error(data.error || "Failed to register user");
+	// 		}
+	// 	} catch (apiError: any) {
+	// 		console.error("API Error:", apiError);
+	// 	}
+	// };
 
 	// const disconnect = () => {
 	// 	setAccount(null);

@@ -17,21 +17,21 @@ import { useNavigate } from "react-router-dom";
 // import { getUint256FromDecimal } from "@/lib/utils";
 // import { useRouter } from "next/navigation";
 
-const contractABI = [
-	{
-		inputs: [
-			{ type: "uint256", name: "price" },
-			{ type: "string", name: "title" },
-			{ type: "string", name: "description" },
-			{ type: "string", name: "category" },
-			{ type: "string", name: "imageUrl" },
-		],
-		name: "create",
-		outputs: [{ type: "uint256" }],
-		stateMutability: "payable",
-		type: "function",
-	},
-];
+// const contractABI = [
+// 	{
+// 		inputs: [
+// 			{ type: "uint256", name: "price" },
+// 			{ type: "string", name: "title" },
+// 			{ type: "string", name: "description" },
+// 			{ type: "string", name: "category" },
+// 			{ type: "string", name: "imageUrl" },
+// 		],
+// 		name: "create",
+// 		outputs: [{ type: "uint256" }],
+// 		stateMutability: "payable",
+// 		type: "function",
+// 	},
+// ];
 
 interface FormData {
 	imageUrl: string;
