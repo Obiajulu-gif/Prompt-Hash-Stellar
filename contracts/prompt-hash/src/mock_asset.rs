@@ -22,7 +22,6 @@ impl FungibleTokenContract {
         Self::mint(e, owner, 1000000000000);
     }
 
-    #[only_owner]
     pub fn mint(e: &Env, to: Address, amount: i128) {
         Base::mint(e, &to, amount);
     }

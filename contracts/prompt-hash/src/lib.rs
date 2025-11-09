@@ -3,9 +3,11 @@
 
 mod contract;
 mod events;
-mod mock_asset;
 mod storage;
 mod types;
+
+#[cfg(test)]
+mod mock_asset;
 
 #[cfg(test)]
 mod test;

@@ -72,7 +72,7 @@ impl PromptHashTrait for PromptHashContract {
             .persistent()
             .get(&soroban_sdk::symbol_short!("counter"))
             .unwrap_or(0);
-        Ok((counter + 1) as u128)
+        Ok(counter as u128)
     }
 
     fn list_prompt_for_sale(
