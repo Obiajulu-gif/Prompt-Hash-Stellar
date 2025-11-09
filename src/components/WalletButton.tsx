@@ -1,18 +1,21 @@
 import { useState } from "react";
-import { Button, Text, Modal, Profile } from "@stellar/design-system";
+import { Button, Profile } from "@stellar/design-system";
 import { useWallet } from "../hooks/useWallet";
-import { useWalletBalance } from "../hooks/useWalletBalance";
+// import { useWalletBalance } from "../hooks/useWalletBalance";
 import { connectWallet, disconnectWallet } from "../util/wallet";
 
 export const WalletButton = () => {
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const { address, isPending } = useWallet();
-  const { xlm, ...balance } = useWalletBalance();
+  // const { 
+  //   // xlm, 
+  //   // ...balance 
+  // } = useWalletBalance();
   const buttonLabel = isPending ? "Loading..." : "Connect";
 
   if (!address) {
     return (
-      <Button variant="primary" size="md" onClick={() => void connectWallet()}>
+      <Button variant="primary" size="md" onClick={() => void connectWallet()} className="text-white px-2">
         {buttonLabel}
       </Button>
     );
@@ -20,60 +23,41 @@ export const WalletButton = () => {
 
   return (
     <div
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: "5px",
-        opacity: balance.isLoading ? 0.6 : 1,
-      }}
+      className="flex flex-col"
     >
-      <Text as="div" size="sm">
-        Wallet Balance: {xlm} XLM
-      </Text>
-
-      <div id="modalContainer">
-        <Modal
-          visible={showDisconnectModal}
-          onClose={() => setShowDisconnectModal(false)}
-          parentId="modalContainer"
-        >
-          <Modal.Heading>
-            Connected as{" "}
-            <code style={{ lineBreak: "anywhere" }}>{address}</code>. Do you
-            want to disconnect?
-          </Modal.Heading>
-          <Modal.Footer itemAlignment="stack">
-            <Button
-              size="md"
-              variant="primary"
-              onClick={() => {
-                void disconnectWallet().then(() =>
-                  setShowDisconnectModal(false),
-                );
-              }}
-            >
-              Disconnect
-            </Button>
-            <Button
-              size="md"
-              variant="tertiary"
-              onClick={() => {
-                setShowDisconnectModal(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </Modal.Footer>
-        </Modal>
-      </div>
-
       <Profile
         publicAddress={address}
         size="md"
         isShort
-        onClick={() => setShowDisconnectModal(true)}
+        onClick={() => setShowDisconnectModal((prev) => !prev)}
       />
+
+      {showDisconnectModal && (
+        <div className="absolute mt-10 w-44 bg-[#070602] rounded-lg shadow-lg">
+            <div>
+              {/* <div>
+                Connected as{" "}
+                <code style={{ lineBreak: "anywhere" }}>{shortenAddress(address)}</code>. 
+                <p>
+                  Do you want to disconnect?
+                </p>
+              </div> */}
+
+              <Button
+                size="md"
+                variant="primary"
+                onClick={() => {
+                  void disconnectWallet().then(() =>
+                    setShowDisconnectModal(false),
+                  );
+                }}
+                className="w-full mx-auto p-2"
+              >
+                Disconnect
+              </Button>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

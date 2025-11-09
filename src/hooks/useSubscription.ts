@@ -49,11 +49,12 @@ export function useSubscription(
           paging[id].lastLedgerStart = latestLedgerState.sequence;
         }
 
+        // @ts-ignore
         const response = await server.getEvents({
           startLedger: !paging[id].pagingToken
-            ? paging[id].lastLedgerStart
+          ? paging[id].lastLedgerStart
             : undefined,
-          cursor: paging[id].pagingToken,
+          cursor: paging[id].pagingToken as string,
           filters: [
             {
               contractIds: [contractId],
@@ -78,6 +79,7 @@ export function useSubscription(
                 error,
               );
             } finally {
+              // @ts-ignore
               paging[id].pagingToken = event.pagingToken;
             }
           });

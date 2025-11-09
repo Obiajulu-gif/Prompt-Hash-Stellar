@@ -1,6 +1,6 @@
 import React from "react";
-import { stellarNetwork } from "../contracts/util";
-import FundAccountButton from "./FundAccountButton";
+// import { stellarNetwork } from "../contracts/util";
+// import FundAccountButton from "./FundAccountButton";
 import { WalletButton } from "./WalletButton";
 import NetworkPill from "./NetworkPill";
 
@@ -16,7 +16,7 @@ const ConnectAccount: React.FC = () => {
       }}
     >
       <WalletButton />
-      {stellarNetwork !== "PUBLIC" && <FundAccountButton />}
+      {/* {stellarNetwork !== "PUBLIC" && <FundAccountButton />} */}
       <NetworkPill />
     </div>
   );
