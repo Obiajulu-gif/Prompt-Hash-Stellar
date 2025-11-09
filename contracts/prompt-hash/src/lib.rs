@@ -3,6 +3,7 @@
 
 mod contract;
 mod events;
+mod mock_asset;
 mod storage;
 mod types;
 
