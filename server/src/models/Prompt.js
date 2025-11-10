@@ -52,7 +52,7 @@ const promptSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 promptSchema.index({ title: 1 });
 

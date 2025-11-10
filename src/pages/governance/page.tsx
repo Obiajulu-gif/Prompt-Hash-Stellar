@@ -1,13 +1,19 @@
-"use client"
+"use client";
 
-import { Navigation } from "@/components/navigation"
-import { Footer } from "@/components/footer"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { Clock, Check, X } from "lucide-react"
+import { Navigation } from "@/components/navigation";
+import { Footer } from "@/components/footer";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Clock, Check, X } from "lucide-react";
 
 export default function GovernancePage() {
   return (
@@ -18,7 +24,8 @@ export default function GovernancePage() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold mb-2">DAO Governance</h1>
             <p className="text-muted-foreground">
-              Participate in governance decisions and help shape the future of the marketplace.
+              Participate in governance decisions and help shape the future of
+              the marketplace.
             </p>
           </div>
 
@@ -73,7 +80,8 @@ export default function GovernancePage() {
                       <div>
                         <CardTitle>Dispute #123</CardTitle>
                         <p className="text-sm text-muted-foreground mt-2">
-                          Buyer claims the prompt quality doesn't match the description.
+                          Buyer claims the prompt quality doesn't match the
+                          description.
                         </p>
                       </div>
                       <Badge variant="destructive">Active Dispute</Badge>
@@ -104,6 +112,5 @@ export default function GovernancePage() {
       </main>
       <Footer />
     </div>
-  )
+  );
 }
-

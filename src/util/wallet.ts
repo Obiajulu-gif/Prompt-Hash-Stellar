@@ -8,7 +8,7 @@ import {
 import { Horizon } from "@stellar/stellar-sdk";
 import { networkPassphrase, stellarNetwork } from "../contracts/util";
 
-const kit: StellarWalletsKit = new StellarWalletsKit({
+export const kit: StellarWalletsKit = new StellarWalletsKit({
   network: networkPassphrase as WalletNetwork,
   modules: sep43Modules(),
 });

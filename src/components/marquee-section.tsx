@@ -1,7 +1,18 @@
-"use client"
+"use client";
 
-import { Badge } from "@/components/ui/badge"
-import { Sparkles, Zap, Star, TrendingUp, Award, Heart, Code, ImageIcon, Type, BarChart } from "lucide-react"
+import { Badge } from "@/components/ui/badge";
+import {
+  Sparkles,
+  Zap,
+  Star,
+  TrendingUp,
+  Award,
+  Heart,
+  Code,
+  ImageIcon,
+  Type,
+  BarChart,
+} from "lucide-react";
 
 export default function MarqueeSection() {
   const items1 = [
@@ -11,7 +22,7 @@ export default function MarqueeSection() {
     { icon: <TrendingUp className="size-4" />, text: "Weekly Updates" },
     { icon: <Award className="size-4" />, text: "Hackathon Winner" },
     { icon: <Heart className="size-4" />, text: "Community Favorites" },
-  ]
+  ];
 
   const items2 = [
     { icon: <Code className="size-4" />, text: "Code Generation" },
@@ -20,7 +31,7 @@ export default function MarqueeSection() {
     { icon: <BarChart className="size-4" />, text: "Marketing Copy" },
     { icon: <Sparkles className="size-4" />, text: "Creative Ideas" },
     { icon: <Zap className="size-4" />, text: "Productivity Boosters" },
-  ]
+  ];
 
   return (
     <section className="py-6  border-gray-800 overflow-hidden">
@@ -54,6 +65,5 @@ export default function MarqueeSection() {
         </div>
       </div>
     </section>
-  )
+  );
 }
-

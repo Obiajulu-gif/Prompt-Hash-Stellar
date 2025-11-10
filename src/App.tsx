@@ -1,10 +1,10 @@
 // import { Button, Icon, Layout } from "@stellar/design-system";
 // import "./App.module.css";
 // import ConnectAccount from "./components/ConnectAccount.tsx";
-import { 
-  Routes, 
-  Route, 
-  Outlet, 
+import {
+  Routes,
+  Route,
+  Outlet,
   // NavLink
 } from "react-router-dom";
 import Home from "./pages/Home";
@@ -66,8 +66,8 @@ function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route path="/" element={<Home />} />
-        <Route path="/browse" element={<BrowsePage />}/>
-        <Route path="/sell" element={<SellPage />}/>
+        <Route path="/browse" element={<BrowsePage />} />
+        <Route path="/sell" element={<SellPage />} />
         <Route path="/chat" element={<ChatHome />} />
         <Route path="/debug" element={<Debugger />} />
         <Route path="/debug/:contractName" element={<Debugger />} />

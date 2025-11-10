@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   X,
@@ -16,16 +16,16 @@ import {
   Volume2,
   MessageSquare,
   Database,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface ConversationDetailsProps {
-  isOpen: boolean
-  activeTab: "actions" | "customer" | "settings"
-  onTabChange: (tab: "actions" | "customer" | "settings") => void
-  customerName: string
-  onClose: () => void
+  isOpen: boolean;
+  activeTab: "actions" | "customer" | "settings";
+  onTabChange: (tab: "actions" | "customer" | "settings") => void;
+  customerName: string;
+  onClose: () => void;
 }
 
 export function ConversationDetails({
@@ -35,7 +35,7 @@ export function ConversationDetails({
   customerName,
   onClose,
 }: ConversationDetailsProps) {
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className="w-full md:w-[280px] border-l border-gray-200 h-full flex-shrink-0 bg-white/90 backdrop-blur-sm shadow-lg transition-all duration-300 fixed right-0 top-0 bottom-0 md:relative z-30 overflow-y-auto">
@@ -53,7 +53,10 @@ export function ConversationDetails({
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as any)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => onTabChange(value as any)}
+      >
         <TabsList className="w-full grid grid-cols-3">
           <TabsTrigger value="actions" className="flex items-center gap-1">
             <Zap size={14} />
@@ -220,7 +223,11 @@ export function ConversationDetails({
                     Auto-translate
                   </span>
                   <div className="relative inline-block w-10 h-5 rounded-full bg-gray-200">
-                    <input type="checkbox" className="sr-only peer" id="auto-translate" />
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      id="auto-translate"
+                    />
                     <label
                       htmlFor="auto-translate"
                       className="absolute inset-0 rounded-full cursor-pointer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"
@@ -234,7 +241,12 @@ export function ConversationDetails({
                     Save chat history
                   </span>
                   <div className="relative inline-block w-10 h-5 rounded-full bg-gray-200">
-                    <input type="checkbox" className="sr-only peer" id="save-history" defaultChecked />
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      id="save-history"
+                      defaultChecked
+                    />
                     <label
                       htmlFor="save-history"
                       className="absolute inset-0 rounded-full cursor-pointer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"
@@ -248,7 +260,12 @@ export function ConversationDetails({
                     Enable voice
                   </span>
                   <div className="relative inline-block w-10 h-5 rounded-full bg-gray-200">
-                    <input type="checkbox" className="sr-only peer" id="enable-voice" defaultChecked />
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      id="enable-voice"
+                      defaultChecked
+                    />
                     <label
                       htmlFor="enable-voice"
                       className="absolute inset-0 rounded-full cursor-pointer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"
@@ -292,6 +309,5 @@ export function ConversationDetails({
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }
-

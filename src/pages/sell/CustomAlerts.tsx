@@ -11,12 +11,12 @@ interface AlertProps {
   duration?: number;
 }
 
-const CustomAlert = ({ 
-  message, 
-  type, 
-  isOpen, 
-  onClose, 
-  duration = 3000 
+const CustomAlert = ({
+  message,
+  type,
+  isOpen,
+  onClose,
+  duration = 3000,
 }: AlertProps) => {
   useEffect(() => {
     if (isOpen) {
@@ -32,14 +32,15 @@ const CustomAlert = ({
 
   return (
     <div className="fixed inset-0 flex items-start justify-center z-50 pointer-events-none pt-4">
-      <div 
+      <div
         className={`
           animate-in fade-in slide-in-from-top-2
           pointer-events-auto
           flex items-center gap-2 rounded-lg p-4 shadow-lg
-          ${type === "success" 
-            ? "bg-green-100 text-green-800 border border-green-200" 
-            : "bg-red-100 text-red-800 border border-red-200"
+          ${
+            type === "success"
+              ? "bg-green-100 text-green-800 border border-green-200"
+              : "bg-red-100 text-red-800 border border-red-200"
           }
         `}
       >
@@ -48,17 +49,14 @@ const CustomAlert = ({
         ) : (
           <XCircle className="h-5 w-5 shrink-0" />
         )}
-        
+
         <p className="text-sm font-medium max-w-sm">{message}</p>
-        
+
         <button
           onClick={onClose}
           className={`
             ml-4 p-1 rounded-full hover:bg-opacity-20
-            ${type === "success" 
-              ? "hover:bg-green-800" 
-              : "hover:bg-red-800"
-            }
+            ${type === "success" ? "hover:bg-green-800" : "hover:bg-red-800"}
           `}
         >
           <X className="h-4 w-4" />

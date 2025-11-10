@@ -52,7 +52,7 @@ export function useSubscription(
         // @ts-ignore
         const response = await server.getEvents({
           startLedger: !paging[id].pagingToken
-          ? paging[id].lastLedgerStart
+            ? paging[id].lastLedgerStart
             : undefined,
           cursor: paging[id].pagingToken as string,
           filters: [

@@ -21,11 +21,11 @@ const userSchema = new mongoose.Schema(
       default: 4,
       min: 1,
       max: 5,
-    }
+    },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Check if the model exists before creating it

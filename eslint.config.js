@@ -36,18 +36,18 @@ export default tseslint.config(
     },
     rules: {
       // Turn all rules to warnings instead of errors
-      'no-unused-vars': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      "no-unused-vars": "warn",
+      "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/require-await": "warn",
       // Or disable specific annoying rules
-      'react/prop-types': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
+      "react/prop-types": "off",
+      "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-floating-promises": "warn",
       "@typescript-eslint/no-misused-promises": "warn",
       "@typescript-eslint/no-non-null-asserted-optional-chain": "warn",
       "react-x/no-missing-key": "off",
       "@typescript-eslint/no-unsafe-assignment": "warn",
-      "react-x/no-default-props": "off"
+      "react-x/no-default-props": "off",
     },
   },
 );

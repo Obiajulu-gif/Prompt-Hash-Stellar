@@ -15,10 +15,10 @@ app.use("/api/improve-proxy", proxyrouter);
 
 app.use("/api/prompts", promptRouter);
 
-app.use('/api/user', userRouter);
+app.use("/api/user", userRouter);
 
-app.use('/api/chat', chatRouter);
+app.use("/api/chat", chatRouter);
 
 app.listen(port, () => {
-    console.log(`Listening on port ${port}`);
-})
+  console.log(`Listening on port ${port}`);
+});

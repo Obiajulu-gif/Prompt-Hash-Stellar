@@ -1,5 +1,5 @@
-import express from 'express';
-import { CreatePrompt, GetPrompts } from '../controllers/controllers';
+import express from "express";
+import { CreatePrompt, GetPrompts } from "../controllers/controllers";
 
 export const promptRouter = express.Router();
 

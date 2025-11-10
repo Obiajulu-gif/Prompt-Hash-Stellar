@@ -1,6 +1,4 @@
 import React from "react";
-// import { stellarNetwork } from "../contracts/util";
-// import FundAccountButton from "./FundAccountButton";
 import { WalletButton } from "./WalletButton";
 import NetworkPill from "./NetworkPill";
 

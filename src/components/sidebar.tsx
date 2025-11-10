@@ -1,12 +1,22 @@
-"use client"
+"use client";
 
-import { LayoutGrid, Zap, Link, Users, Settings, Eye, BarChart3, Menu, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import {
+  LayoutGrid,
+  Zap,
+  Link,
+  Users,
+  Settings,
+  Eye,
+  BarChart3,
+  Menu,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface SidebarProps {
-  isOpen: boolean
-  onClose: () => void
-  onToggleMobileMenu: () => void
+  isOpen: boolean;
+  onClose: () => void;
+  onToggleMobileMenu: () => void;
 }
 
 export function Sidebar({ isOpen, onClose, onToggleMobileMenu }: SidebarProps) {
@@ -18,7 +28,7 @@ export function Sidebar({ isOpen, onClose, onToggleMobileMenu }: SidebarProps) {
     { icon: <Settings size={18} />, label: "Settings" },
     { icon: <Eye size={18} />, label: "Live preview" },
     { icon: <BarChart3 size={18} />, label: "Performance" },
-  ]
+  ];
 
   return (
     <>
@@ -62,8 +72,12 @@ export function Sidebar({ isOpen, onClose, onToggleMobileMenu }: SidebarProps) {
       </div>
 
       {/* Overlay for mobile */}
-      {isOpen && <div className="md:hidden fixed inset-0 bg-black/20 backdrop-blur-sm z-30" onClick={onClose}></div>}
+      {isOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/20 backdrop-blur-sm z-30"
+          onClick={onClose}
+        ></div>
+      )}
     </>
-  )
+  );
 }
-

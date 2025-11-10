@@ -1,8 +1,8 @@
-"use client"
-import { Button } from "./ui/button"
+"use client";
+import { Button } from "./ui/button";
 // import Link from "next/link"
 import { Link } from "react-router-dom";
-import { Line } from "react-chartjs-2"
+import { Line } from "react-chartjs-2";
 import {
   Chart,
   CategoryScale,
@@ -11,10 +11,17 @@ import {
   LineElement,
   Tooltip,
   Legend,
-} from "chart.js"
-import { Rocket } from "lucide-react"  // Added lucid react icon
+} from "chart.js";
+import { Rocket } from "lucide-react"; // Added lucid react icon
 
-Chart.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
+Chart.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend,
+);
 
 export function SellerCTA() {
   const data = {
@@ -29,7 +36,7 @@ export function SellerCTA() {
         tension: 0.4,
       },
     ],
-  }
+  };
 
   const options = {
     responsive: true,
@@ -37,15 +44,29 @@ export function SellerCTA() {
     plugins: {
       legend: { display: false },
     },
-  }
+  };
 
   return (
     <section className="py-16 px-6 bg-gray-900 relative overflow-hidden">
       <div className="absolute inset-0 opacity-10">
-        <svg className="w-full h-full" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <svg
+          className="w-full h-full"
+          viewBox="0 0 100 100"
+          xmlns="http://www.w3.org/2000/svg"
+        >
           <defs>
-            <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-              <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" strokeWidth="0.5" />
+            <pattern
+              id="grid"
+              width="10"
+              height="10"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M 10 0 L 0 0 0 10"
+                fill="none"
+                stroke="white"
+                strokeWidth="0.5"
+              />
             </pattern>
           </defs>
           <rect width="100" height="100" fill="url(#grid)" />
@@ -58,10 +79,14 @@ export function SellerCTA() {
               Sell your prompts on PromptHub
             </h2>
             <p className="text-lg text-gray-300 mb-6">
-              Join thousands of creators who earn by selling their AI prompts. Turn your expertise into income.
+              Join thousands of creators who earn by selling their AI prompts.
+              Turn your expertise into income.
             </p>
             <Link href="/sell">
-              <Button size="lg" className="bg-purple-600 hover:bg-purple-700 flex items-center">
+              <Button
+                size="lg"
+                className="bg-purple-600 hover:bg-purple-700 flex items-center"
+              >
                 <Rocket className="mr-2 h-5 w-5" />
                 Start Selling
               </Button>
@@ -81,5 +106,5 @@ export function SellerCTA() {
         </div>
       </div>
     </section>
-  )
+  );
 }

@@ -51,9 +51,7 @@ export default function BrowsePage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Price Range (XLM)
-                </label>
+                <label className="text-sm font-medium">Price Range (XLM)</label>
                 <Slider
                   value={priceRange}
                   onValueChange={setPriceRange}

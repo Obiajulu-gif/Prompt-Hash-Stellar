@@ -12,34 +12,34 @@ import MarqueeSection from "@/components/marquee-section";
 import PricingSection from "@/components/pricing-section";
 import FaqSection from "@/components/faq-section";
 export default function Home() {
-	return (
-		<div className="min-h-screen flex flex-col bg-gray-950 text-white">
-			{/* Ambient background with moving particles */}
-			<div className="h-full w-full absolute inset-0 z-0">
-				<SparklesCore
-					id="tsparticlesfullpage"
-					background="transparent"
-					minSize={0.6}
-					maxSize={1.4}
-					particleDensity={100}
-					className="w-full h-full"
-					particleColor="#FFFFFF"
-				/>
-			</div>
-			<Navigation />
-			<main className="flex-1">
-				<Hero />
-				<MarqueeSection />
-				<TrendingPrompts />
-				<FeaturedPrompts />
-				<CategoryShowcase />
-				<SellerCTA />
-				<PricingSection />
-				<PopularCreators />
-				<AiChatButton />
-				<FaqSection/>
-			</main>
-			<Footer />
-		</div>
-	);
+  return (
+    <div className="min-h-screen flex flex-col bg-gray-950 text-white">
+      {/* Ambient background with moving particles */}
+      <div className="h-full w-full absolute inset-0 z-0">
+        <SparklesCore
+          id="tsparticlesfullpage"
+          background="transparent"
+          minSize={0.6}
+          maxSize={1.4}
+          particleDensity={100}
+          className="w-full h-full"
+          particleColor="#FFFFFF"
+        />
+      </div>
+      <Navigation />
+      <main className="flex-1">
+        <Hero />
+        <MarqueeSection />
+        <TrendingPrompts />
+        <FeaturedPrompts />
+        <CategoryShowcase />
+        <SellerCTA />
+        <PricingSection />
+        <PopularCreators />
+        <AiChatButton />
+        <FaqSection />
+      </main>
+      <Footer />
+    </div>
+  );
 }

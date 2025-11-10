@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 // import tailwindcss from '@tailwindcss/vite';
-import path from 'path';
+import path from "path";
 
 // https://vite.dev/config/
 export default defineConfig(() => {
@@ -22,7 +22,7 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
-      }
+      },
     },
     build: {
       target: "esnext",
@@ -37,7 +37,8 @@ export default defineConfig(() => {
     server: {
       proxy: {
         "/friendbot": {
-          target: "http://localhost:8000/friendbot",
+          // target: "http://localhost:8000/friendbot",
+          target: "https://friendbot.stellar.org",
           changeOrigin: true,
         },
       },

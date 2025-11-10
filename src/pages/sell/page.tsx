@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreatePromptForm } from "./CreatePromptForm";
 import MyPrompts from "./MyPrompts";
 
-
 export default function SellPage() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-r from-purple-400 to-blue-500">

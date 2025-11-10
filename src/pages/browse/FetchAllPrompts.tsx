@@ -16,78 +16,73 @@ import {
 // import Image from "next/image";
 // import contractABI from "../../../contracts/PromptHashAbi.json";
 // import { useAccount, useContract, useReadContract } from "@starknet-react/core";
-// import { PROMPTHASH_STARKNET_ABI, PROMPTHASH_STARKNET_ADDRESS } from "@/lib/constants";
+// import fungible_allowlist_example from "@/contracts/fungible_allowlist_example";
 // import { contractAddressToHex, shortenAddress } from "@/lib/utils";
+import prompt_hash from "@/contracts/prompt_hash";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
 const ITEMS_PER_PAGE = 10;
 
 export type Prompt = {
-  id: string //in contract
-  title: string
-  description: string //in contract
-  category: string 
-  imageUrl: string //in contract
-  price: string
-  likes: number
-  owner: string //not in contract
-  exists: boolean //in contract
-  onSale: boolean //in contract
-} | undefined
+  id: string; //in contract
+  title: string;
+  description: string; //in contract
+  category: string;
+  imageUrl: string; //in contract
+  price: string;
+  likes: number;
+  owner: string; //not in contract
+  exists: boolean; //in contract
+  onSale: boolean; //in contract
+}
 
 const FetchAllPrompts = ({
   selectedCategory = "",
   priceRange = [0, 1000], // Default price range
   searchQuery = "",
 }) => {
-  const [_prompts, _setPrompts] = useState([]);
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
   // const [isLoading, setIsLoading] = useState(false);
   const [error, _setError] = useState(null);
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt>();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
-  // const { address } = useAccount();
-  
-  // const { contract } = useContract({
-  //   abi: PROMPTHASH_STARKNET_ABI,
-  //   address: PROMPTHASH_STARKNET_ADDRESS
-  // });
-
-  // const { data: rawPrompts, isLoading } = useReadContract({
-  //   abi: PROMPTHASH_STARKNET_ABI,
-  //   address: PROMPTHASH_STARKNET_ADDRESS,
-  //   functionName: "get_all_prompts",
-  //   args: [],
-  //   watch: true
-  // })
-
-  // const formattedPrompts: Prompt[] = rawPrompts ?
-  //   rawPrompts.map((prompt, index) => {
-  //     return {
-  //       id: prompt.id.toString(),
-  //       title: prompt.title,
-  //       description: prompt.description,
-  //       category: prompt.category,
-  //       imageUrl: prompt.image_url,
-  //       price: prompt.price.toString(),
-  //       likes: 2,
-  //       owner: contractAddressToHex(prompt.owner),
-  //       exists: !!prompt,
-  //       onSale: prompt.for_sale
-  //     }
-  //   }) : []
-
-  // const promptHashCall = useMemo(() => {
-  //   return [
-  //     contract?.populate("approve", [PROMPTHASH_STARKNET_ADDRESS, ])
-  //   ]
-  // }, []);
-
-  // const erc721Call = useMemo(() => {
+  const fetchPrompts = async (): Promise<Prompt[]> => {
     
-  // }, []);
+    const { result } = await prompt_hash.get_all_prompts();
+    let formattedPrompts: Prompt[] = []
+    if (result.isOk()) {
+      console.log("Ok Prompts fetched: ", result.unwrap());
+      const prompts = result.unwrap();
+      formattedPrompts = prompts.map((prompt) => {
+        return {
+          id: prompt.id.toString(),
+          title: prompt.title.toString(),
+          description: prompt.description.toString(),
+          category: prompt.category.toString(),
+          imageUrl: prompt.image_url.toString(),
+          price: prompt.price.toString(),
+          likes: 2,
+          owner: prompt.owner.toString(),
+          exists: !!prompt,
+          onSale: prompt.for_sale
+        }
+      })
+      setPrompts(formattedPrompts);
+
+      return formattedPrompts
+    } else if (result.isErr()) {
+      console.log("Error fetching prompts: ", result.unwrapErr());
+      return []
+    }
+    return []
+  }
+
+  useEffect(() => {
+    fetchPrompts();
+  }, [])
 
   useEffect(() => {
     // Reset to first page when filters change
@@ -109,42 +104,13 @@ const FetchAllPrompts = ({
     setSelectedPrompt(undefined);
   };
 
-  // const handleBuyPrompt = async (prompt) => {
-  //   try {
-  //     if (!window.ethereum) {
-  //       throw new Error("Please install MetaMask");
-  //     }
-
-  //     const provider = new ethers.BrowserProvider(window.ethereum);
-  //     const signer = await provider.getSigner();
-
-  //     const contract = new ethers.Contract(
-  //       process.env.NEXT_PUBLIC_DEPLOYMENT_ADDRESS,
-  //       contractABI,
-  //       signer
-  //     );
-
-  //     const promptPrice = ethers.parseEther(prompt.price);
-  //     console.log("Prompt price:", ethers.formatEther(promptPrice), "HBAR");
-
-  //     const tx = await contract.buy(prompt.id, {
-  //       value: promptPrice,
-  //     });
-
-  //     closeModal();
-  //     fetchPrompts();
-  //   } catch (error) {
-  //     console.error("Error buying prompt:", error);
-  //   }
-  // };
-
-  const array = new Array(10);
+  // const array = new Array(10);
 
   // Pagination logic
-  const totalPages = Math.ceil((array).length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(prompts.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentPrompts = array.slice(startIndex, endIndex);
+  const currentPrompts = prompts.slice(startIndex, endIndex);
 
   const nextPage = () => {
     if (currentPage < totalPages) {
@@ -176,55 +142,14 @@ const FetchAllPrompts = ({
         {currentPrompts.map((prompt, index) => {
           // if (!prompt) return
           return (
-          // <Card
-          //   key={prompt?.id}
-          //   className="group relative overflow-hidden transition-all hover:shadow-lg"
-          // >
-          //   <div className="aspect-video relative overflow-hidden">
-          //     <Image
-          //       src={prompt?.imageUrl || "/images/codeguru.png"}
-          //       alt={prompt?.title || `Prompt ${index}`}
-          //       fill
-          //       className="object-cover transition-transform group-hover:scale-105"
-          //       onError={handleImageError}
-          //     />
-          //     <Badge className="absolute top-2 right-2 z-10">
-          //       {prompt?.category}
-          //     </Badge>
-          //   </div>
-          //   <CardContent className="p-4">
-          //     <h3 className="font-semibold">
-          //       {prompt?.title}
-          //     </h3>
-          //     <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-          //       {prompt?.description}
-          //     </p>
-          //     <div className="flex items-center gap-2 mt-2">
-          //       <div className="flex items-center gap-1 text-yellow-500">
-          //         <StarIcon className="h-4 w-4 fill-current" />
-          //         <span className="text-sm">
-          //           {prompt?.likes}
-          //         </span>
-          //       </div>
-          //       <p className="text-sm text-muted-foreground">
-          //         Seller: {prompt?.owner.slice(0, 6)}...
-          //       </p>
-          //     </div>
-          //   </CardContent>
-          //   <CardFooter className="p-4 pt-0 flex justify-between items-center">
-          //     <span className="text-lg font-bold">
-          //       {prompt?.price} STRK
-          //     </span>
-          //     <Button 
-          //       onClick={() => openModal(prompt)}
-          //     >
-          //       <ShoppingCart className="mr-2 h-4 w-4" />
-          //       Buy Now
-          //     </Button>
-          //   </CardFooter>
-          // </Card>
-          <PromptCard prompt={prompt} index={index} openModal={openModal} handleImageError={handleImageError} />
-        )})}
+            <PromptCard
+              prompt={prompt}
+              index={index}
+              openModal={openModal}
+              handleImageError={handleImageError}
+            />
+          );
+        })}
       </div>
       {/* Pagination Controls */}
       {totalPages > 1 && (
@@ -326,7 +251,7 @@ const FetchAllPrompts = ({
         //         <span className="text-2xl font-bold">
         //           {selectedPrompt.price} STRK
         //         </span>
-        //         <Button 
+        //         <Button
         //           // onClick={() => handleBuyPrompt(selectedPrompt)}
         //         >
         //           <ShoppingCart className="mr-2 h-4 w-4" />
@@ -336,7 +261,11 @@ const FetchAllPrompts = ({
         //     </div>
         //   </div>
         // </div>
-        <PromptModal closeModal={closeModal} selectedPrompt={selectedPrompt} handleImageError={handleImageError}/>
+        <PromptModal
+          closeModal={closeModal}
+          selectedPrompt={selectedPrompt}
+          handleImageError={handleImageError}
+        />
       )}
     </>
   );
