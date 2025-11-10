@@ -7,4 +7,7 @@ mod storage;
 mod types;
 
 #[cfg(test)]
+mod mock_asset;
+
+#[cfg(test)]
 mod test;

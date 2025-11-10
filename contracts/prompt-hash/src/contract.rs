@@ -43,9 +43,12 @@ impl PromptHashTrait for PromptHashContract {
     ) -> Result<u128, Error> {
         creator.require_auth();
 
-        Base::sequential_mint(&env, &creator);
-        let mut prompt = Prompt {
-            id: 0, // Will be set by save_prompt
+        // Mint the NFT and get the token ID from the Base contract
+        // sequential_mint returns the token ID that was minted
+        let nft_token_id = Base::sequential_mint(&env, &creator);
+
+        let prompt = Prompt {
+            id: nft_token_id as u128, // Use the NFT token ID
             image_url: image_url.clone(),
             description: description.clone(),
             price,
@@ -56,18 +59,20 @@ impl PromptHashTrait for PromptHashContract {
             title,
         };
 
-        let token_id = Storage::save_prompt(&env, &mut prompt);
-        // let approver = env.current_contract_address();
-        // approve(e: &Env, approver: &Address, approved: &Address, token_id: u32, live_until_ledger: u32)
-        // Comment out approving for now
-        // Base::approve(&env, &creator, token_id as u32);
-        Events::emit_prompt_created(&env, token_id, creator, image_url, description);
-        Ok(token_id)
+        Storage::save_prompt(&env, &prompt);
+        Events::emit_prompt_created(&env, nft_token_id as u128, creator, image_url, description);
+        Ok(nft_token_id as u128)
     }
 
     fn get_next_token(env: Env) -> Result<u128, Error> {
-        let token = Storage::get_next_token(&env);
-        Ok(token)
+        // Get the next token ID - this reads the NFT counter
+        // The counter is stored by the Base contract's sequential_mint
+        let counter: u32 = env
+            .storage()
+            .persistent()
+            .get(&soroban_sdk::symbol_short!("counter"))
+            .unwrap_or(0);
+        Ok(counter as u128)
     }
 
     fn list_prompt_for_sale(

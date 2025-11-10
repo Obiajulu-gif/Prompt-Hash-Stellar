@@ -1,16 +1,16 @@
 use super::types::Prompt;
-use soroban_sdk::{symbol_short, token, Address, Env, Symbol, Vec};
+use soroban_sdk::{symbol_short, token, Address, Env, Vec};
 
 pub struct Storage;
 
 impl Storage {
-    pub fn save_prompt(env: &Env, prompt: &mut Prompt) -> u128 {
-        let key = Self::generate_prompt_key(env);
-        let (_, prompt_id) = key;
-        prompt.id = prompt_id;
+    pub fn save_prompt(env: &Env, prompt: &Prompt) {
+        let key = (symbol_short!("PROMPT"), prompt.id);
         env.storage().persistent().set(&key, prompt);
-
-        prompt_id
+        env
+            .storage()
+            .persistent()
+            .set(&symbol_short!("counter"), &(prompt.id as u32 + 1));
     }
 
     pub fn get_prompt(env: &Env, token_id: u128) -> Option<Prompt> {
@@ -24,15 +24,19 @@ impl Storage {
     }
 
     pub fn get_all_prompts(env: &Env) -> Vec<Prompt> {
-        let counter: u128 = env
+        // The NFT Base contract uses a u32 counter with symbol "counter"
+        // The counter represents the number of minted tokens
+        // Token IDs are 0-indexed (0, 1, 2, ..., counter-1)
+        let counter: u32 = env
             .storage()
             .persistent()
             .get(&symbol_short!("counter"))
             .unwrap_or(0);
         let mut prompts = Vec::new(env);
 
-        for i in 1..=counter {
-            if let Some(prompt) = Self::get_prompt(env, i) {
+        // Token IDs start from 0 and go up to counter-1
+        for i in 0..counter {
+            if let Some(prompt) = Self::get_prompt(env, i as u128) {
                 prompts.push_back(prompt);
             }
         }
@@ -86,18 +90,6 @@ impl Storage {
         // This is retrieved from storage where it was set in the constructor
         let contract_id = Self::get_xlm_address(env).expect("XLM address not set");
         token::StellarAssetClient::new(env, &contract_id)
-    }
-
-    fn generate_prompt_key(env: &Env) -> (Symbol, u128) {
-        let prompt_id: u128 = env
-            .storage()
-            .persistent()
-            .get(&symbol_short!("counter"))
-            .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&symbol_short!("counter"), &(prompt_id + 1));
-        (symbol_short!("PROMPT"), prompt_id + 1)
     }
 }
 
