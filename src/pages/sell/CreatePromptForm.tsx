@@ -74,9 +74,8 @@ export function CreatePromptForm() {
   const submitTransaction = async (
     tx: Transaction | FeeBumpTransaction,
     server: Server,
-  ): Promise<Api.GetTransactionResponse | null> => {
-    try {
-      return server
+  ): Promise<Api.GetTransactionResponse> => {
+    return server
       .sendTransaction(tx)
       .then(async (reply) => {
         if (reply.status !== "PENDING") {
@@ -103,10 +102,6 @@ export function CreatePromptForm() {
             throw new Error("Transaction not found or dropped by network");
         }
       })
-    } catch (err) {
-      console.error(err)
-      return null;
-    }
   }
 
   const createAndApprove = async (): Promise<boolean> => {
@@ -129,34 +124,22 @@ export function CreatePromptForm() {
         price: BigInt(formData.price)
       })
 
-      
+
       console.log("Raw response: ", raw);
       const xdr = raw.toXDR();
 
       const signed = await kit.signTransaction(xdr, {
         address,
-        networkPassphrase: WalletNetwork.TESTNET
+        networkPassphrase: WalletNetwork.STANDALONE
       })
-
-      // const signedAndSent = await raw.signAndSend({
-      //   force: true,
-      //   signTransaction: async () => signed
-      // })
-      // console.log(signedAndSent);
-      // console.log("Signers required", raw.needsNonInvokerSigningBy({ includeAlreadySigned: false }))
-      // console.log(signed)
-
-      const tx = TransactionBuilder.fromXDR(signed.signedTxXdr, WalletNetwork.TESTNET);
-      console.log("Transaction from XDR: ", tx)
-
-      try {
-        const res = await server.sendTransaction(tx);
-        console.log(res);
-      } catch (err) {
-        console.error(err);
-      }
+      console.log(signed)
 
       await new Promise(resolve => setTimeout(resolve, 3000));
+
+      const tx = TransactionBuilder.fromXDR(signed.signedTxXdr, WalletNetwork.STANDALONE);
+
+      const submitted = await submitTransaction(tx, server);
+      console.log("Submitted Create Prompt: ", submitted);
 
       const liveUntilLedger = 9999;
 
@@ -173,20 +156,15 @@ export function CreatePromptForm() {
 
       const approveSigned = await kit.signTransaction(approveXDR, {
         address,
-        networkPassphrase: WalletNetwork.TESTNET
+        networkPassphrase: WalletNetwork.STANDALONE
       })
       console.log("Approve signed Tx XDR: ", approveSigned);
 
-      const approvedSignedTx = TransactionBuilder.fromXDR(approveSigned.signedTxXdr, WalletNetwork.TESTNET);
+      const approvedSignedTx = TransactionBuilder.fromXDR(approveSigned.signedTxXdr, WalletNetwork.STANDALONE);
 
-      try {
-        const res = await server.sendTransaction(approvedSignedTx);
-        console.log("Response from submit: ", res);
-      } catch (err) {
-        console.error(err);
-      }
+      const submittedApproved = await submitTransaction(approvedSignedTx, server);
 
-      console.log("Signed and Submitted");
+      console.log("Submitted Approved: ", submittedApproved);
 
       return true;
     } catch (err) {
@@ -196,126 +174,6 @@ export function CreatePromptForm() {
     }
 
   }
-
-  // const createAndApprove = async (): Promise<boolean> => {
-  //   if (!address || !RPC_URL) { 
-  //     console.log("Address or RPC URL undefined"); 
-  //     return false; 
-  //   }
-
-  //   const server = new Server(RPC_URL, {
-  //     allowHttp: true
-  //   });
-
-  //   try {
-  //     // Create prompt
-  //     const raw = await prompt_hash.create_prompt({
-  //       creator: address,
-  //       image_url: formData.imageUrl,
-  //       description: formData.description,
-  //       title: formData.title,
-  //       category: formData.title,
-  //       price: BigInt(formData.price)
-  //     });
-      
-  //     console.log("Raw response:", raw);
-  //     const xdr = raw.toXDR();
-
-  //     const signed = await kit.signTransaction(xdr, {
-  //       address,
-  //       networkPassphrase: WalletNetwork.TESTNET
-  //     });
-  //     console.log("Signed:", signed);
-
-  //     const tx = TransactionBuilder.fromXDR(signed.signedTxXdr, WalletNetwork.TESTNET);
-  //     console.log("Transaction from XDR:", tx);
-
-  //     // Send and wait for confirmation
-  //     console.log("Sending create_prompt transaction...");
-  //     const sendResponse = await server.sendTransaction(tx);
-  //     console.log("Send response:", sendResponse);
-
-  //     if (sendResponse.status === "PENDING" || sendResponse.status === "TRY_AGAIN_LATER") {
-  //       console.log("⏳ Waiting for transaction confirmation...");
-        
-  //       // Poll for result
-  //       const result = await server.getTransaction(sendResponse.hash);
-  //       console.log("Transaction result:", result);
-
-  //       if (result.status === "SUCCESS") {
-  //         console.log("✅ Prompt created successfully!");
-  //       } else if (result.status === "FAILED") {
-  //         console.error("❌ Transaction failed:", result);
-  //         return false;
-  //       } else if (result.status === "NOT_FOUND") {
-  //         // Transaction still processing, wait a bit
-  //         await new Promise(resolve => setTimeout(resolve, 2000));
-  //         const retryResult = await server.getTransaction(sendResponse.hash);
-  //         console.log("Retry result:", retryResult);
-          
-  //         if (retryResult.status !== "SUCCESS") {
-  //           console.error("❌ Transaction did not succeed:", retryResult);
-  //           return false;
-  //         }
-  //       }
-  //     }
-
-  //     // Wait before approve
-  //     await new Promise(resolve => setTimeout(resolve, 2000));
-
-  //     // Approve
-  //     const rawApprove = await prompt_hash.approve({
-  //       approver: address,
-  //       approved: PROMPTHASH_ADDRESS,
-  //       token_id: nextToken ? (nextToken - 1) : 0,
-  //       live_until_ledger: 9999
-  //     });
-      
-  //     console.log("Approve transaction built:", rawApprove);
-  //     const approveXDR = rawApprove.toXDR();
-
-  //     const approveSigned = await kit.signTransaction(approveXDR, {
-  //       address,
-  //       networkPassphrase: WalletNetwork.TESTNET
-  //     });
-  //     console.log("Approve signed:", approveSigned);
-
-  //     const approvedSignedTx = TransactionBuilder.fromXDR(
-  //       approveSigned.signedTxXdr, 
-  //       WalletNetwork.TESTNET
-  //     );
-
-  //     console.log("Sending approve transaction...");
-  //     const approveSendResponse = await server.sendTransaction(approvedSignedTx);
-  //     console.log("Approve send response:", approveSendResponse);
-
-  //     if (approveSendResponse.status === "PENDING" || approveSendResponse.status === "TRY_AGAIN_LATER") {
-  //       console.log("⏳ Waiting for approve confirmation...");
-        
-  //       const approveResult = await server.getTransaction(approveSendResponse.hash);
-  //       console.log("Approve result:", approveResult);
-
-  //       if (approveResult.status === "SUCCESS") {
-  //         console.log("✅ Approved successfully!");
-  //       } else {
-  //         await new Promise(resolve => setTimeout(resolve, 2000));
-  //         const retryResult = await server.getTransaction(approveSendResponse.hash);
-          
-  //         if (retryResult.status !== "SUCCESS") {
-  //           console.error("❌ Approve did not succeed:", retryResult);
-  //           return false;
-  //         }
-  //       }
-  //     }
-
-  //     console.log("✅ All transactions completed successfully!");
-  //     return true;
-
-  //   } catch (err) {
-  //     console.error("Error:", err);
-  //     return false;
-  //   }
-  // };
 
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -348,7 +206,7 @@ export function CreatePromptForm() {
     if (!formData.category) newErrors.category = "Category is required";
     if (!formData.price) newErrors.price = "Price is required";
     if (isNaN(Number(formData.price)) || Number(formData.price) < 2) {
-      newErrors.price = "Price must be at least 2 STRK";
+      newErrors.price = "Price must be at least 2 XLM";
     }
 
     setErrors(newErrors);
@@ -370,7 +228,7 @@ export function CreatePromptForm() {
     try {
       console.log("Creating prompt with:");
       console.log("- Title:", formData.title);
-      console.log("- Price:", formData.price, "STRK");
+      console.log("- Price:", formData.price, "XLM");
       console.log("- Category:", formData.category);
 
       const createdAndApproved = await createAndApprove();
@@ -486,7 +344,7 @@ export function CreatePromptForm() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Price (STRK)</label>
+          <label className="text-sm font-medium">Price (XLM)</label>
           <div className="relative">
             <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input

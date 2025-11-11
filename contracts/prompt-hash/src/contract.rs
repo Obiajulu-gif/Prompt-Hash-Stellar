@@ -41,7 +41,7 @@ impl PromptHashTrait for PromptHashContract {
         category: String,
         price: u128,
     ) -> Result<u128, Error> {
-        creator.require_auth();
+        // creator.require_auth();
 
         // Mint the NFT and get the token ID from the Base contract
         // sequential_mint returns the token ID that was minted
@@ -81,7 +81,7 @@ impl PromptHashTrait for PromptHashContract {
         token_id: u128,
         price: u128,
     ) -> Result<(), Error> {
-        seller.require_auth();
+        // seller.require_auth();
 
         let mut prompt =
             Storage::get_prompt(&env, token_id).unwrap_or_else(|| panic!("Prompt not found"));
@@ -106,7 +106,7 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     fn buy_prompt(env: Env, buyer: Address, token_id: u128) -> Result<(), Error> {
-        buyer.require_auth();
+        // buyer.require_auth();
         let seller = Base::owner_of(&env, token_id as u32);
         let fee_wallet =
             Storage::get_fee_wallet(&env).unwrap_or_else(|| panic!("Fee wallet not set"));
