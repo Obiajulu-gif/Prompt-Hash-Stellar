@@ -22,18 +22,22 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "libsodium-wrappers": path.resolve(
+          __dirname,
+          "./node_modules/libsodium-wrappers/dist/modules/libsodium-wrappers.js",
+        ),
       },
     },
     build: {
       target: "esnext",
     },
-    optimizeDeps: {
-      exclude: ["@stellar/stellar-xdr-json"],
-    },
     define: {
       global: "window",
     },
     envPrefix: "PUBLIC_",
+    test: {
+      environment: "node",
+    },
     server: {
       proxy: {
         "/friendbot": {

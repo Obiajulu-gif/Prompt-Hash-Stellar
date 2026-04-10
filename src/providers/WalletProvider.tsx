@@ -15,6 +15,7 @@ export interface WalletContextType {
   networkPassphrase?: string;
   isPending: boolean;
   signTransaction?: typeof wallet.signTransaction;
+  signMessage?: typeof wallet.signMessage;
 }
 
 const initialState = {
@@ -34,6 +35,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [isPending, startTransition] = useTransition();
   const popupLock = useRef(false);
   const signTransaction = wallet.signTransaction.bind(wallet);
+  const signMessage = wallet.signMessage.bind(wallet);
 
   const nullify = () => {
     updateState(initialState);
@@ -153,8 +155,9 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       ...state,
       isPending,
       signTransaction,
+      signMessage,
     }),
-    [state, isPending, signTransaction],
+    [state, isPending, signMessage, signTransaction],
   );
 
   return <WalletContext value={contextValue}>{children}</WalletContext>;

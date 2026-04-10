@@ -1,109 +1,75 @@
-"use client";
 import { useState } from "react";
-import { Button } from "./ui/button";
-// import Link from "next/link";
 import { Link } from "react-router-dom";
+import { ArrowRight, Sparkles, X } from "lucide-react";
+import { featuredPromptTemplates } from "@/data/featuredPrompts";
+import { Button } from "./ui/button";
 import { Card, CardContent, CardFooter } from "./ui/card";
-import { Badge } from "@/components/ui/badge";
-import { StarIcon, ShoppingCart } from "lucide-react";
+import { Badge } from "./ui/badge";
 
-const featuredPrompts = [
-  {
-    id: 1,
-    title: "Creative Story Generator",
-    description:
-      "Write a captivating short story based on the following prompt: [Insert your story idea or theme]. The story should include well-developed characters, engaging dialogue, and a compelling narrative arc. Adjust the style and tone to match [genre: fantasy, sci-fi, mystery, etc.], and add an unexpected plot twist for intrigue.",
-    image: "/images/creative-story.png",
-    price: "0.1 STRK",
-    category: "Creative Writing",
-    rating: 4.8,
-  },
-  {
-    id: 2,
-    title: "SEO Content Optimizer",
-    description:
-      "Optimize the following content for SEO while maintaining natural readability. Ensure proper keyword placement, improve meta descriptions, and enhance structure with headers and bullet points. If necessary, adjust the tone to better match [target audience]. Content:\n\n[Paste your content here]",
-    image: "/images/seo.png",
-    price: "0.08 STRK",
-    category: "Marketing",
-    rating: 4.9,
-  },
-  {
-    id: 3,
-    title: "Code Refactoring Assistant",
-    description:
-      "Refactor the following code to improve readability, maintainability, and performance. Identify redundancies, apply best practices, and optimize logic where possible. Provide a before-and-after comparison with explanations. Code:\n\n[Paste your code here]",
-    image: "/images/code-refactoring.png",
-    price: "0.15 STRK",
-    category: "Programming",
-    rating: 4.7,
-  },
-];
-
-export function FeaturedPrompts() {
+export function FeaturedPrompts({ limit = 6, title = "Featured Templates" }) {
   const [selectedPrompt, setSelectedPrompt] = useState(null);
-
-  const handleCardClick = (prompt) => {
-    setSelectedPrompt(prompt);
-  };
-
-  const closeModal = () => {
-    setSelectedPrompt(null);
-  };
+  const templates = featuredPromptTemplates.slice(0, limit);
 
   return (
     <>
-      <section className="py-16 px-6 bg-transparent">
+      <section className="px-6 py-16">
         <div className="mx-auto max-w-7xl">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-2xl font-bold tracking-tight text-white">
-              Featured Prompts
-            </h2>
-            <Link href="/browse" passHref>
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="mb-2 text-sm uppercase tracking-[0.3em] text-amber-300">
+                Curated starter pack
+              </p>
+              <h2 className="text-3xl font-semibold text-white">{title}</h2>
+              <p className="mt-3 max-w-2xl text-sm text-slate-300">
+                Freshly authored browse examples inspired by real operator workflows.
+                These are templates for exploration. Live marketplace listings load from Stellar.
+              </p>
+            </div>
+            <Link to="/browse">
               <Button
                 variant="outline"
-                className="border-gray-700 text-purple-500"
+                className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
               >
-                View all
+                Browse marketplace
+                <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
           </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredPrompts.map((prompt) => (
+
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {templates.map((prompt) => (
               <Card
                 key={prompt.id}
-                onClick={() => handleCardClick(prompt)}
-                className="bg-gray-800 border-gray-700 overflow-hidden group hover:border-purple-500 transition-all cursor-pointer"
+                className="overflow-hidden border-white/10 bg-slate-950/60 text-white shadow-[0_24px_80px_-48px_rgba(245,158,11,0.6)]"
               >
-                <div className="aspect-video relative overflow-hidden">
+                <div className="relative aspect-video overflow-hidden">
                   <img
-                    src={prompt.image || "/placeholder.svg"}
+                    src={prompt.imageUrl}
                     alt={prompt.title}
-                    className="object-cover w-full h-full transition-transform group-hover:scale-105"
+                    className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
                   />
-                  <Badge className="absolute top-2 right-2 bg-black/60 text-white">
+                  <Badge className="absolute right-3 top-3 bg-slate-950/80 text-amber-200">
                     {prompt.category}
                   </Badge>
                 </div>
-                <CardContent className="p-4">
-                  <h3 className="text-lg font-semibold text-white">
-                    {prompt.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-gray-300 line-clamp-2">
-                    {prompt.description}
-                  </p>
-                  <div className="flex items-center gap-1 text-yellow-500 mt-3">
-                    <StarIcon className="h-4 w-4 fill-current" />
-                    <span className="text-sm font-medium">{prompt.rating}</span>
+                <CardContent className="space-y-3 p-5">
+                  <div className="flex items-center gap-2 text-amber-300">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="text-xs uppercase tracking-[0.25em]">
+                      Preview
+                    </span>
                   </div>
+                  <h3 className="text-xl font-semibold">{prompt.title}</h3>
+                  <p className="text-sm leading-6 text-slate-300">
+                    {prompt.previewText}
+                  </p>
                 </CardContent>
-                <CardFooter className="p-4 pt-0 flex justify-between items-center">
-                  <span className="text-lg font-bold text-white">
-                    {prompt.price}
-                  </span>
-                  <Button className="bg-purple-600 hover:bg-purple-700 flex items-center gap-2">
-                    <ShoppingCart className="h-4 w-4" />
-                    Buy Now
+                <CardFooter className="p-5 pt-0">
+                  <Button
+                    className="w-full bg-amber-400 text-slate-950 hover:bg-amber-300"
+                    onClick={() => setSelectedPrompt(prompt)}
+                  >
+                    View template
                   </Button>
                 </CardFooter>
               </Card>
@@ -112,31 +78,55 @@ export function FeaturedPrompts() {
         </div>
       </section>
 
-      {/* Modal */}
-      {selectedPrompt && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={closeModal}
-        >
-          <div
-            className="bg-gray-900 p-6 rounded shadow-lg max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {selectedPrompt.image && (
+      {selectedPrompt ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-amber-300">
+                  {selectedPrompt.category}
+                </p>
+                <h3 className="mt-2 text-2xl font-semibold">
+                  {selectedPrompt.title}
+                </h3>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-slate-200 hover:bg-white/10"
+                onClick={() => setSelectedPrompt(null)}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="grid gap-6 p-6 lg:grid-cols-[1.1fr_0.9fr]">
               <img
-                src={selectedPrompt.image}
+                src={selectedPrompt.imageUrl}
                 alt={selectedPrompt.title}
-                className="mb-4 w-full h-auto rounded text-gray-200"
+                className="aspect-video w-full rounded-2xl object-cover"
               />
-            )}
-            <h3 className="text-xl font-bold text-gray-200 mb-2">
-              {selectedPrompt.title}
-            </h3>
-            <p className="mb-4 text-gray-400">{selectedPrompt.description}</p>
-            <Button onClick={closeModal}>Close</Button>
+              <div className="space-y-5">
+                <div>
+                  <h4 className="text-sm uppercase tracking-[0.25em] text-slate-400">
+                    Public preview
+                  </h4>
+                  <p className="mt-3 text-sm leading-6 text-slate-200">
+                    {selectedPrompt.previewText}
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-sm uppercase tracking-[0.25em] text-slate-400">
+                    Full template example
+                  </h4>
+                  <pre className="mt-3 whitespace-pre-wrap rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-200">
+                    {selectedPrompt.fullPrompt}
+                  </pre>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

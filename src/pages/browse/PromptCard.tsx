@@ -1,61 +1,84 @@
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
-import { Prompt } from "./FetchAllPrompts";
-// import Image from "next/image"
+import { ArrowUpRight, LockKeyhole, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, StarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-// import { useContract, useSendTransaction } from "@starknet-react/core"
-// import { ERC20ABI, PROMPTHASH_STARKNET_ABI, PROMPTHASH_STARKNET_ADDRESS, STARGATE_STRK_ADDRESS } from "@/lib/constants"
-// import { useMemo } from "react"
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { shortenAddress } from "@/lib/utils";
+import { formatPriceLabel } from "@/lib/stellar/format";
+import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 
 export const PromptCard = ({
   prompt,
-  handleImageError,
-  index,
+  hasAccess,
   openModal,
 }: {
-  prompt: Prompt;
-  handleImageError: (e: any) => void;
-  index: number;
-  openModal: (prompt: Prompt) => void;
+  prompt: PromptRecord;
+  hasAccess: boolean;
+  openModal: (prompt: PromptRecord) => void;
 }) => {
   return (
-    <Card
-      key={prompt?.id}
-      className="group relative overflow-hidden transition-all hover:shadow-lg"
-    >
-      <div className="aspect-video relative overflow-hidden">
+    <Card className="group overflow-hidden border-white/10 bg-slate-950/70 text-white shadow-[0_24px_80px_-48px_rgba(34,197,94,0.4)]">
+      <div className="relative aspect-video overflow-hidden">
         <img
-          src={prompt?.imageUrl || "/images/codeguru.png"}
-          alt={prompt?.title || `Prompt ${index}`}
-          // fill
-          className="object-cover transition-transform group-hover:scale-105"
-          onError={handleImageError}
+          src={prompt.imageUrl || "/images/codeguru.png"}
+          alt={prompt.title}
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
-        <Badge className="absolute top-2 right-2 z-10">
-          {prompt?.category}
+        <Badge className="absolute right-3 top-3 bg-slate-950/85 text-emerald-200">
+          {prompt.category}
         </Badge>
       </div>
-      <CardContent className="p-4">
-        <h3 className="font-semibold">{prompt?.title}</h3>
-        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-          {prompt?.description}
-        </p>
-        <div className="flex items-center gap-2 mt-2">
-          <div className="flex items-center gap-1 text-yellow-500">
-            <StarIcon className="h-4 w-4 fill-current" />
-            <span className="text-sm">{prompt?.likes}</span>
+      <CardContent className="space-y-4 p-5">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-emerald-300">
+            <Sparkles className="h-3.5 w-3.5" />
+            Preview only
           </div>
-          <p className="text-sm text-muted-foreground">
-            Seller: {prompt?.owner.slice(0, 6)}...
+          <h3 className="text-xl font-semibold">{prompt.title}</h3>
+          <p className="line-clamp-4 text-sm leading-6 text-slate-300">
+            {prompt.previewText}
           </p>
         </div>
+        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              Seller
+            </p>
+            <p className="mt-1 font-medium text-slate-100">
+              {shortenAddress(prompt.creator)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              Sales
+            </p>
+            <p className="mt-1 font-medium text-slate-100">{prompt.salesCount}</p>
+          </div>
+        </div>
       </CardContent>
-      <CardFooter className="p-4 pt-0 flex justify-between items-center">
-        <span className="text-lg font-bold">{prompt?.price} XLM</span>
-        <Button onClick={() => openModal(prompt)}>
-          <ShoppingCart className="mr-2 h-4 w-4" />
-          Buy Now
+      <CardFooter className="flex items-center justify-between gap-3 p-5 pt-0">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            License price
+          </p>
+          <p className="mt-1 text-xl font-semibold text-white">
+            {formatPriceLabel(prompt.priceStroops)}
+          </p>
+        </div>
+        <Button
+          className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+          onClick={() => openModal(prompt)}
+        >
+          {hasAccess ? (
+            <>
+              <ArrowUpRight className="mr-2 h-4 w-4" />
+              View full prompt
+            </>
+          ) : (
+            <>
+              <LockKeyhole className="mr-2 h-4 w-4" />
+              Buy access
+            </>
+          )}
         </Button>
       </CardFooter>
     </Card>

@@ -1,42 +1,47 @@
-use super::types::Prompt;
-use soroban_sdk::{symbol_short, token, Address, Env, Vec};
+use super::types::{DataKey, Error, Prompt};
+use soroban_sdk::{token, Address, Env, Vec};
 
 pub struct Storage;
 
 impl Storage {
-    pub fn save_prompt(env: &Env, prompt: &Prompt) {
-        let key = (symbol_short!("PROMPT"), prompt.id);
-        env.storage().persistent().set(&key, prompt);
-        env
-            .storage()
+    pub fn save_prompt(env: &Env, prompt: &Prompt) -> Result<(), Error> {
+        env.storage()
             .persistent()
-            .set(&symbol_short!("counter"), &(prompt.id as u32 + 1));
+            .set(&DataKey::Prompt(prompt.id), prompt);
+        let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::PromptCounter, &next_prompt_id);
+        Ok(())
     }
 
-    pub fn get_prompt(env: &Env, token_id: u128) -> Option<Prompt> {
-        let key = (symbol_short!("PROMPT"), token_id);
-        env.storage().persistent().get(&key)
+    pub fn get_prompt(env: &Env, prompt_id: u128) -> Option<Prompt> {
+        env.storage().persistent().get(&DataKey::Prompt(prompt_id))
+    }
+
+    pub fn require_prompt(env: &Env, prompt_id: u128) -> Result<Prompt, Error> {
+        Self::get_prompt(env, prompt_id).ok_or(Error::PromptNotFound)
     }
 
     pub fn update_prompt(env: &Env, prompt: &Prompt) {
-        let key = (symbol_short!("PROMPT"), prompt.id);
-        env.storage().persistent().set(&key, prompt);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Prompt(prompt.id), prompt);
+    }
+
+    pub fn get_prompt_counter(env: &Env) -> u128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PromptCounter)
+            .unwrap_or(0)
     }
 
     pub fn get_all_prompts(env: &Env) -> Vec<Prompt> {
-        // The NFT Base contract uses a u32 counter with symbol "counter"
-        // The counter represents the number of minted tokens
-        // Token IDs are 0-indexed (0, 1, 2, ..., counter-1)
-        let counter: u32 = env
-            .storage()
-            .persistent()
-            .get(&symbol_short!("counter"))
-            .unwrap_or(0);
+        let prompt_count = Self::get_prompt_counter(env);
         let mut prompts = Vec::new(env);
 
-        // Token IDs start from 0 and go up to counter-1
-        for i in 0..counter {
-            if let Some(prompt) = Self::get_prompt(env, i as u128) {
+        for prompt_id in 0..prompt_count {
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
                 prompts.push_back(prompt);
             }
         }
@@ -44,72 +49,110 @@ impl Storage {
         prompts
     }
 
-    pub fn get_next_token(env: &Env) -> u128 {
-        env.storage()
+    pub fn get_prompts_by_creator(env: &Env, creator: &Address) -> Vec<Prompt> {
+        let ids: Vec<u128> = env
+            .storage()
             .persistent()
-            .get(&symbol_short!("counter"))
-            .unwrap_or(0)
-            + 1
+            .get(&DataKey::CreatorPrompts(creator.clone()))
+            .unwrap_or_else(|| Vec::new(env));
+
+        Self::prompts_from_ids(env, ids)
     }
 
-    pub fn set_fee_percentage(env: &Env, fee_percentage: u128) {
-        env.storage()
+    pub fn get_prompts_by_buyer(env: &Env, buyer: &Address) -> Vec<Prompt> {
+        let ids: Vec<u128> = env
+            .storage()
             .persistent()
-            .set(&symbol_short!("fee_pct"), &fee_percentage);
+            .get(&DataKey::BuyerPrompts(buyer.clone()))
+            .unwrap_or_else(|| Vec::new(env));
+
+        Self::prompts_from_ids(env, ids)
     }
 
-    pub fn get_fee_percentage(env: &Env) -> u128 {
+    fn prompts_from_ids(env: &Env, ids: Vec<u128>) -> Vec<Prompt> {
+        let mut prompts = Vec::new(env);
+
+        for index in 0..ids.len() {
+            let prompt_id = ids.get(index).unwrap();
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                prompts.push_back(prompt);
+            }
+        }
+
+        prompts
+    }
+
+    pub fn add_prompt_to_creator(env: &Env, creator: &Address, prompt_id: u128) {
+        let key = DataKey::CreatorPrompts(creator.clone());
+        let mut ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        ids.push_back(prompt_id);
+        env.storage().persistent().set(&key, &ids);
+    }
+
+    pub fn add_prompt_to_buyer(env: &Env, buyer: &Address, prompt_id: u128) {
+        let key = DataKey::BuyerPrompts(buyer.clone());
+        let mut ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        ids.push_back(prompt_id);
+        env.storage().persistent().set(&key, &ids);
+    }
+
+    pub fn has_purchase(env: &Env, prompt_id: u128, buyer: &Address) -> bool {
         env.storage()
             .persistent()
-            .get(&symbol_short!("fee_pct"))
+            .get(&DataKey::Purchase(prompt_id, buyer.clone()))
+            .unwrap_or(false)
+    }
+
+    pub fn grant_purchase(env: &Env, prompt_id: u128, buyer: &Address) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Purchase(prompt_id, buyer.clone()), &true);
+        Self::add_prompt_to_buyer(env, buyer, prompt_id);
+    }
+
+    pub fn set_fee_percentage(env: &Env, fee_percentage: &u32) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeePercentage, fee_percentage);
+    }
+
+    pub fn get_fee_percentage(env: &Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeePercentage)
             .unwrap_or(0)
     }
 
     pub fn set_fee_wallet(env: &Env, fee_wallet: &Address) {
         env.storage()
             .persistent()
-            .set(&symbol_short!("fee_wlt"), fee_wallet);
+            .set(&DataKey::FeeWallet, fee_wallet);
     }
 
     pub fn get_fee_wallet(env: &Env) -> Option<Address> {
-        env.storage().persistent().get(&symbol_short!("fee_wlt"))
+        env.storage().persistent().get(&DataKey::FeeWallet)
     }
 
     pub fn set_xlm_address(env: &Env, xlm_address: &Address) {
         env.storage()
             .persistent()
-            .set(&symbol_short!("xlm_addr"), xlm_address);
+            .set(&DataKey::XlmAddress, xlm_address);
     }
 
     pub fn get_xlm_address(env: &Env) -> Option<Address> {
-        env.storage().persistent().get(&symbol_short!("xlm_addr"))
+        env.storage().persistent().get(&DataKey::XlmAddress)
     }
 
-    pub fn get_stellar_asset_contract(env: &'_ Env) -> token::StellarAssetClient<'_> {
-        // Stellar Asset Contract address for native XLM
-        // This is retrieved from storage where it was set in the constructor
-        let contract_id = Self::get_xlm_address(env).expect("XLM address not set");
-        token::StellarAssetClient::new(env, &contract_id)
+    pub fn get_stellar_asset_contract(env: &'_ Env) -> Result<token::StellarAssetClient<'_>, Error> {
+        let contract_id = Self::get_xlm_address(env).ok_or(Error::XlmAddressNotSet)?;
+        Ok(token::StellarAssetClient::new(env, &contract_id))
     }
 }
-
-// Rating storage
-// pub fn save_rating(env: &Env, rating: &Rating) {
-//     let key = (RATING, rating.id.clone());
-//     env.storage().persistent().set(&key, rating);
-
-//     // Also index by user and contract for efficient retrieval
-//     add_rating_to_user_index(env, &rating.rated_user, &rating.id);
-//     add_rating_to_contract_index(env, &rating.contract_id, &rating.id);
-// }
-
-// fn add_rating_to_user_index(env: &Env, user: &Address, rating_id: &String) {
-//     let key = (soroban_sdk::symbol_short!("u_ratings"), user.clone());
-//     let mut rating_ids: Vec<String> = env
-//         .storage()
-//         .persistent()
-//         .get(&key)
-//         .unwrap_or_else(|| Vec::new(env));
-//     rating_ids.push_back(rating_id.clone());
-//     env.storage().persistent().set(&key, &rating_ids);
-// }

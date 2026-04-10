@@ -1,35 +1,40 @@
-use soroban_sdk::{contractevent, Address, Env, String};
+use soroban_sdk::{contractevent, Address, Env};
 
 #[contractevent]
 struct PromptCreated {
     #[topic]
-    pub token_id: u128,
+    pub prompt_id: u128,
     pub creator: Address,
-    pub image_url: String,
-    pub description: String,
+    pub price_stroops: i128,
 }
 
 #[contractevent]
-struct PromptListed {
+struct PromptSaleStatusUpdated {
     #[topic]
-    pub token_id: u128,
-    pub seller: Address,
-    pub price: u128,
+    pub prompt_id: u128,
+    pub active: bool,
 }
 
 #[contractevent]
-struct PromptSold {
+struct PromptPriceUpdated {
     #[topic]
-    pub token_id: u128,
-    pub seller: Address,
+    pub prompt_id: u128,
+    pub price_stroops: i128,
+}
+
+#[contractevent]
+struct PromptPurchased {
+    #[topic]
+    pub prompt_id: u128,
     pub buyer: Address,
-    pub price: u128,
+    pub creator: Address,
+    pub price_stroops: i128,
 }
 
 #[contractevent]
 struct FeeUpdated {
     #[topic]
-    pub new_fee_percentage: u128,
+    pub new_fee_percentage: u32,
 }
 
 #[contractevent]
@@ -41,48 +46,44 @@ struct FeeWalletUpdated {
 pub struct Events;
 
 impl Events {
-    pub fn emit_prompt_created(
-        env: &Env,
-        token_id: u128,
-        creator: Address,
-        image_url: String,
-        description: String,
-    ) {
+    pub fn emit_prompt_created(env: &Env, prompt_id: u128, creator: Address, price_stroops: i128) {
         PromptCreated {
-            token_id,
+            prompt_id,
             creator,
-            image_url,
-            description,
+            price_stroops,
         }
         .publish(env);
     }
 
-    pub fn emit_prompt_listed(env: &Env, token_id: u128, seller: Address, price: u128) {
-        PromptListed {
-            token_id,
-            seller,
-            price,
+    pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u128, active: bool) {
+        PromptSaleStatusUpdated { prompt_id, active }.publish(env);
+    }
+
+    pub fn emit_prompt_price_updated(env: &Env, prompt_id: u128, price_stroops: i128) {
+        PromptPriceUpdated {
+            prompt_id,
+            price_stroops,
         }
         .publish(env);
     }
 
-    pub fn emit_prompt_sold(
+    pub fn emit_prompt_purchased(
         env: &Env,
-        token_id: u128,
-        seller: Address,
+        prompt_id: u128,
         buyer: Address,
-        price: u128,
+        creator: Address,
+        price_stroops: i128,
     ) {
-        PromptSold {
-            token_id,
-            seller,
+        PromptPurchased {
+            prompt_id,
             buyer,
-            price,
+            creator,
+            price_stroops,
         }
         .publish(env);
     }
 
-    pub fn emit_fee_updated(env: &Env, new_fee_percentage: u128) {
+    pub fn emit_fee_updated(env: &Env, new_fee_percentage: u32) {
         FeeUpdated { new_fee_percentage }.publish(env);
     }
 

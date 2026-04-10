@@ -27,6 +27,49 @@ export function ChatInterface() {
   const [selectedModel, setSelectedModel] =
     useState<AIModel>("gemini-2.5-flash");
   const [inputValue, setInputValue] = useState("");
+  const [chatError, setChatError] = useState<string | null>(null);
+
+  const extractResponseText = (response: unknown) => {
+    if (typeof response === "string") {
+      return response;
+    }
+
+    if (response && typeof response === "object") {
+      const record = response as Record<string, unknown>;
+      if (typeof record.response === "string") {
+        return record.response;
+      }
+
+      if (typeof record.Response === "string") {
+        return record.Response;
+      }
+
+      return JSON.stringify(record);
+    }
+
+    return "Sorry, I couldn't generate a response.";
+  };
+
+  const extractImprovedPrompt = (result: unknown) => {
+    if (typeof result === "string") {
+      return result;
+    }
+
+    if (result && typeof result === "object") {
+      const record = result as Record<string, unknown>;
+      const candidate =
+        typeof record.improved === "string"
+          ? record.improved
+          : typeof record.Response === "string"
+            ? record.Response
+            : typeof record.response === "string"
+              ? record.response
+              : undefined;
+      return candidate;
+    }
+
+    return undefined;
+  };
 
   // Handle sending a message
   const handleSendMessage = async (content: string) => {
@@ -46,6 +89,7 @@ export function ChatInterface() {
 
     setConversation((prev) => [...prev, newCustomerMessage]);
     setInputValue("");
+    setChatError(null);
 
     // Simulate agent typing
     setIsTyping(true);
@@ -55,35 +99,7 @@ export function ChatInterface() {
       const response = await getChatResponse(content, selectedModel);
 
       // Extract the response text from the object
-      let responseText = "Sorry, I couldn't generate a response.";
-
-      if (response) {
-        // Check if response has a "response" property (lowercase)
-        if (typeof response === "object" && response.response) {
-          responseText = response.response;
-        }
-        // Check if response has a "Response" property (uppercase) for backward compatibility
-        else if (typeof response === "object" && response.Response) {
-          responseText = response.Response;
-        }
-        // If it's a string, use it directly
-        else if (typeof response === "string") {
-          responseText = response;
-        }
-        // If it's an object but doesn't have response, stringify it
-        else if (typeof response === "object") {
-          responseText = JSON.stringify(response);
-        }
-      }
-
-      // If the content is about bills, override with the specific response
-      if (
-        content.toLowerCase().includes("bill") ||
-        content.toLowerCase().includes("payment")
-      ) {
-        responseText =
-          "Please hold for a second.\n\nOk, I can help you with that.\n\nI'm pulling up your current bill information.\n\nYour current bill is $150, and it is due on August 31, 2024.\n\nIf you need more details, feel free to ask!";
-      }
+      const responseText = extractResponseText(response);
 
       // Add AI response
       const newAgentMessage: Message = {
@@ -100,14 +116,19 @@ export function ChatInterface() {
       setIsTyping(false);
       setConversation((prev) => [...prev, newAgentMessage]);
     } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The chat gateway could not be reached.";
       console.error("Error getting chat response:", error);
+      setChatError(message);
 
       // Fallback response
       const fallbackMessage: Message = {
         id: Date.now().toString(),
         sender: "agent",
         content:
-          "I apologize, but I'm having trouble connecting to our services. Could you please try again?",
+          "I couldn't reach the external chat gateway. Check the configured API base URL and try again.",
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -129,18 +150,9 @@ export function ChatInterface() {
       const result = await improvePrompt(content);
 
       if (result) {
-        // Handle different response formats
-        if (typeof result === "string") {
-          return result;
-        } else if (typeof result === "object") {
-          // Check for common properties that might contain the improved prompt
-          if (result.improved) {
-            return result.improved;
-          } else if (result.Response) {
-            return result.Response;
-          } else if (result.response) {
-            return result.response;
-          }
+        const improved = extractImprovedPrompt(result);
+        if (improved) {
+          return improved;
         }
       }
 
@@ -210,6 +222,7 @@ export function ChatInterface() {
         <ChatArea
           conversation={conversation}
           isTyping={isTyping}
+          chatError={chatError}
           customerName={customerName}
           onSendMessage={handleSendMessage}
           onImprovePrompt={handleImprovePrompt}

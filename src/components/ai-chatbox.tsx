@@ -33,6 +33,49 @@ export function AiChatButton() {
   const chatRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const extractResponseText = (response: unknown) => {
+    if (typeof response === "string") {
+      return response;
+    }
+
+    if (response && typeof response === "object") {
+      const record = response as Record<string, unknown>;
+      if (typeof record.response === "string") {
+        return record.response;
+      }
+
+      if (typeof record.Response === "string") {
+        return record.Response;
+      }
+
+      return JSON.stringify(record);
+    }
+
+    return "Sorry, I couldn't generate a response.";
+  };
+
+  const extractImprovedPrompt = (result: unknown) => {
+    if (typeof result === "string") {
+      return result;
+    }
+
+    if (result && typeof result === "object") {
+      const record = result as Record<string, unknown>;
+      const candidate =
+        typeof record.improved === "string"
+          ? record.improved
+          : typeof record.Response === "string"
+            ? record.Response
+            : typeof record.response === "string"
+              ? record.response
+              : Object.values(record).find((value) => typeof value === "string");
+
+      return typeof candidate === "string" ? candidate : undefined;
+    }
+
+    return undefined;
+  };
+
   const toggleChat = () => {
     setIsOpen(!isOpen);
   };
@@ -65,26 +108,7 @@ export function AiChatButton() {
       const response = await getChatResponse(inputValue, selectedModel);
 
       // Extract the response text from the object
-      let responseText = "Sorry, I couldn't generate a response.";
-
-      if (response) {
-        // Check if response has a "response" property (lowercase)
-        if (typeof response === "object" && response.response) {
-          responseText = response.response;
-        }
-        // Check if response has a "Response" property (uppercase) for backward compatibility
-        else if (typeof response === "object" && response.Response) {
-          responseText = response.Response;
-        }
-        // If it's a string, use it directly
-        else if (typeof response === "string") {
-          responseText = response;
-        }
-        // If it's an object but doesn't have response, stringify it
-        else if (typeof response === "object") {
-          responseText = JSON.stringify(response);
-        }
-      }
+      const responseText = extractResponseText(response);
 
       // Add AI response with typing effect
       const aiMessage: Message = {
@@ -131,28 +155,9 @@ export function AiChatButton() {
       const result = await improvePrompt(inputValue);
 
       if (result) {
-        // Handle different response formats
-        if (typeof result === "string") {
-          setInputValue(result);
-        } else if (typeof result === "object") {
-          // Check for common properties that might contain the improved prompt
-          if (result.improved) {
-            setInputValue(result.improved);
-          } else if (result.Response) {
-            setInputValue(result.Response);
-          } else if (result.response) {
-            setInputValue(result.response);
-          } else {
-            // If we can't find a specific property, log the object
-            console.warn("Unexpected improve prompt response format:", result);
-            // Try to use the first string property we find
-            for (const key in result) {
-              if (typeof result[key] === "string") {
-                setInputValue(result[key]);
-                break;
-              }
-            }
-          }
+        const improved = extractImprovedPrompt(result);
+        if (improved) {
+          setInputValue(improved);
         }
       }
     } catch (error) {

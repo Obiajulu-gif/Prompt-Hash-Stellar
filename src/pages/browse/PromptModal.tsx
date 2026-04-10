@@ -1,166 +1,208 @@
-// import Image from "next/image"
-import { Prompt } from "./FetchAllPrompts";
+import { useState } from "react";
+import { LockKeyhole, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, StarIcon } from "lucide-react";
-// import { getUint256FromDecimal, shortenAddress } from "@/lib/utils"
 import { Button } from "@/components/ui/button";
-// import { useAccount, useContract, useSendTransaction } from "@starknet-react/core"
-// import { ERC20ABI, PROMPTHASH_STARKNET_ABI, PROMPTHASH_STARKNET_ADDRESS, STARGATE_STRK_ADDRESS } from "@/lib/constants"
-// import { useMemo } from "react"
-import { toast } from "sonner";
-import { shortenAddress } from "@/lib/utils";
-import prompt_hash from "@/contracts/prompt_hash";
 import { useWallet } from "@/hooks/useWallet";
+import { browserStellarConfig } from "@/lib/stellar/browserConfig";
+import {
+  buyPromptAccess,
+  type PromptRecord,
+} from "@/lib/stellar/promptHashClient";
+import { formatPriceLabel } from "@/lib/stellar/format";
+import { unlockPromptContent } from "@/lib/prompts/unlock";
+import { shortenAddress } from "@/lib/utils";
 
 export const PromptModal = ({
-  selectedPrompt,
+  prompt,
+  initialHasAccess,
   closeModal,
-  handleImageError,
+  onRefresh,
 }: {
-  selectedPrompt: Prompt;
+  prompt: PromptRecord;
+  initialHasAccess: boolean;
   closeModal: () => void;
-  handleImageError: (e: any) => void;
-  // index: number,
+  onRefresh: () => Promise<void>;
 }) => {
-  // const { address } = useAccount();
+  const { address, signMessage, signTransaction } = useWallet();
+  const [hasAccessState, setHasAccessState] = useState(initialHasAccess);
+  const [plaintext, setPlaintext] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isBuying, setIsBuying] = useState(false);
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
-  // const { contract } = useContract({
-  //     abi: PROMPTHASH_STARKNET_ABI,
-  //     address: PROMPTHASH_STARKNET_ADDRESS
-  // })
-
-
-
-  // const { contract: strk_contract } = useContract({
-  //     abi: ERC20ABI,
-  //     address: STARGATE_STRK_ADDRESS
-  // })
-
-  // const approveCalls = useMemo(() => {
-  //     if (!selectedPrompt || !address) return;
-
-  //     const priceInU256 = getUint256FromDecimal(selectedPrompt.price);
-
-  //     return strk_contract?.populate("approve", [PROMPTHASH_STARKNET_ADDRESS, priceInU256])
-  //   }, [selectedPrompt, address]);
-
-  // const buyCalls = useMemo(() => {
-  //     if (!selectedPrompt || !address) return
-
-  //     const promptIdInU256 = getUint256FromDecimal(selectedPrompt.id);
-
-  //     return contract?.populate("buy_prompt", [Number(selectedPrompt.id)])
-  // }, [selectedPrompt, address])
-
-  // const { sendAsync } = useSendTransaction(approveCalls && buyCalls ? {
-  //     calls: [approveCalls, buyCalls]
-  // } : ({} as any))
-  const { address } = useWallet();
-
-  const buyPrompt = async () => {
-    if (!address) return;
-
-    try {
-      await prompt_hash.approve({
-        approver: address,
-        approved: "CA6HD2JQ3LS3GCV77ZV46MVIDAKTB6FUFWC6WWVESWM6MEDQXPRQIFYQ",
-        token_id: parseInt(selectedPrompt.id),
-        live_until_ledger: 1
-      })
-
-      const { result } = await prompt_hash.buy_prompt({
-        buyer: address,
-        token_id: BigInt(selectedPrompt.id)
-      })
-
-      const bought = result.isOk();
-      if (bought) {
-        toast.success("Prompt purchase successful")
-        closeModal();
-      }
-    } catch (error) {
-      console.error(error);
+  const handleUnlock = async () => {
+    if (!address || !signMessage) {
+      setError("Connect a Stellar wallet with SEP-43 message signing to unlock prompts.");
+      return;
     }
-  }
 
-  // const handleBuyPrompt = async () => {
-  //   closeModal();
-  //   toast.success("Prompt purchase successful");
-  // };
+    setError(null);
+    setIsUnlocking(true);
+    try {
+      const response = await unlockPromptContent(address, prompt.id, signMessage);
+      setPlaintext(response.plaintext);
+    } catch (unlockError) {
+      setError(
+        unlockError instanceof Error
+          ? unlockError.message
+          : "Failed to unlock the prompt.",
+      );
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
+
+  const handleBuy = async () => {
+    if (!address || !signTransaction) {
+      setError("Connect a Stellar wallet before buying prompt access.");
+      return;
+    }
+
+    setError(null);
+    setIsBuying(true);
+    try {
+      await buyPromptAccess(
+        browserStellarConfig,
+        { signTransaction },
+        address,
+        prompt.id,
+        prompt.priceStroops,
+      );
+      setHasAccessState(true);
+      await onRefresh();
+      await handleUnlock();
+    } catch (buyError) {
+      setError(
+        buyError instanceof Error ? buyError.message : "Failed to buy prompt access.",
+      );
+    } finally {
+      setIsBuying(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-background rounded-lg shadow-lg max-w-xl w-full max-h-[90vh] overflow-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-start mb-4">
-            <h2 className="text-2xl font-bold">{selectedPrompt?.title}</h2>
-            <button
-              onClick={closeModal}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-
-          <div className="aspect-video mb-4 rounded-lg overflow-hidden">
-            <img
-              src={selectedPrompt?.imageUrl || "/images/codeguru.png"}
-              alt={selectedPrompt?.title || `prompt ${selectedPrompt?.id}`}
-              width={800}
-              height={450}
-              onError={handleImageError}
-              className="w-full h-full object-cover"
-            />
-          </div>
-
-          <div className="flex items-center justify-between mb-4">
-            <Badge>{selectedPrompt?.category}</Badge>
-            <div className="flex items-center gap-1 text-yellow-500">
-              <StarIcon className="h-4 w-4 fill-current" />
-              <span>{selectedPrompt?.likes}</span>
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold mb-2">Description</h3>
-            <p className="text-muted-foreground">
-              {selectedPrompt?.description}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">
+              Prompt license
             </p>
+            <h2 className="mt-2 text-2xl font-semibold">{prompt.title}</h2>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-slate-200 hover:bg-white/10"
+            onClick={closeModal}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
 
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold mb-2">Seller</h3>
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                {selectedPrompt?.owner.slice(0, 2)}
+        <div className="grid gap-6 p-6 lg:grid-cols-[1fr_0.95fr]">
+          <div className="space-y-5">
+            <img
+              src={prompt.imageUrl || "/images/codeguru.png"}
+              alt={prompt.title}
+              className="aspect-video w-full rounded-3xl object-cover"
+            />
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <Badge className="bg-slate-900 text-emerald-200">
+                  {prompt.category}
+                </Badge>
+                <Badge
+                  className={
+                    prompt.active
+                      ? "bg-emerald-400/15 text-emerald-200"
+                      : "bg-red-400/15 text-red-200"
+                  }
+                >
+                  {prompt.active ? "Active listing" : "Inactive listing"}
+                </Badge>
               </div>
-              <span className="font-mono">
-                {shortenAddress(selectedPrompt?.owner!)}
-              </span>
+              <h3 className="text-sm uppercase tracking-[0.25em] text-slate-400">
+                Public preview
+              </h3>
+              <p className="mt-3 text-sm leading-7 text-slate-200">
+                {prompt.previewText}
+              </p>
             </div>
           </div>
 
-          <div className="flex justify-between items-center">
-            <span className="text-2xl font-bold">
-              {selectedPrompt?.price} XLM
-            </span>
-            <Button onClick={buyPrompt}>
-              <ShoppingCart className="mr-2 h-4 w-4" />
-              Buy Now
-            </Button>
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    Seller
+                  </p>
+                  <p className="mt-2 font-medium text-slate-100">
+                    {shortenAddress(prompt.creator)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    Sales count
+                  </p>
+                  <p className="mt-2 font-medium text-slate-100">
+                    {prompt.salesCount}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  Price
+                </p>
+                <p className="mt-2 text-3xl font-semibold">
+                  {formatPriceLabel(prompt.priceStroops)}
+                </p>
+              </div>
+              <div className="mt-5 space-y-3">
+                {hasAccessState ? (
+                  <Button
+                    className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                    onClick={handleUnlock}
+                    disabled={isUnlocking}
+                  >
+                    {isUnlocking ? "Unlocking..." : "View full prompt"}
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                    onClick={handleBuy}
+                    disabled={isBuying || !prompt.active}
+                  >
+                    {isBuying ? "Buying access..." : "Buy access"}
+                  </Button>
+                )}
+                <p className="text-sm leading-6 text-slate-400">
+                  Full prompt text stays encrypted on-chain. Unlock requires wallet
+                  ownership verification and an on-chain access check.
+                </p>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {error}
+              </div>
+            ) : null}
+
+            {plaintext ? (
+              <div className="rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+                <div className="mb-4 flex items-center gap-2 text-emerald-200">
+                  <LockKeyhole className="h-4 w-4" />
+                  <span className="text-xs uppercase tracking-[0.25em]">
+                    Unlocked content
+                  </span>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-100">
+                  {plaintext}
+                </pre>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

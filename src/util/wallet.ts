@@ -6,10 +6,10 @@ import {
   sep43Modules,
 } from "@creit.tech/stellar-wallets-kit";
 import { Horizon } from "@stellar/stellar-sdk";
-import { networkPassphrase, stellarNetwork } from "../contracts/util";
+import { horizonUrl, stellarNetwork, stellarWalletNetwork } from "../lib/env";
 
 export const kit: StellarWalletsKit = new StellarWalletsKit({
-  network: networkPassphrase as WalletNetwork,
+  network: stellarWalletNetwork as WalletNetwork,
   modules: sep43Modules(),
 });
 
@@ -56,13 +56,10 @@ export const disconnectWallet = async () => {
 function getHorizonHost(mode: string) {
   switch (mode) {
     case "LOCAL":
-      return "http://localhost:8000";
     case "FUTURENET":
-      return "https://horizon-futurenet.stellar.org";
     case "TESTNET":
-      return "https://horizon-testnet.stellar.org";
     case "PUBLIC":
-      return "https://horizon.stellar.org";
+      return horizonUrl;
     default:
       throw new Error(`Unknown Stellar network: ${mode}`);
   }

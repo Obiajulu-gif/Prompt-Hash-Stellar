@@ -1,29 +1,57 @@
 use soroban_sdk::{contracterror, contracttype, Address, BytesN, Env, String, Vec};
 
 #[contracterror]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum Error {
-    UnAuthorized = 1,
+    Unauthorized = 1,
+    PromptNotFound = 2,
+    CreatorCannotBuy = 3,
+    PromptInactive = 4,
+    AlreadyPurchased = 5,
+    InvalidPrice = 6,
+    InvalidFeePercentage = 7,
+    InvalidTitleLength = 8,
+    InvalidCategoryLength = 9,
+    InvalidPreviewLength = 10,
+    InvalidEncryptedPromptLength = 11,
+    InvalidWrappedKeyLength = 12,
+    InvalidImageUrlLength = 13,
+    InvalidIvLength = 14,
+    FeeWalletNotSet = 15,
+    XlmAddressNotSet = 16,
+    ArithmeticOverflow = 17,
 }
 
 #[contracttype]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
     pub id: u128,
+    pub creator: Address,
     pub image_url: String,
-    pub description: String,
-    pub price: u128,
-    pub for_sale: bool,
-    pub sold: bool,
-    pub owner: Address,
-    pub category: String,
     pub title: String,
+    pub category: String,
+    pub preview_text: String,
+    pub encrypted_prompt: String,
+    pub encryption_iv: String,
+    pub wrapped_key: String,
+    pub content_hash: BytesN<32>,
+    pub price_stroops: i128,
+    pub active: bool,
+    pub sales_count: u32,
 }
 
 #[contracttype]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    Admin,
+    Prompt(u128),
+    PromptCounter,
+    FeePercentage,
+    FeeWallet,
+    XlmAddress,
+    CreatorPrompts(Address),
+    BuyerPrompts(Address),
+    Purchase(u128, Address),
 }
 
 pub trait PromptHashTrait {
@@ -31,31 +59,45 @@ pub trait PromptHashTrait {
         env: Env,
         admin: Address,
         fee_wallet: Address,
-        xlm: Address,
+        xlm_sac: Address,
     ) -> Result<(), Error>;
+
+    #[allow(clippy::too_many_arguments)]
     fn create_prompt(
         env: Env,
         creator: Address,
         image_url: String,
-        description: String,
         title: String,
         category: String,
-        price: u128,
+        preview_text: String,
+        encrypted_prompt: String,
+        encryption_iv: String,
+        wrapped_key: String,
+        content_hash: BytesN<32>,
+        price_stroops: i128,
     ) -> Result<u128, Error>;
 
-    fn get_next_token(env: Env) -> Result<u128, Error>;
-    fn list_prompt_for_sale(
+    fn set_prompt_sale_status(
         env: Env,
-        seller: Address,
-        token_id: u128,
-        price: u128,
+        creator: Address,
+        prompt_id: u128,
+        active: bool,
     ) -> Result<(), Error>;
-    fn buy_prompt(env: Env, buyer: Address, token_id: u128) -> Result<(), Error>;
+
+    fn update_prompt_price(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        price_stroops: i128,
+    ) -> Result<(), Error>;
+
+    fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error>;
+    fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
+    fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
-    fn set_fee_percentage(env: Env, new_fee_percentage: u128) -> Result<(), Error>;
+    fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
+    fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
+    fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
 }
-
-// adf77a1a23e4cbf7a9a6f185e1d8e7b9a5722333c63681321c0e5904427416 wasm hash
-// CA6HD2JQ3LS3GCV77ZV46MVIDAKTB6FUFWC6WWVESWM6MEDQXPRQIFYQ

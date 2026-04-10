@@ -4,7 +4,16 @@ use super::types::{Error, Prompt, PromptHashTrait};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
-use stellar_tokens::non_fungible::{burnable::NonFungibleBurnable, Base, NonFungibleToken};
+
+const DEFAULT_FEE_BPS: u32 = 500;
+const MAX_BPS: u32 = 10_000;
+const MAX_TITLE_LEN: u32 = 120;
+const MAX_CATEGORY_LEN: u32 = 40;
+const MAX_PREVIEW_LEN: u32 = 280;
+const MAX_ENCRYPTED_PROMPT_LEN: u32 = 4096;
+const MAX_WRAPPED_KEY_LEN: u32 = 256;
+const MAX_IMAGE_URL_LEN: u32 = 512;
+const MAX_IV_LEN: u32 = 64;
 
 #[contract]
 pub struct PromptHashContract;
@@ -15,161 +24,168 @@ impl PromptHashTrait for PromptHashContract {
         env: Env,
         admin: Address,
         fee_wallet: Address,
-        xlm: Address,
+        xlm_sac: Address,
     ) -> Result<(), Error> {
-        Base::set_metadata(
-            &env,
-            String::from_str(&env, "https://api.example.com/v1/"),
-            String::from_str(&env, "PromptHash"),
-            String::from_str(&env, "PHASH"),
-        );
-
-        // Set the contract owner
         ownable::set_owner(&env, &admin);
         Storage::set_fee_wallet(&env, &fee_wallet);
-        Storage::set_fee_percentage(&env, 500);
-        Storage::set_xlm_address(&env, &xlm);
+        Storage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
+        Storage::set_xlm_address(&env, &xlm_sac);
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_prompt(
         env: Env,
         creator: Address,
         image_url: String,
-        description: String,
         title: String,
         category: String,
-        price: u128,
+        preview_text: String,
+        encrypted_prompt: String,
+        encryption_iv: String,
+        wrapped_key: String,
+        content_hash: BytesN<32>,
+        price_stroops: i128,
     ) -> Result<u128, Error> {
-        // creator.require_auth();
+        creator.require_auth();
+        validate_prompt_fields(
+            &image_url,
+            &title,
+            &category,
+            &preview_text,
+            &encrypted_prompt,
+            &encryption_iv,
+            &wrapped_key,
+            price_stroops,
+        )?;
 
-        // Mint the NFT and get the token ID from the Base contract
-        // sequential_mint returns the token ID that was minted
-        let nft_token_id = Base::sequential_mint(&env, &creator);
-
+        let prompt_id = Storage::get_prompt_counter(&env);
         let prompt = Prompt {
-            id: nft_token_id as u128, // Use the NFT token ID
-            image_url: image_url.clone(),
-            description: description.clone(),
-            price,
-            for_sale: false,
-            sold: false,
-            owner: creator.clone(),
-            category,
+            id: prompt_id,
+            creator: creator.clone(),
+            image_url,
             title,
+            category,
+            preview_text,
+            encrypted_prompt,
+            encryption_iv,
+            wrapped_key,
+            content_hash,
+            price_stroops,
+            active: true,
+            sales_count: 0,
         };
 
-        Storage::save_prompt(&env, &prompt);
-        Events::emit_prompt_created(&env, nft_token_id as u128, creator, image_url, description);
-        Ok(nft_token_id as u128)
+        Storage::save_prompt(&env, &prompt)?;
+        Storage::add_prompt_to_creator(&env, &creator, prompt_id);
+        Events::emit_prompt_created(&env, prompt_id, creator, price_stroops);
+        Ok(prompt_id)
     }
 
-    fn get_next_token(env: Env) -> Result<u128, Error> {
-        // Get the next token ID - this reads the NFT counter
-        // The counter is stored by the Base contract's sequential_mint
-        let counter: u32 = env
-            .storage()
-            .persistent()
-            .get(&soroban_sdk::symbol_short!("counter"))
-            .unwrap_or(0);
-        Ok(counter as u128)
-    }
-
-    fn list_prompt_for_sale(
+    fn set_prompt_sale_status(
         env: Env,
-        seller: Address,
-        token_id: u128,
-        price: u128,
+        creator: Address,
+        prompt_id: u128,
+        active: bool,
     ) -> Result<(), Error> {
-        // seller.require_auth();
+        creator.require_auth();
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
 
-        let mut prompt =
-            Storage::get_prompt(&env, token_id).unwrap_or_else(|| panic!("Prompt not found"));
-
-        // Verify ownership
-        if prompt.owner != seller {
-            panic!("Only the owner can list the prompt for sale");
-        }
-
-        // Verify not already sold
-        if prompt.sold {
-            panic!("Prompt has already been sold");
-        }
-
-        prompt.for_sale = true;
-        prompt.price = price;
-
+        prompt.active = active;
         Storage::update_prompt(&env, &prompt);
-
-        Events::emit_prompt_listed(&env, token_id, seller, price);
+        Events::emit_prompt_sale_status_updated(&env, prompt_id, active);
         Ok(())
     }
 
-    fn buy_prompt(env: Env, buyer: Address, token_id: u128) -> Result<(), Error> {
-        // buyer.require_auth();
-        let seller = Base::owner_of(&env, token_id as u32);
-        let fee_wallet =
-            Storage::get_fee_wallet(&env).unwrap_or_else(|| panic!("Fee wallet not set"));
-        let this_contract = env.current_contract_address();
+    fn update_prompt_price(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        price_stroops: i128,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        ensure(price_stroops > 0, Error::InvalidPrice)?;
 
-        let mut prompt =
-            Storage::get_prompt(&env, token_id).unwrap_or_else(|| panic!("Prompt not found"));
-
-        // Verify prompt is for sale
-        if !prompt.for_sale {
-            panic!("Prompt is not for sale");
-        }
-
-        // Verify not already sold
-        if prompt.sold {
-            panic!("Prompt has already been sold");
-        }
-
-        // Verify buyer is not the owner
-        if prompt.owner == buyer {
-            panic!("Cannot buy your own prompt");
-        }
-
-        let price = prompt.price;
-
-        // Calculate fee
-        let fee_percentage = Storage::get_fee_percentage(&env);
-        let fee_amount = price * fee_percentage;
-        let seller_amount = price * 10000 - fee_amount;
-
-        let xlm = Storage::get_stellar_asset_contract(&env);
-        xlm.transfer_from(
-            &this_contract,
-            &seller,
-            &buyer,
-            &((seller_amount / 10000) as i128),
-        );
-        xlm.transfer_from(
-            &this_contract,
-            &buyer,
-            &fee_wallet,
-            &((fee_amount / 10000) as i128),
-        );
-        Base::transfer_from(&env, &this_contract, &seller, &buyer, token_id as u32);
-
-        // Update prompt ownership
-        prompt.owner = buyer.clone();
-        prompt.sold = true;
-        prompt.for_sale = false;
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+        prompt.price_stroops = price_stroops;
 
         Storage::update_prompt(&env, &prompt);
-        Events::emit_prompt_sold(&env, token_id, seller, buyer, price);
+        Events::emit_prompt_price_updated(&env, prompt_id, price_stroops);
         Ok(())
+    }
+
+    fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error> {
+        buyer.require_auth();
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+
+        ensure(prompt.active, Error::PromptInactive)?;
+        ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
+
+        let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+        let this_contract = env.current_contract_address();
+        let fee_percentage = Storage::get_fee_percentage(&env);
+        ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
+
+        let fee_amount = prompt
+            .price_stroops
+            .checked_mul(fee_percentage as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            / MAX_BPS as i128;
+        let seller_amount = prompt
+            .price_stroops
+            .checked_sub(fee_amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        let xlm = Storage::get_stellar_asset_contract(&env)?;
+        xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &seller_amount);
+        if fee_amount > 0 {
+            xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
+        }
+
+        prompt.sales_count = prompt
+            .sales_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Storage::update_prompt(&env, &prompt);
+        Storage::grant_purchase(&env, prompt_id, &buyer);
+        Events::emit_prompt_purchased(
+            &env,
+            prompt_id,
+            buyer,
+            prompt.creator,
+            prompt.price_stroops,
+        );
+        Ok(())
+    }
+
+    fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        Ok(prompt.creator == user || Storage::has_purchase(&env, prompt_id, &user))
+    }
+
+    fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {
+        Storage::require_prompt(&env, prompt_id)
     }
 
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error> {
-        let prompts = Storage::get_all_prompts(&env);
-        Ok(prompts)
+        Ok(Storage::get_all_prompts(&env))
+    }
+
+    fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
+        Ok(Storage::get_prompts_by_creator(&env, &creator))
+    }
+
+    fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error> {
+        Ok(Storage::get_prompts_by_buyer(&env, &buyer))
     }
 
     #[only_owner]
-    fn set_fee_percentage(env: Env, new_fee_percentage: u128) -> Result<(), Error> {
-        Storage::set_fee_percentage(&env, new_fee_percentage);
+    fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error> {
+        ensure(new_fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
+        Storage::set_fee_percentage(&env, &new_fee_percentage);
         Events::emit_fee_updated(&env, new_fee_percentage);
         Ok(())
     }
@@ -190,14 +206,41 @@ impl PromptHashTrait for PromptHashContract {
 
 #[default_impl]
 #[contractimpl]
-impl NonFungibleToken for PromptHashContract {
-    type ContractType = Base;
+impl Ownable for PromptHashContract {}
+
+fn validate_prompt_fields(
+    image_url: &String,
+    title: &String,
+    category: &String,
+    preview_text: &String,
+    encrypted_prompt: &String,
+    encryption_iv: &String,
+    wrapped_key: &String,
+    price_stroops: i128,
+) -> Result<(), Error> {
+    ensure(price_stroops > 0, Error::InvalidPrice)?;
+    validate_len(image_url, MAX_IMAGE_URL_LEN, Error::InvalidImageUrlLength)?;
+    validate_len(title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
+    validate_len(category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
+    validate_len(preview_text, MAX_PREVIEW_LEN, Error::InvalidPreviewLength)?;
+    validate_len(
+        encrypted_prompt,
+        MAX_ENCRYPTED_PROMPT_LEN,
+        Error::InvalidEncryptedPromptLength,
+    )?;
+    validate_len(wrapped_key, MAX_WRAPPED_KEY_LEN, Error::InvalidWrappedKeyLength)?;
+    validate_len(encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
+    Ok(())
 }
 
-#[default_impl]
-#[contractimpl]
-impl NonFungibleBurnable for PromptHashContract {}
+fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
+    ensure(value.len() > 0 && value.len() <= max_len, error)
+}
 
-#[default_impl]
-#[contractimpl]
-impl Ownable for PromptHashContract {}
+fn ensure(condition: bool, error: Error) -> Result<(), Error> {
+    if condition {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}

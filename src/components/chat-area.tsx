@@ -27,6 +27,7 @@ import ReactMarkdown from "react-markdown";
 interface ChatAreaProps {
   conversation: Message[];
   isTyping: boolean;
+  chatError: string | null;
   customerName: string;
   onSendMessage: (content: string) => void;
   onImprovePrompt: (content: string) => Promise<string>;
@@ -63,6 +64,7 @@ const formatMessageContent = (content: string): string => {
 export function ChatArea({
   conversation,
   isTyping,
+  chatError,
   // customerName,
   onSendMessage,
   onImprovePrompt,
@@ -177,6 +179,11 @@ export function ChatArea({
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 sm:space-y-6 bg-white/50">
+        {chatError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {chatError}
+          </div>
+        ) : null}
         {conversation.map((message) => (
           <div
             key={message.id}

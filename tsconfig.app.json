@@ -26,5 +26,11 @@
     }
   },
   "include": ["src"],
-  "exclude": ["server"]
+  "exclude": [
+    "server",
+    "src/debug",
+    "src/contracts",
+    "src/pages/Debugger.tsx",
+    "src/components/GuessTheNumber.tsx"
+  ]
 }

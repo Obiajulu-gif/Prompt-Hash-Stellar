@@ -1,63 +1,13 @@
-// import { Button, Icon, Layout } from "@stellar/design-system";
-// import "./App.module.css";
-// import ConnectAccount from "./components/ConnectAccount.tsx";
-import {
-  Routes,
-  Route,
-  Outlet,
-  // NavLink
-} from "react-router-dom";
+import { Outlet, Route, Routes } from "react-router-dom";
 import Home from "./pages/Home";
-import Debugger from "./pages/Debugger.tsx";
 import BrowsePage from "./pages/browse/page.jsx";
 import SellPage from "./pages/sell/page.tsx";
 import ChatHome from "./pages/chat/page.tsx";
+import ProfilePage from "./pages/profile/page.tsx";
 
-const AppLayout: React.FC = () => (
-  <main className="bg-black">
-    {/* <Layout.Header
-      projectId="My App"
-      projectTitle="My App"
-      contentRight={
-        <>
-          <nav>
-            <NavLink
-              to="/debug"
-              style={{
-                textDecoration: "none",
-              }}
-            >
-              {({ isActive }) => (
-                <Button
-                  variant="tertiary"
-                  size="md"
-                  onClick={() => (window.location.href = "/debug")}
-                  disabled={isActive}
-                >
-                  <Icon.Code02 size="md" />
-                  Debugger
-                </Button>
-              )}
-            </NavLink>
-          </nav>
-          <ConnectAccount />
-        </>
-      }
-    /> */}
+const AppLayout = () => (
+  <main className="min-h-screen bg-slate-950 text-white">
     <Outlet />
-    {/* <Layout.Footer>
-      <span>
-        © {new Date().getFullYear()} My App. Licensed under the{" "}
-        <a
-          href="http://www.apache.org/licenses/LICENSE-2.0"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Apache License, Version 2.0
-        </a>
-        .
-      </span>
-    </Layout.Footer> */}
   </main>
 );
 
@@ -69,8 +19,8 @@ function App() {
         <Route path="/browse" element={<BrowsePage />} />
         <Route path="/sell" element={<SellPage />} />
         <Route path="/chat" element={<ChatHome />} />
-        <Route path="/debug" element={<Debugger />} />
-        <Route path="/debug/:contractName" element={<Debugger />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="*" element={<Home />} />
       </Route>
     </Routes>
   );

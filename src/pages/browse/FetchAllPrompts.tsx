@@ -1,281 +1,204 @@
-"use client";
-
-import { useState, useEffect } from "react";
-// import { ethers, toBigInt } from "ethers";
+import { useEffect, useMemo, useState } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-// import { Card, CardContent, CardFooter } from "@/components/ui/card";
-// import { Badge } from "@/components/ui/badge";
+import { useWallet } from "@/hooks/useWallet";
+import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
-  // StarIcon,
-  // Eye,
-  // ShoppingCart,
-  // Loader2,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
-// import Image from "next/image";
-// import contractABI from "../../../contracts/PromptHashAbi.json";
-// import { useAccount, useContract, useReadContract } from "@starknet-react/core";
-// import fungible_allowlist_example from "@/contracts/fungible_allowlist_example";
-// import { contractAddressToHex, shortenAddress } from "@/lib/utils";
-import prompt_hash from "@/contracts/prompt_hash";
+  getAllPrompts,
+  hasAccess,
+  type PromptRecord,
+} from "@/lib/stellar/promptHashClient";
+import { stroopsToXlmString } from "@/lib/stellar/format";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 9;
 
-export type Prompt = {
-  id: string; //in contract
-  title: string;
-  description: string; //in contract
-  category: string;
-  imageUrl: string; //in contract
-  price: string;
-  likes: number;
-  owner: string; //not in contract
-  exists: boolean; //in contract
-  onSale: boolean; //in contract
+const isMarketplaceConfigured = Boolean(
+  browserStellarConfig.promptHashContractId &&
+    browserStellarConfig.simulationAccount &&
+    browserStellarConfig.rpcUrl,
+);
+
+const parseXlmNumber = (value: bigint) => Number(stroopsToXlmString(value));
+
+export interface FetchAllPromptsProps {
+  selectedCategory: string;
+  priceRange: number[];
+  searchQuery: string;
+  sortBy: string;
 }
 
 const FetchAllPrompts = ({
-  selectedCategory = "",
-  priceRange = [0, 1000], // Default price range
-  searchQuery = "",
-}) => {
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  // const [isLoading, setIsLoading] = useState(false);
-  const [error, _setError] = useState(null);
-  const [selectedPrompt, setSelectedPrompt] = useState<Prompt>();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  selectedCategory,
+  priceRange,
+  searchQuery,
+  sortBy,
+}: FetchAllPromptsProps) => {
+  const queryClient = useQueryClient();
+  const { address } = useWallet();
+  const [selectedPrompt, setSelectedPrompt] = useState<PromptRecord | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const fetchPrompts = async (): Promise<Prompt[]> => {
-    
-    const { result } = await prompt_hash.get_all_prompts();
-    let formattedPrompts: Prompt[] = []
-    if (result.isOk()) {
-      console.log("Ok Prompts fetched: ", result.unwrap());
-      const prompts = result.unwrap();
-      formattedPrompts = prompts.map((prompt) => {
-        return {
-          id: prompt.id.toString(),
-          title: prompt.title.toString(),
-          description: prompt.description.toString(),
-          category: prompt.category.toString(),
-          imageUrl: prompt.image_url.toString(),
-          price: prompt.price.toString(),
-          likes: 2,
-          owner: prompt.owner.toString(),
-          exists: !!prompt,
-          onSale: prompt.for_sale
-        }
-      })
-      setPrompts(formattedPrompts);
+  const promptsQuery = useQuery({
+    queryKey: ["marketplace-prompts"],
+    queryFn: async () => {
+      if (!isMarketplaceConfigured) {
+        return [];
+      }
 
-      return formattedPrompts
-    } else if (result.isErr()) {
-      console.log("Error fetching prompts: ", result.unwrapErr());
-      return []
+      return getAllPrompts(browserStellarConfig);
+    },
+  });
+
+  const accessQueries = useQueries({
+    queries: (address ? promptsQuery.data ?? [] : []).map((prompt) => ({
+      queryKey: ["prompt-access", address, prompt.id.toString()],
+      queryFn: async () => hasAccess(browserStellarConfig, address!, prompt.id),
+      staleTime: 15_000,
+    })),
+  });
+
+  const accessMap = useMemo(() => {
+    return new Map(
+      (promptsQuery.data ?? []).map((prompt, index) => [
+        prompt.id.toString(),
+        address ? accessQueries[index]?.data ?? prompt.creator === address : false,
+      ]),
+    );
+  }, [accessQueries, address, promptsQuery.data]);
+
+  const filteredPrompts = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    const prompts = (promptsQuery.data ?? []).filter((prompt) => {
+      const promptPrice = parseXlmNumber(prompt.priceStroops);
+      const matchesCategory =
+        !selectedCategory || prompt.category === selectedCategory;
+      const matchesSearch =
+        !normalizedSearch ||
+        prompt.title.toLowerCase().includes(normalizedSearch) ||
+        prompt.previewText.toLowerCase().includes(normalizedSearch) ||
+        prompt.category.toLowerCase().includes(normalizedSearch);
+      const matchesPrice =
+        promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
+
+      return prompt.active && matchesCategory && matchesSearch && matchesPrice;
+    });
+
+    switch (sortBy) {
+      case "price-low":
+        return [...prompts].sort((left, right) =>
+          left.priceStroops < right.priceStroops ? -1 : 1,
+        );
+      case "price-high":
+        return [...prompts].sort((left, right) =>
+          left.priceStroops > right.priceStroops ? -1 : 1,
+        );
+      case "sales":
+        return [...prompts].sort((left, right) => right.salesCount - left.salesCount);
+      default:
+        return [...prompts].sort((left, right) => Number(right.id - left.id));
     }
-    return []
+  }, [priceRange, promptsQuery.data, searchQuery, selectedCategory, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE));
+  const currentPrompts = filteredPrompts.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  );
+
+  const refreshQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
+    ]);
+  };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [priceRange, searchQuery, selectedCategory, sortBy]);
+
+  if (promptsQuery.isLoading) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-slate-200">
+        Loading live prompts from Stellar testnet...
+      </div>
+    );
   }
 
-  useEffect(() => {
-    fetchPrompts();
-  }, [])
-
-  useEffect(() => {
-    // Reset to first page when filters change
-    setCurrentPage(1);
-  }, [selectedCategory, priceRange, searchQuery]);
-
-  const handleImageError = (e: any) => {
-    e.target.onerror = null;
-    e.target.src = "/images/codeguru.png";
-  };
-
-  const openModal = (prompt: Prompt) => {
-    setSelectedPrompt(prompt);
-    setIsModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setSelectedPrompt(undefined);
-  };
-
-  // const array = new Array(10);
-
-  // Pagination logic
-  const totalPages = Math.ceil(prompts.length / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentPrompts = prompts.slice(startIndex, endIndex);
-
-  const nextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage((prev) => prev + 1);
-    }
-  };
-
-  const prevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage((prev) => prev - 1);
-    }
-  };
-
-  // if (isLoading) {
-  //   return (
-  //     <div className="flex justify-center items-center min-h-[400px]">
-  //       <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-  //     </div>
-  //   );
-  // }
-
-  if (error) {
-    return <div className="text-center text-red-500 p-4">{error}</div>;
+  if (promptsQuery.isError) {
+    return (
+      <div className="rounded-3xl border border-red-400/20 bg-red-500/10 p-6 text-sm text-red-200">
+        {promptsQuery.error instanceof Error
+          ? promptsQuery.error.message
+          : "Failed to load live marketplace prompts."}
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {currentPrompts.map((prompt, index) => {
-          // if (!prompt) return
-          return (
+      {!isMarketplaceConfigured ? (
+        <div className="mb-6 rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5 text-sm text-amber-100">
+          Add `PUBLIC_PROMPT_HASH_CONTRACT_ID` and `PUBLIC_STELLAR_SIMULATION_ACCOUNT`
+          to load live marketplace listings from Stellar testnet.
+        </div>
+      ) : null}
+
+      {filteredPrompts.length === 0 ? (
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-10 text-center text-slate-300">
+          No live prompts match the current filters.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {currentPrompts.map((prompt) => (
             <PromptCard
+              key={prompt.id.toString()}
               prompt={prompt}
-              index={index}
-              openModal={openModal}
-              handleImageError={handleImageError}
+              hasAccess={accessMap.get(prompt.id.toString()) ?? false}
+              openModal={setSelectedPrompt}
             />
-          );
-        })}
-      </div>
-      {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="flex justify-center items-center gap-4 mt-8">
+          ))}
+        </div>
+      )}
+
+      {filteredPrompts.length > ITEMS_PER_PAGE ? (
+        <div className="mt-8 flex items-center justify-center gap-3">
           <Button
             variant="outline"
-            onClick={prevPage}
+            className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
             disabled={currentPage === 1}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="mr-2 h-4 w-4" />
             Previous
           </Button>
-          <span className="text-sm">
+          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100">
             Page {currentPage} of {totalPages}
-          </span>
+          </div>
           <Button
             variant="outline"
-            onClick={nextPage}
+            className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
             disabled={currentPage === totalPages}
           >
             Next
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="ml-2 h-4 w-4" />
           </Button>
         </div>
-      )}
-      {/* Prompt Detail Modal */}
-      {isModalOpen && selectedPrompt && (
-        // <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        //   <div className="bg-background rounded-lg shadow-lg max-w-xl w-full max-h-[90vh] overflow-auto">
-        //     <div className="p-6">
-        //       <div className="flex justify-between items-start mb-4">
-        //         <h2 className="text-2xl font-bold">
-        //           {selectedPrompt.title}
-        //         </h2>
-        //         <button
-        //           onClick={closeModal}
-        //           className="text-muted-foreground hover:text-foreground"
-        //         >
-        //           <svg
-        //             xmlns="http://www.w3.org/2000/svg"
-        //             width="24"
-        //             height="24"
-        //             viewBox="0 0 24 24"
-        //             fill="none"
-        //             stroke="currentColor"
-        //             strokeWidth="2"
-        //             strokeLinecap="round"
-        //             strokeLinejoin="round"
-        //           >
-        //             <line x1="18" y1="6" x2="6" y2="18"></line>
-        //             <line x1="6" y1="6" x2="18" y2="18"></line>
-        //           </svg>
-        //         </button>
-        //       </div>
+      ) : null}
 
-        //       <div className="aspect-video mb-4 rounded-lg overflow-hidden">
-        //         <Image
-        //           src={selectedPrompt.imageUrl || "/images/codeguru.png"}
-        //           alt={selectedPrompt.title}
-        //           width={800}
-        //           height={450}
-        //           onError={handleImageError}
-        //           className="w-full h-full object-cover"
-        //         />
-        //       </div>
-
-        //       <div className="flex items-center justify-between mb-4">
-        //         <Badge>
-        //           {selectedPrompt.category}
-        //         </Badge>
-        //         <div className="flex items-center gap-1 text-yellow-500">
-        //           <StarIcon className="h-4 w-4 fill-current" />
-        //           <span>
-        //             {selectedPrompt.likes}
-        //           </span>
-        //         </div>
-        //       </div>
-
-        //       <div className="mb-4">
-        //         <h3 className="text-lg font-semibold mb-2">Description</h3>
-        //         <p className="text-muted-foreground">
-        //           {selectedPrompt.description}
-        //         </p>
-        //       </div>
-
-        //       <div className="mb-4">
-        //         <h3 className="text-lg font-semibold mb-2">Seller</h3>
-        //         <div className="flex items-center gap-2">
-        //           <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-        //             {selectedPrompt.owner.slice(0, 2)}
-        //           </div>
-        //           <span className="font-mono">
-        //             {shortenAddress(selectedPrompt.owner)}
-        //           </span>
-        //         </div>
-        //       </div>
-
-        //       <div className="flex justify-between items-center">
-        //         <span className="text-2xl font-bold">
-        //           {selectedPrompt.price} STRK
-        //         </span>
-        //         <Button
-        //           // onClick={() => handleBuyPrompt(selectedPrompt)}
-        //         >
-        //           <ShoppingCart className="mr-2 h-4 w-4" />
-        //           Buy Now
-        //         </Button>
-        //       </div>
-        //     </div>
-        //   </div>
-        // </div>
+      {selectedPrompt ? (
         <PromptModal
-          closeModal={closeModal}
-          selectedPrompt={selectedPrompt}
-          handleImageError={handleImageError}
+          prompt={selectedPrompt}
+          initialHasAccess={accessMap.get(selectedPrompt.id.toString()) ?? false}
+          closeModal={() => setSelectedPrompt(null)}
+          onRefresh={refreshQueries}
         />
-      )}
+      ) : null}
     </>
   );
-};
-
-// Add prop types if using TypeScript
-FetchAllPrompts.defaultProps = {
-  selectedCategory: "",
-  priceRange: [0, 1000],
-  searchQuery: "",
 };
 
 export default FetchAllPrompts;
