@@ -1,156 +1,149 @@
 # PromptHash Stellar
 
-PromptHash Stellar is a Soroban-based marketplace for selling reusable AI prompt licenses with XLM payments and wallet-verified unlocks.
+Soroban-native marketplace for encrypted AI prompt licensing with XLM settlement and wallet-verified access control.
 
 ## Overview
 
-PromptHash Stellar is an in-development creator marketplace built on Stellar. It lets creators publish encrypted prompt assets, expose only public preview metadata on-chain, and sell access rights to buyers without transferring ownership of the underlying content.
+PromptHash Stellar is an early-stage application for selling reusable AI prompt assets on Stellar without exposing the underlying content before payment. Creators publish a public preview and an encrypted payload, buyers pay in XLM, and the unlock flow releases plaintext only after wallet signature verification and an on-chain access check.
+
+The product is intentionally modeled as licensing, not collectible transfer. That fits how prompt creators monetize in practice: they need repeat sales, fee transparency, and reliable buyer access rather than secondary-market NFT semantics.
 
 This repository includes:
 
-- a Soroban smart contract for prompt listing, pricing, purchase tracking, and fee routing
-- a Vite + React frontend for browsing, buying, listing, and managing prompt licenses
-- serverless unlock endpoints that verify wallet ownership and on-chain access before returning plaintext
-
-The product is intentionally designed around prompt licensing rather than NFT transfer. That matches the actual use case: creators want repeated sales, buyers want reliable access, and the platform needs transparent settlement on Stellar.
+- a Soroban smart contract for listing creation, pricing, purchasing, fee routing, and access checks
+- a React and Vite frontend for browsing, listing, buying, and unlocking prompt assets
+- serverless challenge and unlock endpoints that verify wallet ownership before releasing plaintext
 
 ## Problem Statement
 
-AI prompt creators increasingly monetize high-value workflows, but the current tooling is weak:
+Prompt creators and workflow designers increasingly sell high-value prompt packs, but current distribution is weak in three ways:
 
-- prompt files are sold off-platform with poor proof of purchase
-- content is either fully exposed before payment or hidden behind opaque centralized paywalls
-- NFT-style ownership transfer does not match reusable prompt licensing
-- buyers and ecosystem partners cannot easily verify payment logic, fees, or access rules
+- payment and delivery usually happen off-platform with limited proof of purchase
+- buyers either see too much before paying or rely on opaque centralized access controls
+- reusable digital licenses are often forced into token-transfer models that do not fit the product
 
-This creates a trust and distribution gap for creator economy products on-chain.
+For Stellar, this leaves a practical digital commerce category underdeveloped: programmable access to digital goods paid for in XLM.
 
 ## Solution
 
-PromptHash Stellar turns prompt packs into encrypted, contract-backed digital goods:
+PromptHash Stellar combines Soroban contract state, wallet authentication, and encrypted content delivery:
 
-- creators submit a preview, price, and encrypted prompt payload
-- the Soroban contract stores listing metadata, tracks purchase rights, and enforces XLM fee splits
-- buyers purchase access in XLM
-- buyers sign a short-lived wallet challenge
-- the unlock service checks `has_access` on-chain, verifies the wallet signature, decrypts the ciphertext, and returns plaintext only to authorized wallets
+- creators list encrypted prompts with preview metadata and an XLM-denominated price
+- a Soroban contract stores listing state, purchase rights, creator indexes, and platform fee rules
+- buyers purchase access using Stellar wallets
+- an unlock endpoint verifies a short-lived signed challenge and checks `has_access` on-chain before decrypting content
+
+This design keeps payment, access rights, and fee logic transparent on Stellar while limiting plaintext delivery to authorized wallets.
 
 ## Why This Project Matters
 
-PromptHash Stellar addresses a concrete gap between AI workflows and blockchain commerce. It gives creators a way to sell digital knowledge products with transparent payment rails while keeping delivery gated by verifiable wallet-based access. For Stellar, it expands utility beyond transfers into creator payments, programmable commerce, and application-layer access control.
+PromptHash Stellar gives Stellar a concrete creator-economy use case beyond simple transfers. It shows how Soroban can support application-layer commerce where payment, rights management, and gated delivery all depend on contract state. The same pattern can extend beyond prompts to research reports, operating playbooks, templates, datasets, and other encrypted digital goods.
 
 ## Core Features
 
 - Encrypted prompt listings with public preview metadata
-- Soroban contract for listing creation, purchase rights, creator catalog, buyer catalog, and fee management
-- XLM-denominated purchases with contract-enforced seller/platform splits
-- Wallet-based access verification using signed challenge messages
-- Unlock flow with integrity checking against a stored content hash
-- Creator dashboard for price updates and sale activation/deactivation
-- Buyer profile for reopening previously purchased prompt licenses
+- Soroban contract for prompt creation, purchasing, pricing, and sale-state management
+- XLM-denominated checkout with contract-enforced seller and platform fee routing
+- Wallet-based unlock flow using signed challenge messages
+- Integrity verification by recomputing the prompt hash after decryption
+- Creator and buyer catalog views sourced from contract reads
+- In-development frontend for listing, discovery, purchase, and unlock actions
 
 ## How It Works
 
-### Listing flow
+### Listing Flow
 
 1. A creator connects a Stellar wallet.
-2. The browser encrypts the full prompt with AES-GCM.
+2. The browser encrypts the prompt plaintext with AES-GCM.
 3. The AES key is wrapped against the unlock service public key.
-4. The app submits `create_prompt` to Soroban with the encrypted payload, wrapped key, preview metadata, content hash, and XLM-denominated price.
+4. The app calls `create_prompt` with encrypted content, preview metadata, content hash, and price in stroops.
 
-### Purchase flow
+### Purchase Flow
 
 1. A buyer browses public listings from contract state.
-2. The app approves native asset spend and calls `buy_prompt`.
-3. The contract transfers XLM from buyer to seller and fee wallet.
-4. The contract records purchase rights and increments sales count.
+2. The app approves native asset spend and submits `buy_prompt`.
+3. The contract transfers the seller amount and platform fee in XLM.
+4. The contract records the purchase right for the buyer wallet.
 
-### Unlock flow
+### Unlock Flow
 
-1. The buyer requests a challenge token for a prompt.
+1. The buyer requests a short-lived challenge token for a prompt.
 2. The wallet signs the challenge message.
-3. The unlock endpoint verifies token validity, wallet signature, and on-chain `has_access`.
-4. The service unwraps the encrypted key, decrypts the ciphertext, recomputes the hash, and returns plaintext only if the integrity check matches.
+3. The unlock endpoint verifies the token, signature, and `has_access` response from Soroban.
+4. The service unwraps the AES key, decrypts the payload, verifies the hash, and returns plaintext to the authorized buyer.
 
 ## Stellar Ecosystem Alignment
 
-PromptHash Stellar is strongly aligned with Stellar and Soroban:
+PromptHash Stellar is designed around the strengths of Stellar and Soroban:
 
-- it uses Soroban contracts for stateful commerce rather than treating Stellar as a passive payment rail
-- it settles purchases in XLM, increasing native asset utility
-- it benefits from Stellar's low transaction costs and fast settlement for digital goods
-- it fits Stellar's focus on practical financial utility by turning digital licensing into a transparent marketplace flow
+- low-fee settlement makes smaller digital purchases commercially viable
+- fast confirmation improves checkout and unlock UX
+- Soroban provides the stateful logic needed for access rights, fee routing, and listing management
+- Stellar wallets become the identity and payment primitive for creator commerce flows
 
 ## Specific Benefits To The Stellar Blockchain
 
-### How it increases utility on Stellar
+### How It Increases Utility On Stellar
 
-- Adds a new digital goods and creator economy use case for XLM
-- Uses Soroban for programmable access control and revenue splitting
-- Encourages wallet activity beyond simple transfers
-- Creates demand for contract interactions tied to real content purchases
+- turns XLM into a settlement asset for digital licensing, not only transfers
+- drives repeated wallet interactions tied to real application usage
+- creates a reusable pattern for gated digital goods backed by Soroban state
 
-### How it can drive adoption
+### How It Can Drive Adoption
 
-- Gives creators a straightforward on-ramp to monetize AI assets on Stellar
-- Gives buyers a simple XLM purchase flow for digital work products
-- Provides a pattern that can extend to templates, datasets, reports, and other encrypted digital goods
+- gives creators a straightforward way to monetize digital knowledge products on Stellar
+- gives buyers a clearer purchase-and-access experience than manual off-chain delivery
+- demonstrates a product category that can onboard non-crypto-native users through a simple pay-to-unlock flow
 
-### Why Stellar is the right blockchain
+### Why Stellar Is The Right Blockchain
 
-- Low fees make smaller digital content purchases viable
-- Fast settlement improves checkout UX for access-controlled content
-- Soroban supports the contract logic needed for licensing and fee routing
-- Stellar is well suited to globally accessible creator payments and micro-commerce
+- low transaction costs support micro-commerce and impulse purchases
+- Soroban contract execution is sufficient for rights tracking and fee management without overcomplicating the stack
+- Stellar's payments-first orientation fits creator payouts and cross-border usage
 
-### Strategic ecosystem value
+### Strategic Ecosystem Value
 
-PromptHash Stellar can serve as a reusable reference implementation for:
+PromptHash Stellar is useful beyond the immediate prompt marketplace. It can serve as a reference implementation for:
 
 - creator economy applications on Soroban
-- encrypted digital goods marketplaces
-- wallet-authenticated unlock flows
-- XLM-based application monetization patterns
+- encrypted content delivery with wallet-authenticated access
+- contract-based revenue sharing and licensing flows
+- new forms of application monetization that settle in XLM
 
 ## Why It Is Valuable For Developers, Users, And The Ecosystem
 
 ### Developers
 
-- Demonstrates a complete Soroban application with frontend, contract, and gated delivery flow
-- Provides a practical reference for wallet auth, contract reads/writes, and server-assisted decryption
-- Establishes a reusable design pattern for access rights instead of token transfer semantics
+- provides a practical Soroban example that combines contract logic, frontend wallet UX, and off-chain unlock verification
+- offers reusable patterns for wallet challenge auth, encrypted payload handling, and contract-backed access rights
 
 ### Users
 
-- Creators can monetize reusable prompt IP while retaining ownership
-- Buyers get verifiable purchase rights with a cleaner flow than off-platform prompt sales
-- Access is controlled by wallet ownership instead of an opaque centralized account system
+- creators retain control of their intellectual property while selling repeat licenses
+- buyers get verifiable purchase rights tied to their wallet instead of a platform-only account
 
 ### Ecosystem
 
-- Broadens the category of applications being built on Stellar
-- Showcases practical XLM commerce
-- Creates a template for future applications in education, research content, consulting assets, and workflow automation packs
+- expands the range of serious consumer and prosumer applications on Stellar
+- demonstrates how Soroban can support practical digital commerce, not only financial primitives
 
 ## Technical Architecture
 
-PromptHash Stellar currently uses a three-part architecture:
+PromptHash Stellar is organized into three layers.
 
-### 1. Soroban smart contract
+### 1. Soroban Smart Contract
 
-Located in `contracts/prompt-hash`.
+Path: `contracts/prompt-hash`
 
 Responsibilities:
 
-- prompt creation
-- price updates
-- listing activation/deactivation
-- purchase tracking
-- creator and buyer prompt indexing
-- fee wallet configuration
-- contract upgrade path
+- store prompt listings and metadata
+- route XLM payments and platform fees
+- record purchase rights
+- expose catalog and access query methods
+- support administrative fee updates and future contract upgrades
 
-Key methods implemented today:
+Key contract methods currently implemented:
 
 - `create_prompt`
 - `buy_prompt`
@@ -161,35 +154,53 @@ Key methods implemented today:
 - `get_prompts_by_buyer`
 - `update_prompt_price`
 - `set_prompt_sale_status`
+- `set_fee_percentage`
+- `set_fee_wallet`
+- `upgrade`
 
-### 2. Frontend application
+### 2. Frontend Application
 
-Located in `src`.
+Path: `src`
 
-The frontend handles wallet connection, client-side encryption before listing, marketplace browsing, contract-backed purchases, creator dashboard actions, and buyer unlock requests.
+Responsibilities:
 
-### 3. Unlock and API layer
+- wallet connection and transaction signing
+- client-side encryption before prompt submission
+- marketplace browsing and filtering
+- creator listing management
+- buyer-side unlock requests
 
-Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an additional Express workspace under `server/`.
+### 3. Unlock / API Layer
 
-The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
+Paths:
+
+- `api/auth/challenge.ts`
+- `api/prompts/unlock.ts`
+
+Responsibilities:
+
+- issue short-lived challenge tokens
+- verify wallet signatures
+- confirm on-chain access rights
+- unwrap encrypted AES keys
+- decrypt prompt payloads and validate integrity
 
 ## Proposed Tech Stack
 
-- Soroban smart contracts in Rust
-- Stellar SDK and Stellar Base for blockchain interaction
-- React 19 + TypeScript + Vite for frontend
-- Tailwind CSS and Radix UI primitives for interface components
-- React Query for client-side data fetching
-- libsodium + Web Crypto for encryption and key wrapping
-- Vercel serverless functions for unlock/auth endpoints
-- Optional Express service workspace for external chat/proxy integrations
+- Rust + Soroban SDK for smart contracts
+- Stellar SDK and Stellar Base for transaction and RPC interaction
+- React 19, TypeScript, and Vite for the frontend
+- Tailwind CSS and Radix UI for application UI primitives
+- React Query for client-side data access
+- Web Crypto and `libsodium-wrappers` for encryption and key wrapping
+- Vercel serverless functions for challenge and unlock endpoints
+- optional Node/Express workspace for auxiliary service integrations
 
 ## Smart Contract / Blockchain Interaction
 
-The Soroban contract stores encrypted prompt data and commercial metadata directly on-chain. The full plaintext is never stored in readable form. Purchases are settled in Stellar's native asset contract, and access control is determined by contract state rather than a centralized database.
+PromptHash Stellar stores encrypted prompt data and commercial metadata on-chain. Plaintext is never written to contract state. Purchases are settled through Stellar's native asset contract, and prompt access is determined by contract state rather than a centralized entitlement database.
 
-The current contract data model includes:
+The current prompt record includes:
 
 - prompt ID
 - creator address
@@ -210,11 +221,11 @@ The current contract data model includes:
 ### Prerequisites
 
 - Node.js 22+
-- Yarn or npm
+- Yarn 4 or npm
 - Rust toolchain
 - Stellar CLI with Soroban support
 
-### Install dependencies
+### Install Dependencies
 
 ```bash
 yarn install
@@ -223,112 +234,98 @@ cd server && npm install && cd ..
 
 ## Local Development Setup
 
-1. Copy the environment file:
-
-```bash
-cp .env.example .env
-```
-
-2. Fill in the required Stellar and unlock-service variables.
+1. Copy `.env.example` to `.env`.
+2. Fill in the required testnet contract and unlock-service values.
 3. Start the frontend:
 
 ```bash
 yarn dev
 ```
 
-4. Optional: run the auxiliary Node server:
+4. Optional: run the auxiliary Node workspace:
 
 ```bash
 cd server
 npm run dev
 ```
 
-5. Run contract tests:
+5. Run validation locally:
 
 ```bash
+yarn test
+yarn build
 cargo test -p prompt-hash
 ```
 
 ## Environment Variables
 
-See `.env.example` for the full template. Main variables:
-
-- `PUBLIC_STELLAR_NETWORK`
-- `PUBLIC_STELLAR_NETWORK_PASSPHRASE`
-- `PUBLIC_STELLAR_RPC_URL`
-- `PUBLIC_STELLAR_HORIZON_URL`
-- `PUBLIC_PROMPT_HASH_CONTRACT_ID`
-- `PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID`
-- `PUBLIC_STELLAR_SIMULATION_ACCOUNT`
-- `PUBLIC_UNLOCK_PUBLIC_KEY`
-- `CHALLENGE_TOKEN_SECRET`
-- `UNLOCK_PUBLIC_KEY`
-- `UNLOCK_PRIVATE_KEY`
+| Variable | Purpose |
+| --- | --- |
+| `PUBLIC_STELLAR_NETWORK` | Frontend Stellar network selector |
+| `PUBLIC_STELLAR_NETWORK_PASSPHRASE` | Network passphrase used by wallet and RPC clients |
+| `PUBLIC_STELLAR_RPC_URL` | Soroban RPC endpoint |
+| `PUBLIC_STELLAR_HORIZON_URL` | Horizon endpoint |
+| `PUBLIC_PROMPT_HASH_CONTRACT_ID` | Deployed PromptHash contract ID |
+| `PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID` | Stellar native asset contract ID |
+| `PUBLIC_STELLAR_SIMULATION_ACCOUNT` | Simulation account used for frontend contract interactions |
+| `PUBLIC_UNLOCK_PUBLIC_KEY` | Public key used in the browser for key wrapping |
+| `PUBLIC_CHAT_API_BASE` | Optional external chat gateway used by the current UI |
+| `CHALLENGE_TOKEN_SECRET` | Secret used to mint and verify unlock challenge tokens |
+| `UNLOCK_PUBLIC_KEY` | Unlock service public key |
+| `UNLOCK_PRIVATE_KEY` | Unlock service private key |
 
 ## Usage
 
-### For creators
+### Create A Prompt Listing
 
-- Connect a Stellar wallet
-- Create a prompt listing from `/sell`
-- Set preview metadata and price
-- Let the app encrypt and publish the listing on Soroban
-- Manage price and sale status from the creator dashboard
+1. Connect a Stellar wallet on testnet.
+2. Enter listing metadata and the full prompt content in the seller flow.
+3. The frontend encrypts the prompt locally and submits the listing to Soroban.
 
-### For buyers
+### Purchase And Unlock A Prompt
 
-- Browse listings from `/browse`
-- Buy prompt access in XLM
-- Unlock the purchased prompt with wallet signature verification
-- Reopen purchased prompts from `/profile`
+1. Browse public listings and select a prompt.
+2. Purchase access in XLM.
+3. Request an unlock challenge, sign it with the buyer wallet, and retrieve plaintext after access verification succeeds.
 
 ## Roadmap
 
-- Mainnet-ready deployment configuration
-- Better indexing and search beyond direct contract reads
-- Prompt analytics for creators
-- Support for stable asset pricing in addition to XLM
-- Moderation and abuse-reporting flows
-- Stronger seller reputation and verification signals
+### Phase 1: Review Environment
+
+- stabilize the current testnet flow end to end
+- improve contract and frontend test coverage
+- refine listing UX, unlock reliability, and developer setup
+
+### Phase 2: Ecosystem Readiness
+
+- add indexing, pagination, and more efficient discovery flows
+- improve creator analytics and payout transparency
+- harden operational handling for secrets, monitoring, and deployment
+
+### Phase 3: Product Expansion
+
+- support richer license models such as bundles and versioned prompt packs
+- generalize the unlock pattern to adjacent digital goods
+- prepare a mainnet readiness checklist and deployment process
 
 ## Future Improvements
 
-- SEP-compatible identity and creator profiles
-- Prompt bundles and subscription-style access passes
-- Revenue-sharing splits for co-creators
-- Encrypted off-chain blob support for larger content assets
-- Better caching and pagination for high-volume marketplaces
-- Additional developer docs and deployment automation
+- seller analytics and sales export tooling
+- moderation and abuse-reporting workflows
+- better search and recommendation infrastructure
+- SDK helpers for other Stellar builders implementing gated-content flows
+- support for additional Stellar assets where they improve specific payment corridors
 
 ## Contribution Guidelines
 
-Contributions are welcome, especially in the following areas:
-
-- Soroban contract hardening and testing
-- frontend UX for wallet and purchase flows
-- indexing/search strategy
-- unlock-service security review
-- creator onboarding and marketplace moderation
-
-See `CONTRIBUTING.md` for workflow details.
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-This repository is licensed under the Apache License 2.0. See `LICENSE`.
+Licensed under Apache-2.0. See [LICENSE](./LICENSE).
 
 ## Maintainer
 
-Maintained by the PromptHash Stellar team for Drip Wave submission and ongoing open-source development.
+Maintained by [@Obiajulu-gif](https://github.com/Obiajulu-gif).
 
-## GitHub Preparation
-
-- Recommended repository name: `prompt-hash-stellar`
-- Suggested short description: `Soroban-based prompt licensing marketplace with XLM payments and wallet-verified unlocks`
-- Suggested topics: `stellar`, `soroban`, `xlm`, `creator-economy`, `ai-prompts`, `marketplace`, `blockchain`, `rust`, `react`, `vercel`
-- Suggested release title for `v0.1.0`: `Prompt licensing marketplace foundation on Stellar`
-
-### Suggested commit messages
-
-- `docs: rewrite repository for Drip Wave submission`
-- `docs: add architecture and ecosystem overview`
-- `chore: align package metadata with PromptHash Stellar`
+Project status: active early-stage repository and submission candidate for the Drip Wave maintainer track. The current codebase is a working foundation, not a production-hardened deployment.

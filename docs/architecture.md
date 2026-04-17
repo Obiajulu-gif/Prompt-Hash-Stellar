@@ -2,7 +2,7 @@
 
 ## System Components
 
-PromptHash Stellar is organized into three main layers.
+PromptHash Stellar uses a three-layer architecture that keeps commercial state on Soroban, encryption in the client, and plaintext release behind a wallet-authenticated unlock service.
 
 ## 1. Soroban Contract Layer
 
@@ -10,13 +10,13 @@ Path: `contracts/prompt-hash`
 
 Responsibilities:
 
-- store prompt listing records
-- track creator-owned listings
-- track buyer purchase rights
+- persist prompt listing records
 - route XLM payments and platform fees
-- expose read methods for marketplace views
+- record creator and buyer indexes
+- expose contract reads for marketplace and access queries
+- support administrative fee updates and contract upgrades
 
-Core contract methods:
+Key methods currently implemented:
 
 - `create_prompt`
 - `buy_prompt`
@@ -29,6 +29,7 @@ Core contract methods:
 - `set_prompt_sale_status`
 - `set_fee_percentage`
 - `set_fee_wallet`
+- `upgrade`
 
 ## 2. Frontend Application Layer
 
@@ -36,21 +37,22 @@ Path: `src`
 
 Responsibilities:
 
-- wallet connection and transaction signing
-- client-side encryption before contract submission
-- marketplace browsing and filtering
-- creator listing management
-- buyer unlock initiation
+- connect Stellar wallets
+- encrypt prompt plaintext before submission
+- submit Soroban transactions for creation and purchase
+- render browse, seller, and buyer views
+- initiate the unlock challenge flow
 
-Important modules:
+Key modules:
 
 - `src/pages/sell/CreatePromptForm.tsx`
-- `src/pages/browse/PromptModal.tsx`
 - `src/pages/sell/MyPrompts.tsx`
+- `src/pages/browse/PromptModal.tsx`
 - `src/lib/stellar/promptHashClient.ts`
 - `src/lib/crypto/promptCrypto.ts`
+- `src/lib/auth/challenge.ts`
 
-## 3. Unlock / Auth Layer
+## 3. Unlock And Auth Layer
 
 Paths:
 
@@ -59,63 +61,62 @@ Paths:
 
 Responsibilities:
 
-- mint challenge tokens
-- verify wallet signature on unlock requests
-- read contract access state
-- unwrap the encrypted AES key
-- decrypt the prompt payload
-- validate content integrity by hash
+- create short-lived unlock challenges
+- verify signed challenge messages
+- confirm purchase rights through `has_access`
+- unwrap the encrypted prompt key
+- decrypt the ciphertext and validate the stored content hash
 
 ## Data Flow
 
-### Create listing
+### Create Listing
 
-1. User enters title, preview, category, image URL, price, and full prompt text.
-2. Browser encrypts prompt plaintext with AES-GCM.
-3. Browser wraps the AES key using the unlock service public key.
-4. App submits the encrypted payload and metadata to Soroban.
+1. Creator enters listing metadata and plaintext prompt content.
+2. Browser generates an AES key and encrypts the prompt locally.
+3. Browser wraps the AES key with the unlock service public key.
+4. Frontend calls `create_prompt` with encrypted content, metadata, and price.
 
-### Buy listing
+### Buy Listing
 
-1. Buyer approves native asset spend.
-2. App submits `buy_prompt`.
-3. Contract moves seller and fee amounts in stroops.
-4. Contract records purchase rights for the buyer.
+1. Buyer selects a listing and authorizes native asset spend.
+2. Frontend calls `buy_prompt`.
+3. Contract transfers the seller amount and the platform fee in stroops.
+4. Contract records the buyer entitlement.
 
-### Unlock purchased prompt
+### Unlock Purchased Prompt
 
-1. Buyer requests a challenge token for a specific prompt.
-2. Wallet signs the challenge message.
-3. Unlock endpoint verifies token, signature, and `has_access`.
-4. Service decrypts prompt plaintext and returns it to the buyer.
+1. Buyer requests a challenge token for a prompt ID.
+2. Buyer signs the challenge message with the wallet.
+3. Unlock endpoint verifies token validity, signature, and on-chain access.
+4. Service decrypts the payload and returns plaintext if the integrity check succeeds.
 
 ## Security Model
 
-The current design intentionally separates concerns:
+The current design separates payment, rights, and delivery:
 
-- Soroban stores encrypted prompt content and access state
-- the browser performs initial prompt encryption
-- the server only releases plaintext after both wallet proof and contract proof succeed
+- encrypted payloads are stored on-chain rather than plaintext
+- the browser performs the initial encryption step
+- the unlock service only releases plaintext after wallet proof and contract proof both succeed
 
-Important assumptions:
+Operational assumptions:
 
-- the unlock service private key must remain secret
+- the unlock private key must be kept secret
 - the challenge secret must be rotated and stored securely
-- contract IDs and network settings must be configured correctly per environment
+- network configuration and contract IDs must match the deployment environment
 
 ## Scalability Notes
 
-The current frontend reads marketplace data directly from contract methods. This is acceptable for early-stage demos and review environments, but a production deployment will likely need:
+The current read path pulls listing data directly from contract methods. That is acceptable for demo and submission environments, but a larger deployment will likely require:
 
 - indexing and caching
-- pagination
+- pagination and more selective reads
 - search infrastructure
 - moderation and abuse handling
 
 ## Deployment Shape
 
-The current repository supports a lightweight deployment model:
+The current repo is structured for a lightweight deployment:
 
-- frontend + serverless unlock endpoints on Vercel
-- contract deployed to Stellar testnet or future mainnet target
-- optional auxiliary Express server for external chat/proxy services
+- Vite frontend and serverless API handlers
+- Soroban contract deployed to Stellar testnet today and mainnet later
+- optional `server/` workspace for auxiliary integrations

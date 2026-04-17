@@ -1,63 +1,64 @@
 # Contributing
 
-Thank you for contributing to PromptHash Stellar.
+PromptHash Stellar is an early-stage Soroban application. Contributions are welcome, but they should improve correctness, security, and maintainability rather than introduce speculative complexity.
 
-## Scope
-
-This project is an in-development Soroban application for encrypted prompt licensing on Stellar. Contributions should prioritize:
+## Contribution Priorities
 
 - contract correctness and test coverage
-- secure unlock and wallet-auth flows
-- clear developer ergonomics
-- practical marketplace UX
+- secure wallet-auth and unlock flows
+- developer tooling and local setup quality
+- marketplace UX improvements tied to real product flows
+- documentation that clarifies architecture or operational assumptions
 
 ## Before You Start
 
-- Open an issue for significant feature work or architectural changes.
-- Keep pull requests focused. Avoid mixing product docs, contract changes, and unrelated UI cleanup in one PR.
-- Preserve existing user changes in the repo when working locally.
+- open an issue before large feature work or architecture changes
+- keep pull requests focused on one concern
+- avoid mixing contract logic, frontend refactors, and docs cleanup unless they are directly related
+- do not commit secrets, private keys, or environment-specific contract IDs
 
-## Development Workflow
-
-1. Fork the repository and create a branch from `main`.
-2. Install dependencies for both the frontend and `server/` workspace.
-3. Copy `.env.example` to `.env` and configure local values.
-4. Make changes with tests or validation steps where possible.
-5. Submit a pull request with a clear explanation of what changed and why.
-
-## Recommended Local Checks
+## Local Setup
 
 ```bash
+yarn install
+cd server && npm install && cd ..
+cp .env.example .env
+```
+
+## Recommended Validation
+
+```bash
+yarn test
 yarn build
 cargo test -p prompt-hash
 ```
 
-If you changed the auxiliary server:
+If you changed the optional Node workspace:
 
 ```bash
 cd server
 npm run build
 ```
 
-## Coding Expectations
+## Engineering Expectations
 
-- Prefer TypeScript and Rust changes that are explicit and easy to audit.
-- Keep smart contract logic simple and well-bounded.
-- Document security-sensitive assumptions, especially around signing, decryption, and key handling.
-- Avoid introducing hidden off-chain dependencies for contract-critical flows.
+- prefer explicit TypeScript and Rust code over clever abstractions
+- keep Soroban logic small, auditable, and easy to reason about
+- document security-sensitive assumptions in code or PR notes
+- avoid adding hidden off-chain trust requirements to contract-critical flows
 
-## Pull Request Guidelines
+## Pull Request Checklist
 
-Include:
+Include the following in each PR:
 
-- a short summary of the problem
-- the implemented approach
-- validation steps performed
-- screenshots for UI changes when relevant
+- the problem being solved
+- the chosen implementation approach
+- the commands or tests used for validation
+- screenshots for user-facing UI changes when relevant
 
-## Security
+## Security Reporting
 
-If you find a security issue related to contract behavior, decryption, wallet auth, or secret handling, do not open a public issue with exploit details. Contact the maintainer privately first.
+If you discover a vulnerability related to contract logic, decryption, signatures, or secret handling, do not publish exploit details in a public issue. Contact the maintainer privately first.
 
 ## License
 
