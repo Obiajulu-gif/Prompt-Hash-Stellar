@@ -1,0 +1,56 @@
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/backend.yml"
+      - "server/**"
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - ".github/workflows/backend.yml"
+      - "server/**"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Build and Validate Server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect available npm scripts
+        id: scripts
+        run: |
+          node -e "const pkg=require('./package.json'); const scripts=pkg.scripts||{}; const has=(name)=>Boolean(scripts[name]); const placeholder=(scripts.test||'').includes('no test specified'); const fs=require('node:fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_lint=${has('lint')}\nhas_test=${has('test') && !placeholder}\nhas_build=${has('build')}\n`);"
+
+      - name: Run lint
+        if: steps.scripts.outputs.has_lint == 'true'
+        run: npm run lint --if-present
+
+      - name: Run tests
+        if: steps.scripts.outputs.has_test == 'true'
+        run: npm test --if-present
+
+      - name: Build backend
+        if: steps.scripts.outputs.has_build == 'true'
+        run: npm run build --if-present

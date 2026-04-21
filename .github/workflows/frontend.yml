@@ -1,0 +1,78 @@
+name: Frontend CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/frontend.yml"
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "yarn.lock"
+      - ".yarnrc.yml"
+      - ".yarn/**"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - "tsconfig.app.json"
+      - "tsconfig.node.json"
+      - "eslint.config.js"
+      - "tailwind.config.js"
+      - "postcss.config.js"
+      - "components.json"
+      - "index.html"
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - ".github/workflows/frontend.yml"
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "yarn.lock"
+      - ".yarnrc.yml"
+      - ".yarn/**"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - "tsconfig.app.json"
+      - "tsconfig.node.json"
+      - "eslint.config.js"
+      - "tailwind.config.js"
+      - "postcss.config.js"
+      - "components.json"
+      - "index.html"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Lint, Test, Typecheck, Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run lint
+        run: yarn lint
+
+      - name: Run type checks
+        run: yarn tsc -b --pretty false
+
+      - name: Run tests
+        run: yarn test
+
+      - name: Build frontend
+        run: yarn build

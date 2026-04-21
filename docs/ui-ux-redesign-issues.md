@@ -50,4 +50,8 @@ Design backlog for the core product routes. These issues are intended to drive r
 
 ## Contributor Constraint
 
+<<<<<<< HEAD
 Any UI-related PR that addresses one of these issues must include screenshots or a demo video.
+=======
+Any UI-related PR that addresses one of these issues must include screenshots or a demo video.
+>>>>>>> da2115936e6092ad4add9cca036181564efa25de
