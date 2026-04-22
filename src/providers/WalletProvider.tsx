@@ -1,164 +1,178 @@
 import {
   createContext,
+  useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
-  useTransition,
 } from "react";
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
+import { stellarWalletNetwork } from "../lib/env";
+
+export type WalletStatus = 
+  | "idle" 
+  | "selecting" 
+  | "connecting" 
+  | "connected" 
+  | "reconnecting" 
+  | "error";
 
 export interface WalletContextType {
   address?: string;
   network?: string;
   networkPassphrase?: string;
-  isPending: boolean;
-  signTransaction?: typeof wallet.signTransaction;
-  signMessage?: typeof wallet.signMessage;
+  status: WalletStatus;
+  error?: string;
+  connect: (id: string) => Promise<void>;
+  disconnect: () => void;
+  signTransaction: typeof wallet.signTransaction;
+  signMessage: typeof wallet.signMessage;
 }
 
 const initialState = {
   address: undefined,
   network: undefined,
   networkPassphrase: undefined,
+  status: "idle" as WalletStatus,
+  error: undefined,
 };
 
-const POLL_INTERVAL = 1000;
-
-export const WalletContext = // eslint-disable-line react-refresh/only-export-components
-  createContext<WalletContextType>({ isPending: true });
+export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
-  const [state, setState] =
-    useState<Omit<WalletContextType, "isPending">>(initialState);
-  const [isPending, startTransition] = useTransition();
-  const popupLock = useRef(false);
-  const signTransaction = wallet.signTransaction.bind(wallet);
-  const signMessage = wallet.signMessage.bind(wallet);
+  const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
 
-  const nullify = () => {
-    updateState(initialState);
-    storage.setItem("walletId", "");
-    storage.setItem("walletAddress", "");
-    storage.setItem("walletNetwork", "");
-    storage.setItem("networkPassphrase", "");
-  };
+  const disconnect = useCallback(() => {
+    storage.removeItem("walletId");
+    storage.removeItem("walletAddress");
+    storage.removeItem("walletNetwork");
+    storage.removeItem("networkPassphrase");
+    wallet.disconnect().catch(console.error);
+    setState(initialState);
+  }, []);
 
-  const updateState = (newState: Omit<WalletContextType, "isPending">) => {
-    setState((prev: Omit<WalletContextType, "isPending">) => {
-      if (
-        prev.address !== newState.address ||
-        prev.network !== newState.network ||
-        prev.networkPassphrase !== newState.networkPassphrase
-      ) {
-        return newState;
-      }
-      return prev;
-    });
-  };
+  // Helper to safely get network info (handles Albedo's lack of getNetwork support)
+  const getSafeNetworkInfo = useCallback(async (walletId: string) => {
+    // Albedo and some other web wallets don't support getNetwork
+    if (walletId === 'albedo') {
+      return { network: stellarWalletNetwork, networkPassphrase: undefined };
+    }
+    try {
+      return await wallet.getNetwork();
+    } catch (e) {
+      console.warn(`Wallet ${walletId} does not support getNetwork, using env default.`);
+      return { network: stellarWalletNetwork, networkPassphrase: undefined };
+    }
+  }, []);
 
-  const updateCurrentWalletState = async () => {
-    // There is no way, with StellarWalletsKit, to check if the wallet is
-    // installed/connected/authorized. We need to manage that on our side by
-    // checking our storage item.
-    const walletId = storage.getItem("walletId");
-    const walletNetwork = storage.getItem("walletNetwork");
-    const walletAddr = storage.getItem("walletAddress");
-    const passphrase = storage.getItem("networkPassphrase");
+  const connect = useCallback(async (walletId: string) => {
+    setState(prev => ({ ...prev, status: "connecting", error: undefined }));
+    try {
+      wallet.setWallet(walletId);
+      
+      const [a, n] = await Promise.all([
+        wallet.getAddress(),
+        getSafeNetworkInfo(walletId),
+      ]);
 
-    if (
-      !state.address &&
-      walletAddr !== null &&
-      walletNetwork !== null &&
-      passphrase !== null
-    ) {
-      updateState({
-        address: walletAddr,
-        network: walletNetwork,
-        networkPassphrase: passphrase,
+      if (!a.address) throw new Error("No address returned from wallet");
+
+      storage.setItem("walletId", walletId);
+      storage.setItem("walletAddress", a.address);
+      if (n.network) storage.setItem("walletNetwork", n.network);
+      if (n.networkPassphrase) storage.setItem("networkPassphrase", n.networkPassphrase);
+
+      setState({
+        address: a.address,
+        network: n.network,
+        networkPassphrase: n.networkPassphrase,
+        status: "connected",
+        error: undefined,
       });
+    } catch (e: any) {
+      console.error("Connection error:", e);
+      setState(prev => ({ 
+        ...prev, 
+        status: "error", 
+        error: e.message || "Failed to connect wallet" 
+      }));
     }
+  }, [getSafeNetworkInfo]);
 
-    if (!walletId) {
-      nullify();
-    } else {
-      if (popupLock.current) return;
-      // If our storage item is there, then we try to get the user's address &
-      // network from their wallet. Note: `getAddress` MAY open their wallet
-      // extension, depending on which wallet they select!
-      try {
-        popupLock.current = true;
-        wallet.setWallet(walletId);
-        if (walletId !== "freighter" && walletAddr !== null) return;
-        const [a, n] = await Promise.all([
-          wallet.getAddress(),
-          wallet.getNetwork(),
-        ]);
+  const checkExtensionAccount = useCallback(async () => {
+    if (state.status !== "connected" && state.status !== "reconnecting") return;
+    const savedId = storage.getItem("walletId");
+    if (!savedId) return;
 
-        if (!a.address) storage.setItem("walletId", "");
-        if (
-          a.address !== state.address ||
-          n.network !== state.network ||
-          n.networkPassphrase !== state.networkPassphrase
-        ) {
-          storage.setItem("walletAddress", a.address);
-          updateState({ ...a, ...n });
-        }
-      } catch (e) {
-        // If `getNetwork` or `getAddress` throw errors... sign the user out???
-        nullify();
-        // then log the error (instead of throwing) so we have visibility
-        // into the error while working on Scaffold Stellar but we do not
-        // crash the app process
-        console.error(e);
-      } finally {
-        popupLock.current = false;
+    try {
+      const { address } = await wallet.getAddress();
+      if (address && address !== state.address) {
+        storage.setItem("walletAddress", address);
+        setState(prev => ({ ...prev, address }));
       }
+    } catch (error) {
+      console.error("Error checking extension account:", error);
     }
-  };
+  }, [state.status, state.address]);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    let isMounted = true;
+    const handleFocus = () => void checkExtensionAccount();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [checkExtensionAccount]);
 
-    // Create recursive polling function to check wallet state continuously
-    const pollWalletState = async () => {
-      if (!isMounted) return;
+  useEffect(() => {
+    const rehydrate = async () => {
+      const savedId = storage.getItem("walletId");
+      const savedAddr = storage.getItem("walletAddress");
 
-      await updateCurrentWalletState();
+      if (!savedId || !savedAddr) {
+        setState(prev => ({ ...prev, status: "idle" }));
+        return;
+      }
 
-      if (isMounted) {
-        timer = setTimeout(() => void pollWalletState(), POLL_INTERVAL);
+      setState(prev => ({ ...prev, status: "reconnecting" }));
+      
+      try {
+        wallet.setWallet(savedId);
+        const [a, n] = await Promise.all([
+          wallet.getAddress(),
+          getSafeNetworkInfo(savedId),
+        ]);
+
+        if (a.address) {
+          if (a.address !== savedAddr) {
+            storage.setItem("walletAddress", a.address);
+          }
+          setState({
+            address: a.address,
+            network: n.network,
+            networkPassphrase: n.networkPassphrase,
+            status: "connected",
+            error: undefined,
+          });
+        } else {
+          disconnect();
+        }
+      } catch (e) {
+        console.warn("Session rehydration failed, clearing stale data.");
+        disconnect();
       }
     };
 
-    // Get the wallet address when the component is mounted for the first time
-    startTransition(async () => {
-      await updateCurrentWalletState();
-      // Start polling after initial state is loaded
-
-      if (isMounted) {
-        timer = setTimeout(() => void pollWalletState(), POLL_INTERVAL);
-      }
-    });
-
-    // Clear the timeout and stop polling when the component unmounts
-    return () => {
-      isMounted = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps -- it SHOULD only run once per component mount
+    void rehydrate();
+  }, [disconnect, getSafeNetworkInfo]);
 
   const contextValue = useMemo(
     () => ({
       ...state,
-      isPending,
-      signTransaction,
-      signMessage,
+      connect,
+      disconnect,
+      signTransaction: wallet.signTransaction.bind(wallet),
+      signMessage: wallet.signMessage.bind(wallet),
     }),
-    [state, isPending, signMessage, signTransaction],
+    [state, connect, disconnect]
   );
 
-  return <WalletContext value={contextValue}>{children}</WalletContext>;
+  return <WalletContext.Provider value={contextValue}>{children}</WalletContext.Provider>;
 };
