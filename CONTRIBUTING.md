@@ -20,7 +20,7 @@ This project is an in-development Soroban application for encrypted prompt licen
 ## Development Workflow
 
 1. Fork the repository and create a branch from `main`.
-2. Install dependencies for both the frontend and `server/` workspace.
+2. Install dependencies for the frontend workspace.
 3. Copy `.env.example` to `.env` and configure local values.
 4. Make changes with tests or validation steps where possible.
 5. Submit a pull request with a clear explanation of what changed and why.
@@ -30,13 +30,6 @@ This project is an in-development Soroban application for encrypted prompt licen
 ```bash
 yarn build
 cargo test -p prompt-hash
-```
-
-If you changed the auxiliary server:
-
-```bash
-cd server
-npm run build
 ```
 
 ## Coding Expectations
