@@ -42,7 +42,7 @@ const DisplayWallet = () => {
         </Button>
       )}
 
-      {(status === "selecting" || status === "connecting") && (
+      {status === "connecting" && (
         <Button disabled className="border border-amber-300/30 bg-amber-500/50 text-slate-950 cursor-not-allowed min-w-[150px]">
           <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" />
           Opening Wallet...
