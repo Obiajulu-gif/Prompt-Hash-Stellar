@@ -47,7 +47,7 @@ export const WalletButton = () => {
         </ShadcnButton>
       )}
 
-      {(status === "selecting" || status === "connecting") && (
+      {status === "connecting" && (
         <ShadcnButton
           disabled
           variant={"default"} size={"sm"}

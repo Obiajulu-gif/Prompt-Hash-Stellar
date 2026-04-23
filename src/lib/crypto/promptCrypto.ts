@@ -24,13 +24,8 @@ async function importAesKey(rawKey: Uint8Array, usages: KeyUsage[]) {
 }
 
 export async function hashPrompt(prompt: string): Promise<string> {
-  const sodiumLib = await ensureSodium();
-  // Using crypto_generichash (BLAKE2b) for a 32-byte deterministic hash
-  const hashBytes = sodiumLib.crypto_generichash(
-    32,
-    cloneBytes(encoder.encode(prompt)),
-  );
-  return bytesToHex(hashBytes);
+  // Delegate to SHA-256 for consistent content hashing across the app
+  return hashPromptPlaintext(prompt);
 }
 
 export async function encryptPrompt(prompt: string, publicKey: string) {

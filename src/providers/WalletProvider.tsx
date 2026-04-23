@@ -8,10 +8,10 @@ import {
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
 import { stellarWalletNetwork } from "../lib/env";
+import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit";
 
 export type WalletStatus = 
   | "idle" 
-  | "selecting" 
   | "connecting" 
   | "connected" 
   | "reconnecting" 
@@ -54,7 +54,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   // Helper to safely get network info (handles Albedo's lack of getNetwork support)
   const getSafeNetworkInfo = useCallback(async (walletId: string) => {
     // Albedo and some other web wallets don't support getNetwork
-    if (walletId === 'albedo') {
+    if (walletId === ALBEDO_ID) {
       return { network: stellarWalletNetwork, networkPassphrase: undefined };
     }
     try {
@@ -79,8 +79,16 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
 
       storage.setItem("walletId", walletId);
       storage.setItem("walletAddress", a.address);
-      if (n.network) storage.setItem("walletNetwork", n.network);
-      if (n.networkPassphrase) storage.setItem("networkPassphrase", n.networkPassphrase);
+      if (n.network) {
+        storage.setItem("walletNetwork", n.network);
+      } else {
+        storage.removeItem("walletNetwork");
+      }
+      if (n.networkPassphrase) {
+        storage.setItem("networkPassphrase", n.networkPassphrase);
+      } else {
+        storage.removeItem("networkPassphrase");
+      }
 
       setState({
         address: a.address,
@@ -89,12 +97,13 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         status: "connected",
         error: undefined,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Connection error:", e);
+      const message = e instanceof Error ? e.message : "Failed to connect wallet";
       setState(prev => ({ 
         ...prev, 
         status: "error", 
-        error: e.message || "Failed to connect wallet" 
+        error: message 
       }));
     }
   }, [getSafeNetworkInfo]);
@@ -122,9 +131,13 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   }, [checkExtensionAccount]);
 
   useEffect(() => {
+    let aborted = false;
+
     const rehydrate = async () => {
       const savedId = storage.getItem("walletId");
       const savedAddr = storage.getItem("walletAddress");
+
+      if (aborted) return;
 
       if (!savedId || !savedAddr) {
         setState(prev => ({ ...prev, status: "idle" }));
@@ -140,10 +153,14 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           getSafeNetworkInfo(savedId),
         ]);
 
+        if (aborted) return;
+        if (state.status !== "reconnecting" && state.status !== "idle") return;
+
         if (a.address) {
           if (a.address !== savedAddr) {
             storage.setItem("walletAddress", a.address);
           }
+          if (aborted) return;
           setState({
             address: a.address,
             network: n.network,
@@ -152,15 +169,21 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
             error: undefined,
           });
         } else {
+          if (aborted) return;
           disconnect();
         }
       } catch (e) {
+        if (aborted) return;
         console.warn("Session rehydration failed, clearing stale data.");
         disconnect();
       }
     };
 
     void rehydrate();
+
+    return () => {
+      aborted = true;
+    };
   }, [disconnect, getSafeNetworkInfo]);
 
   const contextValue = useMemo(
