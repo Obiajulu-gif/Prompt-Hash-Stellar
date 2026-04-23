@@ -2,21 +2,20 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import path from 'path'
+import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
+
+// Standard ESM fix for __dirname and require
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const require = createRequire(import.meta.url)
 
 export default defineConfig({
   plugins: [
     react(),
     nodePolyfills({ include: ['buffer'] }),
-    {
-      name: 'fix-libsodium-path',
-      resolveId(id) {
-        if (id.includes('libsodium.mjs')) {
-          return path.resolve(__dirname, 'node_modules/libsodium-wrappers/dist/modules-esm/libsodium.mjs');
-        }
-      }
-    }
   ],
-  // Inside your vitest.config.mjs
+
   optimizeDeps: {
     exclude: ['@creit.tech/stellar-wallets-kit'],
     include: ['@stellar/stellar-sdk', 'buffer'],
@@ -24,7 +23,6 @@ export default defineConfig({
 
   build: {
     commonjsOptions: {
-      // This allows the "require" based code inside the kit to work in the browser
       include: [/@creit.tech\/stellar-wallets-kit/, /node_modules/],
       transformMixedEsModules: true,
     },
@@ -40,10 +38,11 @@ export default defineConfig({
       }
     }
   },
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'libsodium-wrappers': require.resolve('libsodium-wrappers/dist/modules-esm/libsodium.mjs'),
+      'libsodium-wrappers': require.resolve('libsodium-wrappers'),
     },
   },
 })

@@ -1,8 +1,9 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import { WalletProvider, WalletContext } from '../WalletProvider';
 import storage from '../../util/storage';
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react'; // Ensure React is imported for the TestComponent
+import { TransactionProvider } from '../../components/TransactionProvider';
 
 // 1. Partial Mock: Keeps WalletNetwork intact while mocking the Class
 vi.mock('@creit.tech/stellar-wallets-kit', async (importOriginal) => {
@@ -53,9 +54,11 @@ describe('WalletProvider Session Persistence', () => {
     };
 
     const { rerender } = render(
-      <WalletProvider>
-        <TestComponent />
-      </WalletProvider>
+      <TransactionProvider>
+        <WalletProvider>
+          <TestComponent />
+        </WalletProvider>
+      </TransactionProvider>
     );
 
     // Wait for the provider to finish rehydration and reach connected state
@@ -65,9 +68,11 @@ describe('WalletProvider Session Persistence', () => {
 
     // Re-render to get updated context after rehydration
     rerender(
-      <WalletProvider>
-        <TestComponent />
-      </WalletProvider>
+      <TransactionProvider>
+        <WalletProvider>
+          <TestComponent />
+        </WalletProvider>
+      </TransactionProvider>
     );
 
     // Verify we're connected before testing disconnect
@@ -80,8 +85,10 @@ describe('WalletProvider Session Persistence', () => {
       btn.click();
     });
 
-    // 3. Assertions: Verify storage is cleared (Expect null, not "")
-    expect(storage.getItem('walletId')).toBeNull();
-    expect(storage.getItem('walletAddress')).toBeNull();
+    // 3. Wait for the async disconnect to clear storage
+    await waitFor(() => {
+      expect(storage.getItem('walletId')).toBeNull();
+      expect(storage.getItem('walletAddress')).toBeNull();
+    });
   });
 });
