@@ -17,10 +17,10 @@ export default defineConfig({
     }
   ],
   // Inside your vitest.config.mjs
-optimizeDeps: {
-  exclude: ['@creit.tech/stellar-wallets-kit'],
-  include: ['@stellar/stellar-sdk', 'buffer'],
-},
+  optimizeDeps: {
+    exclude: ['@creit.tech/stellar-wallets-kit'],
+    include: ['@stellar/stellar-sdk', 'buffer'],
+  },
 
   build: {
     commonjsOptions: {
@@ -43,7 +43,7 @@ optimizeDeps: {
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'libsodium-wrappers': path.resolve(__dirname, 'node_modules/libsodium-wrappers/dist/modules/libsodium-wrappers.js'),
+      'libsodium-wrappers': require.resolve('libsodium-wrappers/dist/modules-esm/libsodium.mjs'),
     },
   },
 })

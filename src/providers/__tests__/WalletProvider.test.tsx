@@ -28,6 +28,12 @@ vi.mock('@creit.tech/stellar-wallets-kit', async (importOriginal) => {
 
 describe('WalletProvider Session Persistence', () => {
   it('should purge storage on disconnect', async () => {
+    // 0. Clear any existing storage to avoid cross-test contamination
+    storage.removeItem('walletId');
+    storage.removeItem('walletAddress');
+    storage.removeItem('walletNetwork');
+    storage.removeItem('networkPassphrase');
+
     // 1. Mock existing storage values
     storage.setItem('walletId', 'freighter');
     storage.setItem('walletAddress', 'GABC123');
@@ -36,20 +42,37 @@ describe('WalletProvider Session Persistence', () => {
       const context = React.useContext(WalletContext);
       if (!context) return null;
       
-      const { disconnect, address } = context;
+      const { disconnect, address, status } = context;
       return (
         <div>
           <span data-testid="addr">{address}</span>
-          <button onClick={disconnect}>Logout</button>
+          <span data-testid="status">{status}</span>
+          <button onClick={disconnect} disabled={status === 'reconnecting'}>Logout</button>
         </div>
       );
     };
 
-    render(
+    const { rerender } = render(
       <WalletProvider>
         <TestComponent />
       </WalletProvider>
     );
+
+    // Wait for the provider to finish rehydration and reach connected state
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+
+    // Re-render to get updated context after rehydration
+    rerender(
+      <WalletProvider>
+        <TestComponent />
+      </WalletProvider>
+    );
+
+    // Verify we're connected before testing disconnect
+    const statusEl = screen.getByTestId('status');
+    expect(statusEl.textContent).toBe('connected');
 
     // 2. Trigger disconnect action
     const btn = screen.getByText('Logout');
@@ -58,7 +81,7 @@ describe('WalletProvider Session Persistence', () => {
     });
 
     // 3. Assertions: Verify storage is cleared (Expect null, not "")
-expect(storage.getItem('walletId')).toBeNull();
-expect(storage.getItem('walletAddress')).toBeNull();
+    expect(storage.getItem('walletId')).toBeNull();
+    expect(storage.getItem('walletAddress')).toBeNull();
   });
 });
