@@ -12,7 +12,7 @@
     "format": "prettier --write ."  
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
-    "start": "node build/server.js"
+    "start": "node build/server.js" 
   },
   "files": [
     "build"
