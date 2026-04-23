@@ -6,10 +6,11 @@
     "contacts": "./build/index.js"
   },
     "main": "server.js",
-    "scripts": {
+    "scripts": 
+  {
     "test": "jest --passWithNoTests",
     "lint": "eslint . --ext .ts",
-    "format": "prettier --write ."  
+    "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
     "start": "node build/server.js" 
