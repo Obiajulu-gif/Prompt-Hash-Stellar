@@ -16,7 +16,7 @@ const buyAssetContractCall = async (itemId: string) => {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       // Simulate a random failure for demonstration of the Retry recovery flow
-      if (Math.random() < 0.2) reject(new Error("op_underfunded"));
+      if (Math.random() < 0.2) return reject(new Error("op_underfunded"));
       resolve(true);
     }, 2000);
   });

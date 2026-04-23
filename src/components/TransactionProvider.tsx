@@ -57,7 +57,7 @@ export const TransactionProvider: React.FC<{ children: ReactNode }> = ({ childre
   return (
     <TransactionContext.Provider value={{ transactions, addTransaction, updateTransaction, removeTransaction }}>
       {children}
-      <div aria-live="polite" className="notification-container">
+      <div className="notification-container">
         {transactions.map((tx) => (
           <div key={tx.id} className={`notification ${tx.status} slide-in`}>
             <StatusBanner

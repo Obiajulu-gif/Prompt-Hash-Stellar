@@ -22,10 +22,10 @@
 
 .notification.slide-in {
   transform: translateY(0);
-  animation: slideIn 0.3s ease forwards;
+  animation: slide-in 0.3s ease forwards;
 }
 
-@keyframes slideIn {
+@keyframes slide-in {
   from {
     transform: translateY(-20px);
     opacity: 0;

@@ -32,7 +32,6 @@ const listAssetContractCall = async (data: { name: string; price: string; descri
 export default function Sell() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: "", price: "", description: "" });
-  const [isProcessing, setIsProcessing] = useState(false);
 
   // Fetch initial data (e.g., from local storage, IPFS, or an API)
   const { data: draftData, isLoading: isFetchingDraft } = useQuery({
@@ -56,22 +55,12 @@ export default function Sell() {
       pendingMessage: "Processing listing on the Stellar network...",
       successMessage: "Asset listed successfully! Redirecting...",
       
-      // Optimistic UI update: disable form and show processing state immediately
-      onOptimistic: () => {
-        setIsProcessing(true);
-      },
-      
       // Query Invalidation / Redirection
       onSuccess: () => {
         // Add a short delay so the user can see the "Success" StatusBanner before unmounting
         setTimeout(() => {
           navigate("/dashboard");
         }, 1500);
-      },
-      
-      // Clean up optimistic state on both success and error
-      onSettled: () => {
-        setIsProcessing(false);
       },
     }
   );
@@ -81,7 +70,7 @@ export default function Sell() {
     execute(formData);
   };
 
-  const isFormDisabled = isProcessing || isTransacting;
+  const isFormDisabled = isTransacting;
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
@@ -143,7 +132,7 @@ export default function Sell() {
           disabled={isFormDisabled || isFetchingDraft}
           className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white font-bold rounded-md transition-colors shadow-lg"
         >
-          {isProcessing ? "Processing Listing..." : "List Asset"}
+          {isTransacting ? "Processing Listing..." : "List Asset"}
         </button>
       </form>
     </div>

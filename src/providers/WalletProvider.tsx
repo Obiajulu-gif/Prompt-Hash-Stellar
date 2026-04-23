@@ -25,7 +25,7 @@ export interface WalletContextType {
   status: WalletStatus;
   error?: string;
   connect: (id: string) => Promise<void>;
-  disconnect: () => void;
+  disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
 }
@@ -37,6 +37,9 @@ const initialState = {
   status: "idle" as WalletStatus,
   error: undefined,
 };
+
+const boundSignTransaction = wallet.signTransaction.bind(wallet);
+const boundSignMessage = wallet.signMessage.bind(wallet);
 
 export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
@@ -60,8 +63,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     }
   );
 
-  const disconnect = useCallback(() => {
-    executeDisconnect().catch(console.error);
+  const disconnect = useCallback(async () => {
+    await executeDisconnect().catch(console.error);
   }, [executeDisconnect]);
 
   // Helper to safely get network info (handles Albedo's lack of getNetwork support)
@@ -212,8 +215,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       ...state,
       connect,
       disconnect,
-      signTransaction: wallet.signTransaction.bind(wallet),
-      signMessage: wallet.signMessage.bind(wallet),
+      signTransaction: boundSignTransaction,
+      signMessage: boundSignMessage,
     }),
     [state, connect, disconnect]
   );

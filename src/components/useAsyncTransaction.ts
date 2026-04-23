@@ -52,7 +52,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<TData | null>(null);
-  const { addTransaction, updateTransaction } = useTransactionFeedback();
+  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback();
 
   // Use refs to stabilize the execute function, preventing infinite loops
   // when options or mutationFn are passed inline.
@@ -94,9 +94,10 @@ export function useAsyncTransaction<TData, TVariables = void>(
         currentOptions?.onSuccess?.(result, variables);
         return result;
       } catch (err) {
-        const normalizedError = err instanceof Error ? err : new Error(translateStellarError(err));
+        const translated = translateStellarError(err);
+        const normalizedError = err instanceof Error ? err : new Error(translated);
         
-        let friendlyMessage = translateStellarError(err);
+        let friendlyMessage = translated;
         if (currentOptions?.errorMessage) {
           friendlyMessage = typeof currentOptions.errorMessage === 'function'
             ? currentOptions.errorMessage(normalizedError)
@@ -109,7 +110,10 @@ export function useAsyncTransaction<TData, TVariables = void>(
         updateTransaction(txId, {
           status: "error",
           message: friendlyMessage,
-          retryAction: () => execute(variables),
+          retryAction: () => {
+            removeTransaction(txId);
+            execute(variables);
+          },
         });
 
         currentOptions?.onError?.(normalizedError, variables);
@@ -119,7 +123,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
         currentOptions?.onSettled?.();
       }
     },
-    [addTransaction, updateTransaction]
+    [addTransaction, updateTransaction, removeTransaction]
   );
 
   return { execute, isLoading, error, data };

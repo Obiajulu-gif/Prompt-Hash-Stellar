@@ -35,7 +35,7 @@ export const TransactionFeedbackProvider = ({ children }: { children: ReactNode 
 
   return (
     <TransactionFeedbackContext.Provider value={contextValue}>
-      <div aria-live="polite" aria-atomic="true" style={{ position: "absolute", left: -9999, height: 1, width: 1, overflow: "hidden" }}>
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
         {/* Accessible live region for screen readers */}
         {status === "pending" && "Transaction in progress."}
         {status === "success" && "Transaction successful."}

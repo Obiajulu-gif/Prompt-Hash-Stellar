@@ -23,26 +23,6 @@ async function importAesKey(rawKey: Uint8Array, usages: KeyUsage[]) {
   );
 }
 
-export async function hashPrompt(prompt: string): Promise<string> {
-  // Delegate to SHA-256 for consistent content hashing across the app
-  return hashPromptPlaintext(prompt);
-}
-
-export async function encryptPrompt(prompt: string, publicKey: string) {
-  const sodiumLib = await ensureSodium();
-  const messageBytes = cloneBytes(encoder.encode(prompt));
-  const publicKeyBytes = base64ToBytes(publicKey);
-
-  // Sealed box encryption (only decryptable by the recipient's private key)
-  const encryptedBytes = sodiumLib.crypto_box_seal(messageBytes, publicKeyBytes);
-
-  return {
-    hash: await hashPrompt(prompt),
-    encryptedBlob: bytesToBase64(encryptedBytes),
-    version: "1.0.0",
-  };
-}
-
 export function bytesToBase64(value: Uint8Array) {
   return Buffer.from(value).toString("base64");
 }

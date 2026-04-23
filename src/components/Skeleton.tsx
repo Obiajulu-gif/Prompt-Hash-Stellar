@@ -1,6 +1,6 @@
 import React from "react";
 
-interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {}
+export interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export const Skeleton: React.FC<SkeletonProps> = ({ className = "", ...props }) => {
   return (
