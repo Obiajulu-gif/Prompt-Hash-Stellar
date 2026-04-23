@@ -170,7 +170,7 @@ The frontend handles wallet connection, client-side encryption before listing, m
 
 ### 3. Unlock and API layer
 
-Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an additional Express workspace under `server/`.
+Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`.
 
 The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
 
@@ -183,7 +183,6 @@ The serverless unlock flow handles challenge token issuance, signature verificat
 - React Query for client-side data fetching
 - libsodium + Web Crypto for encryption and key wrapping
 - Vercel serverless functions for unlock/auth endpoints
-- Optional Express service workspace for external chat/proxy integrations
 
 ## Smart Contract / Blockchain Interaction
 

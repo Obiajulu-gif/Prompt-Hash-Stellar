@@ -1,6 +1,7 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, Loader2, ShieldCheck, FileKey, PenTool, Send } from "lucide-react";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ import {
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
 import { createPrompt } from "@/lib/stellar/promptHashClient";
+import { parseStellarError } from "@/util/stellar-errors";
 
 const limits = {
   title: 120,
@@ -44,9 +46,12 @@ interface FormData {
   priceXlm: string;
 }
 
+type SubmissionStep = "IDLE" | "ENCRYPTING" | "SIMULATING" | "SIGNING" | "SUBMITTING";
+
 export function CreatePromptForm() {
   const navigate = useNavigate();
-  const { address, signTransaction } = useWallet();
+  const queryClient = useQueryClient();
+  const { address, signTransaction, isWrongNetwork } = useWallet();
   const [formData, setFormData] = useState<FormData>({
     imageUrl: "",
     title: "",
@@ -56,7 +61,7 @@ export function CreatePromptForm() {
     priceXlm: "2",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStep, setSubmissionStep] = useState<SubmissionStep>("IDLE");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -150,6 +155,11 @@ export function CreatePromptForm() {
       return;
     }
 
+    if (isWrongNetwork) {
+      setSubmitError("Your wallet is connected to the wrong network. Switch to testnet.");
+      return;
+    }
+
     if (!browserStellarConfig.promptHashContractId) {
       setSubmitError("PUBLIC_PROMPT_HASH_CONTRACT_ID is not configured.");
       return;
@@ -160,7 +170,7 @@ export function CreatePromptForm() {
       return;
     }
 
-    setIsSubmitting(true);
+    setSubmissionStep("ENCRYPTING");
     try {
       const encrypted = await encryptPromptPlaintext(formData.fullPrompt);
       const wrappedKey = await wrapPromptKey(encrypted.keyBytes, unlockPublicKey);
@@ -175,6 +185,10 @@ export function CreatePromptForm() {
         throw new Error("Wrapped key exceeds the contract storage limit.");
       }
 
+      // We'll wrap the call to createPrompt to provide more granular step updates if possible
+      // But since createPrompt handles simulation, signing and submission in one call, 
+      // we'll use generic "submitting" for now or split it if the client allows.
+      setSubmissionStep("SUBMITTING");
       const { promptId } = await createPrompt(
         browserStellarConfig,
         { signTransaction },
@@ -192,6 +206,8 @@ export function CreatePromptForm() {
         },
       );
 
+      await queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] });
+
       setSuccessMessage(`Prompt #${promptId.toString()} created successfully.`);
       setFormData({
         imageUrl: "",
@@ -203,11 +219,47 @@ export function CreatePromptForm() {
       });
       navigate("/browse");
     } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : "Failed to create prompt.",
-      );
+      const parsed = parseStellarError(error);
+      if (parsed.type !== "USER_CANCELLED") {
+        setSubmitError(parsed.message);
+      }
     } finally {
-      setIsSubmitting(false);
+      setSubmissionStep("IDLE");
+    }
+  };
+
+  const renderSubmitButtonContent = () => {
+    switch (submissionStep) {
+      case "ENCRYPTING":
+        return (
+          <>
+            <ShieldCheck className="mr-2 h-4 w-4 animate-pulse" />
+            Encrypting payload...
+          </>
+        );
+      case "SIMULATING":
+        return (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Simulating transaction...
+          </>
+        );
+      case "SIGNING":
+        return (
+          <>
+            <FileKey className="mr-2 h-4 w-4 animate-bounce" />
+            Waiting for signature...
+          </>
+        );
+      case "SUBMITTING":
+        return (
+          <>
+            <Send className="mr-2 h-4 w-4 animate-pulse" />
+            Submitting to Soroban...
+          </>
+        );
+      default:
+        return "Create prompt listing";
     }
   };
 
@@ -217,6 +269,13 @@ export function CreatePromptForm() {
         <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
           Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID` plus
           `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
+        </div>
+      ) : null}
+
+      {isWrongNetwork ? (
+        <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <AlertCircle className="mr-2 inline-block h-4 w-4" />
+          Network Mismatch: Please switch your wallet to Testnet to continue.
         </div>
       ) : null}
 
@@ -337,17 +396,10 @@ export function CreatePromptForm() {
 
       <Button
         className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-        disabled={isSubmitting}
+        disabled={submissionStep !== "IDLE" || isWrongNetwork}
         onClick={handleSubmit}
       >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Encrypting and submitting...
-          </>
-        ) : (
-          "Create prompt listing"
-        )}
+        {renderSubmitButtonContent()}
       </Button>
 
       {submitError ? (

@@ -118,4 +118,3 @@ The current repository supports a lightweight deployment model:
 
 - frontend + serverless unlock endpoints on Vercel
 - contract deployed to Stellar testnet or future mainnet target
-- optional auxiliary Express server for external chat/proxy services

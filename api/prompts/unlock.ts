@@ -1,18 +1,26 @@
+import { z } from "zod";
 import {
   buildChallengeMessage,
   verifyChallengeSignature,
   verifyChallengeToken,
-} from "../../../src/lib/auth/challenge";
+} from "../../src/lib/auth/challenge";
 import {
   decryptPromptCiphertext,
   hashPromptPlaintext,
   unwrapPromptKey,
-} from "../../../src/lib/crypto/promptCrypto";
+} from "../../src/lib/crypto/promptCrypto";
 import {
   getPrompt,
   hasAccess,
   type PromptHashConfig,
-} from "../../../src/lib/stellar/promptHashClient";
+} from "../../src/lib/stellar/promptHashClient";
+
+const UnlockRequestSchema = z.object({
+  token: z.string().min(1, "token is required"),
+  promptId: z.string().min(1, "promptId is required"),
+  address: z.string().min(1, "address is required"),
+  signedMessage: z.string().min(1, "signedMessage is required"),
+});
 
 function getServerConfig(): PromptHashConfig {
   const rpcUrl =
@@ -39,82 +47,95 @@ function getServerConfig(): PromptHashConfig {
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed." });
-    return;
+    return res.status(405).json({ error: "Method not allowed." });
   }
 
   const challengeSecret = process.env.CHALLENGE_TOKEN_SECRET;
   const unlockPublicKey = process.env.UNLOCK_PUBLIC_KEY;
   const unlockPrivateKey = process.env.UNLOCK_PRIVATE_KEY;
-  if (!challengeSecret || !unlockPublicKey || !unlockPrivateKey) {
-    res.status(500).json({
-      error:
-        "Unlock service is missing CHALLENGE_TOKEN_SECRET, UNLOCK_PUBLIC_KEY, or UNLOCK_PRIVATE_KEY.",
-    });
-    return;
-  }
 
-  const { token, promptId, address, signedMessage } = req.body ?? {};
-  if (!token || !promptId || !address || !signedMessage) {
-    res.status(400).json({
-      error: "token, promptId, address, and signedMessage are required.",
-    });
-    return;
+  if (!challengeSecret || !unlockPublicKey || !unlockPrivateKey) {
+    console.error("Unlock service configuration missing required secrets.");
+    return res.status(500).json({ error: "Server configuration error." });
   }
 
   try {
-    const payload = verifyChallengeToken(
-      challengeSecret,
-      String(token),
-      String(address),
-      String(promptId),
-    );
+    const { token, promptId, address, signedMessage } = UnlockRequestSchema.parse(req.body);
+
+    let payload;
+    try {
+      payload = verifyChallengeToken(
+        challengeSecret,
+        token,
+        address,
+        promptId,
+      );
+    } catch (e: any) {
+      const msg = e.message || "Invalid or expired challenge token.";
+      return res.status(401).json({ error: msg, code: "INVALID_TOKEN" });
+    }
+
     const challengeMessage = buildChallengeMessage(payload);
     const validSignature = verifyChallengeSignature(
-      String(address),
+      address,
       challengeMessage,
-      String(signedMessage),
+      signedMessage,
     );
 
     if (!validSignature) {
-      res.status(401).json({ error: "Invalid wallet signature." });
-      return;
+      return res.status(401).json({ error: "Invalid wallet signature.", code: "INVALID_SIGNATURE" });
     }
 
     const config = getServerConfig();
     const id = BigInt(promptId);
-    const access = await hasAccess(config, String(address), id);
+    
+    // Check access on-chain
+    const access = await hasAccess(config, address, id);
     if (!access) {
-      res.status(403).json({ error: "Prompt access has not been purchased." });
-      return;
+      return res.status(403).json({ 
+        error: "Prompt access has not been purchased.", 
+        code: "ACCESS_DENIED" 
+      });
     }
 
     const prompt = await getPrompt(config, id);
-    const keyBytes = await unwrapPromptKey(
-      prompt.wrappedKey,
-      unlockPublicKey,
-      unlockPrivateKey,
-    );
-    const plaintext = await decryptPromptCiphertext(
-      prompt.encryptedPrompt,
-      prompt.encryptionIv,
-      keyBytes,
-    );
-    const contentHash = await hashPromptPlaintext(plaintext);
-    if (contentHash !== prompt.contentHash) {
-      res.status(500).json({ error: "Prompt integrity check failed." });
-      return;
+    
+    let plaintext;
+    try {
+      const keyBytes = await unwrapPromptKey(
+        prompt.wrappedKey,
+        unlockPublicKey,
+        unlockPrivateKey,
+      );
+      plaintext = await decryptPromptCiphertext(
+        prompt.encryptedPrompt,
+        prompt.encryptionIv,
+        keyBytes,
+      );
+    } catch (e) {
+      console.error("Decryption failure:", e);
+      return res.status(500).json({ error: "Failed to decrypt prompt.", code: "DECRYPTION_ERROR" });
     }
 
-    res.status(200).json({
+    const contentHash = await hashPromptPlaintext(plaintext);
+    if (contentHash !== prompt.contentHash) {
+      return res.status(500).json({ 
+        error: "Prompt integrity check failed.", 
+        code: "INTEGRITY_ERROR" 
+      });
+    }
+
+    return res.status(200).json({
       promptId: prompt.id.toString(),
       title: prompt.title,
       contentHash,
       plaintext,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to unlock prompt.";
-    res.status(400).json({ error: message });
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues[0]?.message || error.message, code: "BAD_REQUEST" });
+    }
+    console.error("Unlock handler error:", error);
+    return res.status(500).json({ error: "Internal server error.", code: "INTERNAL_ERROR" });
   }
 }

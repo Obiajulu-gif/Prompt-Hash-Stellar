@@ -1,10 +1,17 @@
 import { use } from "react";
 import { WalletContext } from "../providers/WalletProvider";
+import { networkPassphrase } from "../lib/env";
 
 export const useWallet = () => {
   const ctx = use(WalletContext);
   if (!ctx) {
     throw new Error("useWallet must be used within a WalletProvider");
   }
-  return ctx;
+
+  const isWrongNetwork = ctx.address && ctx.networkPassphrase && ctx.networkPassphrase !== networkPassphrase;
+
+  return {
+    ...ctx,
+    isWrongNetwork,
+  };
 };

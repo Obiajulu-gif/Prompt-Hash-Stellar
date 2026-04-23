@@ -11,6 +11,7 @@ import {
 import { formatPriceLabel } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
 import { shortenAddress } from "@/lib/utils";
+import { parseStellarError } from "@/util/stellar-errors";
 
 export const PromptModal = ({
   prompt,
@@ -23,7 +24,7 @@ export const PromptModal = ({
   closeModal: () => void;
   onRefresh: () => Promise<void>;
 }) => {
-  const { address, signMessage, signTransaction } = useWallet();
+  const { address, signMessage, signTransaction, isWrongNetwork } = useWallet();
   const [hasAccessState, setHasAccessState] = useState(initialHasAccess);
   const [plaintext, setPlaintext] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,17 +37,21 @@ export const PromptModal = ({
       return;
     }
 
+    if (isWrongNetwork) {
+      setError("Your wallet is connected to the wrong network. Switch to testnet.");
+      return;
+    }
+
     setError(null);
     setIsUnlocking(true);
     try {
       const response = await unlockPromptContent(address, prompt.id, signMessage);
       setPlaintext(response.plaintext);
     } catch (unlockError) {
-      setError(
-        unlockError instanceof Error
-          ? unlockError.message
-          : "Failed to unlock the prompt.",
-      );
+      const parsed = parseStellarError(unlockError);
+      if (parsed.type !== "USER_CANCELLED") {
+        setError(parsed.message);
+      }
     } finally {
       setIsUnlocking(false);
     }
@@ -55,6 +60,11 @@ export const PromptModal = ({
   const handleBuy = async () => {
     if (!address || !signTransaction) {
       setError("Connect a Stellar wallet before buying prompt access.");
+      return;
+    }
+
+    if (isWrongNetwork) {
+      setError("Your wallet is connected to the wrong network. Switch to testnet.");
       return;
     }
 
@@ -72,9 +82,10 @@ export const PromptModal = ({
       await onRefresh();
       await handleUnlock();
     } catch (buyError) {
-      setError(
-        buyError instanceof Error ? buyError.message : "Failed to buy prompt access.",
-      );
+      const parsed = parseStellarError(buyError);
+      if (parsed.type !== "USER_CANCELLED") {
+        setError(parsed.message);
+      }
     } finally {
       setIsBuying(false);
     }
