@@ -3,6 +3,14 @@ use soroban_sdk::{token, Address, Env, Vec};
 
 pub struct Storage;
 
+fn ensure(condition: bool, error: Error) -> Result<(), Error> {
+    if condition {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
 impl Storage {
     pub fn save_prompt(env: &Env, prompt: &Prompt) -> Result<(), Error> {
         env.storage()
@@ -154,5 +162,24 @@ impl Storage {
     pub fn get_stellar_asset_contract(env: &'_ Env) -> Result<token::StellarAssetClient<'_>, Error> {
         let contract_id = Self::get_xlm_address(env).ok_or(Error::XlmAddressNotSet)?;
         Ok(token::StellarAssetClient::new(env, &contract_id))
+    }
+
+    pub fn set_reentrancy_guard(env: &Env) -> Result<(), Error> {
+        let already_set = env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Reentrancy)
+            .unwrap_or(false);
+        ensure(!already_set, Error::ReentrancyGuard)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Reentrancy, &true);
+        Ok(())
+    }
+
+    pub fn clear_reentrancy_guard(env: &Env) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Reentrancy, &false);
     }
 }
