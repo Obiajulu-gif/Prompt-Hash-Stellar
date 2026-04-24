@@ -174,6 +174,15 @@ Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an
 
 The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
 
+#### Observability & Production Hardening
+
+The unlock service is hardened for production use with the following features:
+- **Rate Limiting**: Request-level limits keyed by IP and wallet to prevent brute-force and DDoS attacks.
+- **Structured Logging**: JSON-formatted logs with request ID tracking and sensitive data redaction.
+- **Operational Metrics**: Real-time tracking of unlock success/failure rates, invalid signatures, and rate limit hits.
+- **Health Monitoring**: Dedicated `/api/health` endpoint for uptime and configuration verification.
+- **Incident Response**: Documented runbooks and debugging procedures located in `docs/operations/`.
+
 ## Proposed Tech Stack
 
 - Soroban smart contracts in Rust
