@@ -1,5 +1,6 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
 import { createPrompt } from "@/lib/stellar/promptHashClient";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 
 const limits = {
   title: 120,
@@ -46,6 +48,7 @@ interface FormData {
 
 export function CreatePromptForm() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { address, signTransaction } = useWallet();
   const [formData, setFormData] = useState<FormData>({
     imageUrl: "",
@@ -192,6 +195,8 @@ export function CreatePromptForm() {
         },
       );
 
+      // Invalidate before navigating so the browse grid is fresh on arrival.
+      await invalidateAllPromptQueries(queryClient);
       setSuccessMessage(`Prompt #${promptId.toString()} created successfully.`);
       setFormData({
         imageUrl: "",

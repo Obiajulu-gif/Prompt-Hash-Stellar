@@ -10,6 +10,7 @@ import {
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
 import { stroopsToXlmString } from "@/lib/stellar/format";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
@@ -108,12 +109,7 @@ const FetchAllPrompts = ({
     currentPage * ITEMS_PER_PAGE,
   );
 
-  const refreshQueries = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
-      queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
-    ]);
-  };
+  const refreshQueries = () => invalidateAllPromptQueries(queryClient);
 
   useEffect(() => {
     setCurrentPage(1);
