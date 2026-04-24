@@ -15,6 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
       - uses: actions/cache@v3
         with:
           path: |
@@ -42,12 +50,11 @@ jobs:
           else
             echo "stellar-scaffold already installed. Clear cache to force reinstall."
           fi
-      - run: npm ci
-      - run: npm run lint
+      - run: yarn install --immutable
+      - run: yarn lint
       - run: npx prettier . --check
       - name: Build clients before building the project
         run: STELLAR_SCAFFOLD_ENV=development stellar-scaffold build --build-clients
-      - run: npm run install:contracts
-      - run: npm run build
+      - run: yarn build
       - name: Run tests
-        run: npm test --if-present
+        run: yarn test --if-present
