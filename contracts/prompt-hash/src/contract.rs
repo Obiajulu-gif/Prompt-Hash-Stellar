@@ -5,6 +5,25 @@ use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
 
+/// PromptHash Soroban contract.
+///
+/// ## Storage model
+/// - `DataKey::Prompt(id)` stores the prompt record. Prompt metadata is immutable after creation;
+///   only `active`, `price_stroops`, and `sales_count` may change through dedicated methods.
+/// - `DataKey::PromptCounter` stores the next prompt id (append-only, starts at `0`).
+/// - `DataKey::CreatorPrompts(creator)` is an append-only list of prompt ids created by `creator`,
+///   in creation order (ascending by id).
+/// - `DataKey::BuyerPrompts(buyer)` is an append-only list of prompt ids purchased by `buyer`,
+///   in purchase order.
+/// - `DataKey::Purchase(prompt_id, buyer)` stores a purchase right (never revoked).
+///
+/// ## Lifecycle invariants
+/// - `create_prompt`: field validation is enforced on-chain; prompt starts `active=true`.
+/// - `set_prompt_sale_status`: only the prompt creator may pause/reactivate; pausing prevents
+///   future purchases but does not revoke existing access.
+/// - `update_prompt_price`: only the prompt creator; price must be `> 0`; affects future purchases.
+/// - `buy_prompt`: requires active listing, buyer != creator, and no prior purchase.
+/// - `has_access`: creator always has access; buyers have access if purchased regardless of `active`.
 const DEFAULT_FEE_BPS: u32 = 500;
 const MAX_BPS: u32 = 10_000;
 const MAX_TITLE_LEN: u32 = 120;
@@ -26,6 +45,7 @@ impl PromptHashTrait for PromptHashContract {
         fee_wallet: Address,
         xlm_sac: Address,
     ) -> Result<(), Error> {
+        Storage::set_initialized(&env)?;
         ownable::set_owner(&env, &admin);
         Storage::set_fee_wallet(&env, &fee_wallet);
         Storage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
@@ -47,6 +67,7 @@ impl PromptHashTrait for PromptHashContract {
         content_hash: BytesN<32>,
         price_stroops: i128,
     ) -> Result<u128, Error> {
+        Storage::require_initialized(&env)?;
         creator.require_auth();
         validate_prompt_fields(
             &image_url,
@@ -77,7 +98,7 @@ impl PromptHashTrait for PromptHashContract {
         };
 
         Storage::save_prompt(&env, &prompt)?;
-        Storage::add_prompt_to_creator(&env, &creator, prompt_id);
+        Storage::add_prompt_to_creator(&env, &creator, prompt_id)?;
         Events::emit_prompt_created(&env, prompt_id, creator, price_stroops);
         Ok(prompt_id)
     }
@@ -88,9 +109,10 @@ impl PromptHashTrait for PromptHashContract {
         prompt_id: u128,
         active: bool,
     ) -> Result<(), Error> {
+        Storage::require_initialized(&env)?;
         creator.require_auth();
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        ensure(prompt.creator == creator, Error::Unauthorized)?;
+        ensure(prompt.creator == creator, Error::NotPromptCreator)?;
 
         prompt.active = active;
         Storage::update_prompt(&env, &prompt);
@@ -104,11 +126,12 @@ impl PromptHashTrait for PromptHashContract {
         prompt_id: u128,
         price_stroops: i128,
     ) -> Result<(), Error> {
+        Storage::require_initialized(&env)?;
         creator.require_auth();
         ensure(price_stroops > 0, Error::InvalidPrice)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        ensure(prompt.creator == creator, Error::Unauthorized)?;
+        ensure(prompt.creator == creator, Error::NotPromptCreator)?;
         prompt.price_stroops = price_stroops;
 
         Storage::update_prompt(&env, &prompt);
@@ -117,9 +140,11 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error> {
+        Storage::require_initialized(&env)?;
         buyer.require_auth();
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
 
+        ensure(prompt.price_stroops > 0, Error::InvalidPrice)?;
         ensure(prompt.active, Error::PromptInactive)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
@@ -150,7 +175,7 @@ impl PromptHashTrait for PromptHashContract {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_prompt(&env, &prompt);
-        Storage::grant_purchase(&env, prompt_id, &buyer);
+        Storage::grant_purchase(&env, prompt_id, &buyer)?;
         Events::emit_prompt_purchased(
             &env,
             prompt_id,
@@ -171,15 +196,15 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error> {
-        Ok(Storage::get_all_prompts(&env))
+        Storage::get_all_prompts(&env)
     }
 
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
-        Ok(Storage::get_prompts_by_creator(&env, &creator))
+        Storage::get_prompts_by_creator(&env, &creator)
     }
 
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error> {
-        Ok(Storage::get_prompts_by_buyer(&env, &buyer))
+        Storage::get_prompts_by_buyer(&env, &buyer)
     }
 
     #[only_owner]

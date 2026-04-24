@@ -21,6 +21,11 @@ pub enum Error {
     FeeWalletNotSet = 15,
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
+    AlreadyInitialized = 18,
+    ContractNotInitialized = 19,
+    NotPromptCreator = 20,
+    PromptIdAlreadyExists = 21,
+    StorageCorrupt = 22,
 }
 
 #[contracttype]
@@ -52,6 +57,7 @@ pub enum DataKey {
     CreatorPrompts(Address),
     BuyerPrompts(Address),
     Purchase(u128, Address),
+    Initialized,
 }
 
 pub trait PromptHashTrait {
