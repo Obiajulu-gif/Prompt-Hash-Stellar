@@ -36,7 +36,8 @@ export default defineConfig(() => {
     },
     envPrefix: "PUBLIC_",
     test: {
-      environment: "node",
+      environment: "jsdom",
+      setupFiles: "./src/test/setup.ts",
     },
     server: {
       proxy: {

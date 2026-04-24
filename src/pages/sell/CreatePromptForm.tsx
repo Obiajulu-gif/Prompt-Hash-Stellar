@@ -1,5 +1,6 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
 import { createPrompt } from "@/lib/stellar/promptHashClient";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 
 const limits = {
   title: 120,
@@ -46,6 +48,7 @@ interface FormData {
 
 export function CreatePromptForm() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { address, signTransaction } = useWallet();
   const [formData, setFormData] = useState<FormData>({
     imageUrl: "",
@@ -192,6 +195,8 @@ export function CreatePromptForm() {
         },
       );
 
+      // Invalidate before navigating so the browse grid is fresh on arrival.
+      await invalidateAllPromptQueries(queryClient);
       setSuccessMessage(`Prompt #${promptId.toString()} created successfully.`);
       setFormData({
         imageUrl: "",
@@ -222,8 +227,11 @@ export function CreatePromptForm() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Image URL</label>
+          <label htmlFor="create-prompt-image-url" className="text-sm font-medium">
+            Image URL
+          </label>
           <Input
+            id="create-prompt-image-url"
             name="imageUrl"
             value={formData.imageUrl}
             onChange={handleChange}
@@ -238,8 +246,11 @@ export function CreatePromptForm() {
           ) : null}
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Title</label>
+          <label htmlFor="create-prompt-title" className="text-sm font-medium">
+            Title
+          </label>
           <Input
+            id="create-prompt-title"
             name="title"
             value={formData.title}
             onChange={handleChange}
@@ -260,8 +271,11 @@ export function CreatePromptForm() {
 
       <div className="grid gap-6 md:grid-cols-[1fr_220px]">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Preview text</label>
+          <label htmlFor="create-prompt-preview" className="text-sm font-medium">
+            Preview text
+          </label>
           <Textarea
+            id="create-prompt-preview"
             name="previewText"
             value={formData.previewText}
             onChange={handleChange}
@@ -280,9 +294,15 @@ export function CreatePromptForm() {
           ) : null}
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Category</label>
+          <label htmlFor="create-prompt-category" className="text-sm font-medium">
+            Category
+          </label>
           <Select value={formData.category} onValueChange={handleCategoryChange}>
-            <SelectTrigger className={errors.category ? "border-red-500" : ""}>
+            <SelectTrigger
+              id="create-prompt-category"
+              aria-label="Category"
+              className={errors.category ? "border-red-500" : ""}
+            >
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
@@ -300,8 +320,11 @@ export function CreatePromptForm() {
             </p>
           ) : null}
 
-          <label className="pt-3 text-sm font-medium">Price in XLM</label>
+          <label htmlFor="create-prompt-price" className="pt-3 text-sm font-medium">
+            Price in XLM
+          </label>
           <Input
+            id="create-prompt-price"
             name="priceXlm"
             value={formData.priceXlm}
             onChange={handleChange}
@@ -318,8 +341,11 @@ export function CreatePromptForm() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Full prompt</label>
+        <label htmlFor="create-prompt-full-prompt" className="text-sm font-medium">
+          Full prompt
+        </label>
         <Textarea
+          id="create-prompt-full-prompt"
           name="fullPrompt"
           value={formData.fullPrompt}
           onChange={handleChange}

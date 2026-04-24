@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useWallet } from "@/hooks/useWallet";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
   getPromptsByBuyer,
@@ -56,14 +57,7 @@ const MyPrompts = () => {
     );
   }, [createdPrompts, priceDrafts]);
 
-  const refreshPromptLists = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["created-prompts"] }),
-      queryClient.invalidateQueries({ queryKey: ["purchased-prompts"] }),
-      queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
-      queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
-    ]);
-  };
+  const refreshPromptLists = () => invalidateAllPromptQueries(queryClient);
 
   const updateStatus = (message: string) => {
     setErrorMessage(null);
@@ -224,6 +218,7 @@ const MyPrompts = () => {
                   </div>
                   <div className="flex gap-3">
                     <Input
+                      aria-label={`Price for ${prompt.title}`}
                       value={mergedDrafts[prompt.id.toString()]}
                       onChange={(event) =>
                         setPriceDrafts((current) => ({

@@ -42,11 +42,23 @@ lerna-debug.log*
 
 # Editor / OS artifacts
 .DS_Store
+Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Claude / AI tooling
+.codex
+.claude/
 
 # Generated contract clients
 packages/*
 !packages/.gitkeep
 !src/contracts/util.ts
+.omx/

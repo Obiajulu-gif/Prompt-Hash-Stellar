@@ -7,6 +7,7 @@ import { WalletProvider } from "./providers/WalletProvider.tsx";
 import { TransactionProvider } from "./components/TransactionProvider.tsx";
 import { NotificationProvider } from "./providers/NotificationProvider.tsx";
 import { ContractSyncProvider } from "./providers/ContractSyncProvider.tsx";
+import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 
@@ -21,7 +22,9 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
+      <NotificationProvider>
+  <QueryClientProvider client={queryClient}>
+    <ContractSyncProvider>
       <TransactionProvider>
         <WalletProvider>
           <BrowserRouter>
@@ -29,6 +32,8 @@ createRoot(document.getElementById("root") as HTMLElement).render(
           </BrowserRouter>
         </WalletProvider>
       </TransactionProvider>
-    </QueryClientProvider>
+    </ContractSyncProvider>
+  </QueryClientProvider>
+</NotificationProvider>
   </StrictMode>,
 );

@@ -309,18 +309,26 @@ export const PromptModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prompt-modal-title"
+        className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl"
+      >
         <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">
               Prompt license
             </p>
-            <h2 className="mt-2 text-2xl font-semibold">{prompt.title}</h2>
+            <h2 id="prompt-modal-title" className="mt-2 text-2xl font-semibold">
+              {prompt.title}
+            </h2>
           </div>
           <Button
             variant="ghost"
             size="icon"
             className="text-slate-200 hover:bg-white/10"
+            aria-label="Close prompt details"
             onClick={closeModal}
           >
             <X className="h-5 w-5" />

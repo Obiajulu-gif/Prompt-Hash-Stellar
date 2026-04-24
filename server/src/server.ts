@@ -19,6 +19,10 @@ app.use("/api/user", userRouter);
 
 app.use("/api/chat", chatRouter);
 
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
 app.listen(port, () => {
   console.log(`Listening on port ${port}`);
 });
