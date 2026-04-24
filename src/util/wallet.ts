@@ -43,3 +43,8 @@ export const fetchBalance = async (address: string) => {
 export type Balance = Awaited<ReturnType<typeof fetchBalance>>[number];
 
 export const wallet = kit;
+
+// Restore removed connectWallet export for backward compatibility
+export const connectWallet = async (...args: any[]) => {
+  return (kit as any).openModal(...args);
+};

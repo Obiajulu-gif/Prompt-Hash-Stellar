@@ -39,7 +39,7 @@ interface UseAsyncTransactionOptions<TData, TVariables> {
   onOptimistic?: (variables: TVariables) => void;
   onSuccess?: (data: TData, variables: TVariables) => void;
   onError?: (error: Error, variables: TVariables) => void;
-  onSettled?: () => void;
+  onSettled?: (variables: TVariables, result?: TData, error?: unknown) => void;
   pendingMessage?: string | ((variables: TVariables) => string);
   successMessage?: string | ((data: TData) => string);
   errorMessage?: string | ((error: Error) => string);
@@ -65,6 +65,8 @@ export function useAsyncTransaction<TData, TVariables = void>(
     async (variables: TVariables) => {
       const txId = Date.now().toString();
       const currentOptions = optionsRef.current;
+      let settledData: TData | undefined;
+      let settledError: Error | undefined;
       
       setIsLoading(true);
       setError(null);
@@ -82,6 +84,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
 
       try {
         const result = await mutationFnRef.current(variables);
+        settledData = result;
         setData(result);
         
         const successMsg = typeof currentOptions?.successMessage === 'function' 
@@ -96,6 +99,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
       } catch (err) {
         const translated = translateStellarError(err);
         const normalizedError = err instanceof Error ? err : new Error(translated);
+        settledError = normalizedError;
         
         let friendlyMessage = translated;
         if (currentOptions?.errorMessage) {
@@ -120,7 +124,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
         throw normalizedError;
       } finally {
         setIsLoading(false);
-        currentOptions?.onSettled?.();
+        currentOptions?.onSettled?.(variables, settledData, settledError);
       }
     },
     [addTransaction, updateTransaction, removeTransaction]

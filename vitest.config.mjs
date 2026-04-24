@@ -27,7 +27,7 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     server: {
       deps: {
-        inline: [/@creit.tech\/stellar-wallets-kit/, /libsodium-wrappers/],
+        inline: [/@creit\.tech\/stellar-wallets-kit/, /libsodium-wrappers/],
       }
     }
   },

@@ -14,14 +14,26 @@ interface TransactionFeedbackContextType {
 const TransactionFeedbackContext = createContext<TransactionFeedbackContextType | undefined>(undefined);
 
 export const TransactionFeedbackProvider = ({ children }: { children: ReactNode }) => {
-  const [status, setStatus] = useState<TransactionStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [status, setRawStatus] = useState<TransactionStatus>("idle");
+  const [error, setRawError] = useState<string | null>(null);
   const [retry, setRetry] = useState<(() => void) | undefined>(undefined);
+  const [announcementId, setAnnouncementId] = useState(0);
+
+  const setStatus = useCallback((newStatus: TransactionStatus) => {
+    setRawStatus(newStatus);
+    setAnnouncementId((prev) => prev + 1);
+  }, []);
+
+  const setError = useCallback((newError: string | null) => {
+    setRawError(newError);
+    setAnnouncementId((prev) => prev + 1);
+  }, []);
 
   const clear = useCallback(() => {
-    setStatus("idle");
-    setError(null);
+    setRawStatus("idle");
+    setRawError(null);
     setRetry(undefined);
+    setAnnouncementId((prev) => prev + 1);
   }, []);
 
   const contextValue = useMemo(() => ({
@@ -31,15 +43,17 @@ export const TransactionFeedbackProvider = ({ children }: { children: ReactNode 
     setError,
     clear,
     retry,
-  }), [status, error, clear, retry]);
+  }), [status, error, setStatus, setError, clear, retry]);
 
   return (
     <TransactionFeedbackContext.Provider value={contextValue}>
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {/* Accessible live region for screen readers */}
-        {status === "pending" && "Transaction in progress."}
-        {status === "success" && "Transaction successful."}
-        {status === "error" && error}
+        <span key={announcementId}>
+          {status === "pending" && "Transaction in progress."}
+          {status === "success" && "Transaction successful."}
+          {status === "error" && error}
+        </span>
       </div>
       {children}
     </TransactionFeedbackContext.Provider>

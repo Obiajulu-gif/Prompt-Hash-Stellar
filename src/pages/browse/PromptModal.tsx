@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useRef } from "react";
 import { WalletContext } from "../../providers/WalletProvider";
 import { useAsyncTransaction } from "../../components/useAsyncTransaction";
 import { PromptHashClient } from "../../lib/stellar/promptHashClient";
@@ -13,15 +13,39 @@ interface PromptModalProps {
   itemId: string;
   isOpen: boolean;
   onClose: () => void;
+  onRefresh?: () => void;
 }
 
-export const PromptModal: React.FC<PromptModalProps> = ({ itemId, isOpen, onClose }) => {
+export const PromptModal: React.FC<PromptModalProps> = ({ itemId, isOpen, onClose, onRefresh }) => {
   const wallet = useContext(WalletContext);
   
   const [status, setStatus] = useState<BuyerStatus>("IDLE");
   const [txHash, setTxHash] = useState<string>("");
   const [secretContent, setSecretContent] = useState<string>("");
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
+
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      previousFocusRef.current = document.activeElement as HTMLElement;
+      
+      // Focus the close button when the modal mounts
+      setTimeout(() => closeButtonRef.current?.focus(), 0);
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          onClose();
+        }
+      };
+      document.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+        previousFocusRef.current?.focus();
+      };
+    }
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -86,8 +110,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({ itemId, isOpen, onClos
       pendingMessage: "Sign the transaction in your wallet to purchase...",
       successMessage: "Purchase confirmed on the Stellar network!",
       onSuccess: (data) => {
-        setStatus("PURCHASED_LOCKED");
+        setStatus("UNLOCKING");
         const hashToUse = data.txHash || txHash;
+        onRefresh?.();
         runUnlock(hashToUse).catch(() => {});
       },
       onError: () => {
@@ -126,7 +151,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({ itemId, isOpen, onClos
           </Button>
         </div>
 
-        <h2 className="text-xl font-bold text-white mb-6">Purchase Prompt</h2>
+        <h2 id="prompt-modal-title" className="text-xl font-bold text-white mb-6">Purchase Prompt</h2>
 
         {isCheckingAccess ? (
           <div className="space-y-4">

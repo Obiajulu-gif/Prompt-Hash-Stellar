@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react";
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
@@ -45,6 +46,7 @@ export const WalletContext = createContext<WalletContextType | undefined>(undefi
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
+  const isConnectingRef = useRef(false);
 
   const { execute: executeDisconnect } = useAsyncTransaction(
     async () => {
@@ -129,8 +131,17 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const connect = useCallback(async (walletId: string) => {
-    await executeConnect(walletId).catch(() => {});
-  }, [executeConnect]);
+    if (state.status === "connecting" || state.status === "reconnecting" || isConnectingRef.current) {
+      return;
+    }
+    
+    isConnectingRef.current = true;
+    try {
+      await executeConnect(walletId).catch(() => {});
+    } finally {
+      isConnectingRef.current = false;
+    }
+  }, [executeConnect, state.status]);
 
   const checkExtensionAccount = useCallback(async () => {
     if (state.status !== "connected" && state.status !== "reconnecting") return;

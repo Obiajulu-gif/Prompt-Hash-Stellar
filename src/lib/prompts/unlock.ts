@@ -19,5 +19,21 @@ export async function unlockPrompt(
   });
 }
 
-// Alias for backward compatibility with existing components
-export const unlockPromptContent = unlockPrompt;
+// Wrapper for backward compatibility with existing components
+export const unlockPromptContent = async (
+  arg1: string,
+  arg2: string,
+  signMessage: (message: string) => Promise<any>
+) => {
+  // Detect legacy call shape (address, promptId, signMessage) vs new (itemId, txHash, signMessage)
+  // Stellar addresses typically start with 'G' and are 56 characters long.
+  const isLegacy = arg1.startsWith("G") || arg1.length === 56;
+  const itemId = isLegacy ? arg2 : arg1;
+  const txHash = isLegacy ? arg1 : arg2;
+
+  const response = await unlockPrompt(itemId, txHash, signMessage);
+  return {
+    ...response,
+    plaintext: response.decryptedContent,
+  };
+};
