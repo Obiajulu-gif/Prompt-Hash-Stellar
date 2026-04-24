@@ -5,8 +5,10 @@ import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
 import { WalletProvider } from "./providers/WalletProvider.tsx"; 
 import { TransactionProvider } from "./components/TransactionProvider.tsx";
-import { BrowserRouter } from "react-router-dom";
+import { NotificationProvider } from "./providers/NotificationProvider.tsx";
+import { ContractSyncProvider } from "./providers/ContractSyncProvider.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter } from "react-router-dom";
 
 const queryClient = new QueryClient({
   defaultOptions: {
