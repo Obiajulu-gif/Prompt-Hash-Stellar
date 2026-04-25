@@ -20,7 +20,7 @@ const fetchDraftMetadata = async () => {
 // 2. Mock: Stellar Soroban contract call for listing the asset
 // Deterministic mock for local dev: always resolves successfully.
 const listAssetContractCall = async (_data: { name: string; price: string; description: string }): Promise<boolean> => {
-  return new Promise((resolve) => {
+  return new Promise<boolean>((resolve) => {
     setTimeout(() => {
       resolve(true);
     }, 2500);

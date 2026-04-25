@@ -45,6 +45,12 @@ interface UseAsyncTransactionOptions<TData, TVariables> {
   errorMessage?: string | ((error: Error) => string);
 }
 
+export interface TransactionFeedbackContextType {
+  addTransaction: (tx: { id: string; status: "pending" | "success" | "error"; message: string; retryAction?: () => void }) => void;
+  updateTransaction: (id: string, tx: { status: "pending" | "success" | "error"; message: string; retryAction?: () => void }) => void;
+  removeTransaction?: (id: string) => void;
+}
+
 export function useAsyncTransaction<TData, TVariables = void>(
   mutationFn: (variables: TVariables) => Promise<TData>,
   options?: UseAsyncTransactionOptions<TData, TVariables>
@@ -52,7 +58,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<TData | null>(null);
-  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback();
+  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback() as TransactionFeedbackContextType;
 
   const mutationFnRef = useRef(mutationFn);
   const optionsRef = useRef(options);

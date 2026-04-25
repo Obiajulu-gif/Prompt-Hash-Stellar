@@ -7,7 +7,7 @@ import { Skeleton } from "../components/Skeleton";
 const purchasePrompt = async (itemId: string): Promise<boolean> => {
   console.log(`Simulating purchase for item: ${itemId}`);
   // Simulating a network call for the marketplace purchase
-  return new Promise((resolve) => setTimeout(() => resolve(true), 2000));
+  return new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2000));
 };
 
 export default function Browse() {
@@ -27,7 +27,7 @@ export default function Browse() {
     },
   });
 
-  const { execute, isLoading: isPurchasing } = useAsyncTransaction(
+  const { execute } = useAsyncTransaction(
     async (itemId: string) => {
       await purchasePrompt(itemId);
     },
@@ -58,7 +58,7 @@ export default function Browse() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items?.map((item) => {
-            const isProcessing = optimisticPurchases.has(item.id) || (isPurchasing && optimisticPurchases.has(item.id));
+            const isProcessing = optimisticPurchases.has(item.id);
             return (
               <div key={item.id} className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between">
                 <div>

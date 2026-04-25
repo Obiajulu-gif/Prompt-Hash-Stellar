@@ -303,73 +303,88 @@ export const PromptModal = ({
           icon: undefined
         };
     }
-  );
-
-  if (!isOpen) return null;
+  };
 
   const buttonState = getButtonState();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div 
-        className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl relative"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="prompt-modal-title"
-      >
-        <button 
-          ref={closeButtonRef}
-          onClick={onClose} 
-          className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"
-          aria-label="Close modal"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <h2 id="prompt-modal-title" className="text-xl font-bold text-white mb-6">Purchase Prompt</h2>
-
-        {isCheckingAccess ? (
-          <div className="space-y-4">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-12 w-full mt-4" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">
+              Prompt license
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold">{prompt.title}</h2>
           </div>
-        ) : (
-          <>
-            {/* STATE: IDLE or ERROR */}
-            {(status === "IDLE" || status === "ERROR") && (
-              <div className="space-y-4">
-                <p className="text-slate-300">You are about to purchase Prompt #{itemId}. This requires a small XLM fee.</p>
-                
-                {status === "ERROR" && purchaseError && (
-                  <div className="text-left">
-                    <StatusBanner status="error" message={purchaseError.message} />
-                  </div>
-                )}
-                
-                <button onClick={() => runPurchase()} disabled={isPurchasing} className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold rounded-lg transition-colors">
-                  Buy Prompt
-                </button>
-              </div>
-            )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-slate-200 hover:bg-white/10"
+            onClick={closeModal}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
 
-            {/* STATE: AWAITING APPROVAL */}
-            {status === "AWAITING_APPROVAL" && (
-              <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-                <Loader2 className="w-10 h-10 text-purple-500 animate-spin" />
-                <p className="text-slate-200 font-medium">Please sign the transaction in your wallet...</p>
+        <div className="grid gap-6 p-6 lg:grid-cols-[1fr_0.95fr]">
+          <div className="space-y-5">
+            <img
+              src={prompt.imageUrl || "/images/codeguru.png"}
+              alt={prompt.title}
+              className="aspect-video w-full rounded-3xl object-cover"
+            />
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <Badge className="bg-slate-900 text-emerald-200">
+                  {prompt.category}
+                </Badge>
+                <Badge
+                  className={
+                    prompt.active
+                      ? "bg-emerald-400/15 text-emerald-200"
+                      : "bg-red-400/15 text-red-200"
+                  }
+                >
+                  {prompt.active ? "Active listing" : "Inactive listing"}
+                </Badge>
               </div>
-            )}
+              <h3 className="text-sm uppercase tracking-[0.25em] text-slate-400">
+                Public preview
+              </h3>
+              <p className="mt-3 text-sm leading-7 text-slate-200">
+                {prompt.previewText}
+              </p>
+            </div>
+          </div>
 
-            {/* STATE: CONFIRMING */}
-            {status === "CONFIRMING" && (
-              <div className="space-y-4 py-4">
-                <StatusBanner status="pending" message="Submitting transaction to the Stellar network..." />
-                {txHash && (
-                  <p className="text-xs text-slate-500 font-mono break-all text-center">
-                    Tx: <a href={`https://stellar.expert/explorer/testnet/tx/${txHash}`} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{txHash}</a>
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    Seller
                   </p>
-                )}
+                  <p className="mt-2 font-medium text-slate-100">
+                    {shortenAddress(prompt.creator)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    Sales count
+                  </p>
+                  <p className="mt-2 font-medium text-slate-100">
+                    {prompt.salesCount}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  Price
+                </p>
+                <p className="mt-2 text-3xl font-semibold">
+                  {formatPriceLabel(prompt.priceStroops)}
+                </p>
               </div>
               <div className="mt-5 space-y-3">
                 {/* Transaction Status Indicator */}
@@ -432,12 +447,12 @@ export const PromptModal = ({
                     </a>
                   </div>
                 )}
-                
-                <button onClick={() => runUnlock(txHash || "existing_ownership")} disabled={isUnlocking} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors focus:ring-2 focus:ring-blue-400 outline-none">
-                  {isUnlocking ? "Signing..." : unlockError ? "Retry Unlock" : "Sign to Unlock"}
-                </button>
+                <p className="text-sm leading-6 text-slate-400">
+                  Full prompt text stays encrypted on-chain. Unlock requires wallet
+                  ownership verification and an on-chain access check.
+                </p>
               </div>
-            )}
+            </div>
 
             {displayError ? (
               <div className={`rounded-2xl border px-4 py-3 text-sm flex items-start gap-3 ${
@@ -464,20 +479,26 @@ export const PromptModal = ({
                   )}
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {/* STATE: SUCCESS */}
-            {status === "SUCCESS" && (
-              <div className="space-y-4">
-                <StatusBanner status="success" message="Unlocked Successfully" />
-                <div className="bg-[#070602] border border-white/5 rounded-lg p-4 max-h-64 overflow-y-auto mt-4">
-                  <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans">{secretContent}</pre>
+            {plaintext ? (
+              <div className="rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-5">
+                <div className="mb-4 flex items-center gap-2 text-emerald-200">
+                  <LockKeyhole className="h-4 w-4" />
+                  <span className="text-xs uppercase tracking-[0.25em]">
+                    Unlocked content
+                  </span>
                 </div>
+                <pre className="whitespace-pre-wrap text-sm leading-7 text-slate-100">
+                  {plaintext}
+                </pre>
               </div>
-            )}
-          </>
-        )}
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );
 };
+
+export default PromptModal;

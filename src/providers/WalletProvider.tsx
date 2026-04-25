@@ -55,23 +55,6 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     {
       pendingMessage: "Disconnecting wallet...",
       successMessage: "Wallet disconnected",
-      onSuccess: () => {
-        storage.removeItem("walletId");
-        storage.removeItem("walletAddress");
-        storage.removeItem("walletNetwork");
-        storage.removeItem("networkPassphrase");
-        setState(initialState);
-      }
-    }
-  );
-
-  const { execute: executeDisconnect } = useAsyncTransaction(
-    async () => {
-      await wallet.disconnect();
-    },
-    {
-      pendingMessage: "Disconnecting wallet...",
-      successMessage: "Wallet disconnected",
       onSettled: () => {
         storage.removeItem("walletId");
         storage.removeItem("walletAddress");
