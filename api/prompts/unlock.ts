@@ -16,6 +16,7 @@ import {
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
+import { getSecret } from "../../src/lib/auth/secretManager";
 
 function getServerConfig(): PromptHashConfig {
   const rpcUrl =
@@ -69,9 +70,9 @@ async function handler(req: any, res: any) {
     }
   }
 
-  const challengeSecret = process.env.CHALLENGE_TOKEN_SECRET;
-  const unlockPublicKey = process.env.UNLOCK_PUBLIC_KEY;
-  const unlockPrivateKey = process.env.UNLOCK_PRIVATE_KEY;
+  const unlockPrivateKey = await getSecret("UNLOCK_PRIVATE_KEY");
+  const unlockPublicKey = await getSecret("UNLOCK_PUBLIC_KEY");
+  const challengeSecret = await getSecret("CHALLENGE_TOKEN_SECRET");
 
   if (!challengeSecret || !unlockPublicKey || !unlockPrivateKey) {
     req.logger.error("Unlock service is missing configuration secrets.");
@@ -118,10 +119,12 @@ async function handler(req: any, res: any) {
     }
 
     const prompt = await getPrompt(config, id);
+    const keyVersion = prompt.keyVersion || "v1"; // Default to v1 if no version is specified
     const keyBytes = await unwrapPromptKey(
       prompt.wrappedKey,
       unlockPublicKey,
       unlockPrivateKey,
+      keyVersion
     );
     const plaintext = await decryptPromptCiphertext(
       prompt.encryptedPrompt,

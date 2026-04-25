@@ -2,6 +2,7 @@ import { createChallengeToken } from "../../src/lib/auth/challenge";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
+import { getSecret } from "../../src/lib/auth/secretManager";
 
 async function handler(req: any, res: any) {
   if (req.method !== "POST") {
@@ -22,9 +23,9 @@ async function handler(req: any, res: any) {
     return;
   }
 
-  const secret = process.env.CHALLENGE_TOKEN_SECRET;
+  const secret = await getSecret("CHALLENGE_TOKEN_SECRET");
   if (!secret) {
-    req.logger.error("CHALLENGE_TOKEN_SECRET is not configured.");
+    req.logger.error("CHALLENGE_TOKEN_SECRET is not configured or accessible.");
     res.status(500).json({ error: "Configuration error." });
     return;
   }

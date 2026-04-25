@@ -34,11 +34,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',
-    server: {
-      deps: {
-        inline: [/@creit.tech\/stellar-wallets-kit/, /libsodium-wrappers/],
-      }
-    }
+    include: ['./src/lib/auth/**/*.test.ts', './api/**/*.test.ts'],
+    coverage: {
+      reporter: ['text', 'html'],
+      include: ['src/lib/auth/**', 'api/**'],
+    },
   },
   resolve: {
     alias: {
