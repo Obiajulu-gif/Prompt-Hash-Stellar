@@ -9,6 +9,7 @@ interface TransactionFeedbackContextType {
   setError: (error: string | null) => void;
   clear: () => void;
   retry?: () => void;
+  setRetry: (fn?: () => void) => void;
 }
 
 const TransactionFeedbackContext = createContext<TransactionFeedbackContextType | undefined>(undefined);
@@ -16,12 +17,16 @@ const TransactionFeedbackContext = createContext<TransactionFeedbackContextType 
 export const TransactionFeedbackProvider = ({ children }: { children: ReactNode }) => {
   const [status, setStatus] = useState<TransactionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [retry, setRetry] = useState<(() => void) | undefined>(undefined);
+  const [retry, setInternalRetry] = useState<(() => void) | undefined>(undefined);
+
+  const setRetry = useCallback((fn?: () => void) => {
+    setInternalRetry(fn ? () => fn : undefined);
+  }, []);
 
   const clear = useCallback(() => {
     setStatus("idle");
     setError(null);
-    setRetry(undefined);
+    setInternalRetry(undefined);
   }, []);
 
   const contextValue = useMemo(() => ({
@@ -31,7 +36,8 @@ export const TransactionFeedbackProvider = ({ children }: { children: ReactNode 
     setError,
     clear,
     retry,
-  }), [status, error, clear, retry]);
+    setRetry,
+  }), [status, error, clear, retry, setRetry]);
 
   return (
     <TransactionFeedbackContext.Provider value={contextValue}>

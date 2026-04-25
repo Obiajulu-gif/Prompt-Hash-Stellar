@@ -1,8 +1,19 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import { PromptModal } from './PromptModal';
 import { WalletContext, WalletContextType } from '../../providers/WalletProvider';
 import { TransactionProvider } from '../../components/TransactionProvider';
+import * as promptHashClient from '@/lib/stellar/promptHashClient';
+import * as unlockClient from '@/lib/prompts/unlock';
+
+vi.mock('@/lib/stellar/promptHashClient', () => ({
+  hasAccess: vi.fn(),
+  buyPromptAccess: vi.fn(),
+}));
+
+vi.mock('@/lib/prompts/unlock', () => ({
+  unlockPromptContent: vi.fn(),
+}));
 
 const mockWalletContext: WalletContextType = {
   address: 'GTESTADDRESS',
@@ -85,5 +96,131 @@ describe('PromptModal Buyer Flow', () => {
     expect(screen.getByText('View full prompt')).toBeInTheDocument();
   });
 
-  // More tests for error, unlock, and retry flows can be added here
+  it('handles rejected signing during purchase', async () => {
+    vi.mocked(promptHashClient.hasAccess).mockResolvedValue(false);
+    vi.mocked(promptHashClient.buyPromptAccess).mockRejectedValue(new Error('User declined'));
+
+    render(
+      <AllProviders>
+        <PromptModal
+          prompt={mockPrompt}
+          initialHasAccess={false}
+          closeModal={() => {}}
+          onRefresh={async () => {}}
+        />
+      </AllProviders>
+    );
+
+    fireEvent.click(screen.getByText('Buy access'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Transaction was rejected/)).toBeInTheDocument();
+      expect(screen.getByText('Retry Purchase')).toBeInTheDocument();
+    });
+  });
+
+  it('handles insufficient funds error', async () => {
+    vi.mocked(promptHashClient.hasAccess).mockResolvedValue(false);
+    vi.mocked(promptHashClient.buyPromptAccess).mockRejectedValue(new Error('insufficient balance'));
+
+    render(
+      <AllProviders>
+        <PromptModal
+          prompt={mockPrompt}
+          initialHasAccess={false}
+          closeModal={() => {}}
+          onRefresh={async () => {}}
+        />
+      </AllProviders>
+    );
+
+    fireEvent.click(screen.getByText('Buy access'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Insufficient balance/)).toBeInTheDocument();
+      expect(screen.getByText('Retry Purchase')).toBeInTheDocument();
+    });
+  });
+
+  it('handles duplicate purchase error', async () => {
+    vi.mocked(promptHashClient.hasAccess).mockResolvedValue(true);
+
+    render(
+      <AllProviders>
+        <PromptModal
+          prompt={mockPrompt}
+          initialHasAccess={false}
+          closeModal={() => {}}
+          onRefresh={async () => {}}
+        />
+      </AllProviders>
+    );
+
+    fireEvent.click(screen.getByText('Buy access'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/already have access/)).toBeInTheDocument();
+      expect(screen.getByText('Already Owned - Unlock')).toBeInTheDocument();
+    });
+  });
+
+  it('handles contract execution failure', async () => {
+    vi.mocked(promptHashClient.hasAccess).mockResolvedValue(false);
+    vi.mocked(promptHashClient.buyPromptAccess).mockRejectedValue(new Error('Contract failed'));
+
+    render(
+      <AllProviders>
+        <PromptModal
+          prompt={mockPrompt}
+          initialHasAccess={false}
+          closeModal={() => {}}
+          onRefresh={async () => {}}
+        />
+      </AllProviders>
+    );
+
+    fireEvent.click(screen.getByText('Buy access'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Purchase failed. You can retry.')).toBeInTheDocument();
+      expect(screen.getByText('Retry Purchase')).toBeInTheDocument();
+    });
+  });
+
+  it('supports Resume Unlock recovery path', async () => {
+    vi.mocked(promptHashClient.hasAccess)
+      .mockResolvedValueOnce(false) // Initial check
+      .mockResolvedValueOnce(true) // Check after purchase
+      .mockResolvedValueOnce(true); // Check before unlock
+    
+    vi.mocked(promptHashClient.buyPromptAccess).mockResolvedValue({ txHash: '123', success: true });
+    vi.mocked(unlockClient.unlockPromptContent).mockRejectedValue(new Error('401 unauthorized'));
+
+    render(
+      <AllProviders>
+        <PromptModal
+          prompt={mockPrompt}
+          initialHasAccess={false}
+          closeModal={() => {}}
+          onRefresh={async () => {}}
+        />
+      </AllProviders>
+    );
+
+    fireEvent.click(screen.getByText('Buy access'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Authentication failed/)).toBeInTheDocument();
+      expect(screen.getByText('Retry Unlock')).toBeInTheDocument();
+    });
+
+    // Retry unlock
+    vi.mocked(unlockClient.unlockPromptContent).mockResolvedValue({ plaintext: 'Secret prompt content' } as any);
+    fireEvent.click(screen.getByText('Retry Unlock'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Secret prompt content')).toBeInTheDocument();
+      expect(screen.getByText('Prompt Unlocked')).toBeInTheDocument();
+    });
+  });
 });

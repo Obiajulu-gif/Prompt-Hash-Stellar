@@ -53,21 +53,7 @@ describe('WalletProvider Session Persistence', () => {
       );
     };
 
-    const { rerender } = render(
-      <TransactionProvider>
-        <WalletProvider>
-          <TestComponent />
-        </WalletProvider>
-      </TransactionProvider>
-    );
-
-    // Wait for the provider to finish rehydration and reach connected state
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    });
-
-    // Re-render to get updated context after rehydration
-    rerender(
+    render(
       <TransactionProvider>
         <WalletProvider>
           <TestComponent />
@@ -76,8 +62,9 @@ describe('WalletProvider Session Persistence', () => {
     );
 
     // Verify we're connected before testing disconnect
-    const statusEl = screen.getByTestId('status');
-    expect(statusEl.textContent).toBe('connected');
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('connected');
+    });
 
     // 2. Trigger disconnect action
     const btn = screen.getByText('Logout');
@@ -89,6 +76,8 @@ describe('WalletProvider Session Persistence', () => {
     await waitFor(() => {
       expect(storage.getItem('walletId')).toBeNull();
       expect(storage.getItem('walletAddress')).toBeNull();
+      expect(storage.getItem('walletNetwork')).toBeNull();
+      expect(storage.getItem('networkPassphrase')).toBeNull();
     });
   });
 });

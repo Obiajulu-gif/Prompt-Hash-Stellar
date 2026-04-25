@@ -18,12 +18,10 @@ const fetchDraftMetadata = async () => {
 };
 
 // 2. Mock: Stellar Soroban contract call for listing the asset
+// Deterministic mock for local dev: always resolves successfully.
 const listAssetContractCall = async (data: { name: string; price: string; description: string }) => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     setTimeout(() => {
-      // Simulate a random failure (like 'op_not_authorized' or 'tx_bad_auth')
-      // The useAsyncTransaction hook will automatically catch this, translate it, and render the StatusBanner.
-      if (Math.random() < 0.2) reject(new Error("op_not_authorized"));
       resolve(true);
     }, 2500);
   });
@@ -33,6 +31,7 @@ export default function Sell() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: "", price: "", description: "" });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   // Fetch initial data (e.g., from local storage, IPFS, or an API)
   const { data: draftData, isLoading: isFetchingDraft } = useQuery({
@@ -42,10 +41,11 @@ export default function Sell() {
 
   // Populate form once draft data loads
   useEffect(() => {
-    if (draftData) {
+    if (draftData && !hydrated) {
       setFormData(draftData);
+      setHydrated(true);
     }
-  }, [draftData]);
+  }, [draftData, hydrated]);
 
   // 3. Wrap the Stellar transaction logic
   const { execute, isLoading: isTransacting } = useAsyncTransaction(
@@ -143,7 +143,7 @@ export default function Sell() {
           disabled={isFormDisabled || isFetchingDraft}
           className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white font-bold rounded-md transition-colors shadow-lg"
         >
-          {isProcessing ? "Processing Listing..." : "List Asset"}
+          {isFormDisabled ? "Processing Listing..." : "List Asset"}
         </button>
       </form>
     </div>

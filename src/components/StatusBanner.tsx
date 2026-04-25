@@ -35,7 +35,11 @@ export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onR
   };
 
   return (
-    <div className={`${baseClasses} ${statusClasses[status]}`} role="alert" aria-live="polite">
+    <div 
+      className={`${baseClasses} ${statusClasses[status]}`} 
+      role={status === "error" ? "alert" : undefined} 
+      aria-live={status !== "error" ? "polite" : undefined}
+    >
       {icons[status]}
       <span className="flex-1 text-sm font-medium">{message}</span>
       {status === "error" && onRetry && (
