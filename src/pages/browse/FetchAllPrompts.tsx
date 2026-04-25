@@ -187,9 +187,9 @@ const FetchAllPrompts = ({
 
       {selectedPrompt ? (
         <PromptModal
-          prompt={selectedPrompt}
-          initialHasAccess={accessMap.get(selectedPrompt.id.toString()) ?? false}
-          closeModal={() => setSelectedPrompt(null)}
+          itemId={selectedPrompt.id.toString()}
+          isOpen={!!selectedPrompt}
+          onClose={() => setSelectedPrompt(null)}
           onRefresh={refreshQueries}
         />
       ) : null}

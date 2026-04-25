@@ -1,7 +1,7 @@
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { WalletProvider, WalletContext } from '../WalletProvider';
 import storage from '../../util/storage';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react'; // Ensure React is imported for the TestComponent
 import { TransactionProvider } from '../../components/TransactionProvider';
 
@@ -28,13 +28,17 @@ vi.mock('@creit.tech/stellar-wallets-kit', async (importOriginal) => {
 });
 
 describe('WalletProvider Session Persistence', () => {
-  it('should purge storage on disconnect', async () => {
+  beforeEach(() => {
     // 0. Clear any existing storage to avoid cross-test contamination
-    storage.removeItem('walletId');
-    storage.removeItem('walletAddress');
-    storage.removeItem('walletNetwork');
-    storage.removeItem('networkPassphrase');
+    if (storage.clear) {
+      storage.clear();
+    } else {
+      ['walletId', 'walletAddress', 'walletNetwork', 'networkPassphrase']
+        .forEach(key => storage.removeItem(key));
+    }
+  });
 
+  it('should purge storage on disconnect', async () => {
     // 1. Mock existing storage values
     storage.setItem('walletId', 'freighter');
     storage.setItem('walletAddress', 'GABC123');
@@ -53,7 +57,21 @@ describe('WalletProvider Session Persistence', () => {
       );
     };
 
-    render(
+    const { rerender } = render(
+      <TransactionProvider>
+        <WalletProvider>
+          <TestComponent />
+        </WalletProvider>
+      </TransactionProvider>
+    );
+
+    // Wait for the provider to finish rehydration and reach connected state
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+
+    // Re-render to get updated context after rehydration
+    rerender(
       <TransactionProvider>
         <WalletProvider>
           <TestComponent />

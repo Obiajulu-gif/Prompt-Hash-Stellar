@@ -1,6 +1,6 @@
 import React from "react";
 
-type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
+export type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
 
 export const Skeleton: React.FC<SkeletonProps> = ({ className = "", ...props }) => {
   return (

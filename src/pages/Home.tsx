@@ -43,20 +43,17 @@ export default function Home() {
               their license.
             </p>
             <div className="flex flex-wrap gap-3">
+            <Button asChild className="relative z-50 bg-amber-400 text-slate-950 hover:bg-amber-300 cursor-pointer">
               <Link to="/browse">
-                <Button className="bg-amber-400 text-slate-950 hover:bg-amber-300">
-                  Browse marketplace
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
+                Browse marketplace
+                <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
+            </Button>
+            <Button asChild variant="outline" className="relative z-50 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10 cursor-pointer">
               <Link to="/sell">
-                <Button
-                  variant="outline"
-                  className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
-                >
-                  Create listing
-                </Button>
+                Create listing
               </Link>
+            </Button>
             </div>
           </div>
 

@@ -18,10 +18,12 @@ const fetchDraftMetadata = async () => {
 };
 
 // 2. Mock: Stellar Soroban contract call for listing the asset
-// Deterministic mock for local dev: always resolves successfully.
 const listAssetContractCall = async (data: { name: string; price: string; description: string }) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     setTimeout(() => {
+      // Simulate a random failure (like 'op_not_authorized' or 'tx_bad_auth')
+      // The useAsyncTransaction hook will automatically catch this, translate it, and render the StatusBanner.
+      if (Math.random() < 0.2) reject(new Error("op_not_authorized"));
       resolve(true);
     }, 2500);
   });

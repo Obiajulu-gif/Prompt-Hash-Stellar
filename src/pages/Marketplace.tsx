@@ -16,10 +16,7 @@ const buyAssetContractCall = async (itemId: string) => {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       // Simulate a random failure for demonstration of the Retry recovery flow
-      if (Math.random() < 0.2) {
-        reject(new Error("op_underfunded"));
-        return;
-      }
+      if (Math.random() < 0.2) return reject(new Error("op_underfunded"));
       resolve(true);
     }, 2000);
   });
@@ -59,6 +56,10 @@ export default function Marketplace() {
         queryClient.invalidateQueries({ queryKey: ["account-balance"] });
         queryClient.invalidateQueries({ queryKey: ["marketplace-items"] });
       },
+      // Clean up optimistic state
+      onSettled: () => {
+        setOptimisticPurchases(new Set());
+      },
     }
   );
 
@@ -75,7 +76,7 @@ export default function Marketplace() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items?.map((item) => {
-            const isProcessing = optimisticPurchases.has(item.id);
+            const isProcessing = optimisticPurchases.has(item.id) || (isPurchasing && optimisticPurchases.has(item.id));
             return (
               <div key={item.id} className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between">
                 <div>
@@ -89,17 +90,7 @@ export default function Marketplace() {
                     </span>
                   ) : (
                     <button
-                  onClick={async () => {
-                    try {
-                      await execute(item.id);
-                    } finally {
-                      setOptimisticPurchases((prev) => {
-                        const next = new Set(prev);
-                        next.delete(item.id);
-                        return next;
-                      });
-                    }
-                  }}
+                      onClick={() => execute(item.id)}
                       disabled={isProcessing}
                       className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white font-bold rounded-md transition-colors"
                     >

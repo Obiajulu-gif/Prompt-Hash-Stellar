@@ -1,4 +1,5 @@
 import React from "react";
+import { useTransactionFeedback } from "./useTransactionFeedback";
 
 export const TransactionRetryButton: React.FC<{ onRetry: () => void; loading?: boolean }> = ({ onRetry, loading }) => (
   <button

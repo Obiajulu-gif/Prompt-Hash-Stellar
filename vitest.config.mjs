@@ -34,6 +34,15 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     server: {
       deps: {
+        inline: [/@creit\.tech\/stellar-wallets-kit/, /libsodium-wrappers/],
+      }
+    }
+  },
+
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      'libsodium-wrappers': require.resolve('libsodium-wrappers'),
         inline: [/@creit.tech\/stellar-wallets-kit/, /libsodium-wrappers/],
       }
     }

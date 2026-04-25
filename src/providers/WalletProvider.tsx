@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react";
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
@@ -25,7 +26,7 @@ export interface WalletContextType {
   status: WalletStatus;
   error?: string;
   connect: (id: string) => Promise<void>;
-  disconnect: () => void;
+  disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
 }
@@ -38,10 +39,31 @@ const initialState = {
   error: undefined,
 };
 
+const boundSignTransaction = wallet.signTransaction.bind(wallet);
+const boundSignMessage = wallet.signMessage.bind(wallet);
+
 export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
+  const isConnectingRef = useRef(false);
+
+  const { execute: executeDisconnect } = useAsyncTransaction(
+    async () => {
+      await wallet.disconnect();
+    },
+    {
+      pendingMessage: "Disconnecting wallet...",
+      successMessage: "Wallet disconnected",
+      onSuccess: () => {
+        storage.removeItem("walletId");
+        storage.removeItem("walletAddress");
+        storage.removeItem("walletNetwork");
+        storage.removeItem("networkPassphrase");
+        setState(initialState);
+      }
+    }
+  );
 
   const { execute: executeDisconnect } = useAsyncTransaction(
     async () => {
@@ -221,8 +243,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       ...state,
       connect,
       disconnect,
-      signTransaction: wallet.signTransaction.bind(wallet),
-      signMessage: wallet.signMessage.bind(wallet),
+      signTransaction: boundSignTransaction,
+      signMessage: boundSignMessage,
     }),
     [state, connect, disconnect]
   );
