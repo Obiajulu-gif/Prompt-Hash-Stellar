@@ -43,6 +43,18 @@ struct FeeWalletUpdated {
     pub new_fee_wallet: Address,
 }
 
+#[contractevent]
+struct ProtocolPaused {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+struct ProtocolUnpaused {
+    #[topic]
+    pub admin: Address,
+}
+
 pub struct Events;
 
 impl Events {
@@ -89,5 +101,13 @@ impl Events {
 
     pub fn emit_fee_wallet_updated(env: &Env, new_fee_wallet: Address) {
         FeeWalletUpdated { new_fee_wallet }.publish(env);
+    }
+
+    pub fn emit_protocol_paused(env: &Env, admin: Address) {
+        ProtocolPaused { admin }.publish(env);
+    }
+
+    pub fn emit_protocol_unpaused(env: &Env, admin: Address) {
+        ProtocolUnpaused { admin }.publish(env);
     }
 }

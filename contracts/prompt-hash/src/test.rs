@@ -246,3 +246,208 @@ fn test_inactive_prompt_cannot_be_bought() {
         other => panic!("unexpected inactive prompt result: {:?}", other),
     }
 }
+
+// ─── Emergency Pause Tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_admin_can_pause_and_unpause() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    assert!(!client.is_paused());
+
+    client.pause();
+    assert!(client.is_paused());
+
+    client.unpause();
+    assert!(!client.is_paused());
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_unauthorized_cannot_pause() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+
+    // Create a new env without mock_all_auths to enforce authorization
+    let env2: Env = Default::default();
+    let non_admin = Address::generate(&env2);
+
+    // Re-register contract in env2 to get a clean auth context
+    let admin = Address::generate(&env2);
+    let fee_wallet = Address::generate(&env2);
+    let xlm = env2.register(FungibleTokenContract, (admin.clone(),));
+    let contract = env2.register(
+        PromptHashContract,
+        (admin.clone(), fee_wallet.clone(), xlm.clone()),
+    );
+
+    let client = PromptHashContractClient::new(&env2, &contract);
+    // Don't mock auths — this should fail because non_admin is not the owner
+    client.pause();
+}
+
+#[test]
+fn test_buy_prompt_blocked_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Paused Buy", 5_000);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+
+    client.pause();
+
+    let result = client.try_buy_prompt(&buyer, &prompt_id);
+    match result {
+        Err(Ok(error)) => assert_eq!(error, Error::ContractPaused),
+        other => panic!("expected ContractPaused, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_create_prompt_blocked_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    client.pause();
+
+    let creator = Address::generate(&env);
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/img.png"),
+        &String::from_str(&env, "Blocked Prompt"),
+        &String::from_str(&env, "AI"),
+        &String::from_str(&env, "Preview text"),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 8),
+        &10_000,
+    );
+    match result {
+        Err(Ok(error)) => assert_eq!(error, Error::ContractPaused),
+        other => panic!("expected ContractPaused, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_set_sale_status_blocked_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Status Block", 5_000);
+
+    client.pause();
+
+    let result = client.try_set_prompt_sale_status(&creator, &prompt_id, &false);
+    match result {
+        Err(Ok(error)) => assert_eq!(error, Error::ContractPaused),
+        other => panic!("expected ContractPaused, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_update_price_blocked_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Price Block", 5_000);
+
+    client.pause();
+
+    let result = client.try_update_prompt_price(&creator, &prompt_id, &9_000);
+    match result {
+        Err(Ok(error)) => assert_eq!(error, Error::ContractPaused),
+        other => panic!("expected ContractPaused, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_read_methods_work_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Readable", 5_000);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+    client.buy_prompt(&buyer, &prompt_id);
+
+    // Pause the protocol
+    client.pause();
+
+    // All read-only methods should still work
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.id, prompt_id);
+
+    let all = client.get_all_prompts();
+    assert_eq!(all.len(), 1);
+
+    let by_creator = client.get_prompts_by_creator(&creator);
+    assert_eq!(by_creator.len(), 1);
+
+    let by_buyer = client.get_prompts_by_buyer(&buyer);
+    assert_eq!(by_buyer.len(), 1);
+
+    assert!(client.has_access(&buyer, &prompt_id));
+    assert!(client.has_access(&creator, &prompt_id));
+}
+
+#[test]
+fn test_admin_ops_work_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    client.pause();
+
+    // Admin operations should not be blocked by pause
+    let new_wallet = Address::generate(&env);
+    client.set_fee_percentage(&300);
+    client.set_fee_wallet(&new_wallet);
+}
+
+#[test]
+fn test_unpause_resumes_operations() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Pause, then unpause
+    client.pause();
+    client.unpause();
+
+    // All operations should work again
+    let prompt_id = create_prompt(&env, &client, &creator, "Resumed Prompt", 5_000);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+    client.buy_prompt(&buyer, &prompt_id);
+
+    assert!(client.has_access(&buyer, &prompt_id));
+    assert_eq!(client.get_prompt(&prompt_id).sales_count, 1);
+
+    client.set_prompt_sale_status(&creator, &prompt_id, &false);
+    assert!(!client.get_prompt(&prompt_id).active);
+
+    client.set_prompt_sale_status(&creator, &prompt_id, &true);
+    client.update_prompt_price(&creator, &prompt_id, &7_000);
+    assert_eq!(client.get_prompt(&prompt_id).price_stroops, 7_000);
+}

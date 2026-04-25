@@ -29,6 +29,9 @@ Core contract methods:
 - `set_prompt_sale_status`
 - `set_fee_percentage`
 - `set_fee_wallet`
+- `pause`
+- `unpause`
+- `is_paused`
 
 ## 2. Frontend Application Layer
 
@@ -102,6 +105,19 @@ Important assumptions:
 - the unlock service private key must remain secret
 - the challenge secret must be rotated and stored securely
 - contract IDs and network settings must be configured correctly per environment
+
+### Circuit Breaker (Emergency Pause)
+
+The contract includes a global pause mechanism controlled by the admin authority.
+
+When paused:
+
+- `buy_prompt`, `create_prompt`, `set_prompt_sale_status`, and `update_prompt_price` return `Error::ContractPaused` (code 19)
+- Read-only methods (`get_prompt`, `get_all_prompts`, `has_access`, etc.) continue to work
+- Admin operations (`set_fee_percentage`, `set_fee_wallet`, `upgrade`) remain callable so the admin can reconfigure or deploy fixes during an incident
+- `ProtocolPaused` and `ProtocolUnpaused` events are emitted for indexer and monitoring consumption
+
+The pause flag is stored in instance storage (not persistent) since it is a global singleton tied to the contract instance.
 
 ## Scalability Notes
 
