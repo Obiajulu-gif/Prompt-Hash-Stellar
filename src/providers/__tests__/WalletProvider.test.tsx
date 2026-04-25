@@ -80,8 +80,9 @@ describe('WalletProvider Session Persistence', () => {
     );
 
     // Verify we're connected before testing disconnect
-    const statusEl = screen.getByTestId('status');
-    expect(statusEl.textContent).toBe('connected');
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('connected');
+    });
 
     // 2. Trigger disconnect action
     const btn = screen.getByText('Logout');
@@ -93,6 +94,8 @@ describe('WalletProvider Session Persistence', () => {
     await waitFor(() => {
       expect(storage.getItem('walletId')).toBeNull();
       expect(storage.getItem('walletAddress')).toBeNull();
+      expect(storage.getItem('walletNetwork')).toBeNull();
+      expect(storage.getItem('networkPassphrase')).toBeNull();
     });
   });
 });

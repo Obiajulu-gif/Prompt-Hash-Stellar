@@ -11,12 +11,15 @@ export interface MarketplaceItem {
 }
 
 // Simulating a Stellar Soroban contract call
-const buyAssetContractCall = async (itemId: string) => {
+const buyAssetContractCall = async (itemId: string): Promise<boolean> => {
   // E.g., await contract.call('buy_asset', { id: itemId });
-  return new Promise((resolve, reject) => {
+  return new Promise<boolean>((resolve, reject) => {
     setTimeout(() => {
       // Simulate a random failure for demonstration of the Retry recovery flow
-      if (Math.random() < 0.2) return reject(new Error("op_underfunded"));
+      if (import.meta.env.DEV && Math.random() < 0.2) {
+        reject(new Error("op_underfunded"));
+        return;
+      }
       resolve(true);
     }, 2000);
   });
@@ -40,7 +43,7 @@ export default function Marketplace() {
   });
 
   // 2. Wrap purchase flow in useAsyncTransaction
-  const { execute, isLoading: isPurchasing } = useAsyncTransaction(
+  const { execute } = useAsyncTransaction(
     async (itemId: string) => {
       await buyAssetContractCall(itemId);
     },
@@ -76,7 +79,7 @@ export default function Marketplace() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items?.map((item) => {
-            const isProcessing = optimisticPurchases.has(item.id) || (isPurchasing && optimisticPurchases.has(item.id));
+            const isProcessing = optimisticPurchases.has(item.id);
             return (
               <div key={item.id} className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between">
                 <div>

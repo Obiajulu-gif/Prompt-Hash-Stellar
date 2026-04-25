@@ -23,7 +23,6 @@ export default defineConfig({
 
   build: {
     commonjsOptions: {
-      // This allows the "require" based code inside the kit to work in the browser
       include: [/@creit.tech\/stellar-wallets-kit/, /node_modules/],
       transformMixedEsModules: true,
     },
@@ -48,10 +47,11 @@ export default defineConfig({
       }
     }
   },
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'libsodium-wrappers': require.resolve('libsodium-wrappers/dist/modules-esm/libsodium.mjs'),
+      'libsodium-wrappers': require.resolve('libsodium-wrappers'),
     },
   },
 })

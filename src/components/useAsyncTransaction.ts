@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useTransactionFeedback } from "./TransactionProvider";
 
 interface StellarError {
@@ -45,6 +45,12 @@ interface UseAsyncTransactionOptions<TData, TVariables> {
   errorMessage?: string | ((error: Error) => string);
 }
 
+export interface TransactionFeedbackContextType {
+  addTransaction: (tx: { id: string; status: "pending" | "success" | "error"; message: string; retryAction?: () => void }) => void;
+  updateTransaction: (id: string, tx: { status: "pending" | "success" | "error"; message: string; retryAction?: () => void }) => void;
+  removeTransaction?: (id: string) => void;
+}
+
 export function useAsyncTransaction<TData, TVariables = void>(
   mutationFn: (variables: TVariables) => Promise<TData>,
   options?: UseAsyncTransactionOptions<TData, TVariables>
@@ -52,18 +58,39 @@ export function useAsyncTransaction<TData, TVariables = void>(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<TData | null>(null);
-  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback();
+  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback() as TransactionFeedbackContextType;
 
-  // Use refs to stabilize the execute function, preventing infinite loops
-  // when options or mutationFn are passed inline.
   const mutationFnRef = useRef(mutationFn);
   const optionsRef = useRef(options);
   mutationFnRef.current = mutationFn;
   optionsRef.current = options;
 
+  const mountedRef = useRef(true);
+  const activeTxIdRef = useRef<string | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (activeTxIdRef.current && removeTransaction) {
+        removeTransaction(activeTxIdRef.current);
+      }
+    };
+  }, [removeTransaction]);
+
   const execute = useCallback(
     async (variables: TVariables) => {
-      const txId = Date.now().toString();
+      const txId = crypto.randomUUID();
+      activeTxIdRef.current = txId;
+      
+      /**
+       * JSDoc Note:
+       * optionsRef and mutationFnRef capture live values on every render.
+       * The retryAction uses these latest closures to ensure retries use
+       * current component state, rather than a stale failure-time snapshot.
+       */
       const currentOptions = optionsRef.current;
       let settledData: TData | undefined;
       let settledError: Error | undefined;
@@ -84,6 +111,8 @@ export function useAsyncTransaction<TData, TVariables = void>(
 
       try {
         const result = await mutationFnRef.current(variables);
+        if (!mountedRef.current) return result;
+
         settledData = result;
         setData(result);
         
@@ -93,10 +122,20 @@ export function useAsyncTransaction<TData, TVariables = void>(
         
         updateTransaction(txId, { status: "success", message: successMsg });
 
+        if (removeTransaction) {
+          timerRef.current = setTimeout(() => {
+            if (mountedRef.current) removeTransaction(txId);
+          }, 3000);
+        }
+        
+        activeTxIdRef.current = null;
+
         // Fire Query Invalidation Hook
         currentOptions?.onSuccess?.(result, variables);
         return result;
       } catch (err) {
+        if (!mountedRef.current) throw err;
+
         const translated = translateStellarError(err);
         const normalizedError = err instanceof Error ? err : new Error(translated);
         settledError = normalizedError;
@@ -123,8 +162,10 @@ export function useAsyncTransaction<TData, TVariables = void>(
         currentOptions?.onError?.(normalizedError, variables);
         throw normalizedError;
       } finally {
-        setIsLoading(false);
-        currentOptions?.onSettled?.(variables, settledData, settledError);
+        if (mountedRef.current) {
+          setIsLoading(false);
+          currentOptions?.onSettled?.(variables, settledData, settledError);
+        }
       }
     },
     [addTransaction, updateTransaction, removeTransaction]
