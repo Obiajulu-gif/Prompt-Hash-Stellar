@@ -374,3 +374,17 @@ Maintained by the PromptHash Stellar team for Drip Wave submission and ongoing o
 - `docs: rewrite repository for Drip Wave submission`
 - `docs: add architecture and ecosystem overview`
 - `chore: align package metadata with PromptHash Stellar`
+
+## Key Management
+
+### Rotation Guidance
+Refer to the [Key Rotation and Recovery Procedures](docs/key-rotation.md) for detailed steps on normal and emergency key rotation.
+
+### Environment Templates
+Ensure the following secrets are configured in your environment:
+
+- `CHALLENGE_TOKEN_SECRET`: Secret used for signing challenge tokens.
+- `UNLOCK_PUBLIC_KEY`: Public key for decrypting prompt keys.
+- `UNLOCK_PRIVATE_KEY`: Private key for decrypting prompt keys.
+
+Use a managed secret store to securely manage these secrets in production environments.
