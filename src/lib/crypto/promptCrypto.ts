@@ -8,6 +8,34 @@ function cloneBytes(value: Uint8Array) {
   return Uint8Array.from(value);
 }
 
+const DEFAULT_WRAPPED_KEY_VERSION = "v1";
+
+export interface WrappedPromptKey {
+  version: string;
+  wrappedKey: string;
+}
+
+export function encodeWrappedPromptKey(
+  wrappedKeyBase64: string,
+  version = DEFAULT_WRAPPED_KEY_VERSION,
+) {
+  return `${version}:${wrappedKeyBase64}`;
+}
+
+export function decodeWrappedPromptKey(
+  encodedWrappedKey: string,
+): WrappedPromptKey {
+  const [version, wrappedKey] = encodedWrappedKey.split(/:(.+)/);
+  if (wrappedKey) {
+    return { version, wrappedKey };
+  }
+
+  return {
+    version: DEFAULT_WRAPPED_KEY_VERSION,
+    wrappedKey: encodedWrappedKey,
+  };
+}
+
 async function ensureSodium() {
   await sodium.ready;
   return sodium;
@@ -112,11 +140,14 @@ export async function decryptPromptCiphertext(
 export async function wrapPromptKey(
   rawKey: Uint8Array,
   publicKeyBase64: string,
+  version = DEFAULT_WRAPPED_KEY_VERSION,
 ) {
   const sodiumLib = await ensureSodium();
-  return bytesToBase64(
+  const wrappedKey = bytesToBase64(
     sodiumLib.crypto_box_seal(rawKey, base64ToBytes(publicKeyBase64)),
   );
+
+  return encodeWrappedPromptKey(wrappedKey, version);
 }
 
 export async function unwrapPromptKey(
@@ -125,8 +156,9 @@ export async function unwrapPromptKey(
   privateKeyBase64: string,
 ) {
   const sodiumLib = await ensureSodium();
+  const decoded = decodeWrappedPromptKey(wrappedKeyBase64);
   return sodiumLib.crypto_box_seal_open(
-    base64ToBytes(wrappedKeyBase64),
+    base64ToBytes(decoded.wrappedKey),
     base64ToBytes(publicKeyBase64),
     base64ToBytes(privateKeyBase64),
   );

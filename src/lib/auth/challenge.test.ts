@@ -6,8 +6,10 @@ import { Keypair } from "@stellar/stellar-sdk";
 import {
   buildChallengeMessage,
   createChallengeToken,
+  parseChallengeSecrets,
   verifyChallengeSignature,
   verifyChallengeToken,
+  verifyChallengeTokenWithSecrets,
 } from "./challenge";
 
 describe("unlock challenge verification", () => {
@@ -47,5 +49,27 @@ describe("unlock challenge verification", () => {
     expect(() =>
       verifyChallengeToken(secret, challenge.token, address, "7", 1_700_000_010_500),
     ).toThrow("expired");
+  });
+
+  it("verifies challenge tokens against current and previous secrets", () => {
+    const currentSecret = "current-secret";
+    const previousSecret = "previous-secret";
+    const keypair = Keypair.random();
+    const address = keypair.publicKey();
+    const promptId = "42";
+
+    const challenge = createChallengeToken(previousSecret, address, promptId, 1_700_000_000_000);
+    const secrets = parseChallengeSecrets(currentSecret, previousSecret);
+
+    const payload = verifyChallengeTokenWithSecrets(
+      secrets,
+      challenge.token,
+      address,
+      promptId,
+      1_700_000_000_100,
+    );
+
+    expect(payload.address).toBe(address);
+    expect(payload.promptId).toBe(promptId);
   });
 });

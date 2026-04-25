@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -11,7 +14,7 @@ export default defineConfig({
       name: 'fix-libsodium-path',
       resolveId(id) {
         if (id.includes('libsodium.mjs')) {
-          return path.resolve(__dirname, 'node_modules/libsodium-wrappers/dist/modules-esm/libsodium.mjs');
+          return path.resolve(__dirname, 'node_modules/libsodium/dist/modules-esm/libsodium.mjs');
         }
       }
     }
@@ -43,7 +46,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'libsodium-wrappers': require.resolve('libsodium-wrappers/dist/modules-esm/libsodium.mjs'),
+      'libsodium-wrappers': path.resolve(
+        __dirname,
+        'node_modules/libsodium-wrappers/dist/modules-esm/libsodium-wrappers.mjs',
+      ),
     },
   },
 })

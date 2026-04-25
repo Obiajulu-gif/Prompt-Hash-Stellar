@@ -32,6 +32,20 @@ This guide documents how to handle security or operational incidents related to 
 3. **Check Redacted Data**: If you need to see "redacted" data for debugging (rare), you must do so in a secure environment with original data access; logs will *not* contain plaintext.
 4. **Verify On-Chain State**: Use the Stellar Lab or Soroban CLI to check the `has_access` status for the wallet and prompt ID.
 
+## Unlock key and challenge secret incidents
+
+### Key or secret compromise
+- If `UNLOCK_PRIVATE_KEY` or `CHALLENGE_TOKEN_SECRET` may be compromised, rotate immediately.
+- Deploy a new keypair and update `UNLOCK_KEY_VERSION`, `UNLOCK_PUBLIC_KEY`, and `UNLOCK_PRIVATE_KEY` for the current version.
+- If older prompt listings must remain decryptable, keep the previous version in `UNLOCK_PUBLIC_KEYS` / `UNLOCK_PRIVATE_KEYS` until all legacy prompts are migrated or re-encrypted.
+- Remove any compromised secret from `CHALLENGE_TOKEN_PREVIOUS_SECRETS` and deploy a fresh `CHALLENGE_TOKEN_SECRET`.
+
+### Emergency revocation path
+- Mark the unlock endpoint unhealthy in your deployment if necessary.
+- Rotate the challenge secret first to invalidate all active challenge tokens.
+- Rotate the unlock keypair and publish the new public key for future listings.
+- Maintain an overlap window where both the current and previous unlock key versions are available so existing prompt listings still decrypt successfully.
+
 ## Escalation
 - Contact the backend security lead if `integrity_failure` is widespread (potential key compromise).
 - Contact the infrastructure team if Stellar RPC is consistently returning 5xx.

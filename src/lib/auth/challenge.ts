@@ -29,6 +29,49 @@ function signPayload(secret: string, body: string) {
   return createHmac("sha256", secret).update(body).digest("base64url");
 }
 
+export function parseChallengeSecrets(
+  currentSecret?: string,
+  previousSecrets?: string,
+) {
+  const secrets: string[] = [];
+  if (currentSecret) {
+    secrets.push(currentSecret);
+  }
+
+  if (previousSecrets) {
+    for (const secret of previousSecrets.split(",").map((value) => value.trim())) {
+      if (secret && !secrets.includes(secret)) {
+        secrets.push(secret);
+      }
+    }
+  }
+
+  return secrets;
+}
+
+export function verifyChallengeTokenWithSecrets(
+  secrets: string[],
+  token: string,
+  address: string,
+  promptId: string,
+  now = Date.now(),
+) {
+  let lastError: Error | null = null;
+
+  for (const secret of secrets) {
+    try {
+      return verifyChallengeToken(secret, token, address, promptId, now);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("expired")) {
+        throw error;
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw new Error(lastError?.message ?? "Invalid challenge token signature.");
+}
+
 export function buildChallengeMessage(payload: ChallengePayload) {
   return `prompt-hash unlock:${payload.address}:${payload.promptId}:${payload.nonce}:${payload.expiresAt}`;
 }

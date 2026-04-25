@@ -38,4 +38,24 @@ describe("promptCrypto", () => {
 
     expect(Array.from(unwrappedKey)).toEqual(Array.from(encrypted.keyBytes));
   });
+
+  it("roundtrips a versioned wrapped key and accepts legacy unversioned values", async () => {
+    await sodium.ready;
+    const keyPair = sodium.crypto_box_keypair();
+    const encrypted = await encryptPromptPlaintext("Versioned key test.");
+
+    const wrappedKey = await wrapPromptKey(
+      encrypted.keyBytes,
+      bytesToBase64(keyPair.publicKey),
+      "v1",
+    );
+
+    const unwrappedKey = await unwrapPromptKey(
+      wrappedKey,
+      bytesToBase64(keyPair.publicKey),
+      bytesToBase64(keyPair.privateKey),
+    );
+
+    expect(Array.from(unwrappedKey)).toEqual(Array.from(encrypted.keyBytes));
+  });
 });

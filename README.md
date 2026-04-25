@@ -276,9 +276,24 @@ See `.env.example` for the full template. Main variables:
 - `PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID`
 - `PUBLIC_STELLAR_SIMULATION_ACCOUNT`
 - `PUBLIC_UNLOCK_PUBLIC_KEY`
+- `PUBLIC_UNLOCK_KEY_VERSION` (optional, defaults to `v1`)
 - `CHALLENGE_TOKEN_SECRET`
+- `CHALLENGE_TOKEN_PREVIOUS_SECRETS` (optional, comma-separated old secrets)
+- `UNLOCK_KEY_VERSION` (optional, defaults to `v1`)
 - `UNLOCK_PUBLIC_KEY`
 - `UNLOCK_PRIVATE_KEY`
+- `UNLOCK_PUBLIC_KEYS` (optional, versioned public keys in `version:base64` comma-separated form)
+- `UNLOCK_PRIVATE_KEYS` (optional, versioned private keys in `version:base64` comma-separated form)
+
+## Unlock key custody and rotation
+
+The unlock service protects encrypted prompt delivery and challenge issuance.
+
+- Use `UNLOCK_PUBLIC_KEY` / `UNLOCK_PRIVATE_KEY` for the current service keypair when you are only running a single version.
+- Use `UNLOCK_KEY_VERSION` and `PUBLIC_UNLOCK_KEY_VERSION` to label the current key version.
+- Use `UNLOCK_PRIVATE_KEYS` and `UNLOCK_PUBLIC_KEYS` for multi-version rotation support, e.g. `v1:<key>,v2:<key>`.
+- Use `CHALLENGE_TOKEN_PREVIOUS_SECRETS` to keep older signed challenge secrets valid until existing tokens expire.
+- Remove compromised secrets from `CHALLENGE_TOKEN_PREVIOUS_SECRETS` and deploy a fresh `CHALLENGE_TOKEN_SECRET` immediately for emergency revocation.
 
 ## Usage
 

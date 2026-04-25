@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWallet } from "@/hooks/useWallet";
-import { unlockPublicKey } from "@/lib/env";
+import { unlockKeyVersion, unlockPublicKey } from "@/lib/env";
 import {
   encryptPromptPlaintext,
   wrapPromptKey,
@@ -166,7 +166,11 @@ export function CreatePromptForm() {
     setIsSubmitting(true);
     try {
       const encrypted = await encryptPromptPlaintext(formData.fullPrompt);
-      const wrappedKey = await wrapPromptKey(encrypted.keyBytes, unlockPublicKey);
+      const wrappedKey = await wrapPromptKey(
+        encrypted.keyBytes,
+        unlockPublicKey,
+        unlockKeyVersion,
+      );
 
       if (encrypted.encryptedPrompt.length > limits.encrypted) {
         throw new Error(

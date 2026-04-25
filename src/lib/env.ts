@@ -1,6 +1,8 @@
 import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import { z } from "zod";
 
+const DEFAULT_UNLOCK_KEY_VERSION = "v1";
+
 const envSchema = z.object({
   PUBLIC_STELLAR_NETWORK: z.enum([
     "PUBLIC",
@@ -20,6 +22,7 @@ const envSchema = z.object({
   PUBLIC_STELLAR_SIMULATION_ACCOUNT: z.string(),
   PUBLIC_CHAT_API_BASE: z.string().url(),
   PUBLIC_UNLOCK_PUBLIC_KEY: z.string(),
+  PUBLIC_UNLOCK_KEY_VERSION: z.string().optional(),
 });
 
 const fallback = {
@@ -33,6 +36,7 @@ const fallback = {
   PUBLIC_STELLAR_SIMULATION_ACCOUNT: "",
   PUBLIC_CHAT_API_BASE: "https://secret-ai-gateway.onrender.com",
   PUBLIC_UNLOCK_PUBLIC_KEY: "",
+  PUBLIC_UNLOCK_KEY_VERSION: DEFAULT_UNLOCK_KEY_VERSION,
 };
 
 const env = envSchema.parse({
@@ -59,6 +63,8 @@ const env = envSchema.parse({
     import.meta.env.PUBLIC_CHAT_API_BASE ?? fallback.PUBLIC_CHAT_API_BASE,
   PUBLIC_UNLOCK_PUBLIC_KEY:
     import.meta.env.PUBLIC_UNLOCK_PUBLIC_KEY ?? fallback.PUBLIC_UNLOCK_PUBLIC_KEY,
+  PUBLIC_UNLOCK_KEY_VERSION:
+    import.meta.env.PUBLIC_UNLOCK_KEY_VERSION ?? fallback.PUBLIC_UNLOCK_KEY_VERSION,
 });
 
 export const stellarNetwork =
@@ -73,6 +79,7 @@ export const nativeAssetContractId = env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID
 export const simulationAccount = env.PUBLIC_STELLAR_SIMULATION_ACCOUNT;
 export const chatApiBase = env.PUBLIC_CHAT_API_BASE;
 export const unlockPublicKey = env.PUBLIC_UNLOCK_PUBLIC_KEY;
+export const unlockKeyVersion = env.PUBLIC_UNLOCK_KEY_VERSION;
 export const allowHttp = new URL(rpcUrl).hostname === "localhost";
 
 export const stellarWalletNetwork =
