@@ -50,7 +50,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     {
       pendingMessage: "Disconnecting wallet...",
       successMessage: "Wallet disconnected",
-      onSuccess: () => {
+      onSettled: () => {
         storage.removeItem("walletId");
         storage.removeItem("walletAddress");
         storage.removeItem("walletNetwork");
@@ -175,23 +175,32 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         ]);
 
         if (aborted) return;
-        if (state.status !== "reconnecting" && state.status !== "idle") return;
 
         if (a.address) {
           if (a.address !== savedAddr) {
             storage.setItem("walletAddress", a.address);
           }
           if (aborted) return;
-          setState({
+        setState((prev) => {
+          if (prev.status !== "reconnecting" && prev.status !== "idle") return prev;
+          return {
+            ...prev,
             address: a.address,
             network: n.network,
             networkPassphrase: n.networkPassphrase,
             status: "connected",
             error: undefined,
+          };
           });
         } else {
           if (aborted) return;
-          disconnect();
+        let shouldDisconnect = false;
+        setState((prev) => {
+          if (prev.status !== "reconnecting" && prev.status !== "idle") return prev;
+          shouldDisconnect = true;
+          return prev;
+        });
+        if (shouldDisconnect) disconnect();
         }
       } catch (e) {
         if (aborted) return;
