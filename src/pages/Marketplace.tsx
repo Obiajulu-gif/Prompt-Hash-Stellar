@@ -16,7 +16,14 @@ const buyAssetContractCall = async (itemId: string) => {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       // Simulate a random failure for demonstration of the Retry recovery flow
+<<<<<<< Updated upstream
       if (Math.random() < 0.2) return reject(new Error("op_underfunded"));
+=======
+      if (import.meta.env.DEV && Math.random() < 0.2) {
+        reject(new Error("op_underfunded"));
+        return;
+      }
+>>>>>>> Stashed changes
       resolve(true);
     }, 2000);
   });
@@ -40,7 +47,7 @@ export default function Marketplace() {
   });
 
   // 2. Wrap purchase flow in useAsyncTransaction
-  const { execute, isLoading: isPurchasing } = useAsyncTransaction(
+  const { execute } = useAsyncTransaction(
     async (itemId: string) => {
       await buyAssetContractCall(itemId);
     },

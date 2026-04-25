@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
@@ -18,8 +18,14 @@ const fetchDraftMetadata = async () => {
 };
 
 // 2. Mock: Stellar Soroban contract call for listing the asset
+<<<<<<< Updated upstream
 const listAssetContractCall = async (data: { name: string; price: string; description: string }) => {
   return new Promise((resolve, reject) => {
+=======
+// Deterministic mock for local dev: always resolves successfully.
+const listAssetContractCall = async (_data: { name: string; price: string; description: string }): Promise<boolean> => {
+  return new Promise((resolve) => {
+>>>>>>> Stashed changes
     setTimeout(() => {
       // Simulate a random failure (like 'op_not_authorized' or 'tx_bad_auth')
       // The useAsyncTransaction hook will automatically catch this, translate it, and render the StatusBanner.
@@ -34,6 +40,13 @@ export default function Sell() {
   const [formData, setFormData] = useState({ name: "", price: "", description: "" });
   const [isProcessing, setIsProcessing] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   // Fetch initial data (e.g., from local storage, IPFS, or an API)
   const { data: draftData, isLoading: isFetchingDraft } = useQuery({
@@ -66,7 +79,7 @@ export default function Sell() {
       // Query Invalidation / Redirection
       onSuccess: () => {
         // Add a short delay so the user can see the "Success" StatusBanner before unmounting
-        setTimeout(() => {
+        timeoutRef.current = setTimeout(() => {
           navigate("/dashboard");
         }, 1500);
       },
@@ -80,7 +93,7 @@ export default function Sell() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    execute(formData);
+    execute(formData).catch(() => {});
   };
 
   const isFormDisabled = isProcessing || isTransacting;

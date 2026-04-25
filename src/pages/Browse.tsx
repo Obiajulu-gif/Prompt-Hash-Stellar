@@ -3,10 +3,11 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { Skeleton } from "../components/Skeleton";
 
-// Assuming a Stellar contract call or SDK usage
-const purchasePrompt = async (itemId: string) => {
+// TODO: Replace this placeholder with actual Soroban/Stellar SDK call
+const purchasePrompt = async (itemId: string): Promise<boolean> => {
+  console.log(`Simulating purchase for item: ${itemId}`);
   // Simulating a network call for the marketplace purchase
-  return new Promise((resolve) => setTimeout(resolve, 2000));
+  return new Promise((resolve) => setTimeout(() => resolve(true), 2000));
 };
 
 export default function Browse() {
@@ -41,9 +42,6 @@ export default function Browse() {
         queryClient.invalidateQueries({ queryKey: ["account-balance"] });
         queryClient.invalidateQueries({ queryKey: ["marketplace-items"] });
       },
-      onSettled: () => {
-        setOptimisticPurchases(new Set());
-      },
     }
   );
 
@@ -68,7 +66,17 @@ export default function Browse() {
                   <p className="text-slate-400">{item.price}</p>
                 </div>
                 <button
-                  onClick={() => execute(item.id)}
+                  onClick={async () => {
+                    try {
+                      await execute(item.id);
+                    } finally {
+                      setOptimisticPurchases((prev) => {
+                        const next = new Set(prev);
+                        next.delete(item.id);
+                        return next;
+                      });
+                    }
+                  }}
                   disabled={isProcessing}
                   className="mt-4 w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white font-bold rounded-md transition-colors"
                 >

@@ -190,7 +190,7 @@ export const PromptModal = ({
         const message = err.message || "";
         
         if (message === "DUPLICATE_PURCHASE") {
-          setStatus("PURCHASED_LOCKED");
+          setStatus("DUPLICATE_PURCHASE");
         } else if (message === "INACTIVE_LISTING") {
           setStatus("INACTIVE_LISTING");
           setCustomError("This prompt is no longer available for purchase.");

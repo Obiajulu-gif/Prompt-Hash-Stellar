@@ -191,7 +191,8 @@ describe('PromptModal Buyer Flow', () => {
     vi.mocked(promptHashClient.hasAccess)
       .mockResolvedValueOnce(false) // Initial check
       .mockResolvedValueOnce(true) // Check after purchase
-      .mockResolvedValueOnce(true); // Check before unlock
+      .mockResolvedValueOnce(true) // Check before unlock
+      .mockResolvedValueOnce(true); // Check during retry unlock
     
     vi.mocked(promptHashClient.buyPromptAccess).mockResolvedValue({ txHash: '123', success: true });
     vi.mocked(unlockClient.unlockPromptContent).mockRejectedValue(new Error('401 unauthorized'));
