@@ -52,12 +52,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<TData | null>(null);
-<<<<<<< Updated upstream
   const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback();
-=======
-  // Type assertion handles the addition of removeTransaction to the provider
-  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback() as any;
->>>>>>> Stashed changes
 
   const mutationFnRef = useRef(mutationFn);
   const optionsRef = useRef(options);
@@ -110,12 +105,9 @@ export function useAsyncTransaction<TData, TVariables = void>(
 
       try {
         const result = await mutationFnRef.current(variables);
-<<<<<<< Updated upstream
-        settledData = result;
-=======
         if (!mountedRef.current) return result;
 
->>>>>>> Stashed changes
+        settledData = result;
         setData(result);
         
         const successMsg = typeof currentOptions?.successMessage === 'function' 
@@ -136,15 +128,11 @@ export function useAsyncTransaction<TData, TVariables = void>(
         currentOptions?.onSuccess?.(result, variables);
         return result;
       } catch (err) {
-<<<<<<< Updated upstream
+        if (!mountedRef.current) throw err;
+
         const translated = translateStellarError(err);
         const normalizedError = err instanceof Error ? err : new Error(translated);
         settledError = normalizedError;
-=======
-        if (!mountedRef.current) throw err;
-
-        const normalizedError = err instanceof Error ? err : new Error(translateStellarError(err));
->>>>>>> Stashed changes
         
         let friendlyMessage = translated;
         if (currentOptions?.errorMessage) {
@@ -168,15 +156,10 @@ export function useAsyncTransaction<TData, TVariables = void>(
         currentOptions?.onError?.(normalizedError, variables);
         throw normalizedError;
       } finally {
-<<<<<<< Updated upstream
-        setIsLoading(false);
-        currentOptions?.onSettled?.(variables, settledData, settledError);
-=======
         if (mountedRef.current) {
           setIsLoading(false);
-          currentOptions?.onSettled?.();
+          currentOptions?.onSettled?.(variables, settledData, settledError);
         }
->>>>>>> Stashed changes
       }
     },
     [addTransaction, updateTransaction, removeTransaction]

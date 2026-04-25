@@ -18,18 +18,10 @@ const fetchDraftMetadata = async () => {
 };
 
 // 2. Mock: Stellar Soroban contract call for listing the asset
-<<<<<<< Updated upstream
-const listAssetContractCall = async (data: { name: string; price: string; description: string }) => {
-  return new Promise((resolve, reject) => {
-=======
 // Deterministic mock for local dev: always resolves successfully.
 const listAssetContractCall = async (_data: { name: string; price: string; description: string }): Promise<boolean> => {
   return new Promise((resolve) => {
->>>>>>> Stashed changes
     setTimeout(() => {
-      // Simulate a random failure (like 'op_not_authorized' or 'tx_bad_auth')
-      // The useAsyncTransaction hook will automatically catch this, translate it, and render the StatusBanner.
-      if (Math.random() < 0.2) reject(new Error("op_not_authorized"));
       resolve(true);
     }, 2500);
   });
@@ -38,7 +30,6 @@ const listAssetContractCall = async (_data: { name: string; price: string; descr
 export default function Sell() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: "", price: "", description: "" });
-  const [isProcessing, setIsProcessing] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -71,22 +62,12 @@ export default function Sell() {
       pendingMessage: "Processing listing on the Stellar network...",
       successMessage: "Asset listed successfully! Redirecting...",
       
-      // Optimistic UI update: disable form and show processing state immediately
-      onOptimistic: () => {
-        setIsProcessing(true);
-      },
-      
       // Query Invalidation / Redirection
       onSuccess: () => {
         // Add a short delay so the user can see the "Success" StatusBanner before unmounting
         timeoutRef.current = setTimeout(() => {
           navigate("/dashboard");
         }, 1500);
-      },
-      
-      // Clean up optimistic state on both success and error
-      onSettled: () => {
-        setIsProcessing(false);
       },
     }
   );
@@ -96,7 +77,7 @@ export default function Sell() {
     execute(formData).catch(() => {});
   };
 
-  const isFormDisabled = isProcessing || isTransacting;
+  const isFormDisabled = isTransacting;
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
