@@ -47,6 +47,7 @@ impl PromptHashTrait for PromptHashContract {
         content_hash: BytesN<32>,
         price_stroops: i128,
     ) -> Result<u128, Error> {
+        require_not_paused(&env)?;
         creator.require_auth();
         validate_prompt_fields(
             &image_url,
@@ -88,6 +89,7 @@ impl PromptHashTrait for PromptHashContract {
         prompt_id: u128,
         active: bool,
     ) -> Result<(), Error> {
+        require_not_paused(&env)?;
         creator.require_auth();
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
@@ -104,6 +106,7 @@ impl PromptHashTrait for PromptHashContract {
         prompt_id: u128,
         price_stroops: i128,
     ) -> Result<(), Error> {
+        require_not_paused(&env)?;
         creator.require_auth();
         ensure(price_stroops > 0, Error::InvalidPrice)?;
 
@@ -117,6 +120,7 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error> {
+        require_not_paused(&env)?;
         buyer.require_auth();
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
 
@@ -205,6 +209,24 @@ impl PromptHashTrait for PromptHashContract {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
+
+    #[only_owner]
+    fn pause(env: Env) -> Result<(), Error> {
+        Storage::set_paused(&env, true);
+        Events::emit_protocol_paused(&env, ownable::owner(&env));
+        Ok(())
+    }
+
+    #[only_owner]
+    fn unpause(env: Env) -> Result<(), Error> {
+        Storage::set_paused(&env, false);
+        Events::emit_protocol_unpaused(&env, ownable::owner(&env));
+        Ok(())
+    }
+
+    fn is_paused(env: Env) -> bool {
+        Storage::is_paused(&env)
+    }
 }
 
 #[default_impl]
@@ -246,4 +268,8 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     } else {
         Err(error)
     }
+}
+
+fn require_not_paused(env: &Env) -> Result<(), Error> {
+    ensure(!Storage::is_paused(env), Error::ContractPaused)
 }

@@ -22,6 +22,7 @@ pub enum Error {
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
+    ContractPaused = 19,
 }
 
 #[contracttype]
@@ -36,6 +37,7 @@ pub enum DataKey {
     BuyerPrompts(Address),
     Purchase(u128, Address),
     Reentrancy,
+    Paused,
 }
 
 #[contracttype]
@@ -54,19 +56,6 @@ pub struct Prompt {
     pub price_stroops: i128,
     pub active: bool,
     pub sales_count: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Prompt(u128),
-    PromptCounter,
-    FeePercentage,
-    FeeWallet,
-    XlmAddress,
-    CreatorPrompts(Address),
-    BuyerPrompts(Address),
-    Purchase(u128, Address),
 }
 
 pub trait PromptHashTrait {
@@ -115,4 +104,9 @@ pub trait PromptHashTrait {
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
+
+    // Emergency pause controls
+    fn pause(env: Env) -> Result<(), Error>;
+    fn unpause(env: Env) -> Result<(), Error>;
+    fn is_paused(env: Env) -> bool;
 }
