@@ -45,7 +45,7 @@ The contract supports a global pause mechanism. When activated, all state-changi
 Use the Soroban CLI to invoke `pause` as the admin:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
   --source <ADMIN_SECRET> \
   --network <NETWORK> \
@@ -55,7 +55,7 @@ soroban contract invoke \
 ### Verifying Pause State
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
   --network <NETWORK> \
   -- is_paused
@@ -66,7 +66,7 @@ Returns `true` if paused, `false` otherwise.
 ### Unpausing the Protocol
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id <CONTRACT_ID> \
   --source <ADMIN_SECRET> \
   --network <NETWORK> \
@@ -87,4 +87,3 @@ soroban contract invoke \
 4. Invoke `unpause` via Soroban CLI.
 5. Verify `is_paused` returns `false`.
 6. Monitor first few transactions after unpause for errors.
-

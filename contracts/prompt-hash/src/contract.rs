@@ -212,15 +212,29 @@ impl PromptHashTrait for PromptHashContract {
 
     #[only_owner]
     fn pause(env: Env) -> Result<(), Error> {
+        if Storage::is_paused(&env) {
+            return Ok(());
+        }
+
         Storage::set_paused(&env, true);
-        Events::emit_protocol_paused(&env, ownable::owner(&env));
+        Events::emit_protocol_paused(
+            &env,
+            ownable::owner(&env).expect("owner should be set for only_owner"),
+        );
         Ok(())
     }
 
     #[only_owner]
     fn unpause(env: Env) -> Result<(), Error> {
+        if !Storage::is_paused(&env) {
+            return Ok(());
+        }
+
         Storage::set_paused(&env, false);
-        Events::emit_protocol_unpaused(&env, ownable::owner(&env));
+        Events::emit_protocol_unpaused(
+            &env,
+            ownable::owner(&env).expect("owner should be set for only_owner"),
+        );
         Ok(())
     }
 

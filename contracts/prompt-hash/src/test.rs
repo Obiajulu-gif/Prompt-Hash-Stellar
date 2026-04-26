@@ -58,7 +58,12 @@ fn create_prompt(
     )
 }
 
-fn fund_buyer(xlm_client: &token::StellarAssetClient<'_>, buyer: &Address, spender: &Address, amount: i128) {
+fn fund_buyer(
+    xlm_client: &token::StellarAssetClient<'_>,
+    buyer: &Address,
+    spender: &Address,
+    amount: i128,
+) {
     xlm_client.mint(buyer, &amount);
     xlm_client.approve(buyer, spender, &amount, &1_000);
 }
@@ -265,27 +270,21 @@ fn test_admin_can_pause_and_unpause() {
 }
 
 #[test]
-#[should_panic(expected = "Unauthorized")]
 fn test_unauthorized_cannot_pause() {
+    // Fresh env without mock_all_auths to enforce authorization checks.
     let env: Env = Default::default();
-    let context = setup(&env);
-
-    // Create a new env without mock_all_auths to enforce authorization
-    let env2: Env = Default::default();
-    let non_admin = Address::generate(&env2);
-
-    // Re-register contract in env2 to get a clean auth context
-    let admin = Address::generate(&env2);
-    let fee_wallet = Address::generate(&env2);
-    let xlm = env2.register(FungibleTokenContract, (admin.clone(),));
-    let contract = env2.register(
+    let admin = Address::generate(&env);
+    let fee_wallet = Address::generate(&env);
+    let xlm = env.register(FungibleTokenContract, (admin.clone(),));
+    let contract = env.register(
         PromptHashContract,
         (admin.clone(), fee_wallet.clone(), xlm.clone()),
     );
 
-    let client = PromptHashContractClient::new(&env2, &contract);
-    // Don't mock auths — this should fail because non_admin is not the owner
-    client.pause();
+    let client = PromptHashContractClient::new(&env, &contract);
+    let result = client.try_pause();
+    assert!(result.is_err());
+    assert!(format!("{:?}", result).contains("NotAuthorized"));
 }
 
 #[test]

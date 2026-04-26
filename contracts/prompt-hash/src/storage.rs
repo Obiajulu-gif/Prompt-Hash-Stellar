@@ -159,7 +159,9 @@ impl Storage {
         env.storage().persistent().get(&DataKey::XlmAddress)
     }
 
-    pub fn get_stellar_asset_contract(env: &'_ Env) -> Result<token::StellarAssetClient<'_>, Error> {
+    pub fn get_stellar_asset_contract(
+        env: &'_ Env,
+    ) -> Result<token::StellarAssetClient<'_>, Error> {
         let contract_id = Self::get_xlm_address(env).ok_or(Error::XlmAddressNotSet)?;
         Ok(token::StellarAssetClient::new(env, &contract_id))
     }
