@@ -29,6 +29,8 @@ export function AiChatButton() {
   const [selectedModel, setSelectedModel] =
     useState<AIModel>("gemini-2.5-flash");
   const [isImproving, setIsImproving] = useState(false);
+  const [isAiAvailable, setIsAiAvailable] = useState<boolean | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const chatRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -79,6 +81,33 @@ export function AiChatButton() {
   const toggleChat = () => {
     setIsOpen(!isOpen);
   };
+
+  // Check AI health on mount
+  useEffect(() => {
+    const checkAiHealth = async () => {
+      try {
+        const response = await fetch(`${chatApiBase}/api/health`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.ai?.enabled === false) {
+            setIsAiAvailable(false);
+            setAiError("AI service is currently disabled by the administrator.");
+          } else {
+            setIsAiAvailable(true);
+          }
+        } else {
+          setIsAiAvailable(false);
+          setAiError("AI service is currently unreachable.");
+        }
+      } catch (err) {
+        console.error("AI health check failed:", err);
+        setIsAiAvailable(false);
+        setAiError("AI service connection failed.");
+      }
+    };
+
+    checkAiHealth();
+  }, []);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -239,6 +268,15 @@ export function AiChatButton() {
             <p className="text-sm text-gray-600 dark:text-gray-300">
               Ask me anything about prompts and the marketplace
             </p>
+            {isAiAvailable === false && (
+              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                {aiError || "AI service is currently unavailable."}
+              </div>
+            )}
           </div>
 
           {/* Chat Container */}
@@ -350,11 +388,11 @@ export function AiChatButton() {
               </div>
               <Button
                 type="submit"
-                disabled={isLoading || !inputValue.trim()}
+                disabled={isLoading || !inputValue.trim() || isAiAvailable === false}
                 className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white py-2 rounded-md transition-all"
               >
                 <Send className="h-5 w-5 mr-2" />
-                Send
+                {isAiAvailable === false ? "AI Unavailable" : "Send"}
               </Button>
             </form>
           </div>

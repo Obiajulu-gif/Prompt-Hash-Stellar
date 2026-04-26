@@ -5,15 +5,14 @@
   "bin": {
     "contacts": "./build/index.js"
   },
-    "main": "server.js",
-    "scripts": 
-  {
+  "main": "server.js",
+  "scripts": {
     "test": "jest --passWithNoTests",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
-    "start": "node build/server.js" 
+    "start": "node build/server.js"
   },
   "files": [
     "build"
@@ -32,6 +31,7 @@
     "@ai-sdk/openai": "^1.2.5",
     "@typescript-eslint/parser": "^8.46.3",
     "ai": "^4.1.61",
+    "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "express-async-handler": "^1.2.0",
     "mongoose": "^8.19.3",
@@ -40,7 +40,10 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.5",
+    "@types/jest": "^30.0.0",
     "@types/node": "^24.10.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2"
   }
 }

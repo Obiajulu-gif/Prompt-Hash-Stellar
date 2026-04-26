@@ -85,15 +85,14 @@ export async function getChatResponse(
   prompt: string,
   model: AIModel = "gemini-2.5-flash",
 ) {
-  return fetchJson<unknown>(
-    `${chatApiBase}/api/chat?prompt=${encodeURIComponent(prompt)}&model=${model}`,
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
+  return fetchJson<unknown>(`${chatApiBase}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
     },
-  );
+    body: JSON.stringify({ prompt, model }),
+  });
 }
 
 export function localImprovePrompt(prompt: string) {
@@ -127,10 +126,10 @@ export async function improvePrompt(prompt: string) {
     const result = await fetchJson<unknown>(`${chatApiBase}/api/improve-prompt`, {
       method: "POST",
       headers: {
-        "Content-Type": "text/plain",
+        "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: prompt,
+      body: JSON.stringify({ prompt }),
     });
 
     if (typeof result === "string") {

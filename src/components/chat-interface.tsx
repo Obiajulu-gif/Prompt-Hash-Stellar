@@ -128,7 +128,7 @@ export function ChatInterface() {
         id: Date.now().toString(),
         sender: "agent",
         content:
-          "I couldn't reach the external chat gateway. Check the configured API base URL and try again.",
+          "I couldn't reach the AI service. The service may be disabled or unconfigured in the backend.",
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",

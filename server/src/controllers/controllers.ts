@@ -2,10 +2,8 @@ import { NextFunction, Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import User from "../models/User";
 import Prompt from "../models/Prompt";
-import { streamText } from "ai";
-import { openai } from "@ai-sdk/openai";
-
-const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
+import { AIService } from "../services/aiService";
+import { config } from "../config";
 
 /* IMPROVE PROXY CONTROLLERS */
 
@@ -17,41 +15,20 @@ export const ImproveProxy = async (
   try {
     const promptText = req.body;
 
-    console.log("Improve prompt request: ", promptText);
-
-    const response = await fetch(`${API_BASE_URL}/api/improve-prompt`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        Accept: "application/json",
-      },
-      body: promptText,
-    });
-
-    // Get the response data
-    const responseData = await response.json().catch(() => {});
-    const responseText = await response.text().catch(() => {});
-
-    // Log the response for debugging
-    console.log("Improve prompt response status:", response.status);
-    console.log("Improve prompt response data:", responseData || responseText);
-
-    // If the response is not OK, return the error details
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "API Error",
-        details: responseData || responseText,
-      });
+    if (typeof promptText !== "string" && (!promptText || !promptText.prompt)) {
+      return res.status(400).json({ error: "Missing prompt text" });
     }
 
-    return res.json(responseData);
-  } catch (err) {
+    const text = typeof promptText === "string" ? promptText : promptText.prompt;
+
+    const result = await AIService.improvePrompt(text);
+    return res.json(result);
+  } catch (err: any) {
     console.error("Error in improve-proxy:", err);
     return res.status(500).json({
-      error: "Internal Server Error",
-      message: err instanceof Error ? err.message : String(err),
+      error: "AI Service Error",
+      message: err.message || String(err),
     });
-    // { status: 500 }
   }
 };
 
@@ -262,18 +239,40 @@ export const PostChat = async (
   res: Response,
   next: NextFunction,
 ) => {
-  const { messages } = await req.body;
+  try {
+    // Handle both GET (from query) and POST (from body)
+    let messages: any[] = [];
+    let model: string | undefined;
 
-  // Convert messages to the format expected by the AI SDK
-  const formattedMessages = messages.map((message: any) => ({
-    role: message.role === "ai" ? "assistant" : "user",
-    content: message.content,
-  }));
+    if (req.method === "GET") {
+      const prompt = req.query.prompt as string;
+      model = req.query.model as string;
+      if (!prompt) {
+        return res.status(400).json({ error: "Missing prompt parameter" });
+      }
+      messages = [{ role: "user", content: prompt }];
+    } else {
+      const body = req.body;
+      messages = body.messages || [];
+      model = body.model;
 
-  const result = streamText({
-    model: openai("gpt-4o"),
-    messages: formattedMessages,
-  });
+      // Fallback for single prompt in body
+      if (messages.length === 0 && body.prompt) {
+        messages = [{ role: "user", content: body.prompt }];
+      }
+    }
 
-  return result.toDataStreamResponse();
+    if (messages.length === 0) {
+      return res.status(400).json({ error: "No messages provided" });
+    }
+
+    const result = await AIService.chat(messages, model);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("Error in PostChat:", err);
+    return res.status(500).json({
+      error: "AI Service Error",
+      message: err.message || String(err),
+    });
+  }
 };
