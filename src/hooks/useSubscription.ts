@@ -60,7 +60,7 @@ export function useSubscription(
           ? { topics: [[xdr.ScVal.scvSymbol(topic).toXDR("base64")]] }
           : {};
 
-        // @ts-ignore
+        // @ts-expect-error -- suppressed during migration
         const response = await server.getEvents({
           startLedger: !paging[id].pagingToken
             ? paging[id].lastLedgerStart
@@ -90,7 +90,7 @@ export function useSubscription(
                 error,
               );
             } finally {
-              // @ts-ignore
+              // @ts-expect-error -- suppressed during migration
               paging[id].pagingToken = event.pagingToken;
             }
           });

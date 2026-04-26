@@ -1,6 +1,7 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { withObservability } from "../src/lib/observability/wrapper";
 
-async function handler(req: any, res: any) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   // Basic health check
   const status = {
     status: "ok",

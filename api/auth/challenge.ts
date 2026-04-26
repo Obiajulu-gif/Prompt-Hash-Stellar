@@ -1,9 +1,10 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createChallengeToken } from "../../src/lib/auth/challenge";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
 
-async function handler(req: any, res: any) {
+async function handler(req: VercelRequest & { logger: any }, res: VercelResponse) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed." });
     return;

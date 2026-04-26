@@ -24,13 +24,13 @@ describe("Health API", () => {
       }
     };
 
-    // @ts-ignore
+    // @ts-expect-error -- suppressed during migration
     await handler(req, res);
 
     expect(statusCode).toBe(200);
-    // @ts-ignore
+    // @ts-expect-error -- suppressed during migration
     expect(responseData.status).toBe("ok");
-    // @ts-ignore
+    // @ts-expect-error -- suppressed during migration
     expect(responseData.timestamp).toBeDefined();
   });
 });
