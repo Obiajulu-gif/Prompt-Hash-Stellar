@@ -4,7 +4,7 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger, token, Address, BytesN, Env, String};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -245,4 +245,31 @@ fn test_inactive_prompt_cannot_be_bought() {
         Err(Ok(error)) => assert_eq!(error, Error::PromptInactive),
         other => panic!("unexpected inactive prompt result: {:?}", other),
     }
+}
+
+#[test]
+fn test_storage_lifecycle_and_ttl_extension() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Lifecycle Prompt", 10_000);
+
+    // Verify initial storage
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.id, prompt_id);
+
+    // Simulate passage of time (e.g., 2 months later)
+    // 60 days * 17,280 ledgers/day = 1,036,800 ledgers
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 1_036_800;
+    });
+
+    // Accessing the prompt should trigger a TTL extension
+    let prompt_after = client.get_prompt(&prompt_id);
+    assert_eq!(prompt_after.id, prompt_id);
+
+    // Verify instance storage (config) also remains accessible
+    assert_eq!(client.get_all_prompts().len(), 1);
 }
