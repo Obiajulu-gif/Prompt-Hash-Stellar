@@ -7,7 +7,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 export const config = {
   port: process.env.PORT || 5000,
   ai: {
-    providerUrl: process.env.AI_PROVIDER_URL || "https://secret-ai-gateway.onrender.com",
+    providerUrl: process.env.AI_PROVIDER_URL || "",
     apiKey: process.env.AI_API_KEY || "",
     timeoutMs: parseInt(process.env.AI_TIMEOUT_MS || "30000", 10),
     maxRetries: parseInt(process.env.AI_MAX_RETRIES || "3", 10),
