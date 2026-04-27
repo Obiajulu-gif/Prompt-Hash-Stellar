@@ -28,6 +28,7 @@ This project is an in-development Soroban application for encrypted prompt licen
 ## Recommended Local Checks
 
 ```bash
+yarn test:frontend
 yarn build
 cargo test -p prompt-hash
 ```
@@ -45,6 +46,8 @@ npm run build
 - Keep smart contract logic simple and well-bounded.
 - Document security-sensitive assumptions, especially around signing, decryption, and key handling.
 - Avoid introducing hidden off-chain dependencies for contract-critical flows.
+- Add or update frontend integration coverage when wallet, contract, unlock, or dashboard behavior changes.
+- Follow `docs/frontend-testing.md` for the shared mocked-wallet and mocked-Soroban testing pattern.
 
 ## Pull Request Guidelines
 

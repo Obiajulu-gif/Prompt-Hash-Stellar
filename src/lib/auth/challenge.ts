@@ -120,3 +120,26 @@ export function verifyChallengeSignature(
     decodeSignature(signedMessage),
   );
 }
+
+export function verifyUnlock(
+  secret: string,
+  token: string,
+  address: string,
+  promptId: string,
+  signedMessage: string,
+  now = Date.now()
+) {
+  // 1. Verify the token payload (checks expiry, promptId, address, and server signature)
+  const payload = verifyChallengeToken(secret, token, address, promptId, now);
+
+  // 2. Reconstruct the challenge message that the user was required to sign
+  const message = buildChallengeMessage(payload);
+
+  // 3. Verify the wallet's cryptographic signature over the message
+  const isValid = verifyChallengeSignature(address, message, signedMessage);
+  if (!isValid) {
+    throw new Error("Invalid wallet signature for the unlock challenge.");
+  }
+
+  return payload;
+}

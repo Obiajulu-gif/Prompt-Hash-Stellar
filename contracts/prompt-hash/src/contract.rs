@@ -124,6 +124,8 @@ impl PromptHashTrait for PromptHashContract {
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
 
+        Storage::set_reentrancy_guard(&env)?;
+
         let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
         let this_contract = env.current_contract_address();
         let fee_percentage = Storage::get_fee_percentage(&env);
@@ -151,6 +153,7 @@ impl PromptHashTrait for PromptHashContract {
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, prompt_id, &buyer);
+        Storage::clear_reentrancy_guard(&env);
         Events::emit_prompt_purchased(
             &env,
             prompt_id,

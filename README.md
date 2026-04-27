@@ -174,6 +174,15 @@ Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an
 
 The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
 
+#### Observability & Production Hardening
+
+The unlock service is hardened for production use with the following features:
+- **Rate Limiting**: Request-level limits keyed by IP and wallet to prevent brute-force and DDoS attacks.
+- **Structured Logging**: JSON-formatted logs with request ID tracking and sensitive data redaction.
+- **Operational Metrics**: Real-time tracking of unlock success/failure rates, invalid signatures, and rate limit hits.
+- **Health Monitoring**: Dedicated `/api/health` endpoint for uptime and configuration verification.
+- **Incident Response**: Documented runbooks and debugging procedures located in `docs/operations/`.
+
 ## Proposed Tech Stack
 
 - Soroban smart contracts in Rust
@@ -249,6 +258,12 @@ npm run dev
 cargo test -p prompt-hash
 ```
 
+6. Run the frontend test suite:
+
+```bash
+yarn test:frontend
+```
+
 ## Environment Variables
 
 See `.env.example` for the full template. Main variables:
@@ -281,6 +296,33 @@ See `.env.example` for the full template. Main variables:
 - Buy prompt access in XLM
 - Unlock the purchased prompt with wallet signature verification
 - Reopen purchased prompts from `/profile`
+
+## Frontend Integration Tests
+
+The frontend suite uses Vitest + jsdom + React Testing Library to cover the main marketplace journeys without a live wallet extension or live Soroban environment.
+
+Run it with:
+
+```bash
+yarn test:frontend
+```
+
+Coverage currently includes:
+
+- disconnected wallet and wrong-network UI handling
+- create-listing validation and mocked contract submission
+- purchase and unlock behavior with mocked wallet and unlock boundaries
+- unlock failure recovery with retry
+- creator dashboard refresh after React Query invalidation
+
+Contributor notes:
+
+- Use [`src/test/render.tsx`](./src/test/render.tsx) to render components with router, wallet, and React Query providers.
+- Reuse fixtures from [`src/test/fixtures/prompts.ts`](./src/test/fixtures/prompts.ts) for realistic prompt records.
+- Mock wallet, contract, and unlock boundaries instead of relying on live chain dependencies.
+- Prefer integration coverage around real flow components such as `CreatePromptForm`, `FetchAllPrompts`, `PromptModal`, and `MyPrompts`.
+
+See `docs/frontend-testing.md` for the recommended pattern when adding new frontend coverage.
 
 ## Roadmap
 

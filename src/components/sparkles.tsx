@@ -54,9 +54,9 @@ export const SparklesCore = ({
       speedY: number;
 
       constructor() {
-        // @ts-expect-error
+        // @ts-expect-error: Context canvas width
         this.x = Math.random() * canvas.width;
-        // @ts-expect-error
+        // @ts-expect-error: Context canvas height
         this.y = Math.random() * canvas.height;
         this.size = Math.random() * (maxSize - minSize) + minSize;
         this.speedX = Math.random() * 0.5 - 0.25;
@@ -67,13 +67,13 @@ export const SparklesCore = ({
         this.x += this.speedX;
         this.y += this.speedY;
 
-        // @ts-expect-error
+        // @ts-expect-error: Context canvas width
         if (this.x > canvas.width) this.x = 0;
-        // @ts-expect-error
+        // @ts-expect-error: Context canvas width
         if (this.x < 0) this.x = canvas.width;
-        // @ts-expect-error
+        // @ts-expect-error: Context canvas height
         if (this.y > canvas.height) this.y = 0;
-        // @ts-expect-error
+        // @ts-expect-error: Context canvas height
         if (this.y < 0) this.y = canvas.height;
 
         // Mouse interaction

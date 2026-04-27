@@ -113,7 +113,7 @@ const MyPrompts = () => {
         { signTransaction },
         address,
         promptId,
-        nextPrice,
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
@@ -132,7 +132,7 @@ const MyPrompts = () => {
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId, signMessage);
+      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
@@ -231,6 +231,7 @@ const MyPrompts = () => {
                           [prompt.id.toString()]: event.target.value,
                         }))
                       }
+                      aria-label={`Price for ${prompt.title}`}
                       className="border-white/10 bg-white/5 text-slate-100"
                     />
                     <Button

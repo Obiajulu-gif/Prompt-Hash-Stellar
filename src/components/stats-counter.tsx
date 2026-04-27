@@ -23,11 +23,14 @@ export default function StatsCounter() {
 
     let step = 0;
 
+    // Easing function
+    const easeInOutCubic = (t: number) =>
+      t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+
     const timer = setInterval(() => {
       step++;
 
-      // @ts-ignore
-      const progress = Math.easeInOutCubic(step / steps);
+      const progress = easeInOutCubic(step / steps);
 
       setCounts({
         users: Math.floor(progress * targets.users),
@@ -43,11 +46,6 @@ export default function StatsCounter() {
 
     return () => clearInterval(timer);
   }, []);
-
-  // Easing function
-  // @ts-ignore
-  Math.easeInOutCubic = (t: number) =>
-    t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
 
   return (
     <section className="py-12 bg-black">

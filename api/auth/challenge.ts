@@ -1,23 +1,52 @@
 import { createChallengeToken } from "../../src/lib/auth/challenge";
+import { withObservability, type RequestWithLogger, type ApiResponse } from "../../src/lib/observability/wrapper";
+import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
+import { metrics } from "../../src/lib/observability/metrics";
 
-export default async function handler(req: any, res: any) {
+export interface ChallengeRequestBody {
+  address?: string;
+  promptId?: string;
+}
+
+function handler(req: RequestWithLogger, res: ApiResponse) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed." });
     return;
   }
 
-  const secret = process.env.CHALLENGE_TOKEN_SECRET;
-  if (!secret) {
-    res.status(500).json({ error: "CHALLENGE_TOKEN_SECRET is not configured." });
+  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown") as string;
+  const rateLimit = checkRateLimit("challenge", clientIp);
+
+  if (!rateLimit.success) {
+    req.logger.warn({ clientIp: String(clientIp) }, "Rate limit exceeded for challenge issuance");
+    metrics.trackRateLimitHit("challenge", clientIp);
+    res.status(429).json({
+      error: "Too many requests. Please try again later.",
+      reset: rateLimit.reset,
+    });
     return;
   }
 
-  const { address, promptId } = req.body ?? {};
+  const secret = process.env.CHALLENGE_TOKEN_SECRET;
+  if (!secret) {
+    req.logger.error("CHALLENGE_TOKEN_SECRET is not configured.");
+    res.status(500).json({ error: "Configuration error." });
+    return;
+  }
+
+  const body = (req.body ?? {}) as ChallengeRequestBody;
+  const { address, promptId } = body;
   if (!address || !promptId) {
     res.status(400).json({ error: "address and promptId are required." });
     return;
   }
 
   const challenge = createChallengeToken(secret, String(address), String(promptId));
+  
+  metrics.trackChallengeIssued(String(address), String(promptId));
+  req.logger.info({ address, promptId }, "Challenge token issued successfully");
+
   res.status(200).json(challenge);
 }
+
+export default withObservability(handler, "auth/challenge");

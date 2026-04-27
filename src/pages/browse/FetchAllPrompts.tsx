@@ -10,6 +10,7 @@ import {
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
 import { stroopsToXlmString } from "@/lib/stellar/format";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
@@ -43,7 +44,7 @@ const FetchAllPrompts = ({
 
   const promptsQuery = useQuery({
     queryKey: ["marketplace-prompts"],
-    queryFn: async () => {
+    queryFn: async (): Promise<PromptRecord[]> => {
       if (!isMarketplaceConfigured) {
         return [];
       }
@@ -109,10 +110,7 @@ const FetchAllPrompts = ({
   );
 
   const refreshQueries = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
-      queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
-    ]);
+    await invalidateAllPromptQueries(queryClient);
   };
 
   useEffect(() => {

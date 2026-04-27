@@ -21,6 +21,21 @@ pub enum Error {
     FeeWalletNotSet = 15,
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
+    ReentrancyGuard = 18,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataKey {
+    Prompt(u128),
+    PromptCounter,
+    FeePercentage,
+    FeeWallet,
+    XlmAddress,
+    CreatorPrompts(Address),
+    BuyerPrompts(Address),
+    Purchase(u128, Address),
+    Reentrancy,
 }
 
 #[contracttype]
@@ -38,7 +53,7 @@ pub struct Prompt {
     pub content_hash: BytesN<32>,
     pub price_stroops: i128,
     pub active: bool,
-    pub sales_count: u32,
+    pub sales_count: u64,
 }
 
 #[contracttype]
