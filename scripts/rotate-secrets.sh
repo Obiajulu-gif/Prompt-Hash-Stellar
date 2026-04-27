@@ -14,20 +14,20 @@
 #   - UNLOCK_SERVICE_URL: Base URL of the unlock service
 #
 # Example:
-#   ADMIN_ROTATION_TOKEN=secret123 UNLOCK_SERVICE_URL=https://api.example.com \
+#   ADMIN_ROTATION_TOKEN------------------------------secret123 UNLOCK_SERVICE_URL------------------------------https://api.example.com \
 #     ./scripts/rotate-secrets.sh --grace-period 300
 ###############################################################################
 
 set -e
 
 # Default grace period: 5 minutes (300 seconds)
-GRACE_PERIOD_SECONDS=300
+GRACE_PERIOD_SECONDS------------------------------300
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --grace-period)
-      GRACE_PERIOD_SECONDS="$2"
+      GRACE_PERIOD_SECONDS------------------------------"$2"
       shift 2
       ;;
     --help)
@@ -58,45 +58,45 @@ if [ -z "$UNLOCK_SERVICE_URL" ]; then
 fi
 
 # Calculate grace period in milliseconds
-GRACE_PERIOD_MS=$((GRACE_PERIOD_SECONDS * 1000))
+GRACE_PERIOD_MS------------------------------$((GRACE_PERIOD_SECONDS * 1000))
 
-echo "========================================="
+echo "------------------------------"
 echo "Challenge Token Secret Rotation"
-echo "========================================="
+echo "------------------------------"
 echo "Service URL: $UNLOCK_SERVICE_URL"
 echo "Grace Period: ${GRACE_PERIOD_SECONDS}s (${GRACE_PERIOD_MS}ms)"
 echo ""
 
 # Call rotation endpoint
 echo "Initiating secret rotation..."
-RESPONSE=$(curl -s -X POST \
+RESPONSE------------------------------$(curl -s -X POST \
   -H "Authorization: Bearer $ADMIN_ROTATION_TOKEN" \
   -H "Content-Type: application/json" \
   "${UNLOCK_SERVICE_URL}/api/auth/rotateSecret" \
   -w "\nHTTP_STATUS:%{http_code}")
 
 # Extract HTTP status code
-HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
-BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+HTTP_STATUS------------------------------$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d: -f2)
+BODY------------------------------$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
 
-if [ "$HTTP_STATUS" = "200" ]; then
+if [ "$HTTP_STATUS" ------------------------------ "200" ]; then
   echo "✓ Secret rotation successful!"
   echo ""
   echo "Response:"
   echo "$BODY" | jq '.'
   
   # Extract expiration timestamp
-  EXPIRES_AT=$(echo "$BODY" | jq -r '.expiresAt')
-  if [ "$EXPIRES_AT" != "null" ]; then
-    EXPIRES_DATE=$(date -d "@$((EXPIRES_AT / 1000))" 2>/dev/null || date -r "$((EXPIRES_AT / 1000))" 2>/dev/null || echo "N/A")
+  EXPIRES_AT------------------------------$(echo "$BODY" | jq -r '.expiresAt')
+  if [ "$EXPIRES_AT" !------------------------------ "null" ]; then
+    EXPIRES_DATE------------------------------$(date -d "@$((EXPIRES_AT / 1000))" 2>/dev/null || date -r "$((EXPIRES_AT / 1000))" 2>/dev/null || echo "N/A")
     echo ""
     echo "Previous secret will expire at: $EXPIRES_DATE"
   fi
   
   echo ""
-  echo "========================================="
+  echo "------------------------------"
   echo "Next Steps:"
-  echo "========================================="
+  echo "------------------------------"
   echo "1. Monitor unlock service logs for any token verification errors"
   echo "2. Previous secret will be automatically invalidated after grace period"
   echo "3. Schedule next rotation in 30-90 days"
