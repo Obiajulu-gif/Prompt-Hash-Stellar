@@ -4,7 +4,10 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    token, Address, BytesN, Env, IntoVal, String,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -16,6 +19,14 @@ struct PromptHashContext {
 
 fn setup(env: &Env) -> PromptHashContext {
     env.mock_all_auths();
+    setup_contract(env)
+}
+
+fn setup_without_auth_mock(env: &Env) -> PromptHashContext {
+    setup_contract(env)
+}
+
+fn setup_contract(env: &Env) -> PromptHashContext {
 
     let admin = Address::generate(env);
     let fee_wallet = Address::generate(env);
@@ -92,6 +103,25 @@ fn test_create_prompt_stores_encrypted_fields() {
 }
 
 #[test]
+fn test_prompt_ids_are_sequential_and_all_prompts_are_ordered() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_a = create_prompt(&env, &client, &creator, "Prompt A", 10_000);
+    let prompt_b = create_prompt(&env, &client, &creator, "Prompt B", 10_000);
+
+    assert_eq!(prompt_a, 0);
+    assert_eq!(prompt_b, 1);
+
+    let all_prompts = client.get_all_prompts();
+    assert_eq!(all_prompts.len(), 2);
+    assert_eq!(all_prompts.get(0).unwrap().id, prompt_a);
+    assert_eq!(all_prompts.get(1).unwrap().id, prompt_b);
+}
+
+#[test]
 fn test_creator_can_pause_reactivate_and_update_price() {
     let env: Env = Default::default();
     let context = setup(&env);
@@ -107,6 +137,22 @@ fn test_creator_can_pause_reactivate_and_update_price() {
     let prompt = client.get_prompt(&prompt_id);
     assert_eq!(prompt.price_stroops, 9_000);
     assert!(prompt.active);
+}
+
+#[test]
+fn test_update_prompt_price_requires_positive_price() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Price Guard", 5_000);
+
+    let result = client.try_update_prompt_price(&creator, &prompt_id, &0);
+    match result {
+        Err(Ok(error)) => assert_eq!(error, Error::InvalidPrice),
+        other => panic!("unexpected invalid price update result: {:?}", other),
+    }
 }
 
 #[test]
@@ -180,13 +226,19 @@ fn test_get_prompts_by_creator_and_buyer() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let prompt_a = create_prompt(&env, &client, &creator, "Prompt A", 8_000);
-    create_prompt(&env, &client, &creator, "Prompt B", 9_000);
+    let prompt_b = create_prompt(&env, &client, &creator, "Prompt B", 9_000);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
     client.buy_prompt(&buyer, &prompt_a);
 
-    assert_eq!(client.get_prompts_by_creator(&creator).len(), 2);
-    assert_eq!(client.get_prompts_by_buyer(&buyer).len(), 1);
+    let created = client.get_prompts_by_creator(&creator);
+    assert_eq!(created.len(), 2);
+    assert_eq!(created.get(0).unwrap().id, prompt_a);
+    assert_eq!(created.get(1).unwrap().id, prompt_b);
+
+    let purchased = client.get_prompts_by_buyer(&buyer);
+    assert_eq!(purchased.len(), 1);
+    assert_eq!(purchased.get(0).unwrap().id, prompt_a);
 }
 
 #[test]
@@ -245,4 +297,175 @@ fn test_inactive_prompt_cannot_be_bought() {
         Err(Ok(error)) => assert_eq!(error, Error::PromptInactive),
         other => panic!("unexpected inactive prompt result: {:?}", other),
     }
+}
+
+#[test]
+fn test_pausing_prompt_does_not_revoke_existing_access() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Pause Invariant", 4_000);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+    client.buy_prompt(&buyer, &prompt_id);
+    assert!(client.has_access(&buyer, &prompt_id));
+
+    client.set_prompt_sale_status(&creator, &prompt_id, &false);
+    assert!(client.has_access(&buyer, &prompt_id));
+}
+
+#[test]
+fn test_non_creator_cannot_pause_or_update_price() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Creator Only", 4_000);
+
+    let pause_attempt = client.try_set_prompt_sale_status(&attacker, &prompt_id, &false);
+    match pause_attempt {
+        Err(Ok(error)) => assert_eq!(error, Error::NotPromptCreator),
+        other => panic!("unexpected pause attempt result: {:?}", other),
+    }
+
+    let price_attempt = client.try_update_prompt_price(&attacker, &prompt_id, &9_000);
+    match price_attempt {
+        Err(Ok(error)) => assert_eq!(error, Error::NotPromptCreator),
+        other => panic!("unexpected price attempt result: {:?}", other),
+    }
+}
+
+#[test]
+fn test_create_prompt_enforces_title_length_limit() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let long_title: std::string::String = std::iter::repeat('a').take(121).collect();
+
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/prompt.png"),
+        &String::from_str(&env, &long_title),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "Generate a production-ready implementation plan."),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 7),
+        &10_000,
+    );
+
+    match result {
+        Err(Ok(error)) => assert_eq!(error, Error::InvalidTitleLength),
+        other => panic!("unexpected create_prompt result: {:?}", other),
+    }
+}
+
+#[test]
+fn test_buyer_index_preserves_purchase_order() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_a = create_prompt(&env, &client, &creator, "Prompt A", 8_000);
+    let prompt_b = create_prompt(&env, &client, &creator, "Prompt B", 9_000);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+    client.buy_prompt(&buyer, &prompt_b);
+    client.buy_prompt(&buyer, &prompt_a);
+
+    let purchased = client.get_prompts_by_buyer(&buyer);
+    assert_eq!(purchased.len(), 2);
+    assert_eq!(purchased.get(0).unwrap().id, prompt_b);
+    assert_eq!(purchased.get(1).unwrap().id, prompt_a);
+}
+
+#[test]
+fn test_admin_fee_controls_require_owner_auth() {
+    let env: Env = Default::default();
+    let context = setup_without_auth_mock(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let new_fee_bps: u32 = 750;
+
+    // No auth => fails.
+    assert!(client.try_set_fee_percentage(&new_fee_bps).is_err());
+
+    // Non-owner auth => fails.
+    let attacker = Address::generate(&env);
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &context.contract,
+            fn_name: "set_fee_percentage",
+            args: (&new_fee_bps,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_set_fee_percentage(&new_fee_bps).is_err());
+
+    // Owner auth => succeeds.
+    env.mock_auths(&[MockAuth {
+        address: &context.admin,
+        invoke: &MockAuthInvoke {
+            contract: &context.contract,
+            fn_name: "set_fee_percentage",
+            args: (&new_fee_bps,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_fee_percentage(&new_fee_bps);
+
+    // Owner auth + invalid fee => typed error.
+    let invalid_fee_bps: u32 = 10_001;
+    env.mock_auths(&[MockAuth {
+        address: &context.admin,
+        invoke: &MockAuthInvoke {
+            contract: &context.contract,
+            fn_name: "set_fee_percentage",
+            args: (&invalid_fee_bps,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    let invalid_fee_attempt = client.try_set_fee_percentage(&invalid_fee_bps);
+    match invalid_fee_attempt {
+        Err(Ok(error)) => assert_eq!(error, Error::InvalidFeePercentage),
+        other => panic!("unexpected invalid fee update result: {:?}", other),
+    }
+
+    // Owner auth => can update fee wallet.
+    let new_fee_wallet = Address::generate(&env);
+    env.mock_auths(&[MockAuth {
+        address: &context.admin,
+        invoke: &MockAuthInvoke {
+            contract: &context.contract,
+            fn_name: "set_fee_wallet",
+            args: (&new_fee_wallet,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_fee_wallet(&new_fee_wallet);
+
+    // Non-owner auth => cannot update fee wallet.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &context.contract,
+            fn_name: "set_fee_wallet",
+            args: (&new_fee_wallet,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_set_fee_wallet(&new_fee_wallet).is_err());
 }
