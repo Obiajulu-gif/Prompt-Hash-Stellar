@@ -56,6 +56,20 @@ pub struct Prompt {
     pub sales_count: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptCreateInput {
+    pub image_url: String,
+    pub title: String,
+    pub category: String,
+    pub preview_text: String,
+    pub encrypted_prompt: String,
+    pub encryption_iv: String,
+    pub wrapped_key: String,
+    pub content_hash: BytesN<32>,
+    pub price_stroops: i128,
+}
+
 pub trait PromptHashTrait {
     fn __constructor(
         env: Env,
@@ -64,19 +78,10 @@ pub trait PromptHashTrait {
         xlm_sac: Address,
     ) -> Result<(), Error>;
 
-    #[allow(clippy::too_many_arguments)]
     fn create_prompt(
         env: Env,
         creator: Address,
-        image_url: String,
-        title: String,
-        category: String,
-        preview_text: String,
-        encrypted_prompt: String,
-        encryption_iv: String,
-        wrapped_key: String,
-        content_hash: BytesN<32>,
-        price_stroops: i128,
+        input: PromptCreateInput,
     ) -> Result<u128, Error>;
 
     fn set_prompt_sale_status(

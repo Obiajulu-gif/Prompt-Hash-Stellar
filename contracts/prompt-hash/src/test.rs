@@ -1,8 +1,6 @@
-#![cfg(test)]
-
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
-use crate::types::Error;
+use crate::types::{Error, PromptCreateInput};
 extern crate std;
 use soroban_sdk::{
     testutils::Address as _, testutils::Ledger, token, Address, BytesN, Env, String,
@@ -46,18 +44,19 @@ fn create_prompt(
     title: &str,
     price_stroops: i128,
 ) -> u128 {
-    client.create_prompt(
-        creator,
-        &String::from_str(env, "https://example.com/prompt.png"),
-        &String::from_str(env, title),
-        &String::from_str(env, "Software Development"),
-        &String::from_str(env, "Generate a production-ready implementation plan."),
-        &String::from_str(env, "ciphertext"),
-        &String::from_str(env, "iv"),
-        &String::from_str(env, "wrapped-key"),
-        &hash(env, 7),
-        &price_stroops,
-    )
+    let input = PromptCreateInput {
+        image_url: String::from_str(env, "https://example.com/prompt.png"),
+        title: String::from_str(env, title),
+        category: String::from_str(env, "Software Development"),
+        preview_text: String::from_str(env, "Generate a production-ready implementation plan."),
+        encrypted_prompt: String::from_str(env, "ciphertext"),
+        encryption_iv: String::from_str(env, "iv"),
+        wrapped_key: String::from_str(env, "wrapped-key"),
+        content_hash: hash(env, 7),
+        price_stroops,
+    };
+
+    client.create_prompt(creator, &input)
 }
 
 fn fund_buyer(

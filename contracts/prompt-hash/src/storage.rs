@@ -91,7 +91,7 @@ impl Storage {
             .get(&key)
             .unwrap_or_else(|| Vec::new(env));
 
-        if ids.len() > 0 {
+        if !ids.is_empty() {
             Self::extend_persistent_ttl(env, &key);
         }
 
@@ -106,7 +106,7 @@ impl Storage {
             .get(&key)
             .unwrap_or_else(|| Vec::new(env));
 
-        if ids.len() > 0 {
+        if !ids.is_empty() {
             Self::extend_persistent_ttl(env, &key);
         }
 

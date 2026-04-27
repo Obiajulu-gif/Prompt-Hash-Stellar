@@ -33,52 +33,34 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn create_prompt(
         env: Env,
         creator: Address,
-        image_url: String,
-        title: String,
-        category: String,
-        preview_text: String,
-        encrypted_prompt: String,
-        encryption_iv: String,
-        wrapped_key: String,
-        content_hash: BytesN<32>,
-        price_stroops: i128,
+        input: crate::types::PromptCreateInput,
     ) -> Result<u128, Error> {
         creator.require_auth();
-        validate_prompt_fields(
-            &image_url,
-            &title,
-            &category,
-            &preview_text,
-            &encrypted_prompt,
-            &encryption_iv,
-            &wrapped_key,
-            price_stroops,
-        )?;
+        validate_prompt_fields(&input)?;
 
         let prompt_id = Storage::get_prompt_counter(&env);
         let prompt = Prompt {
             id: prompt_id,
             creator: creator.clone(),
-            image_url,
-            title,
-            category,
-            preview_text,
-            encrypted_prompt,
-            encryption_iv,
-            wrapped_key,
-            content_hash,
-            price_stroops,
+            image_url: input.image_url.clone(),
+            title: input.title.clone(),
+            category: input.category.clone(),
+            preview_text: input.preview_text.clone(),
+            encrypted_prompt: input.encrypted_prompt.clone(),
+            encryption_iv: input.encryption_iv.clone(),
+            wrapped_key: input.wrapped_key.clone(),
+            content_hash: input.content_hash.clone(),
+            price_stroops: input.price_stroops,
             active: true,
             sales_count: 0,
         };
 
         Storage::save_prompt(&env, &prompt)?;
         Storage::add_prompt_to_creator(&env, &creator, prompt_id);
-        Events::emit_prompt_created(&env, prompt_id, creator, price_stroops);
+        Events::emit_prompt_created(&env, prompt_id, creator, input.price_stroops);
         Ok(prompt_id)
     }
 
@@ -208,37 +190,28 @@ impl PromptHashTrait for PromptHashContract {
 #[contractimpl]
 impl Ownable for PromptHashContract {}
 
-fn validate_prompt_fields(
-    image_url: &String,
-    title: &String,
-    category: &String,
-    preview_text: &String,
-    encrypted_prompt: &String,
-    encryption_iv: &String,
-    wrapped_key: &String,
-    price_stroops: i128,
-) -> Result<(), Error> {
-    ensure(price_stroops > 0, Error::InvalidPrice)?;
-    validate_len(image_url, MAX_IMAGE_URL_LEN, Error::InvalidImageUrlLength)?;
-    validate_len(title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
-    validate_len(category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
-    validate_len(preview_text, MAX_PREVIEW_LEN, Error::InvalidPreviewLength)?;
+fn validate_prompt_fields(input: &crate::types::PromptCreateInput) -> Result<(), Error> {
+    ensure(input.price_stroops > 0, Error::InvalidPrice)?;
+    validate_len(&input.image_url, MAX_IMAGE_URL_LEN, Error::InvalidImageUrlLength)?;
+    validate_len(&input.title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
+    validate_len(&input.category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
+    validate_len(&input.preview_text, MAX_PREVIEW_LEN, Error::InvalidPreviewLength)?;
     validate_len(
-        encrypted_prompt,
+        &input.encrypted_prompt,
         MAX_ENCRYPTED_PROMPT_LEN,
         Error::InvalidEncryptedPromptLength,
     )?;
     validate_len(
-        wrapped_key,
+        &input.wrapped_key,
         MAX_WRAPPED_KEY_LEN,
         Error::InvalidWrappedKeyLength,
     )?;
-    validate_len(encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
+    validate_len(&input.encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
     Ok(())
 }
 
 fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
-    ensure(value.len() > 0 && value.len() <= max_len, error)
+    ensure(!value.is_empty() && value.len() <= max_len, error)
 }
 
 fn ensure(condition: bool, error: Error) -> Result<(), Error> {
