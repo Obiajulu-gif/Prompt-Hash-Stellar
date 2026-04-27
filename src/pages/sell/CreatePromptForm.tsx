@@ -174,6 +174,10 @@ export function CreatePromptForm() {
         unlockPublicKey,
       );
 
+      if (wrappedKey.length > limits.wrappedKey) {
+        throw new Error("Wrapped key exceeds the contract storage limit.");
+      }
+
       let encryptedPromptForStorage = encrypted.encryptedPrompt;
 
       if (encrypted.encryptedPrompt.length > limits.encrypted) {
@@ -181,13 +185,9 @@ export function CreatePromptForm() {
           encrypted.encryptedPrompt,
         );
         encryptedPromptForStorage = uploaded.uri;
-      }
+    }
 
-      if (wrappedKey.length > limits.wrappedKey) {
-        throw new Error("Wrapped key exceeds the contract storage limit.");
-      }
-
-      const { promptId } = await createPrompt(
+      const result = await createPrompt(
         browserStellarConfig,
         { signTransaction },
         address,
@@ -206,7 +206,7 @@ export function CreatePromptForm() {
 
       await invalidateAllPromptQueries(queryClient);
 
-      setSuccessMessage(`Prompt #${promptId.toString()} created successfully.`);
+      setSuccessMessage(`Prompt created successfully. Transaction: ${result.txHash}`);
       setFormData({
         imageUrl: "",
         title: "",
