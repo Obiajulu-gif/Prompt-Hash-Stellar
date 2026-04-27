@@ -1,6 +1,6 @@
 use super::events::Events;
 use super::storage::Storage;
-use super::types::{Error, Prompt, PromptHashTrait};
+use super::types::{DataKey, Error, Prompt, PromptHashTrait};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
@@ -30,6 +30,10 @@ impl PromptHashTrait for PromptHashContract {
         Storage::set_fee_wallet(&env, &fee_wallet);
         Storage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
         Storage::set_xlm_address(&env, &xlm_sac);
+        env.storage().instance().extend_ttl(
+            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
+            super::storage::PERSISTENT_BUMP_AMOUNT,
+        );
         Ok(())
     }
 
@@ -207,6 +211,27 @@ impl PromptHashTrait for PromptHashContract {
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.storage().instance().extend_ttl(
+            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
+            super::storage::PERSISTENT_BUMP_AMOUNT,
+        );
+        Ok(())
+    }
+
+    fn get_fee_percentage(env: Env) -> u32 {
+        Storage::get_fee_percentage(&env)
+    }
+
+    fn get_fee_wallet(env: Env) -> Option<Address> {
+        Storage::get_fee_wallet(&env)
+    }
+
+    fn get_xlm_sac(env: Env) -> Option<Address> {
+        Storage::get_xlm_address(&env)
+    }
+
+    fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error> {
+        Storage::extend_key_ttl(&env, &key);
         Ok(())
     }
 

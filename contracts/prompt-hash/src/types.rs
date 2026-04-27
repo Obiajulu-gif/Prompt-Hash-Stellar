@@ -103,7 +103,11 @@ pub trait PromptHashTrait {
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
+    fn get_fee_percentage(env: Env) -> u32;
+    fn get_fee_wallet(env: Env) -> Option<Address>;
+    fn get_xlm_sac(env: Env) -> Option<Address>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
+    fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
 
     // Emergency pause controls
     fn pause(env: Env) -> Result<(), Error>;

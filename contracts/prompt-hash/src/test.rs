@@ -252,6 +252,133 @@ fn test_inactive_prompt_cannot_be_bought() {
     }
 }
 
+#[test]
+fn test_buy_prompt_with_zero_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    // Set fee to 0
+    client.set_fee_percentage(&0);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 10_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Zero Fee Prompt", price);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+
+    let seller_start = xlm_client.balance(&creator);
+    let fee_start = xlm_client.balance(&context.fee_wallet);
+
+    client.buy_prompt(&buyer, &prompt_id);
+
+    assert_eq!(xlm_client.balance(&creator), seller_start + price);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start);
+}
+
+#[test]
+fn test_buy_prompt_with_max_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    // Set fee to 100% (10,000 BPS)
+    client.set_fee_percentage(&10_000);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 10_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Max Fee Prompt", price);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+
+    let seller_start = xlm_client.balance(&creator);
+    let fee_start = xlm_client.balance(&context.fee_wallet);
+
+    client.buy_prompt(&buyer, &prompt_id);
+
+    assert_eq!(xlm_client.balance(&creator), seller_start);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + price);
+}
+
+#[test]
+fn test_unauthorized_seller_actions_fail() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Protected Prompt", 5_000);
+
+    // Try to update status as stranger
+    let status_res = client.try_set_prompt_sale_status(&stranger, &prompt_id, &false);
+    match status_res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected unauthorized for status update, got {:?}", other),
+    }
+
+    // Try to update price as stranger
+    let price_res = client.try_update_prompt_price(&stranger, &prompt_id, &1_000);
+    match price_res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected unauthorized for price update, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_buy_nonexistent_prompt_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let buyer = Address::generate(&env);
+
+    let result = client.try_buy_prompt(&buyer, &999_999);
+    match result {
+        Err(Ok(Error::PromptNotFound)) => {}
+        other => panic!(
+            "expected PromptNotFound for nonexistent prompt, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_arithmetic_safety_for_massive_prices() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Test with a very large price that might cause overflow in fee calculation if not careful.
+    let massive_price = i128::MAX / 10_000;
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Massive Price Prompt",
+        massive_price,
+    );
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, massive_price);
+
+    // This should not panic and should calculate fees correctly.
+    client.buy_prompt(&buyer, &prompt_id);
+
+    let fee_bps = 500i128;
+    let expected_fee = massive_price * fee_bps / 10_000;
+    let expected_seller = massive_price - expected_fee;
+
+    assert_eq!(xlm_client.balance(&creator), expected_seller);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), expected_fee);
+}
+
 // ─── Emergency Pause Tests ──────────────────────────────────────────────────
 
 #[test]
