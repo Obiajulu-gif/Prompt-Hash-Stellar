@@ -73,12 +73,12 @@ jobs:
           const pkg = require('./package.json');
           const s = pkg.scripts || {};
           const has = (n) => Boolean(s[n]) ? 'true' : 'false';
-          
+
           let out = 'has_lint=' + has('lint') + '\n';
           out += 'has_test=' + (has('test') && !s.test.includes('no test specified') ? 'true' : 'false') + '\n';
           out += 'has_build=' + has('build') + '\n';
           out += 'has_typecheck=' + (has('tsc') || has('typecheck') ? 'true' : 'false') + '\n';
-          
+
           console.log('Detected Scripts:\n' + out);
           if (process.env.GITHUB_OUTPUT) { fs.appendFileSync(process.env.GITHUB_OUTPUT, out); }
           "

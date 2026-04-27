@@ -9,7 +9,11 @@ interface StatusBannerProps {
   onDismiss?: () => void;
 }
 
-export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onRetry }) => {
+export const StatusBanner: React.FC<StatusBannerProps> = ({
+  status,
+  message,
+  onRetry,
+}) => {
   const retryButtonRef = useRef<HTMLButtonElement>(null);
 
   // Accessibility: Focus management on error recovery
@@ -21,7 +25,8 @@ export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onR
 
   if (status === "idle") return null;
 
-  const baseClasses = "rounded-lg p-4 flex items-center gap-3 w-full shadow-sm border transition-all";
+  const baseClasses =
+    "rounded-lg p-4 flex items-center gap-3 w-full shadow-sm border transition-all";
   const statusClasses = {
     pending: "bg-blue-900/20 border-blue-500/30 text-blue-200",
     success: "bg-emerald-900/20 border-emerald-500/30 text-emerald-200",
@@ -29,15 +34,17 @@ export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onR
   };
 
   const icons = {
-    pending: <Loader2 className="animate-spin h-5 w-5 text-blue-400 shrink-0" />,
+    pending: (
+      <Loader2 className="animate-spin h-5 w-5 text-blue-400 shrink-0" />
+    ),
     success: <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0" />,
-    error: <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+    error: <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />,
   };
 
   return (
-    <div 
-      className={`${baseClasses} ${statusClasses[status]}`} 
-      role={status === "error" ? "alert" : undefined} 
+    <div
+      className={`${baseClasses} ${statusClasses[status]}`}
+      role={status === "error" ? "alert" : undefined}
       aria-live={status !== "error" ? "polite" : undefined}
     >
       {icons[status]}

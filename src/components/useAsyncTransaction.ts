@@ -19,19 +19,26 @@ interface StellarError {
  * Translates generic Stellar RPC/Horizon error codes into human-readable prompts.
  */
 const translateStellarError = (error: unknown): string => {
-  if (typeof error !== 'object' || error === null) return "An unknown error occurred while submitting.";
-  
+  if (typeof error !== "object" || error === null)
+    return "An unknown error occurred while submitting.";
+
   const err = error as StellarError;
   const txCode = err.response?.data?.extras?.result_codes?.transaction;
   const opCodes = err.response?.data?.extras?.result_codes?.operations;
 
-  if (txCode === "tx_bad_auth") return "Transaction signing failed. Please check your wallet.";
-  if (txCode === "tx_insufficient_balance" || opCodes?.includes("op_underfunded")) {
+  if (txCode === "tx_bad_auth")
+    return "Transaction signing failed. Please check your wallet.";
+  if (
+    txCode === "tx_insufficient_balance" ||
+    opCodes?.includes("op_underfunded")
+  ) {
     return "Insufficient balance to cover transaction limits or fees.";
   }
-  if (opCodes?.includes("op_no_trust")) return "A required trustline is missing for this transaction.";
-  if (opCodes?.includes("op_not_authorized")) return "Your account is not authorized to perform this operation.";
-  
+  if (opCodes?.includes("op_no_trust"))
+    return "A required trustline is missing for this transaction.";
+  if (opCodes?.includes("op_not_authorized"))
+    return "Your account is not authorized to perform this operation.";
+
   return err.message || "Failed to submit transaction to the Stellar network.";
 };
 
@@ -46,19 +53,32 @@ interface UseAsyncTransactionOptions<TData, TVariables> {
 }
 
 export interface TransactionFeedbackContextType {
-  addTransaction: (tx: { id: string; status: "pending" | "success" | "error"; message: string; retryAction?: () => void }) => void;
-  updateTransaction: (id: string, tx: { status: "pending" | "success" | "error"; message: string; retryAction?: () => void }) => void;
+  addTransaction: (tx: {
+    id: string;
+    status: "pending" | "success" | "error";
+    message: string;
+    retryAction?: () => void;
+  }) => void;
+  updateTransaction: (
+    id: string,
+    tx: {
+      status: "pending" | "success" | "error";
+      message: string;
+      retryAction?: () => void;
+    },
+  ) => void;
   removeTransaction?: (id: string) => void;
 }
 
 export function useAsyncTransaction<TData, TVariables = void>(
   mutationFn: (variables: TVariables) => Promise<TData>,
-  options?: UseAsyncTransactionOptions<TData, TVariables>
+  options?: UseAsyncTransactionOptions<TData, TVariables>,
 ) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<TData | null>(null);
-  const { addTransaction, updateTransaction, removeTransaction } = useTransactionFeedback() as TransactionFeedbackContextType;
+  const { addTransaction, updateTransaction, removeTransaction } =
+    useTransactionFeedback() as TransactionFeedbackContextType;
 
   const mutationFnRef = useRef(mutationFn);
   const optionsRef = useRef(options);
@@ -84,7 +104,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
     async (variables: TVariables) => {
       const txId = crypto.randomUUID();
       activeTxIdRef.current = txId;
-      
+
       /**
        * JSDoc Note:
        * optionsRef and mutationFnRef capture live values on every render.
@@ -94,19 +114,20 @@ export function useAsyncTransaction<TData, TVariables = void>(
       const currentOptions = optionsRef.current;
       let settledData: TData | undefined;
       let settledError: Error | undefined;
-      
+
       setIsLoading(true);
       setError(null);
-      
+
       // Fire Optimistic Update Hook
       currentOptions?.onOptimistic?.(variables);
 
       addTransaction({
         id: txId,
         status: "pending",
-        message: typeof currentOptions?.pendingMessage === 'function'
-          ? currentOptions.pendingMessage(variables)
-          : currentOptions?.pendingMessage || "Processing transaction...",
+        message:
+          typeof currentOptions?.pendingMessage === "function"
+            ? currentOptions.pendingMessage(variables)
+            : currentOptions?.pendingMessage || "Processing transaction...",
       });
 
       try {
@@ -115,11 +136,12 @@ export function useAsyncTransaction<TData, TVariables = void>(
 
         settledData = result;
         setData(result);
-        
-        const successMsg = typeof currentOptions?.successMessage === 'function' 
-          ? currentOptions.successMessage(result) 
-          : currentOptions?.successMessage || "Transaction successful!";
-        
+
+        const successMsg =
+          typeof currentOptions?.successMessage === "function"
+            ? currentOptions.successMessage(result)
+            : currentOptions?.successMessage || "Transaction successful!";
+
         updateTransaction(txId, { status: "success", message: successMsg });
 
         if (removeTransaction) {
@@ -127,7 +149,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
             if (mountedRef.current) removeTransaction(txId);
           }, 3000);
         }
-        
+
         activeTxIdRef.current = null;
 
         // Fire Query Invalidation Hook
@@ -137,18 +159,20 @@ export function useAsyncTransaction<TData, TVariables = void>(
         if (!mountedRef.current) throw err;
 
         const translated = translateStellarError(err);
-        const normalizedError = err instanceof Error ? err : new Error(translated);
+        const normalizedError =
+          err instanceof Error ? err : new Error(translated);
         settledError = normalizedError;
-        
+
         let friendlyMessage = translated;
         if (currentOptions?.errorMessage) {
-          friendlyMessage = typeof currentOptions.errorMessage === 'function'
-            ? currentOptions.errorMessage(normalizedError)
-            : currentOptions.errorMessage;
+          friendlyMessage =
+            typeof currentOptions.errorMessage === "function"
+              ? currentOptions.errorMessage(normalizedError)
+              : currentOptions.errorMessage;
         }
-        
+
         setError(normalizedError);
-        
+
         // Inject the retry payload and map to the exact variables used
         updateTransaction(txId, {
           status: "error",
@@ -168,7 +192,7 @@ export function useAsyncTransaction<TData, TVariables = void>(
         }
       }
     },
-    [addTransaction, updateTransaction, removeTransaction]
+    [addTransaction, updateTransaction, removeTransaction],
   );
 
   return { execute, isLoading, error, data };

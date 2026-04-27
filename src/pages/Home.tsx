@@ -38,22 +38,27 @@ export default function Home() {
             </h1>
             <p className="max-w-2xl text-base leading-8 text-slate-300">
               Creators publish previews and encrypted prompt payloads on Stellar
-              testnet. Buyers purchase access in XLM, prove wallet ownership with
-              SEP-43 signing, and unlock plaintext only after the contract confirms
-              their license.
+              testnet. Buyers purchase access in XLM, prove wallet ownership
+              with SEP-43 signing, and unlock plaintext only after the contract
+              confirms their license.
             </p>
             <div className="flex flex-wrap gap-3">
-            <Button asChild className="relative z-50 bg-amber-400 text-slate-950 hover:bg-amber-300 cursor-pointer">
-              <Link to="/browse">
-                Browse marketplace
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="relative z-50 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10 cursor-pointer">
-              <Link to="/sell">
-                Create listing
-              </Link>
-            </Button>
+              <Button
+                asChild
+                className="relative z-50 bg-amber-400 text-slate-950 hover:bg-amber-300 cursor-pointer"
+              >
+                <Link to="/browse">
+                  Browse marketplace
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                className="relative z-50 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10 cursor-pointer"
+              >
+                <Link to="/sell">Create listing</Link>
+              </Button>
             </div>
           </div>
 
@@ -81,26 +86,35 @@ export default function Home() {
           <div className="grid gap-6 rounded-[2rem] border border-white/10 bg-slate-950/60 p-8 lg:grid-cols-3">
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6">
               <LockKeyhole className="h-8 w-8 text-emerald-300" />
-              <h2 className="mt-4 text-2xl font-semibold">Secure unlock flow</h2>
+              <h2 className="mt-4 text-2xl font-semibold">
+                Secure unlock flow
+              </h2>
               <p className="mt-3 text-sm leading-6 text-slate-300">
-                Wallet signs a short-lived challenge, the API checks `has_access`
-                on-chain, then decrypts the stored ciphertext server-side.
+                Wallet signs a short-lived challenge, the API checks
+                `has_access` on-chain, then decrypts the stored ciphertext
+                server-side.
               </p>
             </div>
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6">
               <ShoppingBag className="h-8 w-8 text-amber-300" />
-              <h2 className="mt-4 text-2xl font-semibold">Creator-first economics</h2>
+              <h2 className="mt-4 text-2xl font-semibold">
+                Creator-first economics
+              </h2>
               <p className="mt-3 text-sm leading-6 text-slate-300">
                 Listings stay attached to the creator forever. Buyers get prompt
-                access rights, and the contract tracks exact fee splits in stroops.
+                access rights, and the contract tracks exact fee splits in
+                stroops.
               </p>
             </div>
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6">
               <Sparkles className="h-8 w-8 text-cyan-300" />
-              <h2 className="mt-4 text-2xl font-semibold">Curated prompt pack</h2>
+              <h2 className="mt-4 text-2xl font-semibold">
+                Curated prompt pack
+              </h2>
               <p className="mt-3 text-sm leading-6 text-slate-300">
-                Explore fresh template examples for software, marketing, finance,
-                product, and other operator workflows before browsing live listings.
+                Explore fresh template examples for software, marketing,
+                finance, product, and other operator workflows before browsing
+                live listings.
               </p>
             </div>
           </div>

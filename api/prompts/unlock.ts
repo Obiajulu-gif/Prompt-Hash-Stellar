@@ -28,7 +28,9 @@ function getServerConfig(): PromptHashConfig {
     process.env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID ??
     "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
   const simulationAccount =
-    process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ?? process.env.UNLOCK_PUBLIC_KEY ?? "";
+    process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ??
+    process.env.UNLOCK_PUBLIC_KEY ??
+    "";
 
   return {
     rpcUrl,
@@ -46,7 +48,8 @@ async function handler(req: any, res: any) {
     return;
   }
 
-  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string;
+  const clientIp = (req.headers["x-forwarded-for"] ||
+    req.socket.remoteAddress) as string;
   const { token, promptId, address, signedMessage } = req.body ?? {};
 
   // Rate limit by IP
@@ -54,7 +57,9 @@ async function handler(req: any, res: any) {
   if (!ipRateLimit.success) {
     req.logger.warn({ clientIp }, "Rate limit exceeded for unlock (IP)");
     metrics.trackRateLimitHit("unlock_ip", clientIp);
-    res.status(429).json({ error: "Too many requests. Please try again later." });
+    res
+      .status(429)
+      .json({ error: "Too many requests. Please try again later." });
     return;
   }
 
@@ -64,7 +69,9 @@ async function handler(req: any, res: any) {
     if (!walletRateLimit.success) {
       req.logger.warn({ address }, "Rate limit exceeded for unlock (Wallet)");
       metrics.trackRateLimitHit("unlock_wallet", String(address));
-      res.status(429).json({ error: "Too many unlock attempts for this wallet." });
+      res
+        .status(429)
+        .json({ error: "Too many unlock attempts for this wallet." });
       return;
     }
   }
@@ -102,7 +109,11 @@ async function handler(req: any, res: any) {
 
     if (!validSignature) {
       req.logger.warn({ address, promptId }, "Invalid wallet signature");
-      metrics.trackUnlockFailure(String(address), String(promptId), "invalid_signature");
+      metrics.trackUnlockFailure(
+        String(address),
+        String(promptId),
+        "invalid_signature",
+      );
       res.status(401).json({ error: "Invalid wallet signature." });
       return;
     }
@@ -112,7 +123,11 @@ async function handler(req: any, res: any) {
     const access = await hasAccess(config, String(address), id);
     if (!access) {
       req.logger.warn({ address, promptId }, "Prompt access denied");
-      metrics.trackUnlockFailure(String(address), String(promptId), "no_access");
+      metrics.trackUnlockFailure(
+        String(address),
+        String(promptId),
+        "no_access",
+      );
       res.status(403).json({ error: "Prompt access has not been purchased." });
       return;
     }
@@ -131,7 +146,11 @@ async function handler(req: any, res: any) {
     const contentHash = await hashPromptPlaintext(plaintext);
     if (contentHash !== prompt.contentHash) {
       req.logger.error({ address, promptId }, "Prompt integrity check failed");
-      metrics.trackUnlockFailure(String(address), String(promptId), "integrity_failure");
+      metrics.trackUnlockFailure(
+        String(address),
+        String(promptId),
+        "integrity_failure",
+      );
       res.status(500).json({ error: "Prompt integrity check failed." });
       return;
     }
@@ -146,8 +165,12 @@ async function handler(req: any, res: any) {
       plaintext,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to unlock prompt.";
-    req.logger.error({ address, promptId, error: message }, "Unlock attempt failed");
+    const message =
+      error instanceof Error ? error.message : "Failed to unlock prompt.";
+    req.logger.error(
+      { address, promptId, error: message },
+      "Unlock attempt failed",
+    );
     metrics.trackUnlockFailure(String(address), String(promptId), "error");
     res.status(400).json({ error: message });
   }

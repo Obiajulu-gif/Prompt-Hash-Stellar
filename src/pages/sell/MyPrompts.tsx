@@ -12,7 +12,11 @@ import {
   setPromptSaleStatus,
   updatePromptPrice,
 } from "@/lib/stellar/promptHashClient";
-import { formatPriceLabel, stroopsToXlmString, xlmToStroops } from "@/lib/stellar/format";
+import {
+  formatPriceLabel,
+  stroopsToXlmString,
+  xlmToStroops,
+} from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
 
 const emptyState = (
@@ -28,7 +32,9 @@ const MyPrompts = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [unlockedPrompts, setUnlockedPrompts] = useState<Record<string, string>>({});
+  const [unlockedPrompts, setUnlockedPrompts] = useState<
+    Record<string, string>
+  >({});
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -51,7 +57,8 @@ const MyPrompts = () => {
     return Object.fromEntries(
       createdPrompts.map((prompt) => [
         prompt.id.toString(),
-        priceDrafts[prompt.id.toString()] ?? stroopsToXlmString(prompt.priceStroops),
+        priceDrafts[prompt.id.toString()] ??
+          stroopsToXlmString(prompt.priceStroops),
       ]),
     );
   }, [createdPrompts, priceDrafts]);
@@ -93,7 +100,11 @@ const MyPrompts = () => {
       updateStatus(!active ? "Prompt reactivated." : "Prompt deactivated.");
       await refreshPromptLists();
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to update sale status.");
+      updateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update sale status.",
+      );
     } finally {
       setBusyPromptId(null);
     }
@@ -118,7 +129,9 @@ const MyPrompts = () => {
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to update price.");
+      updateError(
+        error instanceof Error ? error.message : "Failed to update price.",
+      );
     } finally {
       setBusyPromptId(null);
     }
@@ -126,20 +139,28 @@ const MyPrompts = () => {
 
   const handleUnlock = async (promptId: bigint) => {
     if (!address || !signMessage) {
-      updateError("Connect a wallet with SEP-43 message signing to unlock prompts.");
+      updateError(
+        "Connect a wallet with SEP-43 message signing to unlock prompts.",
+      );
       return;
     }
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
+      const response = await unlockPromptContent(
+        address,
+        promptId.toString(),
+        signMessage,
+      );
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
       }));
       updateStatus("Prompt unlocked.");
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to unlock prompt.");
+      updateError(
+        error instanceof Error ? error.message : "Failed to unlock prompt.",
+      );
     } finally {
       setBusyPromptId(null);
     }
@@ -170,7 +191,8 @@ const MyPrompts = () => {
         <div>
           <h2 className="text-2xl font-semibold text-white">Created by me</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Update pricing, pause listings, and track license sales without changing ownership.
+            Update pricing, pause listings, and track license sales without
+            changing ownership.
           </p>
         </div>
 
@@ -199,7 +221,9 @@ const MyPrompts = () => {
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                       {prompt.category}
                     </p>
-                    <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                    <h3 className="mt-2 text-xl font-semibold">
+                      {prompt.title}
+                    </h3>
                     <p className="mt-3 text-sm leading-6 text-slate-300">
                       {prompt.previewText}
                     </p>
@@ -255,7 +279,9 @@ const MyPrompts = () => {
                   <Button
                     variant="outline"
                     className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-                    onClick={() => void handleToggleSaleStatus(prompt.id, prompt.active)}
+                    onClick={() =>
+                      void handleToggleSaleStatus(prompt.id, prompt.active)
+                    }
                     disabled={busyPromptId === prompt.id.toString()}
                   >
                     {prompt.active ? "Set inactive" : "Reactivate"}
@@ -271,7 +297,8 @@ const MyPrompts = () => {
         <div>
           <h2 className="text-2xl font-semibold text-white">Purchased by me</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Unlock purchased prompt text on demand. Access remains available for future sessions.
+            Unlock purchased prompt text on demand. Access remains available for
+            future sessions.
           </p>
         </div>
 
@@ -294,7 +321,9 @@ const MyPrompts = () => {
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                         {prompt.category}
                       </p>
-                      <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                      <h3 className="mt-2 text-xl font-semibold">
+                        {prompt.title}
+                      </h3>
                     </div>
                     <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm">
                       {formatPriceLabel(prompt.priceStroops)}
@@ -338,7 +367,8 @@ const MyPrompts = () => {
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">
-                      Unlocked plaintext appears here after the access check succeeds.
+                      Unlocked plaintext appears here after the access check
+                      succeeds.
                     </div>
                   )}
                 </CardContent>

@@ -1,30 +1,33 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { PromptModal } from './PromptModal';
-import { WalletContext, WalletContextType } from '../../providers/WalletProvider';
-import { TransactionProvider } from '../../components/TransactionProvider';
-import * as promptHashClient from '@/lib/stellar/promptHashClient';
-import * as unlockClient from '@/lib/prompts/unlock';
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { PromptModal } from "./PromptModal";
+import {
+  WalletContext,
+  WalletContextType,
+} from "../../providers/WalletProvider";
+import { TransactionProvider } from "../../components/TransactionProvider";
+import * as promptHashClient from "@/lib/stellar/promptHashClient";
+import * as unlockClient from "@/lib/prompts/unlock";
 
-vi.mock('@/lib/env', () => ({
-  stellarNetwork: 'TESTNET',
-  stellarWalletNetwork: 'TESTNET',
+vi.mock("@/lib/env", () => ({
+  stellarNetwork: "TESTNET",
+  stellarWalletNetwork: "TESTNET",
 }));
 
-vi.mock('@/lib/stellar/promptHashClient', () => ({
+vi.mock("@/lib/stellar/promptHashClient", () => ({
   hasAccess: vi.fn(),
   buyPromptAccess: vi.fn(),
 }));
 
-vi.mock('@/lib/prompts/unlock', () => ({
+vi.mock("@/lib/prompts/unlock", () => ({
   unlockPromptContent: vi.fn(),
 }));
 
 const mockWalletContext: WalletContextType = {
-  address: 'GTESTADDRESS',
-  network: 'TESTNET',
-  networkPassphrase: 'Test SDF Network ; September 2015',
-  status: 'connected',
+  address: "GTESTADDRESS",
+  network: "TESTNET",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  status: "connected",
   error: undefined,
   connect: vi.fn(),
   disconnect: vi.fn(),
@@ -33,7 +36,9 @@ const mockWalletContext: WalletContextType = {
 };
 
 const MockWalletProvider = ({ children }: { children: React.ReactNode }) => (
-  <WalletContext.Provider value={mockWalletContext}>{children}</WalletContext.Provider>
+  <WalletContext.Provider value={mockWalletContext}>
+    {children}
+  </WalletContext.Provider>
 );
 
 const AllProviders = ({ children }: { children: React.ReactNode }) => (
@@ -44,22 +49,22 @@ const AllProviders = ({ children }: { children: React.ReactNode }) => (
 
 const mockPrompt = {
   id: 1n,
-  creator: 'GABC123',
-  imageUrl: '',
-  title: 'Test Prompt',
-  category: 'General',
-  previewText: 'Preview...',
-  encryptedPrompt: '',
-  encryptionIv: '',
-  wrappedKey: '',
-  contentHash: '',
+  creator: "GABC123",
+  imageUrl: "",
+  title: "Test Prompt",
+  category: "General",
+  previewText: "Preview...",
+  encryptedPrompt: "",
+  encryptionIv: "",
+  wrappedKey: "",
+  contentHash: "",
   priceStroops: 10000000n,
   active: true,
   salesCount: 0,
 };
 
-describe('PromptModal Buyer Flow', () => {
-  it('renders pre-purchase state', () => {
+describe("PromptModal Buyer Flow", () => {
+  it("renders pre-purchase state", () => {
     render(
       <AllProviders>
         <PromptModal
@@ -68,12 +73,12 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
-    expect(screen.getByText('Buy access')).toBeInTheDocument();
+    expect(screen.getByText("Buy access")).toBeInTheDocument();
   });
 
-  it('disables purchase for inactive listing', () => {
+  it("disables purchase for inactive listing", () => {
     render(
       <AllProviders>
         <PromptModal
@@ -82,12 +87,12 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
-    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 
-  it('shows purchased-locked state if already has access', () => {
+  it("shows purchased-locked state if already has access", () => {
     render(
       <AllProviders>
         <PromptModal
@@ -96,15 +101,15 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
-    expect(screen.getByText('View full prompt')).toBeInTheDocument();
+    expect(screen.getByText("View full prompt")).toBeInTheDocument();
   });
 
-  it('handles rejected signing during purchase', async () => {
+  it("handles rejected signing during purchase", async () => {
     vi.mocked(promptHashClient.hasAccess).mockResolvedValue(false);
     vi.mocked(promptHashClient.buyPromptAccess).mockImplementation(() => {
-      const p = Promise.reject(new Error('User declined'));
+      const p = Promise.reject(new Error("User declined"));
       p.catch(() => {});
       return p;
     });
@@ -117,21 +122,21 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
 
-    fireEvent.click(screen.getByText('Buy access'));
+    fireEvent.click(screen.getByText("Buy access"));
 
     await waitFor(() => {
       expect(screen.getByText(/Transaction was rejected/)).toBeInTheDocument();
-      expect(screen.getByText('Retry Purchase')).toBeInTheDocument();
+      expect(screen.getByText("Retry Purchase")).toBeInTheDocument();
     });
   });
 
-  it('handles insufficient funds error', async () => {
+  it("handles insufficient funds error", async () => {
     vi.mocked(promptHashClient.hasAccess).mockResolvedValue(false);
     vi.mocked(promptHashClient.buyPromptAccess).mockImplementation(() => {
-      const p = Promise.reject(new Error('insufficient balance'));
+      const p = Promise.reject(new Error("insufficient balance"));
       p.catch(() => {});
       return p;
     });
@@ -144,18 +149,18 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
 
-    fireEvent.click(screen.getByText('Buy access'));
+    fireEvent.click(screen.getByText("Buy access"));
 
     await waitFor(() => {
       expect(screen.getByText(/Insufficient balance/)).toBeInTheDocument();
-      expect(screen.getByText('Retry Purchase')).toBeInTheDocument();
+      expect(screen.getByText("Retry Purchase")).toBeInTheDocument();
     });
   });
 
-  it('handles duplicate purchase error', async () => {
+  it("handles duplicate purchase error", async () => {
     vi.mocked(promptHashClient.hasAccess).mockResolvedValue(true);
 
     render(
@@ -166,21 +171,21 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
 
-    fireEvent.click(screen.getByText('Buy access'));
+    fireEvent.click(screen.getByText("Buy access"));
 
     await waitFor(() => {
       expect(screen.getByText(/already have access/)).toBeInTheDocument();
-      expect(screen.getByText('Already Owned - Unlock')).toBeInTheDocument();
+      expect(screen.getByText("Already Owned - Unlock")).toBeInTheDocument();
     });
   });
 
-  it('handles contract execution failure', async () => {
+  it("handles contract execution failure", async () => {
     vi.mocked(promptHashClient.hasAccess).mockResolvedValue(false);
     vi.mocked(promptHashClient.buyPromptAccess).mockImplementation(() => {
-      const p = Promise.reject(new Error('Contract failed'));
+      const p = Promise.reject(new Error("Contract failed"));
       p.catch(() => {});
       return p;
     });
@@ -193,27 +198,32 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
 
-    fireEvent.click(screen.getByText('Buy access'));
+    fireEvent.click(screen.getByText("Buy access"));
 
     await waitFor(() => {
-      expect(screen.getByText('Purchase failed. You can retry.')).toBeInTheDocument();
-      expect(screen.getByText('Retry Purchase')).toBeInTheDocument();
+      expect(
+        screen.getByText("Purchase failed. You can retry."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Retry Purchase")).toBeInTheDocument();
     });
   });
 
-  it('supports Resume Unlock recovery path', async () => {
+  it("supports Resume Unlock recovery path", async () => {
     vi.mocked(promptHashClient.hasAccess)
       .mockResolvedValueOnce(false) // Initial check
       .mockResolvedValueOnce(true) // Check after purchase
       .mockResolvedValueOnce(true) // Check before unlock
       .mockResolvedValueOnce(true); // Check during retry unlock
-    
-    vi.mocked(promptHashClient.buyPromptAccess).mockResolvedValue({ txHash: '123', success: true });
+
+    vi.mocked(promptHashClient.buyPromptAccess).mockResolvedValue({
+      txHash: "123",
+      success: true,
+    });
     vi.mocked(unlockClient.unlockPromptContent).mockImplementation(() => {
-      const p = Promise.reject(new Error('401 unauthorized'));
+      const p = Promise.reject(new Error("401 unauthorized"));
       p.catch(() => {});
       return p;
     });
@@ -226,24 +236,27 @@ describe('PromptModal Buyer Flow', () => {
           closeModal={() => {}}
           onRefresh={async () => {}}
         />
-      </AllProviders>
+      </AllProviders>,
     );
 
-    fireEvent.click(screen.getByText('Buy access'));
+    fireEvent.click(screen.getByText("Buy access"));
 
     await waitFor(() => {
       expect(screen.getByText(/Authentication failed/)).toBeInTheDocument();
-      expect(screen.getByText('Retry Unlock')).toBeInTheDocument();
+      expect(screen.getByText("Retry Unlock")).toBeInTheDocument();
     });
 
     // Retry unlock
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-    vi.mocked(unlockClient.unlockPromptContent).mockResolvedValue({ plaintext: 'Secret prompt content', decryptedContent: 'Secret prompt content' });
-    fireEvent.click(screen.getByText('Retry Unlock'));
+    vi.mocked(unlockClient.unlockPromptContent).mockResolvedValue({
+      plaintext: "Secret prompt content",
+      decryptedContent: "Secret prompt content",
+    });
+    fireEvent.click(screen.getByText("Retry Unlock"));
 
     await waitFor(() => {
-      expect(screen.getByText('Secret prompt content')).toBeInTheDocument();
-      expect(screen.getByText('Prompt Unlocked')).toBeInTheDocument();
+      expect(screen.getByText("Secret prompt content")).toBeInTheDocument();
+      expect(screen.getByText("Prompt Unlocked")).toBeInTheDocument();
     });
   });
 });

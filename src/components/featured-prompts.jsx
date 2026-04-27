@@ -21,8 +21,9 @@ export function FeaturedPrompts({ limit = 6, title = "Featured Templates" }) {
               </p>
               <h2 className="text-3xl font-semibold text-white">{title}</h2>
               <p className="mt-3 max-w-2xl text-sm text-slate-300">
-                Freshly authored browse examples inspired by real operator workflows.
-                These are templates for exploration. Live marketplace listings load from Stellar.
+                Freshly authored browse examples inspired by real operator
+                workflows. These are templates for exploration. Live marketplace
+                listings load from Stellar.
               </p>
             </div>
             <Link to="/browse">

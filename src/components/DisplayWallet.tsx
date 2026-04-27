@@ -26,7 +26,11 @@ const DisplayWallet = () => {
         <div className="absolute top-full mt-2 right-0 w-max max-w-xs bg-red-500 text-white text-xs pl-3 pr-2 py-2 rounded shadow-lg whitespace-normal z-50 flex items-start gap-1">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span className="flex-1">{error}</span>
-          <button onClick={() => setDismissedError(error)} className="opacity-80 hover:opacity-100 transition-opacity ml-1 p-0.5" aria-label="Dismiss error">
+          <button
+            onClick={() => setDismissedError(error)}
+            className="opacity-80 hover:opacity-100 transition-opacity ml-1 p-0.5"
+            aria-label="Dismiss error"
+          >
             <X className="w-3 h-3" />
           </button>
         </div>
@@ -43,7 +47,10 @@ const DisplayWallet = () => {
       )}
 
       {status === "connecting" && (
-        <Button disabled className="border border-amber-300/30 bg-amber-500/50 text-slate-950 cursor-not-allowed min-w-[150px]">
+        <Button
+          disabled
+          className="border border-amber-300/30 bg-amber-500/50 text-slate-950 cursor-not-allowed min-w-[150px]"
+        >
           <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" />
           Opening Wallet...
         </Button>
@@ -80,15 +87,29 @@ const DisplayWallet = () => {
       {showModal && (status === "idle" || status === "error") && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-slate-900 border border-white/10 rounded-lg p-6 shadow-xl max-w-sm w-full mx-4">
-            <h3 className="text-lg font-bold mb-4 text-white">Select a Wallet</h3>
+            <h3 className="text-lg font-bold mb-4 text-white">
+              Select a Wallet
+            </h3>
             <div className="flex flex-col space-y-3">
-              <Button variant="outline" onClick={() => void handleConnect("freighter")} className="w-full justify-start border-white/10 text-white hover:bg-white/10 hover:text-white">
+              <Button
+                variant="outline"
+                onClick={() => void handleConnect("freighter")}
+                className="w-full justify-start border-white/10 text-white hover:bg-white/10 hover:text-white"
+              >
                 Freighter
               </Button>
-              <Button variant="outline" onClick={() => void handleConnect("albedo")} className="w-full justify-start border-white/10 text-white hover:bg-white/10 hover:text-white">
+              <Button
+                variant="outline"
+                onClick={() => void handleConnect("albedo")}
+                className="w-full justify-start border-white/10 text-white hover:bg-white/10 hover:text-white"
+              >
                 Albedo
               </Button>
-              <Button variant="outline" onClick={() => void handleConnect("xbull")} className="w-full justify-start border-white/10 text-white hover:bg-white/10 hover:text-white">
+              <Button
+                variant="outline"
+                onClick={() => void handleConnect("xbull")}
+                className="w-full justify-start border-white/10 text-white hover:bg-white/10 hover:text-white"
+              >
                 xBull
               </Button>
             </div>

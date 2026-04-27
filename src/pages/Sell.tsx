@@ -6,20 +6,27 @@ import { Skeleton } from "../components/Skeleton";
 
 // 1. Mock: Fetching draft metadata/validation before listing
 const fetchDraftMetadata = async () => {
-  return new Promise<{ name: string; price: string; description: string }>((resolve) => {
-    setTimeout(() => {
-      resolve({ 
-        name: "AI Prompt: Senior Developer Assistant", 
-        price: "150",
-        description: "A comprehensive persona prompt for advanced code reviews."
-      });
-    }, 1500);
-  });
+  return new Promise<{ name: string; price: string; description: string }>(
+    (resolve) => {
+      setTimeout(() => {
+        resolve({
+          name: "AI Prompt: Senior Developer Assistant",
+          price: "150",
+          description:
+            "A comprehensive persona prompt for advanced code reviews.",
+        });
+      }, 1500);
+    },
+  );
 };
 
 // 2. Mock: Stellar Soroban contract call for listing the asset
 // Deterministic mock for local dev: always resolves successfully.
-const listAssetContractCall = async (_data: { name: string; price: string; description: string }): Promise<boolean> => {
+const listAssetContractCall = async (_data: {
+  name: string;
+  price: string;
+  description: string;
+}): Promise<boolean> => {
   return new Promise<boolean>((resolve) => {
     setTimeout(() => {
       resolve(true);
@@ -29,7 +36,11 @@ const listAssetContractCall = async (_data: { name: string; price: string; descr
 
 export default function Sell() {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({ name: "", price: "", description: "" });
+  const [formData, setFormData] = useState({
+    name: "",
+    price: "",
+    description: "",
+  });
   const [hydrated, setHydrated] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -61,7 +72,7 @@ export default function Sell() {
     {
       pendingMessage: "Processing listing on the Stellar network...",
       successMessage: "Asset listed successfully! Redirecting...",
-      
+
       // Query Invalidation / Redirection
       onSuccess: () => {
         // Add a short delay so the user can see the "Success" StatusBanner before unmounting
@@ -69,7 +80,7 @@ export default function Sell() {
           navigate("/dashboard");
         }, 1500);
       },
-    }
+    },
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -83,9 +94,14 @@ export default function Sell() {
     <div className="p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-6 text-white">List a New Prompt</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-slate-900 p-6 rounded-xl border border-white/10 shadow-sm">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 bg-slate-900 p-6 rounded-xl border border-white/10 shadow-sm"
+      >
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Prompt Name</label>
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Prompt Name
+          </label>
           {isFetchingDraft ? (
             <Skeleton className="h-10 w-full" />
           ) : (
@@ -94,14 +110,18 @@ export default function Sell() {
               required
               className="w-full bg-[#070602] border border-white/10 rounded-md p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 transition-all"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, name: e.target.value })
+              }
               disabled={isFormDisabled}
             />
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Price (XLM)</label>
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Price (XLM)
+          </label>
           {isFetchingDraft ? (
             <Skeleton className="h-10 w-full" />
           ) : (
@@ -112,14 +132,18 @@ export default function Sell() {
               step="0.1"
               className="w-full bg-[#070602] border border-white/10 rounded-md p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 transition-all"
               value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, price: e.target.value })
+              }
               disabled={isFormDisabled}
             />
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Description</label>
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Description
+          </label>
           {isFetchingDraft ? (
             <Skeleton className="h-24 w-full" />
           ) : (
@@ -128,7 +152,9 @@ export default function Sell() {
               rows={3}
               className="w-full bg-[#070602] border border-white/10 rounded-md p-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 transition-all"
               value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, description: e.target.value })
+              }
               disabled={isFormDisabled}
             />
           )}

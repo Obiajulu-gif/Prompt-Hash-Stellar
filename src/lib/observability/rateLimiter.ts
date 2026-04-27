@@ -2,13 +2,13 @@
 import { LRUCache } from "lru-cache";
 
 interface RateLimitConfig {
-  max: number;      // Maximum requests in the window
+  max: number; // Maximum requests in the window
   windowMs: number; // Time window in milliseconds
 }
 
 const defaultLimits: Record<string, RateLimitConfig> = {
   challenge: { max: 10, windowMs: 60 * 1000 }, // 10 requests per minute
-  unlock: { max: 5, windowMs: 60 * 1000 },    // 5 requests per minute
+  unlock: { max: 5, windowMs: 60 * 1000 }, // 5 requests per minute
 };
 
 const caches = new Map<string, LRUCache<string, number>>();
@@ -20,7 +20,7 @@ function getCache(key: string, config: RateLimitConfig) {
       new LRUCache<string, number>({
         max: 1000, // Max unique keys (IPs/Wallets) to track
         ttl: config.windowMs,
-      })
+      }),
     );
   }
   return caches.get(key)!;
@@ -29,7 +29,7 @@ function getCache(key: string, config: RateLimitConfig) {
 export function checkRateLimit(
   type: "challenge" | "unlock",
   identifier: string,
-  configOverrides?: Partial<RateLimitConfig>
+  configOverrides?: Partial<RateLimitConfig>,
 ): { success: boolean; limit: number; remaining: number; reset: number } {
   const config = { ...defaultLimits[type], ...configOverrides };
   const cache = getCache(type, config);

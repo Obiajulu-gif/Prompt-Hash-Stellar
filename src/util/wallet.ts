@@ -1,6 +1,6 @@
-import { 
-  StellarWalletsKit, 
-  allowAllModules 
+import {
+  StellarWalletsKit,
+  allowAllModules,
 } from "@creit.tech/stellar-wallets-kit";
 import { Horizon } from "@stellar/stellar-sdk";
 import { horizonUrl, stellarNetwork, stellarWalletNetwork } from "../lib/env";

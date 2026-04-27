@@ -22,17 +22,17 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <NotificationProvider>
-  <QueryClientProvider client={queryClient}>
-    <TransactionProvider>
-      <ContractSyncProvider>
-        <WalletProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-        </WalletProvider>
-      </ContractSyncProvider>
-    </TransactionProvider>
-  </QueryClientProvider>
-</NotificationProvider>
+      <QueryClientProvider client={queryClient}>
+        <TransactionProvider>
+          <ContractSyncProvider>
+            <WalletProvider>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </WalletProvider>
+          </ContractSyncProvider>
+        </TransactionProvider>
+      </QueryClientProvider>
+    </NotificationProvider>
   </StrictMode>,
 );

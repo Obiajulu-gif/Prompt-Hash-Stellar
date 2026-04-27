@@ -42,7 +42,9 @@ describe("creator dashboard refresh integration coverage", () => {
     });
     let currentCreatedPrompts = [basePrompt];
 
-    getPromptsByCreatorMock.mockImplementation(async () => currentCreatedPrompts);
+    getPromptsByCreatorMock.mockImplementation(
+      async () => currentCreatedPrompts,
+    );
     getPromptsByBuyerMock.mockResolvedValue([]);
     updatePromptPriceMock.mockImplementation(async () => {
       currentCreatedPrompts = [
@@ -60,7 +62,8 @@ describe("creator dashboard refresh integration coverage", () => {
 
     renderWithProviders(<MyPrompts />, {
       wallet: {
-        address: "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+        address:
+          "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
         signTransaction,
       },
     });
@@ -71,9 +74,13 @@ describe("creator dashboard refresh integration coverage", () => {
     const priceInput = screen.getByLabelText("Price for Revenue memo builder");
     await userEvent.clear(priceInput);
     await userEvent.type(priceInput, "3.5");
-    await userEvent.click(screen.getByRole("button", { name: /update price/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /update price/i }),
+    );
 
-    expect(await screen.findByText("Prompt price updated.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Prompt price updated."),
+    ).toBeInTheDocument();
 
     await waitFor(() => {
       expect(updatePromptPriceMock).toHaveBeenCalledWith(

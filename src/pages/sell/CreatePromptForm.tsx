@@ -66,9 +66,7 @@ export function CreatePromptForm() {
   const isConfigured = useMemo(
     () =>
       Boolean(
-        address &&
-          browserStellarConfig.promptHashContractId &&
-          unlockPublicKey,
+        address && browserStellarConfig.promptHashContractId && unlockPublicKey,
       ),
     [address, signTransaction],
   );
@@ -165,7 +163,10 @@ export function CreatePromptForm() {
     setIsSubmitting(true);
     try {
       const encrypted = await encryptPromptPlaintext(formData.fullPrompt);
-      const wrappedKey = await wrapPromptKey(encrypted.keyBytes, unlockPublicKey);
+      const wrappedKey = await wrapPromptKey(
+        encrypted.keyBytes,
+        unlockPublicKey,
+      );
 
       if (encrypted.encryptedPrompt.length > limits.encrypted) {
         throw new Error(
@@ -219,14 +220,17 @@ export function CreatePromptForm() {
     <div className="space-y-6">
       {!isConfigured ? (
         <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID` plus
-          `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
+          Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID`
+          plus `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
         </div>
       ) : null}
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-2">
-          <label htmlFor="create-prompt-image-url" className="text-sm font-medium">
+          <label
+            htmlFor="create-prompt-image-url"
+            className="text-sm font-medium"
+          >
             Image URL
           </label>
           <Input
@@ -270,7 +274,10 @@ export function CreatePromptForm() {
 
       <div className="grid gap-6 md:grid-cols-[1fr_220px]">
         <div className="space-y-2">
-          <label htmlFor="create-prompt-preview" className="text-sm font-medium">
+          <label
+            htmlFor="create-prompt-preview"
+            className="text-sm font-medium"
+          >
             Preview text
           </label>
           <Textarea
@@ -293,10 +300,16 @@ export function CreatePromptForm() {
           ) : null}
         </div>
         <div className="space-y-2">
-          <label htmlFor="create-prompt-category" className="text-sm font-medium">
+          <label
+            htmlFor="create-prompt-category"
+            className="text-sm font-medium"
+          >
             Category
           </label>
-          <Select value={formData.category} onValueChange={handleCategoryChange}>
+          <Select
+            value={formData.category}
+            onValueChange={handleCategoryChange}
+          >
             <SelectTrigger
               id="create-prompt-category"
               aria-label="Category"
@@ -319,7 +332,10 @@ export function CreatePromptForm() {
             </p>
           ) : null}
 
-          <label htmlFor="create-prompt-price" className="pt-3 text-sm font-medium">
+          <label
+            htmlFor="create-prompt-price"
+            className="pt-3 text-sm font-medium"
+          >
             Price in XLM
           </label>
           <Input
@@ -340,7 +356,10 @@ export function CreatePromptForm() {
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="create-prompt-full-prompt" className="text-sm font-medium">
+        <label
+          htmlFor="create-prompt-full-prompt"
+          className="text-sm font-medium"
+        >
           Full prompt
         </label>
         <Textarea

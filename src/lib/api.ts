@@ -124,14 +124,17 @@ export function localImprovePrompt(prompt: string) {
 
 export async function improvePrompt(prompt: string) {
   try {
-    const result = await fetchJson<unknown>(`${chatApiBase}/api/improve-prompt`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        Accept: "application/json",
+    const result = await fetchJson<unknown>(
+      `${chatApiBase}/api/improve-prompt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Accept: "application/json",
+        },
+        body: prompt,
       },
-      body: prompt,
-    });
+    );
 
     if (typeof result === "string") {
       return result || localImprovePrompt(prompt);

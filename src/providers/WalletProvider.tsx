@@ -11,11 +11,11 @@ import { stellarWalletNetwork } from "../lib/env";
 import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 
-export type WalletStatus = 
-  | "idle" 
-  | "connecting" 
-  | "connected" 
-  | "reconnecting" 
+export type WalletStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
   | "error";
 
 export interface WalletContextType {
@@ -41,10 +41,18 @@ const initialState = {
 const boundSignTransaction = wallet.signTransaction.bind(wallet);
 const boundSignMessage = wallet.signMessage.bind(wallet);
 
-export const WalletContext = createContext<WalletContextType | undefined>(undefined);
+export const WalletContext = createContext<WalletContextType | undefined>(
+  undefined,
+);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
-  const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
+  const [state, setState] =
+    useState<
+      Omit<
+        WalletContextType,
+        "connect" | "disconnect" | "signTransaction" | "signMessage"
+      >
+    >(initialState);
 
   const { execute: executeDisconnect } = useAsyncTransaction(
     async () => {
@@ -59,8 +67,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         storage.removeItem("walletNetwork");
         storage.removeItem("networkPassphrase");
         setState(initialState);
-      }
-    }
+      },
+    },
   );
 
   const disconnect = useCallback(async () => {
@@ -76,7 +84,9 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       return await wallet.getNetwork();
     } catch (e) {
-      console.warn(`Wallet ${walletId} does not support getNetwork, using env default.`);
+      console.warn(
+        `Wallet ${walletId} does not support getNetwork, using env default.`,
+      );
       return { network: stellarWalletNetwork, networkPassphrase: undefined };
     }
   }, []);
@@ -84,28 +94,38 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const { execute: executeConnect } = useAsyncTransaction(
     async (walletId: string) => {
       wallet.setWallet(walletId);
-      
+
       const [a, n] = await Promise.all([
         wallet.getAddress(),
         getSafeNetworkInfo(walletId),
       ]);
 
       if (!a.address) throw new Error("No address returned from wallet");
-      return { address: a.address, network: n.network, networkPassphrase: n.networkPassphrase, walletId };
+      return {
+        address: a.address,
+        network: n.network,
+        networkPassphrase: n.networkPassphrase,
+        walletId,
+      };
     },
     {
       pendingMessage: (walletId) => `Connecting to ${walletId}...`,
       successMessage: "Wallet connected successfully",
       onOptimistic: () => {
-        setState(prev => ({ ...prev, status: "connecting", error: undefined }));
+        setState((prev) => ({
+          ...prev,
+          status: "connecting",
+          error: undefined,
+        }));
       },
       onSuccess: (data) => {
         storage.setItem("walletId", data.walletId);
         storage.setItem("walletAddress", data.address);
         if (data.network) storage.setItem("walletNetwork", data.network);
         else storage.removeItem("walletNetwork");
-        
-        if (data.networkPassphrase) storage.setItem("networkPassphrase", data.networkPassphrase);
+
+        if (data.networkPassphrase)
+          storage.setItem("networkPassphrase", data.networkPassphrase);
         else storage.removeItem("networkPassphrase");
 
         setState({
@@ -118,19 +138,23 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       },
       onError: (e) => {
         console.error("Connection error:", e);
-        const message = e instanceof Error ? e.message : "Failed to connect wallet";
-        setState(prev => ({ 
-          ...prev, 
-          status: "error", 
-          error: message 
+        const message =
+          e instanceof Error ? e.message : "Failed to connect wallet";
+        setState((prev) => ({
+          ...prev,
+          status: "error",
+          error: message,
         }));
-      }
-    }
+      },
+    },
   );
 
-  const connect = useCallback(async (walletId: string) => {
-    await executeConnect(walletId).catch(() => {});
-  }, [executeConnect]);
+  const connect = useCallback(
+    async (walletId: string) => {
+      await executeConnect(walletId).catch(() => {});
+    },
+    [executeConnect],
+  );
 
   const checkExtensionAccount = useCallback(async () => {
     if (state.status !== "connected" && state.status !== "reconnecting") return;
@@ -141,7 +165,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       const { address } = await wallet.getAddress();
       if (address && address !== state.address) {
         storage.setItem("walletAddress", address);
-        setState(prev => ({ ...prev, address }));
+        setState((prev) => ({ ...prev, address }));
       }
     } catch (error) {
       console.error("Error checking extension account:", error);
@@ -164,12 +188,12 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       if (aborted) return;
 
       if (!savedId || !savedAddr) {
-        setState(prev => ({ ...prev, status: "idle" }));
+        setState((prev) => ({ ...prev, status: "idle" }));
         return;
       }
 
-      setState(prev => ({ ...prev, status: "reconnecting" }));
-      
+      setState((prev) => ({ ...prev, status: "reconnecting" }));
+
       try {
         wallet.setWallet(savedId);
         const [a, n] = await Promise.all([
@@ -184,26 +208,28 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
             storage.setItem("walletAddress", a.address);
           }
           if (aborted) return;
-        setState((prev) => {
-          if (prev.status !== "reconnecting" && prev.status !== "idle") return prev;
-          return {
-            ...prev,
-            address: a.address,
-            network: n.network,
-            networkPassphrase: n.networkPassphrase,
-            status: "connected",
-            error: undefined,
-          };
+          setState((prev) => {
+            if (prev.status !== "reconnecting" && prev.status !== "idle")
+              return prev;
+            return {
+              ...prev,
+              address: a.address,
+              network: n.network,
+              networkPassphrase: n.networkPassphrase,
+              status: "connected",
+              error: undefined,
+            };
           });
         } else {
           if (aborted) return;
-        let shouldDisconnect = false;
-        setState((prev) => {
-          if (prev.status !== "reconnecting" && prev.status !== "idle") return prev;
-          shouldDisconnect = true;
-          return prev;
-        });
-        if (shouldDisconnect) void disconnect();
+          let shouldDisconnect = false;
+          setState((prev) => {
+            if (prev.status !== "reconnecting" && prev.status !== "idle")
+              return prev;
+            shouldDisconnect = true;
+            return prev;
+          });
+          if (shouldDisconnect) void disconnect();
         }
       } catch (e) {
         if (aborted) return;
@@ -227,8 +253,12 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       signTransaction: boundSignTransaction,
       signMessage: boundSignMessage,
     }),
-    [state, connect, disconnect]
+    [state, connect, disconnect],
   );
 
-  return <WalletContext.Provider value={contextValue}>{children}</WalletContext.Provider>;
+  return (
+    <WalletContext.Provider value={contextValue}>
+      {children}
+    </WalletContext.Provider>
+  );
 };

@@ -58,7 +58,8 @@ const env = envSchema.parse({
   PUBLIC_CHAT_API_BASE:
     import.meta.env.PUBLIC_CHAT_API_BASE ?? fallback.PUBLIC_CHAT_API_BASE,
   PUBLIC_UNLOCK_PUBLIC_KEY:
-    import.meta.env.PUBLIC_UNLOCK_PUBLIC_KEY ?? fallback.PUBLIC_UNLOCK_PUBLIC_KEY,
+    import.meta.env.PUBLIC_UNLOCK_PUBLIC_KEY ??
+    fallback.PUBLIC_UNLOCK_PUBLIC_KEY,
 });
 
 export const stellarNetwork =
@@ -69,7 +70,8 @@ export const networkPassphrase = env.PUBLIC_STELLAR_NETWORK_PASSPHRASE;
 export const rpcUrl = env.PUBLIC_STELLAR_RPC_URL;
 export const horizonUrl = env.PUBLIC_STELLAR_HORIZON_URL;
 export const promptHashContractId = env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
-export const nativeAssetContractId = env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID;
+export const nativeAssetContractId =
+  env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID;
 export const simulationAccount = env.PUBLIC_STELLAR_SIMULATION_ACCOUNT;
 export const chatApiBase = env.PUBLIC_CHAT_API_BASE;
 export const unlockPublicKey = env.PUBLIC_UNLOCK_PUBLIC_KEY;

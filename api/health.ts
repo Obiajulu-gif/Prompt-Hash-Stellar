@@ -1,4 +1,8 @@
-import { withObservability, type ApiRequest, type ApiResponse } from "../src/lib/observability/wrapper";
+import {
+  withObservability,
+  type ApiRequest,
+  type ApiResponse,
+} from "../src/lib/observability/wrapper";
 
 /**
  * Health check handler with explicit typing to satisfy strict CI rules.

@@ -177,6 +177,7 @@ The serverless unlock flow handles challenge token issuance, signature verificat
 #### Observability & Production Hardening
 
 The unlock service is hardened for production use with the following features:
+
 - **Rate Limiting**: Request-level limits keyed by IP and wallet to prevent brute-force and DDoS attacks.
 - **Structured Logging**: JSON-formatted logs with request ID tracking and sensitive data redaction.
 - **Operational Metrics**: Real-time tracking of unlock success/failure rates, invalid signatures, and rate limit hits.

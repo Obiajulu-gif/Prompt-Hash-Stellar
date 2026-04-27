@@ -55,7 +55,9 @@ export function ConversationDetails({
 
       <Tabs
         value={activeTab}
-        onValueChange={(value) => onTabChange(value as "actions" | "customer" | "settings")}
+        onValueChange={(value) =>
+          onTabChange(value as "actions" | "customer" | "settings")
+        }
       >
         <TabsList className="w-full grid grid-cols-3">
           <TabsTrigger value="actions" className="flex items-center gap-1">

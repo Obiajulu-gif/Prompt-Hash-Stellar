@@ -2,7 +2,10 @@ import React from "react";
 
 export type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
 
-export const Skeleton: React.FC<SkeletonProps> = ({ className = "", ...props }) => {
+export const Skeleton: React.FC<SkeletonProps> = ({
+  className = "",
+  ...props
+}) => {
   return (
     <div
       aria-hidden="true"

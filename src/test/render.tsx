@@ -1,9 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  render,
-  type RenderOptions,
-} from "@testing-library/react";
+import { render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import {
   WalletContext,
@@ -19,13 +16,13 @@ const defaultWallet: WalletContextType = {
   status: "idle",
   connect: async (_walletId: string) => {}, // Accepts required parameter
   disconnect: async () => {}, // Returns Promise<void>
-  signMessage: async () => ({ 
-    signedMessage: "mock_signed_message", 
-    signerAddress: "GA..." 
+  signMessage: async () => ({
+    signedMessage: "mock_signed_message",
+    signerAddress: "GA...",
   }),
-  signTransaction: async () => ({ 
-    signedTxXdr: "mock_signed_tx_xdr", 
-    signerAddress: "GA..." 
+  signTransaction: async () => ({
+    signedTxXdr: "mock_signed_tx_xdr",
+    signerAddress: "GA...",
   }),
 };
 

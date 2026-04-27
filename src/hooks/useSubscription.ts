@@ -90,7 +90,7 @@ export function useSubscription(
                 error,
               );
             } finally {
-            // @ts-expect-error: The pagingToken field is missing from some event types
+              // @ts-expect-error: The pagingToken field is missing from some event types
               paging[id].pagingToken = event.pagingToken;
             }
           });

@@ -79,7 +79,9 @@ describe("marketplace purchase and unlock integration coverage", () => {
 
     await screen.findByText(prompt.title);
 
-    const cardButton = await screen.findByRole("button", { name: /^buy access$/i });
+    const cardButton = await screen.findByRole("button", {
+      name: /^buy access$/i,
+    });
     await userEvent.click(cardButton);
 
     const dialog = await screen.findByRole("dialog", {
@@ -124,7 +126,9 @@ describe("marketplace purchase and unlock integration coverage", () => {
     getAllPromptsMock.mockResolvedValue([prompt]);
     hasAccessMock.mockResolvedValue(true);
     unlockPromptContentMock
-      .mockRejectedValueOnce(new Error("Unlock service temporarily unavailable."))
+      .mockRejectedValueOnce(
+        new Error("Unlock service temporarily unavailable."),
+      )
       .mockResolvedValueOnce({
         promptId: prompt.id.toString(),
         title: prompt.title,
@@ -165,7 +169,9 @@ describe("marketplace purchase and unlock integration coverage", () => {
 
     await userEvent.click(unlockButton);
     expect(
-      await within(dialog).findByText("Unlock service temporarily unavailable."),
+      await within(dialog).findByText(
+        "Unlock service temporarily unavailable.",
+      ),
     ).toBeInTheDocument();
 
     await userEvent.click(unlockButton);

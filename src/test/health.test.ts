@@ -10,7 +10,7 @@ describe("Health API", () => {
       method: "GET",
       headers: {},
       url: "/api/health",
-      socket: { remoteAddress: "127.0.0.1" }
+      socket: { remoteAddress: "127.0.0.1" },
     };
 
     const res = {
@@ -21,7 +21,7 @@ describe("Health API", () => {
       json(data: any) {
         responseData = data;
         return this;
-      }
+      },
     };
 
     // @ts-expect-error: Mocked for testing

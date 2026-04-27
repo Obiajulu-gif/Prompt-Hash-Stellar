@@ -21,7 +21,8 @@ function base64UrlEncode(value: string) {
 
 function base64UrlDecode(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  const padding =
+    normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
   return Buffer.from(`${normalized}${padding}`, "base64").toString("utf8");
 }
 
@@ -73,13 +74,20 @@ export function verifyChallengeToken(
   const expectedSignature = signPayload(secret, encodedPayload);
   const received = Buffer.from(signature, "utf8");
   const expected = Buffer.from(expectedSignature, "utf8");
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+  if (
+    received.length !== expected.length ||
+    !timingSafeEqual(received, expected)
+  ) {
     throw new Error("Invalid challenge token signature.");
   }
 
-  const payload = JSON.parse(base64UrlDecode(encodedPayload)) as ChallengePayload;
+  const payload = JSON.parse(
+    base64UrlDecode(encodedPayload),
+  ) as ChallengePayload;
   if (payload.address !== address || payload.promptId !== promptId) {
-    throw new Error("Challenge token does not match the requested prompt unlock.");
+    throw new Error(
+      "Challenge token does not match the requested prompt unlock.",
+    );
   }
 
   if (payload.expiresAt < now) {
@@ -127,7 +135,7 @@ export function verifyUnlock(
   address: string,
   promptId: string,
   signedMessage: string,
-  now = Date.now()
+  now = Date.now(),
 ) {
   // 1. Verify the token payload (checks expiry, promptId, address, and server signature)
   const payload = verifyChallengeToken(secret, token, address, promptId, now);

@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  ReactNode,
+} from "react";
 import { StatusBanner } from "./StatusBanner";
 import "./TransactionProvider.css";
 
@@ -18,26 +25,33 @@ interface TransactionContextType {
   removeTransaction: (id: string) => void;
 }
 
-const TransactionContext = createContext<TransactionContextType | undefined>(undefined);
+const TransactionContext = createContext<TransactionContextType | undefined>(
+  undefined,
+);
 
-export const TransactionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const TransactionProvider: React.FC<{ children: ReactNode }> = ({
+  children,
+}) => {
   const [transactions, setTransactions] = useState<TransactionState[]>([]);
 
   const addTransaction = useCallback((tx: TransactionState) => {
     setTransactions((prev) => [...prev, tx]);
   }, []);
 
-  const updateTransaction = useCallback((id: string, updates: Partial<TransactionState>) => {
-    setTransactions((prev) =>
-      prev.map((tx) => {
-        if (tx.id === id) {
-          const updated = { ...tx, ...updates };
-          return updated;
-        }
-        return tx;
-      })
-    );
-  }, []);
+  const updateTransaction = useCallback(
+    (id: string, updates: Partial<TransactionState>) => {
+      setTransactions((prev) =>
+        prev.map((tx) => {
+          if (tx.id === id) {
+            const updated = { ...tx, ...updates };
+            return updated;
+          }
+          return tx;
+        }),
+      );
+    },
+    [],
+  );
 
   const removeTransaction = useCallback((id: string) => {
     setTransactions((prev) => prev.filter((tx) => tx.id !== id));
@@ -48,14 +62,22 @@ export const TransactionProvider: React.FC<{ children: ReactNode }> = ({ childre
     if (transactions.some((tx) => tx.status === "error")) {
       // Allow DOM to finish rendering the Retry button before querying it
       setTimeout(() => {
-        const retryBtn = document.querySelector<HTMLButtonElement>(".retry-btn");
+        const retryBtn =
+          document.querySelector<HTMLButtonElement>(".retry-btn");
         if (retryBtn) retryBtn.focus();
       }, 0);
     }
   }, [transactions]);
 
   return (
-    <TransactionContext.Provider value={{ transactions, addTransaction, updateTransaction, removeTransaction }}>
+    <TransactionContext.Provider
+      value={{
+        transactions,
+        addTransaction,
+        updateTransaction,
+        removeTransaction,
+      }}
+    >
       {children}
       <div aria-live="polite" className="notification-container">
         {transactions.map((tx) => (
@@ -76,7 +98,9 @@ export const TransactionProvider: React.FC<{ children: ReactNode }> = ({ childre
 export const useTransactionFeedback = () => {
   const context = useContext(TransactionContext);
   if (!context) {
-    throw new Error("useTransactionFeedback must be used within a TransactionProvider");
+    throw new Error(
+      "useTransactionFeedback must be used within a TransactionProvider",
+    );
   }
   return context;
 };

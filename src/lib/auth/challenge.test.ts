@@ -17,7 +17,12 @@ describe("unlock challenge verification", () => {
     const address = keypair.publicKey();
     const promptId = "42";
 
-    const challenge = createChallengeToken(secret, address, promptId, 1_700_000_000_000);
+    const challenge = createChallengeToken(
+      secret,
+      address,
+      promptId,
+      1_700_000_000_000,
+    );
     const payload = verifyChallengeToken(
       secret,
       challenge.token,
@@ -34,7 +39,9 @@ describe("unlock challenge verification", () => {
       keypair.sign(Buffer.from(message, "utf8")),
     ).toString("base64");
 
-    expect(verifyChallengeSignature(address, message, signedMessage)).toBe(true);
+    expect(verifyChallengeSignature(address, message, signedMessage)).toBe(
+      true,
+    );
   });
 
   it("rejects expired challenge tokens", () => {
@@ -42,10 +49,22 @@ describe("unlock challenge verification", () => {
     const keypair = Keypair.random();
     const address = keypair.publicKey();
 
-    const challenge = createChallengeToken(secret, address, "7", 1_700_000_000_000, 1000);
+    const challenge = createChallengeToken(
+      secret,
+      address,
+      "7",
+      1_700_000_000_000,
+      1000,
+    );
 
     expect(() =>
-      verifyChallengeToken(secret, challenge.token, address, "7", 1_700_000_010_500),
+      verifyChallengeToken(
+        secret,
+        challenge.token,
+        address,
+        "7",
+        1_700_000_010_500,
+      ),
     ).toThrow("expired");
   });
 });

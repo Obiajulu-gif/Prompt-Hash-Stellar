@@ -5,15 +5,14 @@
   "bin": {
     "contacts": "./build/index.js"
   },
-    "main": "server.js",
-    "scripts": 
-  {
+  "main": "server.js",
+  "scripts": {
     "test": "jest --passWithNoTests",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
-    "start": "node build/server.js" 
+    "start": "node build/server.js"
   },
   "files": [
     "build"

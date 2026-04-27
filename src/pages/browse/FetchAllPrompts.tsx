@@ -39,7 +39,9 @@ const FetchAllPrompts = ({
 }: FetchAllPromptsProps) => {
   const queryClient = useQueryClient();
   const { address } = useWallet();
-  const [selectedPrompt, setSelectedPrompt] = useState<PromptRecord | null>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<PromptRecord | null>(
+    null,
+  );
   const [currentPage, setCurrentPage] = useState(1);
 
   const promptsQuery = useQuery({
@@ -54,7 +56,7 @@ const FetchAllPrompts = ({
   });
 
   const accessQueries = useQueries({
-    queries: (address ? promptsQuery.data ?? [] : []).map((prompt) => ({
+    queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
       queryKey: ["prompt-access", address, prompt.id.toString()],
       queryFn: async () => hasAccess(browserStellarConfig, address!, prompt.id),
       staleTime: 15_000,
@@ -65,7 +67,9 @@ const FetchAllPrompts = ({
     return new Map(
       (promptsQuery.data ?? []).map((prompt, index) => [
         prompt.id.toString(),
-        address ? accessQueries[index]?.data ?? prompt.creator === address : false,
+        address
+          ? (accessQueries[index]?.data ?? prompt.creator === address)
+          : false,
       ]),
     );
   }, [accessQueries, address, promptsQuery.data]);
@@ -97,13 +101,18 @@ const FetchAllPrompts = ({
           left.priceStroops > right.priceStroops ? -1 : 1,
         );
       case "sales":
-        return [...prompts].sort((left, right) => right.salesCount - left.salesCount);
+        return [...prompts].sort(
+          (left, right) => right.salesCount - left.salesCount,
+        );
       default:
         return [...prompts].sort((left, right) => Number(right.id - left.id));
     }
   }, [priceRange, promptsQuery.data, searchQuery, selectedCategory, sortBy]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
+  );
   const currentPrompts = filteredPrompts.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
@@ -139,8 +148,9 @@ const FetchAllPrompts = ({
     <>
       {!isMarketplaceConfigured ? (
         <div className="mb-6 rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5 text-sm text-amber-100">
-          Add `PUBLIC_PROMPT_HASH_CONTRACT_ID` and `PUBLIC_STELLAR_SIMULATION_ACCOUNT`
-          to load live marketplace listings from Stellar testnet.
+          Add `PUBLIC_PROMPT_HASH_CONTRACT_ID` and
+          `PUBLIC_STELLAR_SIMULATION_ACCOUNT` to load live marketplace listings
+          from Stellar testnet.
         </div>
       ) : null}
 
@@ -178,7 +188,9 @@ const FetchAllPrompts = ({
           <Button
             variant="outline"
             className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+            onClick={() =>
+              setCurrentPage((page) => Math.min(totalPages, page + 1))
+            }
             disabled={currentPage === totalPages}
           >
             Next
@@ -190,7 +202,9 @@ const FetchAllPrompts = ({
       {selectedPrompt ? (
         <PromptModal
           prompt={selectedPrompt}
-          initialHasAccess={accessMap.get(selectedPrompt.id.toString()) ?? false}
+          initialHasAccess={
+            accessMap.get(selectedPrompt.id.toString()) ?? false
+          }
           closeModal={() => setSelectedPrompt(null)}
           onRefresh={refreshQueries}
         />

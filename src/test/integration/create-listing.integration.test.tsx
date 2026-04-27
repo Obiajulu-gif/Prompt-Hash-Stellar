@@ -55,14 +55,18 @@ describe("create listing integration coverage", () => {
       screen.getByRole("button", { name: /create prompt listing/i }),
     );
 
-    expect(await screen.findByText("Image URL is required.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Image URL is required."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Title is required.")).toBeInTheDocument();
     expect(screen.getByText("Category is required.")).toBeInTheDocument();
     expect(screen.getByText("Preview text is required.")).toBeInTheDocument();
     expect(
       screen.getByText("Full prompt content is required."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Price must be greater than zero.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Price must be greater than zero."),
+    ).toBeInTheDocument();
     expect(createPromptMock).not.toHaveBeenCalled();
   });
 
@@ -85,7 +89,8 @@ describe("create listing integration coverage", () => {
 
     renderWithProviders(<CreatePromptForm />, {
       wallet: {
-        address: "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+        address:
+          "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
         signTransaction,
       },
     });
@@ -94,7 +99,10 @@ describe("create listing integration coverage", () => {
       screen.getByLabelText(/image url/i),
       "https://example.com/new-cover.png",
     );
-    await userEvent.type(screen.getByLabelText(/title/i), "Campaign launch pack");
+    await userEvent.type(
+      screen.getByLabelText(/title/i),
+      "Campaign launch pack",
+    );
     await selectCategory("Marketing");
     await userEvent.type(
       screen.getByLabelText(/preview text/i),
@@ -124,6 +132,8 @@ describe("create listing integration coverage", () => {
       "unlock-public-key",
     );
     expect(createPromptMock).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Prompt #17 created successfully.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Prompt #17 created successfully."),
+    ).toBeInTheDocument();
   });
 });

@@ -1,5 +1,9 @@
 import { createChallengeToken } from "../../src/lib/auth/challenge";
-import { withObservability, type RequestWithLogger, type ApiResponse } from "../../src/lib/observability/wrapper";
+import {
+  withObservability,
+  type RequestWithLogger,
+  type ApiResponse,
+} from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
 
@@ -14,11 +18,16 @@ function handler(req: RequestWithLogger, res: ApiResponse) {
     return;
   }
 
-  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown") as string;
+  const clientIp = (req.headers["x-forwarded-for"] ||
+    req.socket.remoteAddress ||
+    "unknown") as string;
   const rateLimit = checkRateLimit("challenge", clientIp);
 
   if (!rateLimit.success) {
-    req.logger.warn({ clientIp: String(clientIp) }, "Rate limit exceeded for challenge issuance");
+    req.logger.warn(
+      { clientIp: String(clientIp) },
+      "Rate limit exceeded for challenge issuance",
+    );
     metrics.trackRateLimitHit("challenge", clientIp);
     res.status(429).json({
       error: "Too many requests. Please try again later.",
@@ -41,8 +50,12 @@ function handler(req: RequestWithLogger, res: ApiResponse) {
     return;
   }
 
-  const challenge = createChallengeToken(secret, String(address), String(promptId));
-  
+  const challenge = createChallengeToken(
+    secret,
+    String(address),
+    String(promptId),
+  );
+
   metrics.trackChallengeIssued(String(address), String(promptId));
   req.logger.info({ address, promptId }, "Challenge token issued successfully");
 

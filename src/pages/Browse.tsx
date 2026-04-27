@@ -7,12 +7,16 @@ import { Skeleton } from "../components/Skeleton";
 const purchasePrompt = async (itemId: string): Promise<boolean> => {
   console.log(`Simulating purchase for item: ${itemId}`);
   // Simulating a network call for the marketplace purchase
-  return new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2000));
+  return new Promise<boolean>((resolve) =>
+    setTimeout(() => resolve(true), 2000),
+  );
 };
 
 export default function Browse() {
   const queryClient = useQueryClient();
-  const [optimisticPurchases, setOptimisticPurchases] = useState<Set<string>>(new Set());
+  const [optimisticPurchases, setOptimisticPurchases] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Mock fetching marketplace items
   const { data: items, isLoading: isFetching } = useQuery({
@@ -42,13 +46,13 @@ export default function Browse() {
         queryClient.invalidateQueries({ queryKey: ["account-balance"] });
         queryClient.invalidateQueries({ queryKey: ["marketplace-items"] });
       },
-    }
+    },
   );
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6 text-white">Marketplace</h1>
-      
+
       {isFetching ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Skeleton className="h-32 w-full" />
@@ -60,7 +64,10 @@ export default function Browse() {
           {items?.map((item) => {
             const isProcessing = optimisticPurchases.has(item.id);
             return (
-              <div key={item.id} className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between">
+              <div
+                key={item.id}
+                className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between"
+              >
                 <div>
                   <h3 className="text-lg font-bold text-white">{item.name}</h3>
                   <p className="text-slate-400">{item.price}</p>

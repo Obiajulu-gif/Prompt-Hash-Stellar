@@ -1,7 +1,11 @@
 import { logger } from "./logger";
 
 export const metrics = {
-  emit(name: string, value: number = 1, labels: Record<string, string | number> = {}) {
+  emit(
+    name: string,
+    value: number = 1,
+    labels: Record<string, string | number> = {},
+  ) {
     // In a real production app, this might go to Prometheus or CloudWatch
     // For now, we emit as structured logs which can be parsed
     logger.info({ metric: { name, value, labels } }, `Metric: ${name}`);
@@ -22,5 +26,5 @@ export const metrics = {
 
   trackRateLimitHit(type: string, identifier: string) {
     this.emit("rate_limit_hit_total", 1, { type, identifier });
-  }
+  },
 };

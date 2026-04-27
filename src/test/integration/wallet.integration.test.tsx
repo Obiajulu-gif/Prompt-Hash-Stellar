@@ -40,7 +40,9 @@ describe("wallet integration coverage", () => {
 
     renderWithProviders(<DisplayWallet />);
 
-    await userEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /connect wallet/i }),
+    );
 
     expect(connectWallet).toHaveBeenCalledTimes(1);
   });

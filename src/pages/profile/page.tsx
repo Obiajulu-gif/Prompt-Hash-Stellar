@@ -115,7 +115,9 @@ function EmptyState({
       <div className="max-w-sm">
         <div
           className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl ${
-            isCyan ? "bg-cyan-200/10 text-cyan-100" : "bg-amber-300/10 text-amber-200"
+            isCyan
+              ? "bg-cyan-200/10 text-cyan-100"
+              : "bg-amber-300/10 text-amber-200"
           }`}
         >
           <Icon className="h-8 w-8" />
@@ -159,8 +161,8 @@ function DisconnectedProfile() {
             Your prompt library starts with a Stellar wallet.
           </h1>
           <p className="mt-4 max-w-xl text-base leading-7 text-slate-300">
-            Connect to see licensed prompts you can reopen, creator inventory you
-            control, and listing states tied to your wallet identity.
+            Connect to see licensed prompts you can reopen, creator inventory
+            you control, and listing states tied to your wallet identity.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button
@@ -223,7 +225,9 @@ function DisconnectedProfile() {
             </div>
             <div>
               <h2 className="font-semibold text-white">{item.title}</h2>
-              <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
+              <p className="mt-1.5 text-sm leading-6 text-slate-400">
+                {item.body}
+              </p>
             </div>
           </div>
         ))}
@@ -312,9 +316,21 @@ function WalletIdentityPanel({
         {/* Stats strip */}
         <div className="grid grid-cols-2 divide-x divide-y divide-white/[0.06] border-t border-white/[0.06] sm:grid-cols-4 sm:divide-y-0">
           {[
-            { icon: BadgeCheck, label: "Owned licenses", value: purchasedCount },
-            { icon: PanelTopOpen, label: "Created prompts", value: createdCount },
-            { icon: CheckCircle2, label: "Active listings", value: activeCount },
+            {
+              icon: BadgeCheck,
+              label: "Owned licenses",
+              value: purchasedCount,
+            },
+            {
+              icon: PanelTopOpen,
+              label: "Created prompts",
+              value: createdCount,
+            },
+            {
+              icon: CheckCircle2,
+              label: "Active listings",
+              value: activeCount,
+            },
             {
               icon: Wallet,
               label: "Balance",
@@ -328,7 +344,9 @@ function WalletIdentityPanel({
                   {label}
                 </p>
               </div>
-              <p className="text-2xl font-semibold tabular-nums text-white">{value}</p>
+              <p className="text-2xl font-semibold tabular-nums text-white">
+                {value}
+              </p>
             </div>
           ))}
         </div>
@@ -406,7 +424,9 @@ function PurchasedPromptCard({
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_10rem]">
             <div className="min-w-0">
-              <h3 className="text-xl font-semibold text-white">{prompt.title}</h3>
+              <h3 className="text-xl font-semibold text-white">
+                {prompt.title}
+              </h3>
               <p className="mt-2 line-clamp-2 text-sm leading-7 text-slate-400">
                 {prompt.previewText}
               </p>
@@ -445,7 +465,7 @@ function PurchasedPromptCard({
               )}
             </Button>
             <p className="font-mono text-xs text-slate-600">
-                  {shortHash(prompt.contentHash || "")}
+              {shortHash(prompt.contentHash || "")}
             </p>
           </div>
 
@@ -514,7 +534,9 @@ function CreatedPromptCard({
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_auto]">
             <div className="min-w-0">
-              <h3 className="text-xl font-semibold text-white">{prompt.title}</h3>
+              <h3 className="text-xl font-semibold text-white">
+                {prompt.title}
+              </h3>
               <p className="mt-2 line-clamp-2 text-sm leading-7 text-slate-400">
                 {prompt.previewText}
               </p>
@@ -589,9 +611,9 @@ export default function ProfilePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [unlockedPrompts, setUnlockedPrompts] = useState<Record<string, string>>(
-    {},
-  );
+  const [unlockedPrompts, setUnlockedPrompts] = useState<
+    Record<string, string>
+  >({});
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -647,11 +669,15 @@ export default function ProfilePage() {
         promptId,
         !active,
       );
-      updateStatus(!active ? "Prompt listing reactivated." : "Prompt listing paused.");
+      updateStatus(
+        !active ? "Prompt listing reactivated." : "Prompt listing paused.",
+      );
       await refreshPromptLists();
     } catch (error) {
       updateError(
-        error instanceof Error ? error.message : "Failed to update listing status.",
+        error instanceof Error
+          ? error.message
+          : "Failed to update listing status.",
       );
     } finally {
       setBusyPromptId(null);
@@ -686,12 +712,18 @@ export default function ProfilePage() {
 
   const handleUnlock = async (promptId: bigint) => {
     if (!address || !signMessage) {
-      updateError("Connect a wallet with SEP-43 message signing to unlock prompts.");
+      updateError(
+        "Connect a wallet with SEP-43 message signing to unlock prompts.",
+      );
       return;
     }
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
+      const response = await unlockPromptContent(
+        address,
+        promptId.toString(),
+        signMessage,
+      );
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
@@ -743,8 +775,8 @@ export default function ProfilePage() {
                     Library &amp; Inventory
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                    Licensed prompts are optimized for re-entry and unlock. Created
-                    prompts stay focused on listing control.
+                    Licensed prompts are optimized for re-entry and unlock.
+                    Created prompts stay focused on listing control.
                   </p>
                 </div>
 
@@ -830,7 +862,9 @@ export default function ProfilePage() {
                               [prompt.id.toString()]: value,
                             }))
                           }
-                          onUpdatePrice={(promptId) => void handleUpdatePrice(promptId)}
+                          onUpdatePrice={(promptId) =>
+                            void handleUpdatePrice(promptId)
+                          }
                           onToggleStatus={(promptId, active) =>
                             void handleToggleSaleStatus(promptId, active)
                           }

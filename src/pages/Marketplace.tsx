@@ -27,7 +27,9 @@ const buyAssetContractCall = async (_itemId: string): Promise<boolean> => {
 
 export default function Marketplace() {
   const queryClient = useQueryClient();
-  const [optimisticPurchases, setOptimisticPurchases] = useState<Set<string>>(new Set());
+  const [optimisticPurchases, setOptimisticPurchases] = useState<Set<string>>(
+    new Set(),
+  );
 
   // 1. Fetching marketplace items
   const { data: items, isLoading: isFetching } = useQuery({
@@ -63,13 +65,13 @@ export default function Marketplace() {
       onSettled: () => {
         setOptimisticPurchases(new Set());
       },
-    }
+    },
   );
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6 text-white">Marketplace</h1>
-      
+
       {isFetching ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Skeleton className="h-32 w-full" />
@@ -81,7 +83,10 @@ export default function Marketplace() {
           {items?.map((item) => {
             const isProcessing = optimisticPurchases.has(item.id);
             return (
-              <div key={item.id} className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between">
+              <div
+                key={item.id}
+                className="p-4 border border-white/10 rounded-xl bg-slate-900 shadow-sm flex flex-col justify-between"
+              >
                 <div>
                   <h3 className="text-lg font-bold text-white">{item.name}</h3>
                   <p className="text-slate-400">{item.price}</p>
@@ -93,7 +98,7 @@ export default function Marketplace() {
                     </span>
                   ) : (
                     <button
-                    onClick={() => void execute(item.id)}
+                      onClick={() => void execute(item.id)}
                       disabled={isProcessing}
                       className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white font-bold rounded-md transition-colors"
                     >

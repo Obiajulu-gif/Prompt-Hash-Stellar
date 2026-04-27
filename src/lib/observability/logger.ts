@@ -26,15 +26,16 @@ export const logger = pino({
     paths: redactFields,
     censor: "[REDACTED]",
   },
-  transport: (isProduction || isTest)
-    ? undefined
-    : {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
-          ignore: "pid,hostname",
+  transport:
+    isProduction || isTest
+      ? undefined
+      : {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            ignore: "pid,hostname",
+          },
         },
-      },
   base: {
     env: process.env.NODE_ENV,
     service: "prompt-hash-unlock",
