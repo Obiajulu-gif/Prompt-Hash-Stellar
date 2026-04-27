@@ -4,7 +4,9 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger, token, Address, BytesN, Env, String};
+use soroban_sdk::{
+    testutils::Address as _, testutils::Ledger, token, Address, BytesN, Env, String,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -58,7 +60,12 @@ fn create_prompt(
     )
 }
 
-fn fund_buyer(xlm_client: &token::StellarAssetClient<'_>, buyer: &Address, spender: &Address, amount: i128) {
+fn fund_buyer(
+    xlm_client: &token::StellarAssetClient<'_>,
+    buyer: &Address,
+    spender: &Address,
+    amount: i128,
+) {
     xlm_client.mint(buyer, &amount);
     xlm_client.approve(buyer, spender, &amount, &1_000);
 }
@@ -79,7 +86,10 @@ fn test_create_prompt_stores_encrypted_fields() {
         prompt.preview_text,
         String::from_str(&env, "Generate a production-ready implementation plan.")
     );
-    assert_eq!(prompt.encrypted_prompt, String::from_str(&env, "ciphertext"));
+    assert_eq!(
+        prompt.encrypted_prompt,
+        String::from_str(&env, "ciphertext")
+    );
     assert_eq!(prompt.encryption_iv, String::from_str(&env, "iv"));
     assert_eq!(prompt.wrapped_key, String::from_str(&env, "wrapped-key"));
     assert_eq!(prompt.content_hash, hash(&env, 7));

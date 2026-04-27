@@ -122,7 +122,10 @@ impl PromptHashTrait for PromptHashContract {
 
         ensure(prompt.active, Error::PromptInactive)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
-        ensure(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
+        ensure(
+            !Storage::has_purchase(&env, prompt_id, &buyer),
+            Error::AlreadyPurchased,
+        )?;
 
         Storage::set_reentrancy_guard(&env)?;
 
@@ -154,13 +157,7 @@ impl PromptHashTrait for PromptHashContract {
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, prompt_id, &buyer);
         Storage::clear_reentrancy_guard(&env);
-        Events::emit_prompt_purchased(
-            &env,
-            prompt_id,
-            buyer,
-            prompt.creator,
-            prompt.price_stroops,
-        );
+        Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, prompt.price_stroops);
         Ok(())
     }
 
@@ -231,7 +228,11 @@ fn validate_prompt_fields(
         MAX_ENCRYPTED_PROMPT_LEN,
         Error::InvalidEncryptedPromptLength,
     )?;
-    validate_len(wrapped_key, MAX_WRAPPED_KEY_LEN, Error::InvalidWrappedKeyLength)?;
+    validate_len(
+        wrapped_key,
+        MAX_WRAPPED_KEY_LEN,
+        Error::InvalidWrappedKeyLength,
+    )?;
     validate_len(encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
     Ok(())
 }

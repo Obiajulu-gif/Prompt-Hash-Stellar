@@ -36,7 +36,9 @@ impl Storage {
         Self::extend_persistent_ttl(env, &key);
 
         let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
-        env.storage().instance().set(&DataKey::PromptCounter, &next_prompt_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::PromptCounter, &next_prompt_id);
         Self::extend_instance_ttl(env);
         Ok(())
     }
@@ -203,7 +205,9 @@ impl Storage {
         env.storage().instance().get(&DataKey::XlmAddress)
     }
 
-    pub fn get_stellar_asset_contract(env: &'_ Env) -> Result<token::StellarAssetClient<'_>, Error> {
+    pub fn get_stellar_asset_contract(
+        env: &'_ Env,
+    ) -> Result<token::StellarAssetClient<'_>, Error> {
         let contract_id = Self::get_xlm_address(env).ok_or(Error::XlmAddressNotSet)?;
         Ok(token::StellarAssetClient::new(env, &contract_id))
     }
@@ -215,15 +219,11 @@ impl Storage {
             .get::<_, bool>(&DataKey::Reentrancy)
             .unwrap_or(false);
         ensure(!already_set, Error::ReentrancyGuard)?;
-        env.storage()
-            .temporary()
-            .set(&DataKey::Reentrancy, &true);
+        env.storage().temporary().set(&DataKey::Reentrancy, &true);
         Ok(())
     }
 
     pub fn clear_reentrancy_guard(env: &Env) {
-        env.storage()
-            .temporary()
-            .set(&DataKey::Reentrancy, &false);
+        env.storage().temporary().set(&DataKey::Reentrancy, &false);
     }
 }
