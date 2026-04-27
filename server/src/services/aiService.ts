@@ -1,115 +1,135 @@
 import { config } from "../config";
 
-export interface ChatMessage {
-  role: "user" | "assistant" | "ai";
+export interface AiMessage {
+  role: "user" | "assistant" | "system";
   content: string;
 }
 
-export interface AIResponse {
-  response?: string;
-  Response?: string;
-  improved?: string;
-  [key: string]: any;
+export class AIServiceError extends Error {
+  constructor(
+    message: string,
+    public status: number = 500,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = "AIServiceError";
+  }
 }
 
 export class AIService {
-  private static async fetchWithRetry(
+  private static async fetchWithTimeout(
     url: string,
     options: RequestInit,
-    retries: number = config.ai.maxRetries,
+    timeoutMs: number = config.ai.timeoutMs
   ): Promise<Response> {
-    let lastError: Error | null = null;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
 
-    for (let i = 0; i <= retries; i++) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), config.ai.timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(id);
+      return response;
+    } catch (error: unknown) {
+      clearTimeout(id);
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new AIServiceError("AI Service request timed out", 504);
+      }
+      throw error;
+    }
+  }
 
+  private static async request<T>(
+    path: string,
+    method: string = "GET",
+    body?: any
+  ): Promise<T> {
+    if (!config.ai.enabled) {
+      throw new AIServiceError("AI service is currently disabled", 503);
+    }
+
+    const url = `${config.ai.providerUrl}${path}`;
+    const headers: Record<string, string> = {
+      "Accept": "application/json",
+    };
+
+    if (config.ai.apiKey) {
+      headers["Authorization"] = `Bearer ${config.ai.apiKey}`;
+    }
+
+    if (body) {
+      headers["Content-Type"] = typeof body === "string" ? "text/plain" : "application/json";
+    }
+
+    let lastError: any;
+    for (let attempt = 0; attempt <= config.ai.maxRetries; attempt++) {
       try {
-        if (i > 0) {
-          console.log(`[INFO] Retrying AI request (${i}/${retries})...`);
-        }
-
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal,
+        const response = await this.fetchWithTimeout(url, {
+          method,
+          headers,
+          body: body ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
         });
 
-        clearTimeout(timeoutId);
-        return response;
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-        lastError = err;
+        const responseData = await response.json().catch(() => null);
 
-        if (err.name === "AbortError") {
-          console.warn(`[WARNING] AI request timed out after ${config.ai.timeoutMs}ms`);
-        } else {
-          console.error(`[ERROR] AI request failed: ${err.message}`);
+        if (!response.ok) {
+          throw new AIServiceError(
+            `AI Service responded with status ${response.status}`,
+            response.status,
+            responseData
+          );
         }
 
-        if (i === retries) break;
-        
-        // Wait before retry (exponential backoff could be added here)
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
+        return responseData as T;
+      } catch (error) {
+        lastError = error;
+        if (error instanceof AIServiceError && error.status < 500) {
+          throw error;
+        }
+        console.warn(`AI Service request failed (attempt ${attempt + 1}):`, error);
       }
     }
 
-    throw lastError || new Error("Failed to connect to AI provider");
+    throw lastError;
   }
 
-  static async chat(messages: ChatMessage[], model?: string): Promise<AIResponse> {
-    if (!config.ai.enabled) {
-      throw new Error("AI service is currently disabled");
-    }
+  public static async improvePrompt(promptText: string): Promise<any> {
+    return this.request("/api/improve-prompt", "POST", promptText);
+  }
 
-    console.log(`[INFO] AI Chat request - Messages count: ${messages.length}, Model: ${model || "default"}`);
-    // DO NOT log messages content for privacy
-
-    // For now, we support the external gateway's format
-    // The gateway expects GET /api/chat?prompt=...&model=...
-    // But we want to prefer POST for larger prompts and better security
+  public static async chat(messages: AiMessage[], model?: string): Promise<any> {
+    // To maintain compatibility with existing tests/frontend that might use query params
+    // we could check if we should use GET or POST. 
+    // But let's stick to POST for the service boundary as per modern standards.
+    // If we need to support the legacy GET, we can do it here.
     
-    const lastMessage = messages[messages.length - 1]?.content || "";
-    const url = new URL(`${config.ai.providerUrl}/api/chat`);
-    url.searchParams.append("prompt", lastMessage);
-    if (model) url.searchParams.append("model", model);
-
-    const response = await this.fetchWithRetry(url.toString(), {
-      method: "GET", // Current gateway uses GET
-      headers: {
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `AI Provider returned ${response.status}`);
+    // Check if it's a simple one-message chat that could be a GET
+    if (messages.length === 1 && messages[0].role === "user") {
+      const prompt = messages[0].content;
+      return this.request(`/api/chat?prompt=${encodeURIComponent(prompt)}${model ? `&model=${model}` : ""}`, "GET");
     }
 
-    return await response.json();
+    return this.request("/api/chat", "POST", { messages, model });
   }
 
-  static async improvePrompt(prompt: string): Promise<AIResponse> {
-    if (!config.ai.enabled) {
-      throw new Error("AI service is currently disabled");
+  public static async getModels(): Promise<string[]> {
+    try {
+      const data = await this.request<{ models: string[] }>("/api/models");
+      return data.models;
+    } catch {
+      return ["gpt-4o", "gpt-3.5-turbo"];
     }
+  }
 
-    console.log(`[INFO] AI Improve Prompt request - Content length: ${prompt.length}`);
-    // DO NOT log prompt content for privacy
-
-    const response = await this.fetchWithRetry(`${config.ai.providerUrl}/api/improve-prompt`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        Accept: "application/json",
-      },
-      body: prompt,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `AI Provider returned ${response.status}`);
+  public static async checkHealth(): Promise<boolean> {
+    if (!config.ai.enabled) return false;
+    try {
+      await this.request("/api/health");
+      return true;
+    } catch {
+      return false;
     }
-
-    return await response.json();
   }
 }

@@ -3,6 +3,7 @@ import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
 import { userRouter } from "./routes/userRoutes";
 import { chatRouter } from "./routes/chatRoutes";
+import { GetAiModels, GetAiHealth } from "./controllers/controllers";
 import { config, validateConfig } from "./config";
 
 validateConfig();
@@ -21,15 +22,9 @@ app.use("/api/user", userRouter);
 
 app.use("/api/chat", chatRouter);
 
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    ai: {
-      enabled: config.ai.enabled,
-      provider: config.ai.enabled ? "configured" : "disabled",
-    },
-  });
-});
+app.get("/api/models", GetAiModels);
+
+app.get("/api/health", GetAiHealth);
 
 app.listen(port, () => {
   console.log(`Listening on port ${port}`);

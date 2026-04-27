@@ -23,11 +23,12 @@ export const ImproveProxy = async (
 
     const result = await AIService.improvePrompt(text);
     return res.json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error in improve-proxy:", err);
+    const message = err instanceof Error ? err.message : String(err);
     return res.status(500).json({
       error: "AI Service Error",
-      message: err.message || String(err),
+      message: message,
     });
   }
 };
@@ -268,11 +269,40 @@ export const PostChat = async (
 
     const result = await AIService.chat(messages, model);
     return res.json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error in PostChat:", err);
+    const message = err instanceof Error ? err.message : String(err);
     return res.status(500).json({
       error: "AI Service Error",
-      message: err.message || String(err),
+      message: message,
     });
+  }
+};
+
+/* AI CONFIG CONTROLLERS */
+
+export const GetAiModels = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const models = await AIService.getModels();
+    return res.json({ models });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to fetch AI models" });
+  }
+};
+
+export const GetAiHealth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const isHealthy = await AIService.checkHealth();
+    return res.json({ status: isHealthy ? "ok" : "error", enabled: config.ai.enabled });
+  } catch (err) {
+    return res.status(500).json({ status: "error", enabled: config.ai.enabled });
   }
 };

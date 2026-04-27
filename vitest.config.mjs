@@ -44,14 +44,6 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       'libsodium-wrappers': require.resolve('libsodium-wrappers'),
-        inline: [/@creit.tech\/stellar-wallets-kit/, /libsodium-wrappers/],
-      }
-    }
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      'libsodium-wrappers': require.resolve('libsodium-wrappers/dist/modules-esm/libsodium.mjs'),
     },
   },
 })
