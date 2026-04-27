@@ -60,7 +60,7 @@ export function useSubscription(
           ? { topics: [[xdr.ScVal.scvSymbol(topic).toXDR("base64")]] }
           : {};
 
-        // @ts-ignore
+        // @ts-expect-error: The Stellar SDK types for getEvents are incomplete
         const response = await server.getEvents({
           startLedger: !paging[id].pagingToken
             ? paging[id].lastLedgerStart
@@ -90,7 +90,7 @@ export function useSubscription(
                 error,
               );
             } finally {
-              // @ts-ignore
+            // @ts-expect-error: The pagingToken field is missing from some event types
               paging[id].pagingToken = event.pagingToken;
             }
           });

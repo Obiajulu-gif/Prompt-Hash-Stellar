@@ -445,7 +445,7 @@ function PurchasedPromptCard({
               )}
             </Button>
             <p className="font-mono text-xs text-slate-600">
-              {shortHash(prompt.contentHash)}
+                  {shortHash(prompt.contentHash || "")}
             </p>
           </div>
 
@@ -671,7 +671,7 @@ export default function ProfilePage() {
         { signTransaction },
         address,
         promptId,
-        nextPrice,
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
@@ -691,7 +691,7 @@ export default function ProfilePage() {
     }
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId, signMessage);
+      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,

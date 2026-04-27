@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import challengeHandler from "../../api/auth/challenge";
 
 // Mocking the response and request objects
@@ -37,7 +37,6 @@ describe("Production Hardening Simulation", () => {
          socket: {}
        };
        const res = createMockRes();
-       // @ts-ignore
        await challengeHandler(req, res);
        expect(res.statusCode).toBe(200);
     }
@@ -50,11 +49,10 @@ describe("Production Hardening Simulation", () => {
       socket: {}
     };
     const res = createMockRes();
-    // @ts-ignore
     await challengeHandler(req, res);
     
     expect(res.statusCode).toBe(429);
-    // @ts-ignore
+    // @ts-expect-error: Mocked response data access
     expect(res.data.error).toContain("Too many requests");
     console.log("Successfully triggered rate limit (429) as expected.");
   });

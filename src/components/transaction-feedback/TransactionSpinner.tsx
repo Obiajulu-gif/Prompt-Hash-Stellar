@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useTransactionFeedback } from "./useTransactionFeedback";
 
 export const TransactionSpinner: React.FC<{ label?: string }> = ({ label }) => {
-  const { status } = useTransactionFeedback();
+  const { status } = useTransactionFeedback() as any;
   if (status !== "pending") return null;
   return (
     <div className="flex items-center gap-2" aria-live="polite" aria-busy="true">

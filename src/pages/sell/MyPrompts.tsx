@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useWallet } from "@/hooks/useWallet";
-import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
   getPromptsByBuyer,
@@ -57,7 +56,14 @@ const MyPrompts = () => {
     );
   }, [createdPrompts, priceDrafts]);
 
-  const refreshPromptLists = () => invalidateAllPromptQueries(queryClient);
+  const refreshPromptLists = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["created-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["purchased-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
+    ]);
+  };
 
   const updateStatus = (message: string) => {
     setErrorMessage(null);
@@ -107,7 +113,7 @@ const MyPrompts = () => {
         { signTransaction },
         address,
         promptId,
-        nextPrice,
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
@@ -126,7 +132,7 @@ const MyPrompts = () => {
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId, signMessage);
+      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
@@ -218,7 +224,6 @@ const MyPrompts = () => {
                   </div>
                   <div className="flex gap-3">
                     <Input
-                      aria-label={`Price for ${prompt.title}`}
                       value={mergedDrafts[prompt.id.toString()]}
                       onChange={(event) =>
                         setPriceDrafts((current) => ({
@@ -226,6 +231,7 @@ const MyPrompts = () => {
                           [prompt.id.toString()]: event.target.value,
                         }))
                       }
+                      aria-label={`Price for ${prompt.title}`}
                       className="border-white/10 bg-white/5 text-slate-100"
                     />
                     <Button

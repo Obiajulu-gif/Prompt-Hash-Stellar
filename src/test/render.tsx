@@ -9,14 +9,24 @@ import {
   WalletContext,
   type WalletContextType,
 } from "@/providers/WalletProvider";
+import { TransactionProvider } from "@/components/TransactionProvider";
 
+// Updated defaultWallet to match the strict WalletContextType requirements
 const defaultWallet: WalletContextType = {
   address: undefined,
   network: undefined,
   networkPassphrase: undefined,
-  isPending: false,
-  signMessage: undefined,
-  signTransaction: undefined,
+  status: "idle",
+  connect: async (_walletId: string) => {}, // Accepts required parameter
+  disconnect: async () => {}, // Returns Promise<void>
+  signMessage: async () => ({ 
+    signedMessage: "mock_signed_message", 
+    signerAddress: "GA..." 
+  }),
+  signTransaction: async () => ({ 
+    signedTxXdr: "mock_signed_tx_xdr", 
+    signerAddress: "GA..." 
+  }),
 };
 
 export function createTestQueryClient() {
@@ -55,9 +65,12 @@ export function renderWithProviders(
 
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <WalletContext value={walletValue}>
-        <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
-      </WalletContext>
+      <TransactionProvider>
+        {/* Ensure you are using the .Provider property if not on React 19 */}
+        <WalletContext.Provider value={walletValue}>
+          <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+        </WalletContext.Provider>
+      </TransactionProvider>
     </QueryClientProvider>
   );
 

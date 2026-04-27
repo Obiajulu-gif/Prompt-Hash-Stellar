@@ -8,9 +8,14 @@ const encryptPromptPlaintextMock = vi.fn();
 const wrapPromptKeyMock = vi.fn();
 const createPromptMock = vi.fn();
 
-vi.mock("@/lib/env", () => ({
-  unlockPublicKey: "unlock-public-key",
-}));
+vi.mock("@/lib/env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/env")>();
+  return {
+    ...actual,
+    unlockPublicKey: "unlock-public-key",
+    stellarWalletNetwork: "TESTNET",
+  };
+});
 
 vi.mock("@/lib/stellar/browserConfig", () => ({
   browserStellarConfig: {

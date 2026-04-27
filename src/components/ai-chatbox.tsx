@@ -323,7 +323,7 @@ export function AiChatButton() {
 
           {/* Input Box */}
           <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mt-auto">
-            <form onSubmit={handleSubmit} className="flex flex-col space-y-3">
+            <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col space-y-3">
               <div className="flex items-center space-x-2">
                 <Input
                   className="flex-1 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 rounded-md"
@@ -336,7 +336,7 @@ export function AiChatButton() {
                   type="button"
                   variant="outline"
                   size="icon"
-                  onClick={handleImprovePrompt}
+                  onClick={() => void handleImprovePrompt()}
                   disabled={isLoading || isImproving || !inputValue.trim()}
                   title="Improve prompt"
                   className="bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:bg-purple-50 dark:hover:bg-purple-900/30"

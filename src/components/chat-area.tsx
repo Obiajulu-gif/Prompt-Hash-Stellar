@@ -29,7 +29,7 @@ interface ChatAreaProps {
   isTyping: boolean;
   chatError: string | null;
   customerName: string;
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string) => void | Promise<void>;
   onImprovePrompt: (content: string) => Promise<string>;
   onReaction: (messageId: string, type: "like" | "dislike") => void;
   onSaveConversation: () => void;
@@ -46,10 +46,10 @@ const formatMessageContent = (content: string): string => {
   try {
     // Check if the content is JSON
     if (content.trim().startsWith("{") && content.trim().endsWith("}")) {
-      const parsedContent = JSON.parse(content);
+      const parsedContent = JSON.parse(content) as Record<string, unknown>;
 
       // Handle Gemini model response format
-      if (parsedContent.response) {
+      if (typeof parsedContent.response === "string") {
         return parsedContent.response;
       }
     }
@@ -87,7 +87,7 @@ export function ChatArea({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSendMessage(inputValue);
+    void onSendMessage(inputValue);
   };
 
   const handleCopyMessage = (content: string) => {
@@ -328,7 +328,7 @@ export function ChatArea({
               type="button"
               variant="outline"
               size="icon"
-              onClick={handleImprovePrompt}
+              onClick={() => void handleImprovePrompt()}
               disabled={isTyping || isImproving || !inputValue.trim()}
               title="Improve prompt"
               className="bg-white border-gray-300 hover:bg-blue-50 transition-all"

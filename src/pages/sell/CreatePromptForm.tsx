@@ -67,7 +67,6 @@ export function CreatePromptForm() {
     () =>
       Boolean(
         address &&
-          signTransaction &&
           browserStellarConfig.promptHashContractId &&
           unlockPublicKey,
       ),

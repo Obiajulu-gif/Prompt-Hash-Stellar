@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { describe, it, expect, vi } from "vitest";
 import type { QueryClient } from "@tanstack/react-query";
 

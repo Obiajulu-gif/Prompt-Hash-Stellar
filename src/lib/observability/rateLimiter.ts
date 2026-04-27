@@ -1,4 +1,5 @@
-import LRUCache from "lru-cache";
+// Change default import to named import
+import { LRUCache } from "lru-cache";
 
 interface RateLimitConfig {
   max: number;      // Maximum requests in the window

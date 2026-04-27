@@ -48,7 +48,7 @@ export const TransactionProvider: React.FC<{ children: ReactNode }> = ({ childre
     if (transactions.some((tx) => tx.status === "error")) {
       // Allow DOM to finish rendering the Retry button before querying it
       setTimeout(() => {
-        const retryBtn = document.querySelector(".retry-btn") as HTMLButtonElement | null;
+        const retryBtn = document.querySelector<HTMLButtonElement>(".retry-btn");
         if (retryBtn) retryBtn.focus();
       }, 0);
     }
@@ -57,7 +57,7 @@ export const TransactionProvider: React.FC<{ children: ReactNode }> = ({ childre
   return (
     <TransactionContext.Provider value={{ transactions, addTransaction, updateTransaction, removeTransaction }}>
       {children}
-      <div className="notification-container">
+      <div aria-live="polite" className="notification-container">
         {transactions.map((tx) => (
           <div key={tx.id} className={`notification ${tx.status} slide-in`}>
             <StatusBanner

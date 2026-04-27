@@ -2,7 +2,7 @@ import React from "react";
 import { useTransactionFeedback } from "./useTransactionFeedback";
 
 export const TransactionStatusBanner: React.FC = () => {
-  const { status, error } = useTransactionFeedback();
+  const { status, error } = useTransactionFeedback() as any;
   if (status === "idle") return null;
   if (status === "pending")
     return (

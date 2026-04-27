@@ -22,9 +22,14 @@ vi.mock("@stellar/design-system", () => ({
   },
 }));
 
-vi.mock("@/lib/env", () => ({
-  stellarNetwork: "TESTNET",
-}));
+vi.mock("@/lib/env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/env")>();
+  return {
+    ...actual,
+    stellarNetwork: "TESTNET",
+    stellarWalletNetwork: "testnet",
+  };
+});
 
 describe("wallet integration coverage", () => {
   it("renders the disconnected wallet CTA and opens the wallet connection flow", async () => {

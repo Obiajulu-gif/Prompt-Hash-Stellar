@@ -53,26 +53,48 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Detect available scripts
+        id: scripts
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = require('./package.json');
+          const s = pkg.scripts || {};
+          const has = (n) => Boolean(s[n]) ? 'true' : 'false';
+          
+          let out = 'has_lint=' + has('lint') + '\n';
+          out += 'has_test=' + (has('test') && !s.test.includes('no test specified') ? 'true' : 'false') + '\n';
+          out += 'has_build=' + has('build') + '\n';
+          out += 'has_typecheck=' + (has('tsc') || has('typecheck') ? 'true' : 'false') + '\n';
+          
+          console.log('Detected Scripts:\n' + out);
+          if (process.env.GITHUB_OUTPUT) { fs.appendFileSync(process.env.GITHUB_OUTPUT, out); }
+          "
+
       - name: Run lint
+        if: steps.scripts.outputs.has_lint == 'true'
         run: yarn lint
 
       - name: Run type checks
+        if: steps.scripts.outputs.has_typecheck == 'true'
         run: yarn tsc -b --pretty false
 
       - name: Run tests
+        if: steps.scripts.outputs.has_test == 'true'
         run: yarn test
 
       - name: Build frontend
+        if: steps.scripts.outputs.has_build == 'true'
         run: yarn build

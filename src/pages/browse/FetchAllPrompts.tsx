@@ -44,7 +44,7 @@ const FetchAllPrompts = ({
 
   const promptsQuery = useQuery({
     queryKey: ["marketplace-prompts"],
-    queryFn: async () => {
+    queryFn: async (): Promise<PromptRecord[]> => {
       if (!isMarketplaceConfigured) {
         return [];
       }
@@ -109,7 +109,9 @@ const FetchAllPrompts = ({
     currentPage * ITEMS_PER_PAGE,
   );
 
-  const refreshQueries = () => invalidateAllPromptQueries(queryClient);
+  const refreshQueries = async () => {
+    await invalidateAllPromptQueries(queryClient);
+  };
 
   useEffect(() => {
     setCurrentPage(1);
@@ -187,9 +189,9 @@ const FetchAllPrompts = ({
 
       {selectedPrompt ? (
         <PromptModal
-          itemId={selectedPrompt.id.toString()}
-          isOpen={!!selectedPrompt}
-          onClose={() => setSelectedPrompt(null)}
+          prompt={selectedPrompt}
+          initialHasAccess={accessMap.get(selectedPrompt.id.toString()) ?? false}
+          closeModal={() => setSelectedPrompt(null)}
           onRefresh={refreshQueries}
         />
       ) : null}

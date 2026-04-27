@@ -2,10 +2,30 @@ import { v4 as uuidv4 } from "uuid";
 import { logger } from "./logger";
 import { metrics } from "./metrics";
 
-export type ApiHandler = (req: any, res: any) => Promise<void> | void;
+export interface ApiRequest {
+  method?: string;
+  url?: string;
+  headers: Record<string, string | string[] | undefined>;
+  socket: { remoteAddress?: string };
+  body: any;
+}
 
-export function withObservability(handler: ApiHandler, name: string): ApiHandler {
-  return async (req, res) => {
+export interface ApiResponse {
+  statusCode: number;
+  status: (statusCode: number) => ApiResponse;
+  json: (data: any) => void;
+  writableEnded?: boolean;
+}
+
+export interface RequestWithLogger extends ApiRequest {
+  logger: typeof logger;
+  requestId: string;
+}
+
+export type ApiHandler = (req: RequestWithLogger, res: ApiResponse) => Promise<void> | void;
+
+export function withObservability(handler: ApiHandler, name: string) {
+  return async (req: ApiRequest, res: ApiResponse) => {
     const requestId = uuidv4();
     const startTime = Date.now();
 
@@ -21,10 +41,11 @@ export function withObservability(handler: ApiHandler, name: string): ApiHandler
       childLogger.info({ body: req.body }, `Request started: ${name}`);
 
       // Inject logger into request if needed, or just use the childLogger
-      req.logger = childLogger;
-      req.requestId = requestId;
+      const reqWithLogger = req as RequestWithLogger;
+      reqWithLogger.logger = childLogger;
+      reqWithLogger.requestId = requestId;
 
-      await handler(req, res);
+      await handler(reqWithLogger, res);
 
       const duration = Date.now() - startTime;
       metrics.emit("api_request_duration_ms", duration, { path: name, status: res.statusCode });

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { AlertCircle, CheckCircle, Loader2, X } from "lucide-react";
+import { AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import { TransactionStatus } from "./TransactionProvider";
 
 interface StatusBannerProps {
@@ -9,7 +9,7 @@ interface StatusBannerProps {
   onDismiss?: () => void;
 }
 
-export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onRetry, onDismiss }) => {
+export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onRetry }) => {
   const retryButtonRef = useRef<HTMLButtonElement>(null);
 
   // Accessibility: Focus management on error recovery
@@ -35,7 +35,11 @@ export const StatusBanner: React.FC<StatusBannerProps> = ({ status, message, onR
   };
 
   return (
-    <div className={`${baseClasses} ${statusClasses[status]}`} role="alert" aria-live="polite">
+    <div 
+      className={`${baseClasses} ${statusClasses[status]}`} 
+      role={status === "error" ? "alert" : undefined} 
+      aria-live={status !== "error" ? "polite" : undefined}
+    >
       {icons[status]}
       <span className="flex-1 text-sm font-medium">{message}</span>
       {status === "error" && onRetry && (

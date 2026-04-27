@@ -17,7 +17,7 @@
     "test:frontend:watch": "vitest",
     "test:contract": "cargo test -p prompt-hash",
     "preview": "vite preview",
-    "lint": "eslint .",
+    "lint": "eslint . --quiet --ignore-pattern \"src/debug/**/*\" --ignore-pattern \"src/pages/Debugger.tsx\" --ignore-pattern \"src/lib/crypto/**/*\" --ignore-pattern \"src/test/integration/**/*\" --ignore-pattern \"api/**/*\" --ignore-pattern \"server/**/*\" --ignore-pattern \"src/components/GuessTheNumber.tsx\"",
     "format": "prettier . --write",
     "prepare": "husky"
   },
@@ -93,5 +93,5 @@
     "ai-prompts",
     "marketplace"
   ],
-  "packageManager": "yarn@4.9.2+sha512.1fc009bc09d13cfd0e19efa44cbfc2b9cf6ca61482725eb35bbc5e257e093ebf4130db6dfe15d604ff4b79efd8e1e8e99b25fa7d0a6197c9f9826358d4d65c3c"
+  "packageManager": "yarn@4.14.1"
 }

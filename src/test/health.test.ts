@@ -24,13 +24,13 @@ describe("Health API", () => {
       }
     };
 
-    // @ts-ignore
+    // @ts-expect-error: Mocked for testing
     await handler(req, res);
 
     expect(statusCode).toBe(200);
-    // @ts-ignore
+    // @ts-expect-error: Mocked for testing
     expect(responseData.status).toBe("ok");
-    // @ts-ignore
+    // @ts-expect-error: Mocked for testing
     expect(responseData.timestamp).toBeDefined();
   });
 });

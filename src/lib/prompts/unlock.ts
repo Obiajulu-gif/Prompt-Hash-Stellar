@@ -1,7 +1,7 @@
 export async function unlockPrompt(
   itemId: string, 
   txHash: string,
-  signMessage: (message: string) => Promise<any>
+  signMessage: (message: string) => Promise<unknown>
 ): Promise<{ decryptedContent: string }> {
   
   // 1. Request cryptographic signature from the user's wallet
@@ -11,7 +11,7 @@ export async function unlockPrompt(
   if (!signature) throw new Error("User declined transaction signing");
 
   // 2. Send the signature to the backend to retrieve the decrypted prompt content
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     setTimeout(() => {
       
       resolve({ decryptedContent: `[Decrypted Secret Content for Prompt #${itemId}]\n\nSystem prompt: Act as a senior engineer...` });
@@ -23,7 +23,7 @@ export async function unlockPrompt(
 export const unlockPromptContent = async (
   arg1: string,
   arg2: string,
-  signMessage: (message: string) => Promise<any>
+  signMessage: (message: string) => Promise<unknown>
 ) => {
   // Detect legacy call shape (address, promptId, signMessage) vs new (itemId, txHash, signMessage)
   // Stellar addresses typically start with 'G' and are 56 characters long.

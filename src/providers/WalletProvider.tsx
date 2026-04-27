@@ -4,7 +4,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  useRef,
 } from "react";
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
@@ -46,7 +45,6 @@ export const WalletContext = createContext<WalletContextType | undefined>(undefi
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
-  const isConnectingRef = useRef(false);
 
   const { execute: executeDisconnect } = useAsyncTransaction(
     async () => {
@@ -55,7 +53,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     {
       pendingMessage: "Disconnecting wallet...",
       successMessage: "Wallet disconnected",
-      onSuccess: () => {
+      onSettled: () => {
         storage.removeItem("walletId");
         storage.removeItem("walletAddress");
         storage.removeItem("walletNetwork");
@@ -131,17 +129,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const connect = useCallback(async (walletId: string) => {
-    if (state.status === "connecting" || state.status === "reconnecting" || isConnectingRef.current) {
-      return;
-    }
-    
-    isConnectingRef.current = true;
-    try {
-      await executeConnect(walletId).catch(() => {});
-    } finally {
-      isConnectingRef.current = false;
-    }
-  }, [executeConnect, state.status]);
+    await executeConnect(walletId).catch(() => {});
+  }, [executeConnect]);
 
   const checkExtensionAccount = useCallback(async () => {
     if (state.status !== "connected" && state.status !== "reconnecting") return;
@@ -189,28 +178,37 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         ]);
 
         if (aborted) return;
-        if (state.status !== "reconnecting" && state.status !== "idle") return;
 
         if (a.address) {
           if (a.address !== savedAddr) {
             storage.setItem("walletAddress", a.address);
           }
           if (aborted) return;
-          setState({
+        setState((prev) => {
+          if (prev.status !== "reconnecting" && prev.status !== "idle") return prev;
+          return {
+            ...prev,
             address: a.address,
             network: n.network,
             networkPassphrase: n.networkPassphrase,
             status: "connected",
             error: undefined,
+          };
           });
         } else {
           if (aborted) return;
-          disconnect();
+        let shouldDisconnect = false;
+        setState((prev) => {
+          if (prev.status !== "reconnecting" && prev.status !== "idle") return prev;
+          shouldDisconnect = true;
+          return prev;
+        });
+        if (shouldDisconnect) void disconnect();
         }
       } catch (e) {
         if (aborted) return;
         console.warn("Session rehydration failed, clearing stale data.");
-        disconnect();
+        void disconnect();
       }
     };
 

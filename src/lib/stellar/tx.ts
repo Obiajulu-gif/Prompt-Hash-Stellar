@@ -42,12 +42,13 @@ export function scValArg(value: unknown, type?: string) {
   return type ? nativeToScVal(value, { type }) : nativeToScVal(value);
 }
 
-export function readSimulationResult(simulation: Api.SimulateTransactionSuccessResponse) {
+export function readSimulationResult(simulation: Api.SimulateTransactionSuccessResponse): unknown {
   if (!simulation.result) {
     return undefined;
   }
 
-  return scValToNative(simulation.result.retval);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  return scValToNative(simulation.result.retval) as unknown;
 }
 
 export async function simulateContractCall(

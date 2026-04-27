@@ -1,6 +1,5 @@
 import { 
   StellarWalletsKit, 
-  WalletNetwork, 
   allowAllModules 
 } from "@creit.tech/stellar-wallets-kit";
 import { Horizon } from "@stellar/stellar-sdk";
@@ -9,7 +8,7 @@ import { horizonUrl, stellarNetwork, stellarWalletNetwork } from "../lib/env";
 // allowAllModules() returns an array containing albedo, freighter, etc.
 // This prevents us from having to import them individually and hitting the "Missing Export" error.
 export const kit: StellarWalletsKit = new StellarWalletsKit({
-  network: stellarWalletNetwork as WalletNetwork,
+  network: stellarWalletNetwork,
   modules: allowAllModules(),
 });
 
@@ -45,6 +44,7 @@ export type Balance = Awaited<ReturnType<typeof fetchBalance>>[number];
 export const wallet = kit;
 
 // Restore removed connectWallet export for backward compatibility
-export const connectWallet = async (...args: any[]) => {
-  return (kit as any).openModal(...args);
+export const connectWallet = async (...args: unknown[]): Promise<void> => {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+  await (kit as any).openModal(...args);
 };

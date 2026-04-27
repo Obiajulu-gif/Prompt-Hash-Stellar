@@ -21,6 +21,13 @@ export default defineConfig({
     include: ['@stellar/stellar-sdk', 'buffer'],
   },
 
+  build: {
+    commonjsOptions: {
+      include: [/@creit.tech\/stellar-wallets-kit/, /node_modules/],
+      transformMixedEsModules: true,
+    },
+  },
+
   test: {
     environment: 'jsdom',
     globals: true,
