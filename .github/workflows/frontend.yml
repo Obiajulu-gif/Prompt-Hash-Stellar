@@ -56,23 +56,23 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
 
       - name: Enable Corepack
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable
+        run: corepack yarn install --immutable
 
       - name: Run lint
-        run: yarn lint
+        run: corepack yarn lint
 
       - name: Run type checks
-        run: yarn tsc -b --pretty false
+        run: corepack yarn tsc -b --pretty false
 
       - name: Run tests
-        run: yarn test
+        run: corepack yarn test
 
       - name: Build frontend
-        run: yarn build
+        run: corepack yarn build

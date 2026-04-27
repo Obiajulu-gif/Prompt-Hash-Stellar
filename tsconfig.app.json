@@ -25,12 +25,10 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
-  "exclude": [
-    "server",
-    "src/debug",
-    "src/contracts",
-    "src/pages/Debugger.tsx",
-    "src/components/GuessTheNumber.tsx"
+  "include": [
+    "src/**/*",
+    "api/**/*",
+    "server/src/**/*",
+    "vitest.config.mjs"
   ]
 }

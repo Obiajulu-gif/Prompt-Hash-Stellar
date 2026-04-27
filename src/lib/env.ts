@@ -18,7 +18,7 @@ const envSchema = z.object({
   PUBLIC_PROMPT_HASH_CONTRACT_ID: z.string(),
   PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID: z.string(),
   PUBLIC_STELLAR_SIMULATION_ACCOUNT: z.string(),
-  PUBLIC_CHAT_API_BASE: z.string().url(),
+  PUBLIC_CHAT_API_BASE: z.string().url().or(z.literal("")),
   PUBLIC_UNLOCK_PUBLIC_KEY: z.string(),
 });
 
@@ -31,7 +31,7 @@ const fallback = {
   PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID:
     "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
   PUBLIC_STELLAR_SIMULATION_ACCOUNT: "",
-  PUBLIC_CHAT_API_BASE: "https://secret-ai-gateway.onrender.com",
+  PUBLIC_CHAT_API_BASE: "http://localhost:5000",
   PUBLIC_UNLOCK_PUBLIC_KEY: "",
 };
 

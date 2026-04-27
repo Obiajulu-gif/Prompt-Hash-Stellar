@@ -30,7 +30,7 @@ export default tseslint.config(
       ecmaVersion: 2020,
       globals: globals.browser,
       parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
+        project: ["./tsconfig.node.json", "./tsconfig.app.json", "./server/tsconfig.json"],
         tsconfigRoot: import.meta.dirname,
       },
     },
@@ -48,6 +48,15 @@ export default tseslint.config(
       "react-x/no-missing-key": "off",
       "@typescript-eslint/no-unsafe-assignment": "warn",
       "react-x/no-default-props": "off",
+    },
+  },
+  {
+    files: ["**/*.mjs"],
+    languageOptions: {
+      sourceType: "module",
+      parserOptions: {
+        project: null,
+      },
     },
   },
 );

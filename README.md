@@ -183,6 +183,15 @@ The unlock service is hardened for production use with the following features:
 - **Health Monitoring**: Dedicated `/api/health` endpoint for uptime and configuration verification.
 - **Incident Response**: Documented runbooks and debugging procedures located in `docs/operations/`.
 
+#### AI Service Boundary
+
+The application uses a backend-owned AI service boundary to handle prompt chat and improvement features. This removes hard-coded external dependencies from the frontend and allows for centralized configuration, monitoring, and privacy controls.
+
+- **Configurable Provider**: The backend can be configured to use different AI providers or gateways via `AI_PROVIDER_URL`.
+- **Privacy**: Prompt content is processed through the backend without exposing provider-specific credentials to the client. Logs are redacted to prevent storing prompt content.
+- **Resilience**: Implements bounded retries and timeouts for all AI provider calls.
+- **Availability States**: The frontend gracefully handles disabled or failing AI service states with clear user feedback.
+
 ## Proposed Tech Stack
 
 - Soroban smart contracts in Rust
