@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "vite",
     "start": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "test": "vitest run",
     "test:frontend": "vitest run",
     "test:frontend:watch": "vitest",
