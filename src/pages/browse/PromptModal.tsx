@@ -309,22 +309,17 @@ export const PromptModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
-<<<<<<< HEAD
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="prompt-modal-title"
         className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl"
       >
-=======
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
->>>>>>> 8baeef1 (fix: final sync with upstream/main and conflict resolution)
         <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">
               Prompt license
             </p>
-<<<<<<< HEAD
             <h2 id="prompt-modal-title" className="mt-2 text-2xl font-semibold">
               {prompt.title}
             </h2>
@@ -347,9 +342,6 @@ export const PromptModal = ({
             <Skeleton className="h-4 w-3/4" />
             <Skeleton className="h-4 w-1/2" />
             <Skeleton className="h-12 w-full mt-4" />
-=======
-            <h2 className="mt-2 text-2xl font-semibold">{prompt.title}</h2>
->>>>>>> 8baeef1 (fix: final sync with upstream/main and conflict resolution)
           </div>
           <Button
             variant="ghost"
