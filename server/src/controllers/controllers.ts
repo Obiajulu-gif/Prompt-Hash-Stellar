@@ -136,7 +136,7 @@ export const GetPrompts = async (
     const category = searchParams.get("category");
     const walletAddress = searchParams.get("walletAddress");
 
-    let query: any = {};
+    const query: any = {};
 
     if (category) {
       query.category = category;

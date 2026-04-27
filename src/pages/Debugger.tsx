@@ -28,7 +28,6 @@ const Debugger: React.FC = () => {
         setSelectedContract(contractKeys[0]);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractName, isLoading, contractKeys.join(",")]);
 
   useEffect(() => {
@@ -42,7 +41,6 @@ const Debugger: React.FC = () => {
         setSelectedContract(contractKeys[0]);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractName, isLoading, contractKeys.join(",")]);
 
   if (isLoading) {
