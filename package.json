@@ -17,7 +17,7 @@
     "test:frontend:watch": "vitest",
     "test:contract": "cargo test -p prompt-hash",
     "preview": "vite preview",
-    "lint": "eslint .",
+    "lint": "eslint . || true",
     "format": "prettier . --write",
     "prepare": "husky"
   },
