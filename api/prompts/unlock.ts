@@ -17,6 +17,34 @@ import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
 
+/**
+ * Get active secrets for token verification
+ * Supports multiple secrets during rotation grace period
+ */
+function getActiveSecrets(primarySecret: string): string[] {
+  const secrets = [primarySecret];
+  
+  // Check for previous secret within grace period
+  const previousSecret = process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS;
+  const rotationTimestamp = parseInt(
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP || "0",
+    10
+  );
+  const gracePeriodMs = parseInt(
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS || "300000", // 5 minutes default
+    10
+  );
+  
+  if (previousSecret && rotationTimestamp) {
+    const timeSinceRotation = Date.now() - rotationTimestamp;
+    if (timeSinceRotation < gracePeriodMs) {
+      secrets.push(previousSecret);
+    }
+  }
+  
+  return secrets;
+}
+
 function getServerConfig(): PromptHashConfig {
   const rpcUrl =
     process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -87,8 +115,11 @@ async function handler(req: any, res: any) {
   }
 
   try {
+    // Support multiple active secrets during rotation grace period
+    const activeSecrets = getActiveSecrets(challengeSecret);
+    
     const payload = verifyChallengeToken(
-      challengeSecret,
+      activeSecrets,
       String(token),
       String(address),
       String(promptId),

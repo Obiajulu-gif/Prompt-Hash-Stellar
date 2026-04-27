@@ -208,16 +208,6 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    #[only_owner]
-    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.storage().instance().extend_ttl(
-            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
-            super::storage::PERSISTENT_BUMP_AMOUNT,
-        );
-        Ok(())
-    }
-
     fn get_fee_percentage(env: Env) -> u32 {
         Storage::get_fee_percentage(&env)
     }
@@ -228,6 +218,16 @@ impl PromptHashTrait for PromptHashContract {
 
     fn get_xlm_sac(env: Env) -> Option<Address> {
         Storage::get_xlm_address(&env)
+    }
+
+    #[only_owner]
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.storage().instance().extend_ttl(
+            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
+            super::storage::PERSISTENT_BUMP_AMOUNT,
+        );
+        Ok(())
     }
 
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error> {

@@ -30,7 +30,6 @@ impl Storage {
         let key = DataKey::Prompt(prompt.id);
         env.storage().persistent().set(&key, prompt);
         Self::extend_key_ttl(env, &key);
-
         let counter_key = DataKey::PromptCounter;
         let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         env.storage().persistent().set(&counter_key, &next_prompt_id);
@@ -121,11 +120,7 @@ impl Storage {
 
     pub fn add_prompt_to_creator(env: &Env, creator: &Address, prompt_id: u128) {
         let key = DataKey::CreatorPrompts(creator.clone());
-        let mut ids: Vec<u128> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(env));
+        let mut ids: Vec<u128> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
         ids.push_back(prompt_id);
         env.storage().persistent().set(&key, &ids);
         Self::extend_key_ttl(env, &key);
@@ -133,11 +128,7 @@ impl Storage {
 
     pub fn add_prompt_to_buyer(env: &Env, buyer: &Address, prompt_id: u128) {
         let key = DataKey::BuyerPrompts(buyer.clone());
-        let mut ids: Vec<u128> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(env));
+        let mut ids: Vec<u128> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
         ids.push_back(prompt_id);
         env.storage().persistent().set(&key, &ids);
         Self::extend_key_ttl(env, &key);

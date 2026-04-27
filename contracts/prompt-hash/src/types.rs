@@ -40,6 +40,7 @@ pub enum DataKey {
     Paused,
 }
 
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {

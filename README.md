@@ -219,7 +219,7 @@ The current contract data model includes:
 ### Prerequisites
 
 - Node.js 22+
-- Yarn or npm
+- Yarn 4+ (Corepack enabled)
 - Rust toolchain
 - Stellar CLI with Soroban support
 

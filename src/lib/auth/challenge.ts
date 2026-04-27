@@ -59,7 +59,7 @@ export function createChallengeToken(
 }
 
 export function verifyChallengeToken(
-  secret: string,
+  secret: string | string[],
   token: string,
   address: string,
   promptId: string,
@@ -70,10 +70,22 @@ export function verifyChallengeToken(
     throw new Error("Malformed challenge token.");
   }
 
-  const expectedSignature = signPayload(secret, encodedPayload);
-  const received = Buffer.from(signature, "utf8");
-  const expected = Buffer.from(expectedSignature, "utf8");
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+  // Support multiple secrets for rotation grace period
+  const secrets = Array.isArray(secret) ? secret : [secret];
+  let validSignature = false;
+
+  for (const sec of secrets) {
+    const expectedSignature = signPayload(sec, encodedPayload);
+    const received = Buffer.from(signature, "utf8");
+    const expected = Buffer.from(expectedSignature, "utf8");
+    
+    if (received.length === expected.length && timingSafeEqual(received, expected)) {
+      validSignature = true;
+      break;
+    }
+  }
+
+  if (!validSignature) {
     throw new Error("Invalid challenge token signature.");
   }
 
@@ -122,7 +134,7 @@ export function verifyChallengeSignature(
 }
 
 export function verifyUnlock(
-  secret: string,
+  secret: string | string[],
   token: string,
   address: string,
   promptId: string,

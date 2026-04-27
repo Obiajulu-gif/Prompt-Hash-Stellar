@@ -1340,14 +1340,10 @@
   resolved "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-rc.3.tgz"
   integrity sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q==
 
-<<<<<<< feature/shared-transaction-ux-primitives
-=======
 "@rolldown/pluginutils@1.0.0-rc.7":
   version "1.0.0-rc.7"
   resolved "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-rc.7.tgz"
   integrity sha512-qujRfC8sFVInYSPPMLQByRh7zhwkGFS4+tyMQ83srV1qrxL4g8E2tyxVVyxd0+8QeBM1mIk9KbWxkegRr76XzA==
-
->>>>>>> main
 "@rollup/plugin-inject@^5.0.5":
   version "5.0.5"
   resolved "https://registry.npmjs.org/@rollup/plugin-inject/-/plugin-inject-5.0.5.tgz"
@@ -2017,25 +2013,7 @@
     buffer "^6.0.3"
     sha.js "^2.4.12"
 
-<<<<<<< feature/shared-transaction-ux-primitives
-"@stellar/stellar-sdk@^13.3.0":
-  version "13.3.0"
-  resolved "https://registry.npmjs.org/@stellar/stellar-sdk/-/stellar-sdk-13.3.0.tgz"
-  integrity sha512-8+GHcZLp+mdin8gSjcgfb/Lb6sSMYRX6Nf/0LcSJxvjLQR0XHpjGzOiRbYb2jSXo51EnA6kAV5j+4Pzh5OUKUg==
-  dependencies:
-    "@stellar/stellar-base" "^13.1.0"
-    axios "^1.8.4"
-    bignumber.js "^9.3.0"
-    eventsource "^2.0.2"
-    feaxios "^0.0.23"
-    randombytes "^2.1.0"
-    toml "^3.0.0"
-    urijs "^1.19.1"
-
-"@stellar/stellar-sdk@^14.6.1":
-=======
-"@stellar/stellar-sdk@^13.3.0", "@stellar/stellar-sdk@^14.2.0":
->>>>>>> main
+"@stellar/stellar-sdk@^13.3.0", "@stellar/stellar-sdk@^14.2.0", "@stellar/stellar-sdk@^14.6.1":
   version "14.6.1"
   resolved "https://registry.npmjs.org/@stellar/stellar-sdk/-/stellar-sdk-14.6.1.tgz"
   integrity sha512-A1rQWDLdUasXkMXnYSuhgep+3ZZzyuXJKdt5/KAIc0gkmSp906HTvUpbT4pu+bVr41tu0+J4Ugz9J4BQAGGytg==
@@ -2049,14 +2027,6 @@
     randombytes "^2.1.0"
     toml "^3.0.0"
     urijs "^1.19.1"
-
-<<<<<<< feature/shared-transaction-ux-primitives
-"@swc/helpers@^0.5.11":
-=======
-"@swc/core-win32-x64-msvc@1.15.30":
-  version "1.15.30"
-  resolved "https://registry.npmjs.org/@swc/core-win32-x64-msvc/-/core-win32-x64-msvc-1.15.30.tgz"
-  integrity sha512-4iObHPR+Q4oDY110EF5SF5eIaaVJNpMdG9C0q3Q92BsJ5y467uHz7sYQhP60WYlLFsLQ1el2YrIPUItUAQGOKg==
 
 "@swc/core@^1.15.11":
   version "1.15.30"
@@ -2085,23 +2055,18 @@
   integrity sha512-e2BR4lsJkkRlKZ/qCHPw9ZaSxc0MVUd7gtbtaB7aMvHeJVYe8sOB8DBZkP2DtISHGSku9sCK6T6cnY0CtXrOCQ==
 
 "@swc/helpers@^0.5.11", "@swc/helpers@>=0.5.17":
->>>>>>> main
   version "0.5.21"
   resolved "https://registry.npmjs.org/@swc/helpers/-/helpers-0.5.21.tgz"
   integrity sha512-jI/VAmtdjB/RnI8GTnokyX7Ug8c+g+ffD6QRLa6XQewtnGyukKkKSk3wLTM3b5cjt1jNh9x0jfVlagdN2gDKQg==
   dependencies:
     tslib "^2.8.0"
 
-<<<<<<< feature/shared-transaction-ux-primitives
-=======
 "@swc/types@^0.1.26":
   version "0.1.26"
   resolved "https://registry.npmjs.org/@swc/types/-/types-0.1.26.tgz"
   integrity sha512-lyMwd7WGgG79RS7EERZV3T8wMdmPq3xwyg+1nmAM64kIhx5yl+juO2PYIHb7vTiPgPCj8LYjsNV2T5wiQHUEaw==
   dependencies:
     "@swc/counter" "^0.1.3"
-
->>>>>>> main
 "@tailwindcss/node@4.2.4":
   version "4.2.4"
   resolved "https://registry.npmjs.org/@tailwindcss/node/-/node-4.2.4.tgz"
@@ -2687,8 +2652,6 @@
   resolved "https://registry.npmjs.org/@ungap/structured-clone/-/structured-clone-1.3.0.tgz"
   integrity sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==
 
-<<<<<<< feature/shared-transaction-ux-primitives
-=======
 "@vitejs/plugin-react-swc@^4.3.0":
   version "4.3.0"
   resolved "https://registry.npmjs.org/@vitejs/plugin-react-swc/-/plugin-react-swc-4.3.0.tgz"
@@ -2696,8 +2659,6 @@
   dependencies:
     "@rolldown/pluginutils" "1.0.0-rc.7"
     "@swc/core" "^1.15.11"
-
->>>>>>> main
 "@vitejs/plugin-react@^5.0.4":
   version "5.2.0"
   resolved "https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-5.2.0.tgz"
@@ -7856,11 +7817,7 @@ vite-plugin-wasm@^3.5.0:
   resolved "https://registry.npmjs.org/vite-plugin-wasm/-/vite-plugin-wasm-3.6.0.tgz"
   integrity sha512-mL/QPziiIA4RAA6DkaZZzOstdwbW5jO4Vz7Zenj0wieKWBlNvIvX5L5ljum9lcUX0ShNfBgCNLKTjNkRVVqcsw==
 
-<<<<<<< feature/shared-transaction-ux-primitives
-"vite@^2 || ^3 || ^4 || ^5 || ^6 || ^7 || ^8", "vite@^2.0.0 || ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0", "vite@^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0", "vite@^5.0.0 || ^6.0.0 || ^7.0.0-0", "vite@^5.2.0 || ^6 || ^7 || ^8", vite@^7.1.11:
-=======
 "vite@^2 || ^3 || ^4 || ^5 || ^6 || ^7 || ^8", "vite@^2.0.0 || ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0", "vite@^4 || ^5 || ^6 || ^7 || ^8", "vite@^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0", "vite@^5.0.0 || ^6.0.0 || ^7.0.0-0", "vite@^5.2.0 || ^6 || ^7 || ^8", vite@^7.1.11:
->>>>>>> main
   version "7.3.2"
   resolved "https://registry.npmjs.org/vite/-/vite-7.3.2.tgz"
   integrity sha512-Bby3NOsna2jsjfLVOHKes8sGwgl4TT0E6vvpYgnAYDIF/tie7MRaFthmKuHx1NSXjiTueXH3do80FMQgvEktRg==
