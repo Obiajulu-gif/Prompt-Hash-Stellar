@@ -6,6 +6,10 @@ import { userRouter } from "./routes/userRoutes";
 import { chatRouter } from "./routes/chatRoutes";
 import { webhookRouter } from "./routes/webhookRoutes";
 import { versioningRouter } from "./routes/versioningRoutes";
+import { startIndexer } from "./services/indexer";
+import { IndexerState } from "./models/IndexerState";
+import connectDb from "./db/connectDb";
+import { connectRedis } from "./db/redis";
 
 const app = express();
 
@@ -34,11 +38,19 @@ app.get("/health", async (req, res) => {
   });
 });
 
-app.listen(port, () => {
+app.listen(port, async () => {
   console.log(`Listening on port ${port}`);
 
-  // STARTS THE INDEXER HERE
-  startIndexer().catch((err) => {
-    console.error("Failed to start Soroban Indexer:", err);
-  });
+  try {
+    await connectDb();
+    await connectRedis();
+    console.log("Databases connected successfully");
+
+    // STARTS THE INDEXER HERE
+    startIndexer().catch((err) => {
+      console.error("Failed to start Soroban Indexer:", err);
+    });
+  } catch (err) {
+    console.error("Initialization Error:", err);
+  }
 });

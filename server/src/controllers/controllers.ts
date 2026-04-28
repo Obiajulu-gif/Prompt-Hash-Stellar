@@ -4,6 +4,7 @@ import User from "../models/User";
 import Prompt from "../models/Prompt";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
+import redisClient, { connectRedis } from "../db/redis";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -106,6 +107,13 @@ export const CreatePrompt = async (
 
     await newPrompt.save();
 
+    // Invalidate cache
+    const cacheKey = "prompts:all:all"; // Minimum invalidation
+    await redisClient.del(cacheKey);
+    // Or just clear all prompts:*
+    const keys = await redisClient.keys('prompts:*');
+    if (keys.length > 0) await redisClient.del(keys);
+
     // Populate the owner details in the response
     const populatedPrompt = await newPrompt.populate(
       "owner",
@@ -131,10 +139,19 @@ export const GetPrompts = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
+    await connectRedis();
 
-    const { searchParams } = new URL(req.url);
-    const category = searchParams.get("category");
-    const walletAddress = searchParams.get("walletAddress");
+    const category = req.query.category as string;
+    const walletAddress = req.query.walletAddress as string;
+
+    const cacheKey = `prompts:${category || 'all'}:${walletAddress || 'all'}`;
+
+    // Try to get from cache
+    const cachedData = await redisClient.get(cacheKey);
+    if (cachedData) {
+      console.log(`Cache hit for ${cacheKey}`);
+      return res.json(JSON.parse(cachedData));
+    }
 
     let query: any = {};
 
@@ -154,6 +171,9 @@ export const GetPrompts = async (
     const prompts = await Prompt.find(query)
       .populate("owner", "username walletAddress")
       .sort({ createdAt: -1 });
+
+    // Store in cache for 5 minutes
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(prompts));
 
     return res.json(prompts);
   } catch (error) {
@@ -207,6 +227,9 @@ export const CreateUser = async (
     });
     await newUser.save();
 
+    // Invalidate users cache
+    await redisClient.del("users:all");
+
     return res.status(201).json({
       message: "User registered successfully",
       user: newUser,
@@ -226,28 +249,35 @@ export const GetUsers = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
+    await connectRedis();
 
-    // Get wallet address from search params if provided
-    const { searchParams } = new URL(req.url);
-    const walletAddress = searchParams.get("walletAddress");
+    const walletAddress = req.query.walletAddress as string;
 
-    let users;
-
-    if (walletAddress) {
-      users = await User.findOne({
-        walletAddress: walletAddress.toLowerCase(),
-      });
-
-      if (!users) {
-        return res.status(404).json({
-          error: "User not found",
-        });
+    // Cache only the "all users" query for now
+    if (!walletAddress) {
+      const cacheKey = "users:all";
+      const cachedData = await redisClient.get(cacheKey);
+      if (cachedData) {
+        console.log("Cache hit for users:all");
+        return res.json(JSON.parse(cachedData));
       }
-    } else {
-      users = await User.find({});
+
+      const users = await User.find({});
+      await redisClient.setEx(cacheKey, 600, JSON.stringify(users)); // Cache for 10 mins
+      return res.json(users);
     }
 
-    return res.json(users);
+    const user = await User.findOne({
+      walletAddress: walletAddress.toLowerCase(),
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    return res.json(user);
   } catch (error) {
     console.error("Fetch users error:", error);
     return res.status(500).json({
