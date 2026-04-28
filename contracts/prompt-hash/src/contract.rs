@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use super::events::Events;
 use super::storage::Storage;
 use super::types::{DataKey, Error, Prompt, PromptHashTrait};
@@ -18,6 +19,7 @@ const MAX_IV_LEN: u32 = 64;
 #[contract]
 pub struct PromptHashContract;
 
+#[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl PromptHashTrait for PromptHashContract {
     fn __constructor(
@@ -126,7 +128,10 @@ impl PromptHashTrait for PromptHashContract {
 
         ensure(prompt.active, Error::PromptInactive)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
-        ensure(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
+        ensure(
+            !Storage::has_purchase(&env, prompt_id, &buyer),
+            Error::AlreadyPurchased,
+        )?;
 
         Storage::set_reentrancy_guard(&env)?;
 
@@ -158,13 +163,63 @@ impl PromptHashTrait for PromptHashContract {
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, prompt_id, &buyer);
         Storage::clear_reentrancy_guard(&env);
-        Events::emit_prompt_purchased(
-            &env,
-            prompt_id,
-            buyer,
-            prompt.creator,
-            prompt.price_stroops,
-        );
+        Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, prompt.price_stroops);
+        Ok(())
+    }
+
+    fn buy_prompts_bulk(env: Env, buyer: Address, prompt_ids: Vec<u128>) -> Result<(), Error> {
+        buyer.require_auth();
+        Storage::set_reentrancy_guard(&env)?;
+
+        let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+        let this_contract = env.current_contract_address();
+        let fee_percentage = Storage::get_fee_percentage(&env);
+        ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
+
+        let xlm = Storage::get_stellar_asset_contract(&env)?;
+
+        for prompt_id in prompt_ids.iter() {
+            let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+
+            ensure(prompt.active, Error::PromptInactive)?;
+            ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
+            ensure(
+                !Storage::has_purchase(&env, prompt_id, &buyer),
+                Error::AlreadyPurchased,
+            )?;
+
+            let fee_amount = prompt
+                .price_stroops
+                .checked_mul(fee_percentage as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            let seller_amount = prompt
+                .price_stroops
+                .checked_sub(fee_amount)
+                .ok_or(Error::ArithmeticOverflow)?;
+
+            xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &seller_amount);
+            if fee_amount > 0 {
+                xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
+            }
+
+            prompt.sales_count = prompt
+                .sales_count
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
+            Storage::update_prompt(&env, &prompt);
+            Storage::grant_purchase(&env, prompt_id, &buyer);
+
+            Events::emit_prompt_purchased(
+                &env,
+                prompt_id,
+                buyer.clone(),
+                prompt.creator,
+                prompt.price_stroops,
+            );
+        }
+
+        Storage::clear_reentrancy_guard(&env);
         Ok(())
     }
 
@@ -236,6 +291,7 @@ impl PromptHashTrait for PromptHashContract {
 #[contractimpl]
 impl Ownable for PromptHashContract {}
 
+#[allow(clippy::too_many_arguments)]
 fn validate_prompt_fields(
     image_url: &String,
     title: &String,
@@ -256,13 +312,17 @@ fn validate_prompt_fields(
         MAX_ENCRYPTED_PROMPT_LEN,
         Error::InvalidEncryptedPromptLength,
     )?;
-    validate_len(wrapped_key, MAX_WRAPPED_KEY_LEN, Error::InvalidWrappedKeyLength)?;
+    validate_len(
+        wrapped_key,
+        MAX_WRAPPED_KEY_LEN,
+        Error::InvalidWrappedKeyLength,
+    )?;
     validate_len(encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
     Ok(())
 }
 
 fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
-    ensure(value.len() > 0 && value.len() <= max_len, error)
+    ensure(!value.is_empty() && value.len() <= max_len, error)
 }
 
 fn ensure(condition: bool, error: Error) -> Result<(), Error> {
