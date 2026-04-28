@@ -13,6 +13,10 @@ import {
   hasAccess,
   type PromptHashConfig,
 } from "../../src/lib/stellar/promptHashClient";
+import {
+  fetchEncryptedPromptFromIpfs,
+  isIpfsUri,
+} from "../../src/lib/ipfs";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
@@ -164,8 +168,12 @@ async function handler(req: any, res: any) {
       unlockPublicKey,
       unlockPrivateKey,
     );
+    const encryptedPrompt = isIpfsUri(prompt.encryptedPrompt)
+      ? await fetchEncryptedPromptFromIpfs(prompt.encryptedPrompt)
+      : prompt.encryptedPrompt;
+
     const plaintext = await decryptPromptCiphertext(
-      prompt.encryptedPrompt,
+      encryptedPrompt,
       prompt.encryptionIv,
       keyBytes,
     );

@@ -1,3 +1,4 @@
+import { uploadEncryptedPromptToIpfs } from "@/lib/ipfs";
 import { ChangeEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,6 +51,7 @@ export function CreatePromptForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { address, signTransaction } = useWallet();
+
   const [formData, setFormData] = useState<FormData>({
     imageUrl: "",
     title: "",
@@ -58,6 +60,7 @@ export function CreatePromptForm() {
     fullPrompt: "",
     priceXlm: "2",
   });
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -78,6 +81,7 @@ export function CreatePromptForm() {
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = event.target;
+
     setFormData((previous) => ({ ...previous, [name]: value }));
     setErrors((previous) => {
       const next = { ...previous };
@@ -144,9 +148,7 @@ export function CreatePromptForm() {
     setSubmitError(null);
     setSuccessMessage(null);
 
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     if (!address || !signTransaction) {
       setSubmitError("Connect a Stellar wallet before creating a prompt.");
@@ -164,21 +166,28 @@ export function CreatePromptForm() {
     }
 
     setIsSubmitting(true);
+
     try {
       const encrypted = await encryptPromptPlaintext(formData.fullPrompt);
-      const wrappedKey = await wrapPromptKey(encrypted.keyBytes, unlockPublicKey);
-
-      if (encrypted.encryptedPrompt.length > limits.encrypted) {
-        throw new Error(
-          "Encrypted payload is too large for the current on-chain limit. Shorten the full prompt and try again.",
-        );
-      }
+      const wrappedKey = await wrapPromptKey(
+        encrypted.keyBytes,
+        unlockPublicKey,
+      );
 
       if (wrappedKey.length > limits.wrappedKey) {
         throw new Error("Wrapped key exceeds the contract storage limit.");
       }
 
-      const { promptId } = await createPrompt(
+      let encryptedPromptForStorage = encrypted.encryptedPrompt;
+
+      if (encrypted.encryptedPrompt.length > limits.encrypted) {
+        const uploaded = await uploadEncryptedPromptToIpfs(
+          encrypted.encryptedPrompt,
+        );
+        encryptedPromptForStorage = uploaded.uri;
+    }
+
+      const result = await createPrompt(
         browserStellarConfig,
         { signTransaction },
         address,
@@ -187,7 +196,7 @@ export function CreatePromptForm() {
           title: formData.title.trim(),
           category: formData.category,
           previewText: formData.previewText.trim(),
-          encryptedPrompt: encrypted.encryptedPrompt,
+          encryptedPrompt: encryptedPromptForStorage,
           encryptionIv: encrypted.encryptionIv,
           wrappedKey,
           contentHash: encrypted.contentHash,
@@ -195,9 +204,9 @@ export function CreatePromptForm() {
         },
       );
 
-      // Invalidate before navigating so the browse grid is fresh on arrival.
       await invalidateAllPromptQueries(queryClient);
-      setSuccessMessage(`Prompt #${promptId.toString()} created successfully.`);
+
+      setSuccessMessage(`Prompt created successfully. Transaction: ${result.txHash}`);
       setFormData({
         imageUrl: "",
         title: "",
@@ -206,6 +215,7 @@ export function CreatePromptForm() {
         fullPrompt: "",
         priceXlm: "2",
       });
+
       navigate("/browse");
     } catch (error) {
       setSubmitError(
@@ -245,6 +255,7 @@ export function CreatePromptForm() {
             </p>
           ) : null}
         </div>
+
         <div className="space-y-2">
           <label htmlFor="create-prompt-title" className="text-sm font-medium">
             Title
@@ -293,6 +304,7 @@ export function CreatePromptForm() {
             </p>
           ) : null}
         </div>
+
         <div className="space-y-2">
           <label htmlFor="create-prompt-category" className="text-sm font-medium">
             Category
@@ -313,6 +325,7 @@ export function CreatePromptForm() {
               ))}
             </SelectContent>
           </Select>
+
           {errors.category ? (
             <p className="flex items-center gap-1 text-sm text-red-400">
               <AlertCircle className="h-3.5 w-3.5" />
@@ -331,6 +344,7 @@ export function CreatePromptForm() {
             placeholder="2.5"
             className={errors.priceXlm ? "border-red-500" : ""}
           />
+
           {errors.priceXlm ? (
             <p className="flex items-center gap-1 text-sm text-red-400">
               <AlertCircle className="h-3.5 w-3.5" />
@@ -350,7 +364,7 @@ export function CreatePromptForm() {
           value={formData.fullPrompt}
           onChange={handleChange}
           rows={12}
-          placeholder="This plaintext is encrypted in the browser, then only encrypted fields are sent on-chain."
+          placeholder="This plaintext is encrypted in the browser. Large encrypted payloads are uploaded to IPFS and stored on-chain by CID."
           className={errors.fullPrompt ? "border-red-500" : ""}
         />
         {errors.fullPrompt ? (
@@ -369,7 +383,7 @@ export function CreatePromptForm() {
         {isSubmitting ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Encrypting and submitting...
+            Encrypting, uploading if needed, and submitting...
           </>
         ) : (
           "Create prompt listing"

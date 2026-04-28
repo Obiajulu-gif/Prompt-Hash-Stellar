@@ -8,23 +8,13 @@ import {
 } from "@stellar/stellar-sdk";
 import type { JSONSchema7, JSONSchema7Definition } from "json-schema";
 
-// =============================================================================
-// Generic
-// =============================================================================
 export type AnyObject = { [key: string]: unknown };
 export type EmptyObj = Record<PropertyKey, never>;
 export type ThemeColorType = "sds-theme-dark" | "sds-theme-light";
 export type LabSettings = Record<string, string>;
 
-// =============================================================================
-// Helpers
-// =============================================================================
-// Key union type from object keys
 export type KeysOfUnion<T> = T extends infer P ? keyof P : never;
 
-// =============================================================================
-// Network
-// =============================================================================
 export type NetworkType = "testnet" | "mainnet" | "futurenet" | "custom";
 
 export type Network = {
@@ -63,9 +53,6 @@ export type StatusPageScheduled = {
   incident_updates: StatusPageIncident[];
 };
 
-// =============================================================================
-// Account
-// =============================================================================
 export type MuxedAccount = {
   id: string | undefined;
   baseAddress: string | undefined;
@@ -76,9 +63,6 @@ export type MuxedAccountFieldType = MuxedAccount & {
   error: string;
 };
 
-// =============================================================================
-// Asset
-// =============================================================================
 export type AssetType =
   | "native"
   | "issued"
@@ -130,9 +114,6 @@ export type AssetPoolShareError = {
   asset_b?: AssetError;
 };
 
-// =============================================================================
-// Transaction
-// =============================================================================
 export type TimeBoundsValue = {
   min_time: number | string | undefined;
   max_time: number | string | undefined;
@@ -228,9 +209,6 @@ export type TransactionBuildParams = {
     | EmptyObj;
 };
 
-// =============================================================================
-// Component
-// =============================================================================
 export type InfoCard = {
   id: string;
   title: string;
@@ -240,9 +218,6 @@ export type InfoCard = {
   buttonAction: () => void;
 };
 
-// =============================================================================
-// Operations
-// =============================================================================
 export type OptionFlag = {
   id: string;
   label: string;
@@ -306,9 +281,6 @@ export type SponsorshipType =
   | "claimable_balance"
   | "signer";
 
-// =============================================================================
-// Soroban Operations
-// =============================================================================
 export type SorobanOpType =
   | "extend_footprint_ttl"
   | "restore_footprint"
@@ -320,9 +292,6 @@ export type SorobanInvokeValue = {
   args: AnyObject;
 };
 
-// =============================================================================
-// RPC
-// =============================================================================
 export type FiltersType = "system" | "contract" | "diagnostic";
 
 export type FiltersObject = {
@@ -385,9 +354,6 @@ export type ConfigSettingIdType =
 
 export type XdrFormatType = "json" | "base64";
 
-// =============================================================================
-// Local storage items
-// =============================================================================
 export type LocalStorageSavedNetwork = {
   id: NetworkType;
   label: string;
@@ -440,9 +406,6 @@ export interface SavedRpcMethod extends LocalStorageSavedItem {
   payload: AnyObject;
 }
 
-// =============================================================================
-// Smart Contract Explorer
-// =============================================================================
 export type ContractInfoApiResponse = {
   contract: string;
   created: number;
@@ -479,7 +442,10 @@ export type ContractVersionHistoryResponseItem = {
   wasm: string;
 };
 
-export type ContractStorageDurability = "instance" | "persistent" | "temporary";
+export type ContractStorageDurability =
+  | "instance"
+  | "persistent"
+  | "temporary";
 
 export type ContractStorageResponseItem = {
   durability: ContractStorageDurability;
@@ -521,9 +487,6 @@ export type WasmData = {
   };
 };
 
-// =============================================================================
-// Data table
-// =============================================================================
 export type SortDirection = "default" | "asc" | "desc";
 
 export type DataTableHeader = {
@@ -540,9 +503,6 @@ export type DataTableCell = {
   isOverflow?: boolean;
 };
 
-// =============================================================================
-// Smart contract Wasm binary
-// =============================================================================
 export const CONTRACT_SECTIONS = [
   "contractmetav0",
   "contractenvmetav0",
@@ -558,6 +518,7 @@ export type ContractData = {
   json?: string[];
   text?: string[];
 };
+
 export type ContractSections = Record<ContractSectionName, ContractData>;
 
 export type DereferencedSchemaType = {
