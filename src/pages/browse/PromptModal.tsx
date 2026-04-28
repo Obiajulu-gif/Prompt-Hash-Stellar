@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { LockKeyhole, X, ExternalLink, AlertCircle, RefreshCw, CheckCircle, Loader2 } from "lucide-react";
+import {
+  LockKeyhole,
+  X,
+  ExternalLink,
+  AlertCircle,
+  RefreshCw,
+  CheckCircle,
+  Loader2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/useWallet";
@@ -46,16 +54,25 @@ export const PromptModal = ({
   onRefresh: () => Promise<void>;
 }) => {
   const { address, signMessage, signTransaction } = useWallet();
-  const [status, setStatus] = useState<ModalStatus>(initialHasAccess ? "PURCHASED_LOCKED" : "IDLE");
+  const [status, setStatus] = useState<ModalStatus>(
+    initialHasAccess ? "PURCHASED_LOCKED" : "IDLE",
+  );
   const [plaintext, setPlaintext] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [customError, setCustomError] = useState<string | null>(null);
-  const [lastPurchaseTxHash, setLastPurchaseTxHash] = useState<string | null>(null);
+  const [lastPurchaseTxHash, setLastPurchaseTxHash] = useState<string | null>(
+    null,
+  );
 
   // Handle initial access state
   useEffect(() => {
     setStatus((prev) => {
-      if (initialHasAccess && (prev === "IDLE" || prev === "PURCHASE_ERROR" || prev === "DUPLICATE_PURCHASE")) {
+      if (
+        initialHasAccess &&
+        (prev === "IDLE" ||
+          prev === "PURCHASE_ERROR" ||
+          prev === "DUPLICATE_PURCHASE")
+      ) {
         return "PURCHASED_LOCKED";
       }
       return prev;
@@ -85,9 +102,11 @@ export const PromptModal = ({
     async () => {
       setCustomError(null);
       setStatus("UNLOCKING");
-      
+
       if (!address || !signMessage) {
-        throw new Error("Connect a Stellar wallet with SEP-43 message signing to unlock prompts.");
+        throw new Error(
+          "Connect a Stellar wallet with SEP-43 message signing to unlock prompts.",
+        );
       }
 
       // Verify we have access before attempting unlock
@@ -96,7 +115,11 @@ export const PromptModal = ({
         throw new Error("NO_ACCESS");
       }
 
-      return await unlockPromptContent(address, prompt.id.toString(), signMessage);
+      return await unlockPromptContent(
+        address,
+        prompt.id.toString(),
+        signMessage,
+      );
     },
     {
       pendingMessage: "Unlocking prompt content...",
@@ -107,19 +130,31 @@ export const PromptModal = ({
       },
       onError: (err) => {
         const message = err.message || "";
-        
+
         if (message.includes("NO_ACCESS")) {
           setStatus("PURCHASE_ERROR");
-          setCustomError("Purchase access not found. Please try purchasing again.");
-        } else if (message.includes("User declined") || message.includes("rejected")) {
+          setCustomError(
+            "Purchase access not found. Please try purchasing again.",
+          );
+        } else if (
+          message.includes("User declined") ||
+          message.includes("rejected")
+        ) {
           setStatus("SIGNING_REJECTED");
-          setCustomError("Signing was rejected. You can retry the unlock when ready.");
-        } else if (message.includes("401") || message.includes("unauthorized")) {
+          setCustomError(
+            "Signing was rejected. You can retry the unlock when ready.",
+          );
+        } else if (
+          message.includes("401") ||
+          message.includes("unauthorized")
+        ) {
           setStatus("UNLOCK_ERROR");
           setCustomError("Authentication failed. Please try unlocking again.");
         } else if (message.includes("403") || message.includes("forbidden")) {
           setStatus("UNLOCK_ERROR");
-          setCustomError("Access denied. Please contact support if this persists.");
+          setCustomError(
+            "Access denied. Please contact support if this persists.",
+          );
         } else if (message.includes("404") || message.includes("not found")) {
           setStatus("UNLOCK_ERROR");
           setCustomError("Prompt not found on server. Please try again later.");
@@ -127,16 +162,18 @@ export const PromptModal = ({
           setStatus("UNLOCK_ERROR");
         }
       },
-    }
+    },
   );
 
   // Purchase with proper state tracking and error handling
   const { execute: runPurchase, error: purchaseError } = useAsyncTransaction(
     async () => {
       setCustomError(null);
-      
+
       if (!address || !signTransaction) {
-        throw new Error("Connect a Stellar wallet before buying prompt access.");
+        throw new Error(
+          "Connect a Stellar wallet before buying prompt access.",
+        );
       }
 
       // Check for inactive listing first
@@ -145,9 +182,15 @@ export const PromptModal = ({
       }
 
       setStatus("AWAITING_APPROVAL");
-      const alreadyOwns = await hasAccess(browserStellarConfig, address, prompt.id);
+      const alreadyOwns = await hasAccess(
+        browserStellarConfig,
+        address,
+        prompt.id,
+      );
       if (alreadyOwns) {
-        setCustomError("You already have access to this prompt. You can now unlock it.");
+        setCustomError(
+          "You already have access to this prompt. You can now unlock it.",
+        );
         throw new Error("DUPLICATE_PURCHASE");
       }
 
@@ -159,7 +202,7 @@ export const PromptModal = ({
         prompt.id,
         prompt.priceStroops,
       );
-      
+
       // Track the transaction hash
       if (result.txHash) {
         setLastPurchaseTxHash(result.txHash);
@@ -167,13 +210,13 @@ export const PromptModal = ({
       }
 
       setStatus("CONFIRMING_PURCHASE");
-      
+
       // Refresh access state from contract rather than assuming success
       const accessConfirmed = await verifyAccess();
       if (!accessConfirmed) {
         throw new Error("PURCHASE_NOT_CONFIRMED");
       }
-      
+
       return result;
     },
     {
@@ -188,7 +231,7 @@ export const PromptModal = ({
       },
       onError: (err: Error) => {
         const message = err.message || "";
-        
+
         if (message === "DUPLICATE_PURCHASE") {
           setStatus("DUPLICATE_PURCHASE");
         } else if (message === "INACTIVE_LISTING") {
@@ -196,111 +239,130 @@ export const PromptModal = ({
           setCustomError("This prompt is no longer available for purchase.");
         } else if (message === "PURCHASE_NOT_CONFIRMED") {
           setStatus("PURCHASE_ERROR");
-          setCustomError("Purchase transaction may have succeeded but access was not confirmed. Check your wallet and try again.");
-        } else if (message.includes("User declined") || message.includes("rejected")) {
+          setCustomError(
+            "Purchase transaction may have succeeded but access was not confirmed. Check your wallet and try again.",
+          );
+        } else if (
+          message.includes("User declined") ||
+          message.includes("rejected")
+        ) {
           setStatus("PURCHASE_ERROR");
-          setCustomError("Transaction was rejected. You can retry the purchase when ready.");
-        } else if (message.includes("insufficient") || message.includes("balance")) {
+          setCustomError(
+            "Transaction was rejected. You can retry the purchase when ready.",
+          );
+        } else if (
+          message.includes("insufficient") ||
+          message.includes("balance")
+        ) {
           setStatus("PURCHASE_ERROR");
-          setCustomError("Insufficient balance. Please fund your wallet and try again.");
+          setCustomError(
+            "Insufficient balance. Please fund your wallet and try again.",
+          );
         } else if (message.includes("timeout") || message.includes("TIMEOUT")) {
           setStatus("PURCHASE_ERROR");
-          setCustomError("Transaction timed out. Please check your wallet and try again.");
+          setCustomError(
+            "Transaction timed out. Please check your wallet and try again.",
+          );
         } else {
           setStatus("PURCHASE_ERROR");
         }
       },
-    }
+    },
   );
 
-  const displayError = customError || (purchaseError?.message !== "DUPLICATE_PURCHASE" ? purchaseError?.message : null) || unlockError?.message;
+  const displayError =
+    customError ||
+    (purchaseError?.message !== "DUPLICATE_PURCHASE"
+      ? purchaseError?.message
+      : null) ||
+    unlockError?.message;
 
   const getButtonState = () => {
     switch (status) {
       case "AWAITING_APPROVAL":
-        return { 
-          text: "Awaiting Wallet Approval...", 
-          disabled: true, 
+        return {
+          text: "Awaiting Wallet Approval...",
+          disabled: true,
           action: undefined,
-          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />,
         };
       case "SUBMITTING_TX":
-        return { 
-          text: "Submitting Transaction...", 
-          disabled: true, 
+        return {
+          text: "Submitting Transaction...",
+          disabled: true,
           action: undefined,
-          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />,
         };
       case "CONFIRMING_PURCHASE":
-        return { 
-          text: "Confirming Purchase...", 
-          disabled: true, 
+        return {
+          text: "Confirming Purchase...",
+          disabled: true,
           action: undefined,
-          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />,
         };
       case "PURCHASE_ERROR":
-        return { 
-          text: "Retry Purchase", 
-          disabled: false, 
+        return {
+          text: "Retry Purchase",
+          disabled: false,
           action: runPurchase,
-          icon: <RefreshCw className="mr-2 h-4 w-4" />
+          icon: <RefreshCw className="mr-2 h-4 w-4" />,
         };
       case "PURCHASED_LOCKED":
-        return { 
-          text: "View full prompt", 
-          disabled: false, 
+        return {
+          text: "View full prompt",
+          disabled: false,
           action: runUnlock,
-          icon: <LockKeyhole className="mr-2 h-4 w-4" />
+          icon: <LockKeyhole className="mr-2 h-4 w-4" />,
         };
       case "UNLOCKING":
-        return { 
-          text: "Unlocking...", 
-          disabled: true, 
+        return {
+          text: "Unlocking...",
+          disabled: true,
           action: undefined,
-          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          icon: <Loader2 className="mr-2 h-4 w-4 animate-spin" />,
         };
       case "UNLOCK_ERROR":
-        return { 
-          text: "Retry Unlock", 
-          disabled: false, 
+        return {
+          text: "Retry Unlock",
+          disabled: false,
           action: runUnlock,
-          icon: <RefreshCw className="mr-2 h-4 w-4" />
+          icon: <RefreshCw className="mr-2 h-4 w-4" />,
         };
       case "UNLOCKED":
-        return { 
-          text: "Prompt Unlocked", 
-          disabled: true, 
+        return {
+          text: "Prompt Unlocked",
+          disabled: true,
           action: undefined,
-          icon: <CheckCircle className="mr-2 h-4 w-4" />
+          icon: <CheckCircle className="mr-2 h-4 w-4" />,
         };
       case "INACTIVE_LISTING":
-        return { 
-          text: "Unavailable", 
-          disabled: true, 
+        return {
+          text: "Unavailable",
+          disabled: true,
           action: undefined,
-          icon: undefined
+          icon: undefined,
         };
       case "SIGNING_REJECTED":
-        return { 
-          text: "Retry Unlock", 
-          disabled: false, 
+        return {
+          text: "Retry Unlock",
+          disabled: false,
           action: runUnlock,
-          icon: <RefreshCw className="mr-2 h-4 w-4" />
+          icon: <RefreshCw className="mr-2 h-4 w-4" />,
         };
       case "DUPLICATE_PURCHASE":
-        return { 
-          text: "Already Owned - Unlock", 
-          disabled: false, 
+        return {
+          text: "Already Owned - Unlock",
+          disabled: false,
           action: runUnlock,
-          icon: <LockKeyhole className="mr-2 h-4 w-4" />
+          icon: <LockKeyhole className="mr-2 h-4 w-4" />,
         };
       case "IDLE":
       default:
-        return { 
-          text: "Buy access", 
-          disabled: !prompt.active, 
+        return {
+          text: "Buy access",
+          disabled: !prompt.active,
           action: runPurchase,
-          icon: undefined
+          icon: undefined,
         };
     }
   };
@@ -334,25 +396,6 @@ export const PromptModal = ({
             <X className="h-5 w-5" />
           </Button>
         </div>
-
-        <h2 id="prompt-modal-title" className="text-xl font-bold text-white mb-6">Purchase Prompt</h2>
-
-        {isCheckingAccess ? (
-          <div className="space-y-4">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-12 w-full mt-4" />
-          </div>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-slate-200 hover:bg-white/10"
-            onClick={closeModal}
-          >
-            <X className="h-5 w-5" />
-          </Button>
-        )}
 
         <div className="grid gap-6 p-6 lg:grid-cols-[1fr_0.95fr]">
           <div className="space-y-5">
@@ -416,53 +459,82 @@ export const PromptModal = ({
               <div className="mt-5 space-y-3">
                 {/* Transaction Status Indicator */}
                 {status !== "IDLE" && status !== "UNLOCKED" && (
-                  <div className={`rounded-2xl border px-4 py-3 text-sm ${
-                    status === "PURCHASE_ERROR" || status === "UNLOCK_ERROR" || status === "INACTIVE_LISTING"
-                      ? "border-red-400/20 bg-red-500/10"
-                      : status === "PURCHASED_LOCKED" || status === "SIGNING_REJECTED" || status === "DUPLICATE_PURCHASE"
-                      ? "border-amber-400/20 bg-amber-500/10"
-                      : "border-blue-400/20 bg-blue-500/10"
-                  }`}>
+                  <div
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      status === "PURCHASE_ERROR" ||
+                      status === "UNLOCK_ERROR" ||
+                      status === "INACTIVE_LISTING"
+                        ? "border-red-400/20 bg-red-500/10"
+                        : status === "PURCHASED_LOCKED" ||
+                            status === "SIGNING_REJECTED" ||
+                            status === "DUPLICATE_PURCHASE"
+                          ? "border-amber-400/20 bg-amber-500/10"
+                          : "border-blue-400/20 bg-blue-500/10"
+                    }`}
+                  >
                     <div className="flex items-center gap-2">
-                      {status === "AWAITING_APPROVAL" || status === "SUBMITTING_TX" || status === "CONFIRMING_PURCHASE" || status === "UNLOCKING" ? (
+                      {status === "AWAITING_APPROVAL" ||
+                      status === "SUBMITTING_TX" ||
+                      status === "CONFIRMING_PURCHASE" ||
+                      status === "UNLOCKING" ? (
                         <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-                      ) : status === "PURCHASE_ERROR" || status === "UNLOCK_ERROR" || status === "INACTIVE_LISTING" ? (
+                      ) : status === "PURCHASE_ERROR" ||
+                        status === "UNLOCK_ERROR" ||
+                        status === "INACTIVE_LISTING" ? (
                         <AlertCircle className="h-4 w-4 text-red-400" />
-                      ) : status === "PURCHASED_LOCKED" || status === "SIGNING_REJECTED" || status === "DUPLICATE_PURCHASE" ? (
+                      ) : status === "PURCHASED_LOCKED" ||
+                        status === "SIGNING_REJECTED" ||
+                        status === "DUPLICATE_PURCHASE" ? (
                         <AlertCircle className="h-4 w-4 text-amber-400" />
                       ) : null}
-                      <span className={
-                        status === "PURCHASE_ERROR" || status === "UNLOCK_ERROR" || status === "INACTIVE_LISTING"
-                          ? "text-red-200"
-                          : status === "PURCHASED_LOCKED" || status === "SIGNING_REJECTED" || status === "DUPLICATE_PURCHASE"
-                          ? "text-amber-200"
-                          : "text-blue-200"
-                      }>
-                        {status === "AWAITING_APPROVAL" && "Waiting for wallet approval..."}
-                        {status === "SUBMITTING_TX" && "Submitting transaction to network..."}
-                        {status === "CONFIRMING_PURCHASE" && "Confirming on-chain purchase..."}
-                        {status === "PURCHASED_LOCKED" && "Purchase successful! Ready to unlock."}
-                        {status === "UNLOCKING" && "Verifying ownership and decrypting..."}
-                        {status === "PURCHASE_ERROR" && "Purchase failed. You can retry."}
-                        {status === "UNLOCK_ERROR" && "Unlock failed. You can retry."}
-                        {status === "INACTIVE_LISTING" && "This listing is no longer active."}
-                        {status === "SIGNING_REJECTED" && "Signing was rejected. Retry available."}
-                        {status === "DUPLICATE_PURCHASE" && "You already own this prompt."}
+                      <span
+                        className={
+                          status === "PURCHASE_ERROR" ||
+                          status === "UNLOCK_ERROR" ||
+                          status === "INACTIVE_LISTING"
+                            ? "text-red-200"
+                            : status === "PURCHASED_LOCKED" ||
+                                status === "SIGNING_REJECTED" ||
+                                status === "DUPLICATE_PURCHASE"
+                              ? "text-amber-200"
+                              : "text-blue-200"
+                        }
+                      >
+                        {status === "AWAITING_APPROVAL" &&
+                          "Waiting for wallet approval..."}
+                        {status === "SUBMITTING_TX" &&
+                          "Submitting transaction to network..."}
+                        {status === "CONFIRMING_PURCHASE" &&
+                          "Confirming on-chain purchase..."}
+                        {status === "PURCHASED_LOCKED" &&
+                          "Purchase successful! Ready to unlock."}
+                        {status === "UNLOCKING" &&
+                          "Verifying ownership and decrypting..."}
+                        {status === "PURCHASE_ERROR" &&
+                          "Purchase failed. You can retry."}
+                        {status === "UNLOCK_ERROR" &&
+                          "Unlock failed. You can retry."}
+                        {status === "INACTIVE_LISTING" &&
+                          "This listing is no longer active."}
+                        {status === "SIGNING_REJECTED" &&
+                          "Signing was rejected. Retry available."}
+                        {status === "DUPLICATE_PURCHASE" &&
+                          "You already own this prompt."}
                       </span>
                     </div>
                   </div>
                 )}
-                
+
                 <Button
                   className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                  onClick={() => { 
+                  onClick={() => {
                     void (async () => {
                       try {
                         await buttonState.action?.();
                       } catch (e) {
                         // Error is already handled by useAsyncTransaction
                       }
-                    })(); 
+                    })();
                   }}
                   disabled={buttonState.disabled}
                 >
@@ -471,7 +543,10 @@ export const PromptModal = ({
                 </Button>
                 {(txHash || lastPurchaseTxHash) && (
                   <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                    <span>Transaction: {shortenAddress(txHash || lastPurchaseTxHash || "")}</span>
+                    <span>
+                      Transaction:{" "}
+                      {shortenAddress(txHash || lastPurchaseTxHash || "")}
+                    </span>
                     <a
                       href={`https://stellar.expert/explorer/${stellarNetwork.toLowerCase()}/tx/${txHash || lastPurchaseTxHash}`}
                       target="_blank"
@@ -483,35 +558,40 @@ export const PromptModal = ({
                   </div>
                 )}
                 <p className="text-sm leading-6 text-slate-400">
-                  Full prompt text stays encrypted on-chain. Unlock requires wallet
-                  ownership verification and an on-chain access check.
+                  Full prompt text stays encrypted on-chain. Unlock requires
+                  wallet ownership verification and an on-chain access check.
                 </p>
               </div>
             </div>
 
             {displayError ? (
-              <div className={`rounded-2xl border px-4 py-3 text-sm flex items-start gap-3 ${
-                displayError.includes("already have access") || displayError.includes("You already")
-                  ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
-                  : displayError.includes("unavailable") || displayError.includes("no longer available")
-                  ? "border-amber-400/20 bg-amber-500/10 text-amber-200"
-                  : "border-red-400/20 bg-red-500/10 text-red-200"
-              }`}>
+              <div
+                className={`rounded-2xl border px-4 py-3 text-sm flex items-start gap-3 ${
+                  displayError.includes("already have access") ||
+                  displayError.includes("You already")
+                    ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
+                    : displayError.includes("unavailable") ||
+                        displayError.includes("no longer available")
+                      ? "border-amber-400/20 bg-amber-500/10 text-amber-200"
+                      : "border-red-400/20 bg-red-500/10 text-red-200"
+                }`}
+              >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div className="flex-1">
                   <span>{displayError}</span>
                   {/* Recovery action for purchase succeeded but unlock failed */}
-                  {(status === "PURCHASE_ERROR" || status === "UNLOCK_ERROR") && lastPurchaseTxHash && (
-                    <button
-                      onClick={() => {
-                        setCustomError(null);
-                        setStatus("PURCHASED_LOCKED");
-                      }}
-                      className="mt-2 block text-xs underline hover:text-emerald-300"
-                    >
-                      I already purchased this - refresh access
-                    </button>
-                  )}
+                  {(status === "PURCHASE_ERROR" || status === "UNLOCK_ERROR") &&
+                    lastPurchaseTxHash && (
+                      <button
+                        onClick={() => {
+                          setCustomError(null);
+                          setStatus("PURCHASED_LOCKED");
+                        }}
+                        className="mt-2 block text-xs underline hover:text-emerald-300"
+                      >
+                        I already purchased this - refresh access
+                      </button>
+                    )}
                 </div>
               </div>
             ) : null}

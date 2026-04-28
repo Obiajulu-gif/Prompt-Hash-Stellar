@@ -56,18 +56,6 @@ pub struct Prompt {
     pub sales_count: u64,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Prompt(u128),
-    PromptCounter,
-    FeePercentage,
-    FeeWallet,
-    XlmAddress,
-    CreatorPrompts(Address),
-    BuyerPrompts(Address),
-    Purchase(u128, Address),
-}
 
 pub trait PromptHashTrait {
     fn __constructor(
