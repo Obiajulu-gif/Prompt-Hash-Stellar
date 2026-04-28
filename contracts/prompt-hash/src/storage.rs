@@ -75,7 +75,9 @@ impl Storage {
 
         for prompt_id in 0..prompt_count {
             if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                prompts.push_back(prompt);
+                if !prompt.moderated {
+                    prompts.push_back(prompt);
+                }
             }
         }
 
@@ -114,7 +116,9 @@ impl Storage {
         for index in 0..ids.len() {
             let prompt_id = ids.get(index).unwrap();
             if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                prompts.push_back(prompt);
+                if !prompt.moderated {
+                    prompts.push_back(prompt);
+                }
             }
         }
 

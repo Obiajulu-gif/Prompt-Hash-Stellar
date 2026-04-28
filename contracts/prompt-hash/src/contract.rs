@@ -79,6 +79,7 @@ impl PromptHashTrait for PromptHashContract {
             content_hash,
             price_stroops,
             active: true,
+            moderated: false,
             sales_count: 0,
         };
 
@@ -127,6 +128,7 @@ impl PromptHashTrait for PromptHashContract {
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
 
         ensure(prompt.active, Error::PromptInactive)?;
+        ensure(!prompt.moderated, Error::PromptModerated)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(
             !Storage::has_purchase(&env, prompt_id, &buyer),
@@ -182,6 +184,7 @@ impl PromptHashTrait for PromptHashContract {
             let mut prompt = Storage::require_prompt(&env, prompt_id)?;
 
             ensure(prompt.active, Error::PromptInactive)?;
+            ensure(!prompt.moderated, Error::PromptModerated)?;
             ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
             ensure(
                 !Storage::has_purchase(&env, prompt_id, &buyer),
@@ -222,6 +225,18 @@ impl PromptHashTrait for PromptHashContract {
         Storage::clear_reentrancy_guard(&env);
         Ok(())
     }
+    #[only_owner]
+    fn admin_set_moderation_status(
+        env: Env,
+        prompt_id: u128,
+        moderated: bool,
+    ) -> Result<(), Error> {
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        prompt.moderated = moderated;
+        Storage::update_prompt(&env, &prompt);
+        Events::emit_prompt_moderation_updated(&env, prompt_id, moderated);
+        Ok(())
+    }
 
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
         let prompt = Storage::require_prompt(&env, prompt_id)?;
@@ -229,7 +244,9 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {
-        Storage::require_prompt(&env, prompt_id)
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(!prompt.moderated, Error::PromptModerated)?;
+        Ok(prompt)
     }
 
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error> {

@@ -22,6 +22,7 @@ pub enum Error {
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
+    PromptModerated = 19,
 }
 
 #[contracttype]
@@ -53,6 +54,7 @@ pub struct Prompt {
     pub content_hash: BytesN<32>,
     pub price_stroops: i128,
     pub active: bool,
+    pub moderated: bool,
     pub sales_count: u64,
 }
 
@@ -95,6 +97,8 @@ pub trait PromptHashTrait {
 
     fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error>;
     fn buy_prompts_bulk(env: Env, buyer: Address, prompt_ids: Vec<u128>) -> Result<(), Error>;
+    fn admin_set_moderation_status(env: Env, prompt_id: u128, moderated: bool)
+        -> Result<(), Error>;
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
