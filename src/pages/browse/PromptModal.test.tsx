@@ -12,6 +12,7 @@ import * as unlockClient from "@/lib/prompts/unlock";
 vi.mock("@/lib/env", () => ({
   stellarNetwork: "TESTNET",
   stellarWalletNetwork: "TESTNET",
+  rpcUrl: "https://stellar.test/rpc",
 }));
 
 vi.mock("@/lib/stellar/promptHashClient", () => ({

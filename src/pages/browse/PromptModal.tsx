@@ -343,6 +343,7 @@ export const PromptModal = ({
             <Skeleton className="h-4 w-1/2" />
             <Skeleton className="h-12 w-full mt-4" />
           </div>
+        ) : (
           <Button
             variant="ghost"
             size="icon"
@@ -351,7 +352,7 @@ export const PromptModal = ({
           >
             <X className="h-5 w-5" />
           </Button>
-        </div>
+        )}
 
         <div className="grid gap-6 p-6 lg:grid-cols-[1fr_0.95fr]">
           <div className="space-y-5">
