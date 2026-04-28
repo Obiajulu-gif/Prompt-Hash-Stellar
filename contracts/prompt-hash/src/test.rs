@@ -58,7 +58,12 @@ fn create_prompt(
     )
 }
 
-fn fund_buyer(xlm_client: &token::StellarAssetClient<'_>, buyer: &Address, spender: &Address, amount: i128) {
+fn fund_buyer(
+    xlm_client: &token::StellarAssetClient<'_>,
+    buyer: &Address,
+    spender: &Address,
+    amount: i128,
+) {
     xlm_client.mint(buyer, &amount);
     xlm_client.approve(buyer, spender, &amount, &1_000);
 }
@@ -79,7 +84,10 @@ fn test_create_prompt_stores_encrypted_fields() {
         prompt.preview_text,
         String::from_str(&env, "Generate a production-ready implementation plan.")
     );
-    assert_eq!(prompt.encrypted_prompt, String::from_str(&env, "ciphertext"));
+    assert_eq!(
+        prompt.encrypted_prompt,
+        String::from_str(&env, "ciphertext")
+    );
     assert_eq!(prompt.encryption_iv, String::from_str(&env, "iv"));
     assert_eq!(prompt.wrapped_key, String::from_str(&env, "wrapped-key"));
     assert_eq!(prompt.content_hash, hash(&env, 7));
@@ -312,14 +320,14 @@ fn test_unauthorized_seller_actions_fail() {
     // Try to update status as stranger
     let status_res = client.try_set_prompt_sale_status(&stranger, &prompt_id, &false);
     match status_res {
-        Err(Ok(Error::Unauthorized)) => {},
+        Err(Ok(Error::Unauthorized)) => {}
         other => panic!("expected unauthorized for status update, got {:?}", other),
     }
 
     // Try to update price as stranger
     let price_res = client.try_update_prompt_price(&stranger, &prompt_id, &1_000);
     match price_res {
-        Err(Ok(Error::Unauthorized)) => {},
+        Err(Ok(Error::Unauthorized)) => {}
         other => panic!("expected unauthorized for price update, got {:?}", other),
     }
 }
@@ -333,8 +341,11 @@ fn test_buy_nonexistent_prompt_fails() {
 
     let result = client.try_buy_prompt(&buyer, &999_999);
     match result {
-        Err(Ok(Error::PromptNotFound)) => {},
-        other => panic!("expected PromptNotFound for nonexistent prompt, got {:?}", other),
+        Err(Ok(Error::PromptNotFound)) => {}
+        other => panic!(
+            "expected PromptNotFound for nonexistent prompt, got {:?}",
+            other
+        ),
     }
 }
 
@@ -347,21 +358,159 @@ fn test_arithmetic_safety_for_massive_prices() {
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    
+
     // Test with a very large price that might cause overflow in fee calculation if not careful
-    // price * fee / 10000. 
-    let massive_price = i128::MAX / 10_000; 
-    let prompt_id = create_prompt(&env, &client, &creator, "Massive Price Prompt", massive_price);
+    // price * fee / 10000.
+    let massive_price = i128::MAX / 10_000;
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Massive Price Prompt",
+        massive_price,
+    );
 
     fund_buyer(&xlm_client, &buyer, &context.contract, massive_price);
 
     // This should not panic and should calculate fees correctly
     client.buy_prompt(&buyer, &prompt_id);
-    
+
     let fee_bps = 500i128;
     let expected_fee = massive_price * fee_bps / 10_000;
     let expected_seller = massive_price - expected_fee;
-    
+
     assert_eq!(xlm_client.balance(&creator), expected_seller);
     assert_eq!(xlm_client.balance(&context.fee_wallet), expected_fee);
+}
+
+#[test]
+fn test_bulk_purchase_success() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
+    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
+    let prompt_id_3 = create_prompt(&env, &client, &creator, "Prompt 3", 3000);
+
+    let total_price = 1000 + 2000 + 3000;
+    fund_buyer(&xlm_client, &buyer, &context.contract, total_price);
+
+    let mut prompt_ids = soroban_sdk::Vec::new(&env);
+    prompt_ids.push_back(prompt_id_1);
+    prompt_ids.push_back(prompt_id_2);
+    prompt_ids.push_back(prompt_id_3);
+
+    client.buy_prompts_bulk(&buyer, &prompt_ids);
+
+    assert!(client.has_access(&buyer, &prompt_id_1));
+    assert!(client.has_access(&buyer, &prompt_id_2));
+    assert!(client.has_access(&buyer, &prompt_id_3));
+
+    let fee_total = total_price * 500 / 10_000;
+    let creator_total = total_price - fee_total;
+
+    assert_eq!(xlm_client.balance(&creator), creator_total);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_total);
+}
+
+#[test]
+fn test_bulk_purchase_failure_one_inactive_reverts_all() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
+    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
+    client.set_prompt_sale_status(&creator, &prompt_id_2, &false);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 5000);
+
+    let mut prompt_ids = soroban_sdk::Vec::new(&env);
+    prompt_ids.push_back(prompt_id_1);
+    prompt_ids.push_back(prompt_id_2);
+
+    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
+    match result {
+        Err(Ok(Error::PromptInactive)) => {}
+        other => panic!("expected PromptInactive, got {:?}", other),
+    }
+
+    // Verify atomicity - neither should be purchased
+    assert!(!client.has_access(&buyer, &prompt_id_1));
+    assert!(!client.has_access(&buyer, &prompt_id_2));
+    assert_eq!(xlm_client.balance(&buyer), 5000);
+}
+
+#[test]
+fn test_bulk_purchase_failure_insufficient_funds_reverts_all() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
+    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
+
+    // Only fund for the first prompt
+    fund_buyer(&xlm_client, &buyer, &context.contract, 1000);
+
+    let mut prompt_ids = soroban_sdk::Vec::new(&env);
+    prompt_ids.push_back(prompt_id_1);
+    prompt_ids.push_back(prompt_id_2);
+
+    // This should fail because the total price (3000) > balance (1000)
+    // Note: Soroban will revert the entire transaction on any error during token transfer
+    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
+    assert!(result.is_err());
+
+    // Verify atomicity
+    assert!(!client.has_access(&buyer, &prompt_id_1));
+    assert!(!client.has_access(&buyer, &prompt_id_2));
+    assert_eq!(xlm_client.balance(&buyer), 1000);
+}
+
+#[test]
+fn test_bulk_purchase_failure_already_purchased_reverts_all() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
+    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 5000);
+
+    // Pre-buy prompt 2
+    client.buy_prompt(&buyer, &prompt_id_2);
+    let balance_after_first = xlm_client.balance(&buyer);
+
+    let mut prompt_ids = soroban_sdk::Vec::new(&env);
+    prompt_ids.push_back(prompt_id_1);
+    prompt_ids.push_back(prompt_id_2);
+
+    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
+    match result {
+        Err(Ok(Error::AlreadyPurchased)) => {}
+        other => panic!("expected AlreadyPurchased, got {:?}", other),
+    }
+
+    // Verify atomicity - prompt 1 should NOT be purchased
+    assert!(!client.has_access(&buyer, &prompt_id_1));
+    assert_eq!(xlm_client.balance(&buyer), balance_after_first);
 }

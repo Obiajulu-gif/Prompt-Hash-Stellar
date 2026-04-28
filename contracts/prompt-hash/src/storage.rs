@@ -30,10 +30,12 @@ impl Storage {
         let key = DataKey::Prompt(prompt.id);
         env.storage().persistent().set(&key, prompt);
         Self::extend_key_ttl(env, &key);
-        
+
         let counter_key = DataKey::PromptCounter;
         let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
-        env.storage().persistent().set(&counter_key, &next_prompt_id);
+        env.storage()
+            .persistent()
+            .set(&counter_key, &next_prompt_id);
         Self::extend_key_ttl(env, &counter_key);
         Ok(())
     }
@@ -82,7 +84,11 @@ impl Storage {
 
     pub fn get_prompts_by_creator(env: &Env, creator: &Address) -> Vec<Prompt> {
         let key = DataKey::CreatorPrompts(creator.clone());
-        let ids: Vec<u128> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+        let ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
         if env.storage().persistent().has(&key) {
             Self::extend_key_ttl(env, &key);
         }
@@ -91,7 +97,11 @@ impl Storage {
 
     pub fn get_prompts_by_buyer(env: &Env, buyer: &Address) -> Vec<Prompt> {
         let key = DataKey::BuyerPrompts(buyer.clone());
-        let ids: Vec<u128> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+        let ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
         if env.storage().persistent().has(&key) {
             Self::extend_key_ttl(env, &key);
         }
@@ -113,7 +123,11 @@ impl Storage {
 
     pub fn add_prompt_to_creator(env: &Env, creator: &Address, prompt_id: u128) {
         let key = DataKey::CreatorPrompts(creator.clone());
-        let mut ids: Vec<u128> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+        let mut ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
         ids.push_back(prompt_id);
         env.storage().persistent().set(&key, &ids);
         Self::extend_key_ttl(env, &key);
@@ -121,7 +135,11 @@ impl Storage {
 
     pub fn add_prompt_to_buyer(env: &Env, buyer: &Address, prompt_id: u128) {
         let key = DataKey::BuyerPrompts(buyer.clone());
-        let mut ids: Vec<u128> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+        let mut ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
         ids.push_back(prompt_id);
         env.storage().persistent().set(&key, &ids);
         Self::extend_key_ttl(env, &key);
@@ -188,14 +206,20 @@ impl Storage {
         addr
     }
 
-    pub fn get_stellar_asset_contract(env: &'_ Env) -> Result<token::StellarAssetClient<'_>, Error> {
+    pub fn get_stellar_asset_contract(
+        env: &'_ Env,
+    ) -> Result<token::StellarAssetClient<'_>, Error> {
         let contract_id = Self::get_xlm_address(env).ok_or(Error::XlmAddressNotSet)?;
         Ok(token::StellarAssetClient::new(env, &contract_id))
     }
 
     pub fn set_reentrancy_guard(env: &Env) -> Result<(), Error> {
         let key = DataKey::Reentrancy;
-        let already_set = env.storage().persistent().get::<_, bool>(&key).unwrap_or(false);
+        let already_set = env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false);
         ensure(!already_set, Error::ReentrancyGuard)?;
         env.storage().persistent().set(&key, &true);
         Self::extend_key_ttl(env, &key);

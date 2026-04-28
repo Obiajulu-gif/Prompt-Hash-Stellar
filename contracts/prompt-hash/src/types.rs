@@ -38,7 +38,6 @@ pub enum DataKey {
     Reentrancy,
 }
 
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
@@ -95,6 +94,7 @@ pub trait PromptHashTrait {
     ) -> Result<(), Error>;
 
     fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error>;
+    fn buy_prompts_bulk(env: Env, buyer: Address, prompt_ids: Vec<u128>) -> Result<(), Error>;
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
@@ -108,4 +108,3 @@ pub trait PromptHashTrait {
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
 }
-
