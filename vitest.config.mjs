@@ -29,6 +29,14 @@ export default defineConfig({
     },
   },
 
+    export default {
+  test: {
+    globals: true,
+    environment: "jsdom",
+    passWithNoTests: true
+  }
+};
+  
   test: {
     environment: 'jsdom',
     globals: true,

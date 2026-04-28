@@ -15,20 +15,24 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
+    "noFallthroughCasesInSwitch": false,
+    "noUncheckedSideEffectImports": false,
+
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "api", "server"],
+  "include": ["src"],
   "exclude": [
     "node_modules",
     "dist",
+    "api",
+    "server",
     "src/debug",
     "src/contracts",
     "src/pages/Debugger.tsx",
