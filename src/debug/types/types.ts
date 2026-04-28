@@ -8,26 +8,16 @@ import {
 } from "@stellar/stellar-sdk";
 import type { JSONSchema7, JSONSchema7Definition } from "json-schema";
 
-// ------------------------------
-// Generic
-// ------------------------------
-export type AnyObject ------------------------------ { [key: string]: unknown };
-export type EmptyObj ------------------------------ Record<PropertyKey, never>;
-export type ThemeColorType ------------------------------ "sds-theme-dark" | "sds-theme-light";
-export type LabSettings ------------------------------ Record<string, string>;
+export type AnyObject = { [key: string]: unknown };
+export type EmptyObj = Record<PropertyKey, never>;
+export type ThemeColorType = "sds-theme-dark" | "sds-theme-light";
+export type LabSettings = Record<string, string>;
 
-// ------------------------------
-// Helpers
-// ------------------------------
-// Key union type from object keys
-export type KeysOfUnion<T> ------------------------------ T extends infer P ? keyof P : never;
+export type KeysOfUnion<T> = T extends infer P ? keyof P : never;
 
-// ------------------------------
-// Network
-// ------------------------------
-export type NetworkType ------------------------------ "testnet" | "mainnet" | "futurenet" | "custom";
+export type NetworkType = "testnet" | "mainnet" | "futurenet" | "custom";
 
-export type Network ------------------------------ {
+export type Network = {
   id: NetworkType;
   label: string;
   horizonUrl: string;
@@ -39,22 +29,22 @@ export type Network ------------------------------ {
   passphrase: string;
 };
 
-export type NetworkHeaders ------------------------------ Record<string, string>;
+export type NetworkHeaders = Record<string, string>;
 
-export type StatusPageComponent ------------------------------ {
+export type StatusPageComponent = {
   [key: string]: unknown;
   id: string;
   name: string;
 };
 
-export type StatusPageIncident ------------------------------ {
+export type StatusPageIncident = {
   [key: string]: unknown;
   id: string;
   name: string;
   body: string;
 };
 
-export type StatusPageScheduled ------------------------------ {
+export type StatusPageScheduled = {
   [key: string]: unknown;
   id: string;
   name: string;
@@ -63,23 +53,17 @@ export type StatusPageScheduled ------------------------------ {
   incident_updates: StatusPageIncident[];
 };
 
-// ------------------------------
-// Account
-// ------------------------------
-export type MuxedAccount ------------------------------ {
+export type MuxedAccount = {
   id: string | undefined;
   baseAddress: string | undefined;
   muxedAddress: string | undefined;
 };
 
-export type MuxedAccountFieldType ------------------------------ MuxedAccount & {
+export type MuxedAccountFieldType = MuxedAccount & {
   error: string;
 };
 
-// ------------------------------
-// Asset
-// ------------------------------
-export type AssetType ------------------------------
+export type AssetType =
   | "native"
   | "issued"
   | "credit_alphanum4"
@@ -87,31 +71,31 @@ export type AssetType ------------------------------
   | "liquidity_pool_shares"
   | "pool_share";
 
-export type AssetString ------------------------------ {
+export type AssetString = {
   id: AssetType;
   label: string;
   value: string | undefined;
 };
 
-export type AssetObjectValue ------------------------------ {
+export type AssetObjectValue = {
   type: AssetType | undefined;
   code: string;
   issuer: string;
 };
 
-export type AssetPoolShareObjectValue ------------------------------ {
+export type AssetPoolShareObjectValue = {
   type: AssetType | undefined;
   asset_a: AssetObjectValue;
   asset_b: AssetObjectValue;
   fee: string;
 };
 
-export type AssetSinglePoolShareValue ------------------------------ {
+export type AssetSinglePoolShareValue = {
   type: "pool_share";
   pool_share: string | undefined;
 };
 
-export type AssetObject ------------------------------ {
+export type AssetObject = {
   id: AssetType;
   label: string;
   value:
@@ -120,67 +104,64 @@ export type AssetObject ------------------------------ {
     | AssetSinglePoolShareValue;
 };
 
-export type AssetError ------------------------------ {
+export type AssetError = {
   code?: string;
   issuer?: string;
 };
 
-export type AssetPoolShareError ------------------------------ {
+export type AssetPoolShareError = {
   asset_a?: AssetError;
   asset_b?: AssetError;
 };
 
-// ------------------------------
-// Transaction
-// ------------------------------
-export type TimeBoundsValue ------------------------------ {
+export type TimeBoundsValue = {
   min_time: number | string | undefined;
   max_time: number | string | undefined;
 };
 
-export type TxnOperation ------------------------------ {
+export type TxnOperation = {
   operation_type: string;
   params: AnyObject;
   source_account?: string;
 };
 
-export type OperationError ------------------------------ {
+export type OperationError = {
   operationType: string;
   error: { [key: string]: string };
   missingFields: string[];
   customMessage: string[];
 };
 
-export type OpBuildingError ------------------------------ { label?: string; errorList?: string[] };
+export type OpBuildingError = { label?: string; errorList?: string[] };
 
-export type LedgerErrorResponse ------------------------------ {
+export type LedgerErrorResponse = {
   message: string;
   errorCode: number;
 };
 
-export type PrepareRpcResponse ------------------------------ {
+export type PrepareRpcResponse = {
   transactionXdr: string;
 };
 
-export type PrepareRpcErrorResponse ------------------------------ {
+export type PrepareRpcErrorResponse = {
   result: StellarRpc.Api.SimulateTransactionErrorResponse;
 };
 
-export type SubmitRpcResponse ------------------------------ {
+export type SubmitRpcResponse = {
   hash: string;
   result: StellarRpc.Api.GetSuccessfulTransactionResponse;
   operationCount: number;
   fee: string;
 };
 
-export type SubmitRpcErrorStatus ------------------------------
+export type SubmitRpcErrorStatus =
   | "TIMEOUT"
   | "FAILED"
   | "DUPLICATE"
   | "TRY_AGAIN_LATER"
   | "ERROR";
 
-export type SubmitRpcError ------------------------------ {
+export type SubmitRpcError = {
   status: SubmitRpcErrorStatus;
   result: {
     status: SubmitRpcErrorStatus;
@@ -199,7 +180,7 @@ export type SubmitRpcError ------------------------------ {
   };
 };
 
-export type SubmitHorizonError ------------------------------ NetworkError & {
+export type SubmitHorizonError = NetworkError & {
   response: {
     data?: {
       extras?: {
@@ -210,7 +191,7 @@ export type SubmitHorizonError ------------------------------ NetworkError & {
   };
 };
 
-export type TransactionBuildParams ------------------------------ {
+export type TransactionBuildParams = {
   source_account: string;
   fee: string;
   seq_num: string;
@@ -228,49 +209,43 @@ export type TransactionBuildParams ------------------------------ {
     | EmptyObj;
 };
 
-// ------------------------------
-// Component
-// ------------------------------
-export type InfoCard ------------------------------ {
+export type InfoCard = {
   id: string;
   title: string;
   description: string;
   buttonLabel: string;
   buttonIcon?: React.ReactNode;
-  buttonAction: () ------------------------------> void;
+  buttonAction: () => void;
 };
 
-// ------------------------------
-// Operations
-// ------------------------------
-export type OptionFlag ------------------------------ {
+export type OptionFlag = {
   id: string;
   label: string;
   value: number;
 };
 
-export type OptionSigner ------------------------------ {
+export type OptionSigner = {
   type: string;
   key: string | undefined;
   weight: string | undefined;
 };
 
-export type NumberFractionValue ------------------------------ {
+export type NumberFractionValue = {
   type: string | undefined;
   value: string | FractionValue | undefined;
 };
 
-export type FractionValue ------------------------------ {
+export type FractionValue = {
   n: string | undefined;
   d: string | undefined;
 };
 
-export type RevokeSponsorshipValue ------------------------------ {
+export type RevokeSponsorshipValue = {
   type: SponsorshipType | string;
   data: AnyObject;
 };
 
-export type ScValPrimitiveType ------------------------------
+export type ScValPrimitiveType =
   | "U32"
   | "U64"
   | "U128"
@@ -285,20 +260,20 @@ export type ScValPrimitiveType ------------------------------
   | "DataUrl"
   | "Bool";
 
-export type JsonSchemaFormProps ------------------------------ {
+export type JsonSchemaFormProps = {
   name: string;
   schema: JSONSchema7;
   path?: string[];
-  onChange: (value: SorobanInvokeValue) ------------------------------> void;
+  onChange: (value: SorobanInvokeValue) => void;
   index?: number;
   requiredFields?: string[];
   isWriteFn?: boolean;
   parsedSorobanOperation: SorobanInvokeValue;
   formError: AnyObject;
-  setFormError: (error: AnyObject) ------------------------------> void;
+  setFormError: (error: AnyObject) => void;
 };
 
-export type SponsorshipType ------------------------------
+export type SponsorshipType =
   | "account"
   | "trustline"
   | "offer"
@@ -306,34 +281,28 @@ export type SponsorshipType ------------------------------
   | "claimable_balance"
   | "signer";
 
-// ------------------------------
-// Soroban Operations
-// ------------------------------
-export type SorobanOpType ------------------------------
+export type SorobanOpType =
   | "extend_footprint_ttl"
   | "restore_footprint"
   | "invoke_contract_function";
 
-export type SorobanInvokeValue ------------------------------ {
+export type SorobanInvokeValue = {
   contract_id: string;
   function_name: string;
   args: AnyObject;
 };
 
-// ------------------------------
-// RPC
-// ------------------------------
-export type FiltersType ------------------------------ "system" | "contract" | "diagnostic";
+export type FiltersType = "system" | "contract" | "diagnostic";
 
-export type FiltersObject ------------------------------ {
+export type FiltersObject = {
   type: FiltersType;
   contract_ids: string[];
   topics: string[];
 };
 
-export type XdrType ------------------------------ "TransactionEnvelope" | "LedgerKey" | "ScVal";
+export type XdrType = "TransactionEnvelope" | "LedgerKey" | "ScVal";
 
-export type LedgerKeyType ------------------------------
+export type LedgerKeyType =
   | "account"
   | "trustline"
   | "offer"
@@ -345,7 +314,7 @@ export type LedgerKeyType ------------------------------
   | "config_setting"
   | "ttl";
 
-export type LedgerKeyEntryTypeProps ------------------------------
+export type LedgerKeyEntryTypeProps =
   | "accountID"
   | "asset"
   | "sellerID"
@@ -360,14 +329,14 @@ export type LedgerKeyEntryTypeProps ------------------------------
   | "configSettingID"
   | "keyHash";
 
-export type LedgerKeyFieldsType ------------------------------ {
+export type LedgerKeyFieldsType = {
   id: LedgerKeyType;
   label: string;
   fields: string;
   custom?: AnyObject;
 };
 
-export type ConfigSettingIdType ------------------------------
+export type ConfigSettingIdType =
   | "contract_max_size_bytes"
   | "contract_compute_v0"
   | "contract_ledger_cost_v0"
@@ -383,12 +352,9 @@ export type ConfigSettingIdType ------------------------------
   | "bucketlist_size_window"
   | "eviction_iterator";
 
-export type XdrFormatType ------------------------------ "json" | "base64";
+export type XdrFormatType = "json" | "base64";
 
-// ------------------------------
-// Local storage items
-// ------------------------------
-export type LocalStorageSavedNetwork ------------------------------ {
+export type LocalStorageSavedNetwork = {
   id: NetworkType;
   label: string;
   horizonUrl?: string;
@@ -420,7 +386,7 @@ export interface SavedContract extends LocalStorageSavedItem {
   shareableUrl: string;
 }
 
-export type SavedTransactionPage ------------------------------ "build" | "sign" | "simulate" | "submit";
+export type SavedTransactionPage = "build" | "sign" | "simulate" | "submit";
 
 export interface SavedEndpointHorizon extends LocalStorageSavedItem {
   url: string;
@@ -440,10 +406,7 @@ export interface SavedRpcMethod extends LocalStorageSavedItem {
   payload: AnyObject;
 }
 
-// ------------------------------
-// Smart Contract Explorer
-// ------------------------------
-export type ContractInfoApiResponse ------------------------------ {
+export type ContractInfoApiResponse = {
   contract: string;
   created: number;
   creator: string;
@@ -472,16 +435,19 @@ export type ContractInfoApiResponse ------------------------------ {
   }[];
 };
 
-export type ContractVersionHistoryResponseItem ------------------------------ {
+export type ContractVersionHistoryResponseItem = {
   operation: string;
   paging_token: string;
   ts: number;
   wasm: string;
 };
 
-export type ContractStorageDurability ------------------------------ "instance" | "persistent" | "temporary";
+export type ContractStorageDurability =
+  | "instance"
+  | "persistent"
+  | "temporary";
 
-export type ContractStorageResponseItem ------------------------------ {
+export type ContractStorageResponseItem = {
   durability: ContractStorageDurability;
   key: string;
   paging_token: string;
@@ -491,12 +457,12 @@ export type ContractStorageResponseItem ------------------------------ {
   expired?: boolean;
 };
 
-export type ContractStorageProcessedItem<T> ------------------------------ T & {
+export type ContractStorageProcessedItem<T> = T & {
   keyJson?: AnyObject | null;
   valueJson?: AnyObject | null;
 };
 
-export type ContractListRecord ------------------------------ {
+export type ContractListRecord = {
   account: string;
   contract: string;
   created: number;
@@ -507,7 +473,7 @@ export type ContractListRecord ------------------------------ {
   wasm: string;
 };
 
-export type WasmData ------------------------------ {
+export type WasmData = {
   sourceRepo: string;
   build: {
     attestation: string;
@@ -521,46 +487,41 @@ export type WasmData ------------------------------ {
   };
 };
 
-// ------------------------------
-// Data table
-// ------------------------------
-export type SortDirection ------------------------------ "default" | "asc" | "desc";
+export type SortDirection = "default" | "asc" | "desc";
 
-export type DataTableHeader ------------------------------ {
+export type DataTableHeader = {
   id: string;
   value: string;
   isSortable?: boolean;
   filter?: string[];
 };
 
-export type DataTableCell ------------------------------ {
+export type DataTableCell = {
   value: React.ReactNode;
   isBold?: boolean;
   isWrap?: boolean;
   isOverflow?: boolean;
 };
 
-// ------------------------------
-// Smart contract Wasm binary
-// ------------------------------
-export const CONTRACT_SECTIONS ------------------------------ [
+export const CONTRACT_SECTIONS = [
   "contractmetav0",
   "contractenvmetav0",
   "contractspecv0",
 ] as const;
 
-export type ContractSectionName ------------------------------ (typeof CONTRACT_SECTIONS)[number];
+export type ContractSectionName = (typeof CONTRACT_SECTIONS)[number];
 
-export type ContractData ------------------------------ {
+export type ContractData = {
   sc_env_meta_kind_interface_version?: ContractData | null;
   sc_meta_v0?: ContractData | null;
   xdr?: string[];
   json?: string[];
   text?: string[];
 };
-export type ContractSections ------------------------------ Record<ContractSectionName, ContractData>;
 
-export type DereferencedSchemaType ------------------------------ {
+export type ContractSections = Record<ContractSectionName, ContractData>;
+
+export type DereferencedSchemaType = {
   name: string;
   description: string;
   properties: Record<string, JSONSchema7Definition>;
