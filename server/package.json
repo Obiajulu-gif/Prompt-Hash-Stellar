@@ -29,14 +29,15 @@
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/openai": "^1.2.5",
+    "@stellar/stellar-sdk": "^14.6.1",
     "@typescript-eslint/parser": "^8.46.3",
     "ai": "^4.1.61",
     "express": "^5.1.0",
     "express-async-handler": "^1.2.0",
     "mongoose": "^8.19.3",
     "nodemon": "^3.1.10",
-    "typescript": "^5.9.3",
-    "@stellar/stellar-sdk": "^14.6.1"
+    "redis": "^5.12.1",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.5",

@@ -4,10 +4,12 @@ import Prompt from "../models/Prompt";
 import PromptVersion from "../models/PromptVersion";
 import Purchase from "../models/Purchase";
 import User from "../models/User";
+import redisClient, { connectRedis } from "../db/redis";
 
 export const PostPromptUpdate = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
+    await connectRedis();
     const { promptId, walletAddress, content, changeNote } = req.body;
 
     if (!promptId || !walletAddress || !content) {
@@ -31,6 +33,10 @@ export const PostPromptUpdate = async (req: Request, res: Response): Promise<Res
     });
 
     await Prompt.findByIdAndUpdate(prompt._id, { currentVersionIndex: nextVersion });
+
+    // Invalidate cache
+    const keys = await redisClient.keys('prompts:*');
+    if (keys.length > 0) await redisClient.del(keys);
 
     return res.status(201).json({ message: "Version posted.", versionIndex: nextVersion });
   } catch (err) {
