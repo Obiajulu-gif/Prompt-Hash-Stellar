@@ -39,6 +39,7 @@ const promptSchema = new mongoose.Schema(
     onChainId: {
       type: String,
       index: true,
+      unique: true,
       sparse: true,
     },
     isActive: {
