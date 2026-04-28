@@ -36,6 +36,19 @@ const promptSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    onChainId: {
+      type: String,
+      index: true,
+      sparse: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    salesCount: {
+      type: Number,
+      default: 0,
+    },
     category: {
       type: String,
       required: true,
