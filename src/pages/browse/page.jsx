@@ -1,21 +1,16 @@
 import { useMemo, useState } from "react";
-import { Filter, Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { FeaturedPrompts } from "@/components/featured-prompts";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
 import FetchAllPrompts from "./FetchAllPrompts";
 import { HeroAnimation } from "./HeroAnimation";
+import {
+  MarketplaceFilters,
+  MarketplaceFiltersPanel,
+} from "./MarketplaceFilters";
 
 const categories = Array.from(
   new Set(featuredPromptTemplates.map((prompt) => prompt.category)),
@@ -28,11 +23,6 @@ export default function BrowsePage() {
   const [sortBy, setSortBy] = useState("recent");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  const selectedCategoryLabel = useMemo(
-    () => selectedCategory || "All categories",
-    [selectedCategory],
-  );
-
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (selectedCategory) count++;
@@ -41,83 +31,12 @@ export default function BrowsePage() {
     if (priceRange[0] !== 0 || priceRange[1] !== 25) count++;
     return count;
   }, [selectedCategory, searchQuery, sortBy, priceRange]);
-
-  const FilterContent = () => (
-    <div className="space-y-8">
-      <div className="space-y-3">
-        <label className="text-[10px] uppercase tracking-[0.25em] font-bold text-slate-500">
-          Category
-        </label>
-        <Select
-          value={selectedCategoryLabel}
-          onValueChange={(value) => {
-            setSelectedCategory(value === "All categories" ? "" : value);
-          }}
-        >
-          <SelectTrigger className="border-white/5 bg-white/5 h-11 text-slate-100 transition-all hover:bg-white/10">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-white/10 text-white">
-            <SelectItem value="All categories">All categories</SelectItem>
-            {categories.map((category) => (
-              <SelectItem key={category} value={category}>
-                {category}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] uppercase tracking-[0.25em] font-bold text-slate-500">
-            Price Range
-          </label>
-          <span className="text-xs font-mono text-emerald-400">
-            {priceRange[0]} - {priceRange[1]} XLM
-          </span>
-        </div>
-        <Slider
-          value={priceRange}
-          onValueChange={setPriceRange}
-          min={0}
-          max={25}
-          step={1}
-          className="py-4"
-        />
-      </div>
-
-      <div className="space-y-3">
-        <label className="text-[10px] uppercase tracking-[0.25em] font-bold text-slate-500">
-          Sort By
-        </label>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="border-white/5 bg-white/5 h-11 text-slate-100 transition-all hover:bg-white/10">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-white/10 text-white">
-            <SelectItem value="recent">Newest Arrivals</SelectItem>
-            <SelectItem value="sales">Best Sellers</SelectItem>
-            <SelectItem value="price-low">Price: Low to High</SelectItem>
-            <SelectItem value="price-high">Price: High to Low</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <Button
-        variant="ghost"
-        className="w-full text-slate-400 hover:text-white hover:bg-white/5 text-xs"
-        onClick={() => {
-          setSearchQuery("");
-          setSelectedCategory("");
-          setSortBy("recent");
-          setPriceRange([0, 25]);
-        }}
-      >
-        Clear All Filters
-      </Button>
-    </div>
-  );
+  const clearFilters = () => {
+    setSearchQuery("");
+    setSelectedCategory("");
+    setSortBy("recent");
+    setPriceRange([0, 25]);
+  };
 
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-emerald-500/30">
@@ -165,52 +84,27 @@ export default function BrowsePage() {
 
         {/* Marketplace Grid System */}
         <div className="flex flex-col lg:flex-row gap-10">
-          {/* Desktop Sidebar */}
-          <aside className="hidden lg:block w-72 shrink-0">
-            <div className="sticky top-24 p-6 rounded-3xl border border-white/5 bg-white/[0.02] backdrop-blur-xl">
-              <div className="flex items-center gap-2 mb-8">
-                <Filter className="h-4 w-4 text-emerald-400" />
-                <h2 className="text-sm font-semibold tracking-wide uppercase">
-                  Filters
-                </h2>
-              </div>
-              <FilterContent />
-            </div>
-          </aside>
-
-          <div className="flex-1 space-y-8">
-            {/* Search and Mobile Toggle */}
-            <div className="flex gap-3">
-              <div className="relative flex-1 group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-emerald-400 transition-colors" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by prompt title or keyword..."
-                  className="h-14 pl-12 pr-4 rounded-2xl border-white/5 bg-white/[0.03] text-base placeholder:text-slate-500 focus-visible:ring-emerald-500/20 transition-all"
-                />
-              </div>
-              <Button
-                variant="outline"
-                className="lg:hidden h-14 w-14 rounded-2xl border-white/10 bg-white/5"
-                onClick={() => setIsFilterOpen(true)}
-              >
-                <Filter className="h-5 w-5" />
-                {activeFilterCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-slate-950">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </Button>
-            </div>
-
+          <MarketplaceFilters
+            categories={categories}
+            priceRange={priceRange}
+            searchQuery={searchQuery}
+            selectedCategory={selectedCategory}
+            sortBy={sortBy}
+            activeFilterCount={activeFilterCount}
+            onSearchChange={setSearchQuery}
+            onCategoryChange={setSelectedCategory}
+            onPriceRangeChange={setPriceRange}
+            onSortChange={setSortBy}
+            onClearFilters={clearFilters}
+            onOpenMobileFilters={() => setIsFilterOpen(true)}
+          >
             <FetchAllPrompts
               selectedCategory={selectedCategory}
               priceRange={priceRange}
               searchQuery={searchQuery}
               sortBy={sortBy}
             />
-          </div>
+          </MarketplaceFilters>
         </div>
       </main>
 
@@ -232,7 +126,16 @@ export default function BrowsePage() {
                 <X className="h-6 w-6" />
               </Button>
             </div>
-            <FilterContent />
+            <MarketplaceFiltersPanel
+              categories={categories}
+              priceRange={priceRange}
+              selectedCategory={selectedCategory}
+              sortBy={sortBy}
+              onCategoryChange={setSelectedCategory}
+              onPriceRangeChange={setPriceRange}
+              onSortChange={setSortBy}
+              onClearFilters={clearFilters}
+            />
             <Button
               className="w-full mt-12 h-12 bg-emerald-500 text-slate-950 font-bold"
               onClick={() => setIsFilterOpen(false)}
