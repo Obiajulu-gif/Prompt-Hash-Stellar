@@ -1,6 +1,6 @@
 use super::events::Events;
 use super::storage::Storage;
-use super::types::{DataKey, Error, Prompt, PromptHashTrait};
+use super::types::{CreatePromptParams, DataKey, Error, Prompt, PromptHashTrait, Split};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
@@ -41,48 +41,44 @@ impl PromptHashTrait for PromptHashContract {
     fn create_prompt(
         env: Env,
         creator: Address,
-        image_url: String,
-        title: String,
-        category: String,
-        preview_text: String,
-        encrypted_prompt: String,
-        encryption_iv: String,
-        wrapped_key: String,
-        content_hash: BytesN<32>,
-        price_stroops: i128,
+        params: CreatePromptParams,
     ) -> Result<u128, Error> {
         creator.require_auth();
         validate_prompt_fields(
-            &image_url,
-            &title,
-            &category,
-            &preview_text,
-            &encrypted_prompt,
-            &encryption_iv,
-            &wrapped_key,
-            price_stroops,
+            &params.image_url,
+            &params.title,
+            &params.category,
+            &params.preview_text,
+            &params.encrypted_prompt,
+            &params.encryption_iv,
+            &params.wrapped_key,
+            params.price_stroops,
         )?;
+
+        let fee_percentage = Storage::get_fee_percentage(&env);
+        validate_splits(&params.splits, fee_percentage)?;
 
         let prompt_id = Storage::get_prompt_counter(&env);
         let prompt = Prompt {
             id: prompt_id,
             creator: creator.clone(),
-            image_url,
-            title,
-            category,
-            preview_text,
-            encrypted_prompt,
-            encryption_iv,
-            wrapped_key,
-            content_hash,
-            price_stroops,
+            image_url: params.image_url,
+            title: params.title,
+            category: params.category,
+            preview_text: params.preview_text,
+            encrypted_prompt: params.encrypted_prompt,
+            encryption_iv: params.encryption_iv,
+            wrapped_key: params.wrapped_key,
+            content_hash: params.content_hash,
+            price_stroops: params.price_stroops,
             active: true,
             sales_count: 0,
+            splits: params.splits,
         };
 
         Storage::save_prompt(&env, &prompt)?;
         Storage::add_prompt_to_creator(&env, &creator, prompt_id);
-        Events::emit_prompt_created(&env, prompt_id, creator, price_stroops);
+        Events::emit_prompt_created(&env, prompt_id, creator, prompt.price_stroops);
         Ok(prompt_id)
     }
 
@@ -146,7 +142,30 @@ impl PromptHashTrait for PromptHashContract {
             .ok_or(Error::ArithmeticOverflow)?;
 
         let xlm = Storage::get_stellar_asset_contract(&env)?;
-        xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &seller_amount);
+
+        // Distribute splits; track remainder for creator
+        let mut distributed: i128 = 0;
+        for i in 0..prompt.splits.len() {
+            let split = prompt.splits.get(i).unwrap();
+            let split_amount = prompt
+                .price_stroops
+                .checked_mul(split.bps as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            if split_amount > 0 {
+                xlm.transfer_from(&this_contract, &buyer, &split.recipient, &split_amount);
+            }
+            distributed = distributed
+                .checked_add(split_amount)
+                .ok_or(Error::ArithmeticOverflow)?;
+        }
+
+        let creator_amount = seller_amount
+            .checked_sub(distributed)
+            .ok_or(Error::ArithmeticOverflow)?;
+        if creator_amount > 0 {
+            xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &creator_amount);
+        }
         if fee_amount > 0 {
             xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
         }
@@ -263,6 +282,18 @@ fn validate_prompt_fields(
 
 fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
     ensure(value.len() > 0 && value.len() <= max_len, error)
+}
+
+fn validate_splits(splits: &Vec<Split>, fee_bps: u32) -> Result<(), Error> {
+    let mut total: u32 = fee_bps;
+    for i in 0..splits.len() {
+        let split = splits.get(i).unwrap();
+        // Each split must have at least 1 BPS and a non-zero allocation
+        ensure(split.bps > 0, Error::InvalidSplits)?;
+        total = total.checked_add(split.bps).ok_or(Error::InvalidSplits)?;
+        ensure(total <= MAX_BPS, Error::InvalidSplits)?;
+    }
+    Ok(())
 }
 
 fn ensure(condition: bool, error: Error) -> Result<(), Error> {
