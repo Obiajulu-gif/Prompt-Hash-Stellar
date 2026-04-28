@@ -23,6 +23,7 @@ const marketplaceIndexSchema = new mongoose.Schema(
     onChainId: {
       type: String,
       index: true,
+      unique: true,
       sparse: true,
     },
 
