@@ -7,7 +7,8 @@ export function xlmToStroops(value: string | number | bigint): bigint {
     return value * STROOPS_PER_XLM;
   }
 
-  const normalized = typeof value === "number" ? value.toString() : value.trim();
+  const normalized =
+    typeof value === "number" ? value.toString() : value.trim();
   const match = normalized.match(DECIMAL_PATTERN);
   if (!match?.groups?.whole) {
     throw new Error("Enter a valid XLM amount with up to 7 decimal places.");
@@ -15,7 +16,7 @@ export function xlmToStroops(value: string | number | bigint): bigint {
 
   const whole = BigInt(match.groups.whole);
   const fraction = (match.groups.fraction ?? "").padEnd(7, "0");
-  return (whole * STROOPS_PER_XLM) + BigInt(fraction || "0");
+  return whole * STROOPS_PER_XLM + BigInt(fraction || "0");
 }
 
 export function stroopsToXlmString(value: string | number | bigint): string {

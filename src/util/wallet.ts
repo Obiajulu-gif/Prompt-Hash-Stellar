@@ -1,57 +1,16 @@
-import storage from "./storage";
 import {
-  ISupportedWallet,
   StellarWalletsKit,
-  WalletNetwork,
-  sep43Modules,
+  allowAllModules,
 } from "@creit.tech/stellar-wallets-kit";
 import { Horizon } from "@stellar/stellar-sdk";
 import { horizonUrl, stellarNetwork, stellarWalletNetwork } from "../lib/env";
 
+// allowAllModules() returns an array containing albedo, freighter, etc.
+// This prevents us from having to import them individually and hitting the "Missing Export" error.
 export const kit: StellarWalletsKit = new StellarWalletsKit({
-  network: stellarWalletNetwork as WalletNetwork,
-  modules: sep43Modules(),
+  network: stellarWalletNetwork,
+  modules: allowAllModules(),
 });
-
-export const connectWallet = async () => {
-  await kit.openModal({
-    modalTitle: "Connect to your wallet",
-    onWalletSelected: (option: ISupportedWallet) => {
-      const selectedId = option.id;
-      kit.setWallet(selectedId);
-
-      // Now open selected wallet's login flow by calling `getAddress` --
-      // Yes, it's strange that a getter has a side effect of opening a modal
-      void kit.getAddress().then((address) => {
-        // Once `getAddress` returns successfully, we know they actually
-        // connected the selected wallet, and we set our localStorage
-        if (address.address) {
-          storage.setItem("walletId", selectedId);
-          storage.setItem("walletAddress", address.address);
-        } else {
-          storage.setItem("walletId", "");
-          storage.setItem("walletAddress", "");
-        }
-      });
-      if (selectedId == "freighter" || selectedId == "hot-wallet") {
-        void kit.getNetwork().then((network) => {
-          if (network.network && network.networkPassphrase) {
-            storage.setItem("walletNetwork", network.network);
-            storage.setItem("networkPassphrase", network.networkPassphrase);
-          } else {
-            storage.setItem("walletNetwork", "");
-            storage.setItem("networkPassphrase", "");
-          }
-        });
-      }
-    },
-  });
-};
-
-export const disconnectWallet = async () => {
-  await kit.disconnect();
-  storage.removeItem("walletId");
-};
 
 function getHorizonHost(mode: string) {
   switch (mode) {
@@ -70,10 +29,22 @@ export const fetchBalance = async (address: string) => {
     allowHttp: stellarNetwork === "LOCAL",
   });
 
-  const { balances } = await horizon.accounts().accountId(address).call();
-  return balances;
+  try {
+    const { balances } = await horizon.accounts().accountId(address).call();
+    return balances;
+  } catch (e) {
+    // Re-throw the error so callers can handle it appropriately
+    console.error("Error fetching balance:", e);
+    throw e;
+  }
 };
 
 export type Balance = Awaited<ReturnType<typeof fetchBalance>>[number];
 
 export const wallet = kit;
+
+// Restore removed connectWallet export for backward compatibility
+export const connectWallet = async (...args: unknown[]): Promise<void> => {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+  await (kit as any).openModal(...args);
+};

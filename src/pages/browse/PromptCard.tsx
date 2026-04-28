@@ -51,7 +51,9 @@ export const PromptCard = ({
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
               Sales
             </p>
-            <p className="mt-1 font-medium text-slate-100">{prompt.salesCount}</p>
+            <p className="mt-1 font-medium text-slate-100">
+              {prompt.salesCount}
+            </p>
           </div>
         </div>
       </CardContent>

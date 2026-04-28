@@ -18,8 +18,9 @@ export default function SellPage() {
             Create prompt listings without NFT transfer semantics.
           </h1>
           <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-            The browser encrypts full prompt content before submission. Buyers only
-            receive plaintext after an on-chain access check and wallet-authenticated unlock.
+            The browser encrypts full prompt content before submission. Buyers
+            only receive plaintext after an on-chain access check and
+            wallet-authenticated unlock.
           </p>
         </section>
 

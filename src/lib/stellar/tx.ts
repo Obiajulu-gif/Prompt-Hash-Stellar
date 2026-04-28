@@ -6,11 +6,7 @@ import {
   scValToNative,
   type xdr,
 } from "@stellar/stellar-sdk";
-import {
-  Api,
-  Server,
-  assembleTransaction,
-} from "@stellar/stellar-sdk/rpc";
+import { Api, Server, assembleTransaction } from "@stellar/stellar-sdk/rpc";
 
 export interface StellarNetworkConfig {
   rpcUrl: string;
@@ -34,7 +30,8 @@ export interface PreparedContractCall {
 
 export function getRpcServer(config: StellarNetworkConfig) {
   return new Server(config.rpcUrl, {
-    allowHttp: config.allowHttp ?? new URL(config.rpcUrl).hostname === "localhost",
+    allowHttp:
+      config.allowHttp ?? new URL(config.rpcUrl).hostname === "localhost",
   });
 }
 
@@ -42,12 +39,15 @@ export function scValArg(value: unknown, type?: string) {
   return type ? nativeToScVal(value, { type }) : nativeToScVal(value);
 }
 
-export function readSimulationResult(simulation: Api.SimulateTransactionSuccessResponse) {
+export function readSimulationResult(
+  simulation: Api.SimulateTransactionSuccessResponse,
+): unknown {
   if (!simulation.result) {
     return undefined;
   }
 
-  return scValToNative(simulation.result.retval);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  return scValToNative(simulation.result.retval) as unknown;
 }
 
 export async function simulateContractCall(
@@ -73,7 +73,9 @@ export async function simulateContractCall(
   }
 
   if (Api.isSimulationRestore(simulation)) {
-    throw new Error("Contract call requires a state restore before it can be submitted.");
+    throw new Error(
+      "Contract call requires a state restore before it can be submitted.",
+    );
   }
 
   return {
@@ -98,7 +100,10 @@ export async function prepareContractCall(
     args,
   );
 
-  const preparedTransaction = assembleTransaction(transaction, simulation).build();
+  const preparedTransaction = assembleTransaction(
+    transaction,
+    simulation,
+  ).build();
 
   return {
     preparedTransaction,
@@ -114,7 +119,9 @@ export async function readContract<TResult>(
   args: xdr.ScVal[] = [],
 ): Promise<TResult> {
   if (!config.simulationAccount) {
-    throw new Error("PUBLIC_STELLAR_SIMULATION_ACCOUNT is required for contract reads.");
+    throw new Error(
+      "PUBLIC_STELLAR_SIMULATION_ACCOUNT is required for contract reads.",
+    );
   }
 
   const { simulation } = await simulateContractCall(
@@ -155,7 +162,9 @@ export async function submitPreparedTransaction(
   if (response.status === "ERROR") {
     const details = response.errorResult?.toXDR("base64");
     throw new Error(
-      details ? `Transaction submission failed: ${details}` : "Transaction submission failed.",
+      details
+        ? `Transaction submission failed: ${details}`
+        : "Transaction submission failed.",
     );
   }
 

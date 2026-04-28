@@ -36,7 +36,9 @@ export function Navigation() {
               <div className="text-sm uppercase tracking-[0.28em] text-amber-300">
                 PromptHash
               </div>
-              <div className="text-xs text-slate-400">Stellar testnet marketplace</div>
+              <div className="text-xs text-slate-400">
+                Stellar testnet marketplace
+              </div>
             </div>
           </Link>
           <nav className="hidden items-center gap-2 md:flex">

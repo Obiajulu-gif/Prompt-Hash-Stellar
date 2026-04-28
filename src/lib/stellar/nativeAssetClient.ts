@@ -1,4 +1,10 @@
-import { scValArg, prepareContractCall, submitPreparedTransaction, type StellarNetworkConfig, type WalletTransactionSigner } from "./tx";
+import {
+  scValArg,
+  prepareContractCall,
+  submitPreparedTransaction,
+  type StellarNetworkConfig,
+  type WalletTransactionSigner,
+} from "./tx";
 
 export interface NativeAssetConfig extends StellarNetworkConfig {
   nativeAssetContractId: string;

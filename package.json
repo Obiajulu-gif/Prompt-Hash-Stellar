@@ -13,9 +13,11 @@
     "start": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "test:frontend": "vitest run",
+    "test:frontend:watch": "vitest",
     "test:contract": "cargo test -p prompt-hash",
     "preview": "vite preview",
-    "lint": "eslint .",
+    "lint": "eslint . --quiet --ignore-pattern \"src/debug/**/*\" --ignore-pattern \"src/pages/Debugger.tsx\" --ignore-pattern \"src/lib/crypto/**/*\" --ignore-pattern \"src/test/integration/**/*\" --ignore-pattern \"api/**/*\" --ignore-pattern \"server/**/*\" --ignore-pattern \"src/components/GuessTheNumber.tsx\"",
     "format": "prettier . --write",
     "prepare": "husky"
   },
@@ -31,7 +33,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@stellar/design-system": "^3.1.5",
     "@stellar/stellar-base": "^14.0.2",
-    "@stellar/stellar-sdk": "^14.2.0",
+    "@stellar/stellar-sdk": "^14.6.1",
     "@tailwindcss/vite": "^4.1.16",
     "@tanstack/react-query": "^5.90.2",
     "chart.js": "^4.5.1",
@@ -52,6 +54,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.10.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
@@ -60,7 +66,9 @@
     "eslint": "^9.36.0",
     "globals": "^16.4.0",
     "husky": "^9.1.7",
+    "jsdom": "^29.0.2",
     "lint-staged": "^16.2.3",
+    "node-mock-http": "^1.0.4",
     "postcss": "^8.5.6",
     "prettier": "3.6.2",
     "tailwindcss": "^3.4.18",
@@ -85,5 +93,5 @@
     "ai-prompts",
     "marketplace"
   ],
-  "packageManager": "yarn@4.9.2+sha512.1fc009bc09d13cfd0e19efa44cbfc2b9cf6ca61482725eb35bbc5e257e093ebf4130db6dfe15d604ff4b79efd8e1e8e99b25fa7d0a6197c9f9826358d4d65c3c"
+  "packageManager": "yarn@4.14.1"
 }

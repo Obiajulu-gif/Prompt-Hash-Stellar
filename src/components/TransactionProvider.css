@@ -1,0 +1,61 @@
+.notification-container {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+  width: 100%;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.notification {
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.notification.slide-in {
+  transform: translateY(0);
+  animation: slide-in 0.3s ease forwards;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.notification.pending {
+  border-left: 4px solid #3b82f6;
+  border-radius: 0.5rem;
+}
+.notification.success {
+  border-left: 4px solid #10b981;
+  border-radius: 0.5rem;
+}
+.notification.error {
+  border-left: 4px solid #ef4444;
+  border-radius: 0.5rem;
+}
+
+.notification.slide-out {
+  transform: translateY(-20px);
+  opacity: 0;
+}
+
+.retry-btn:focus,
+.retry-btn:focus-visible {
+  outline: 3px solid #3b82f6 !important;
+  outline-offset: 2px !important;
+}

@@ -41,12 +41,13 @@ export default function BrowsePage() {
               Browse the marketplace
             </p>
             <h1 className="max-w-3xl text-4xl font-semibold leading-tight sm:text-5xl">
-              Buy prompt licenses on Stellar and unlock plaintext only after access is verified.
+              Buy prompt licenses on Stellar and unlock plaintext only after
+              access is verified.
             </h1>
             <p className="max-w-2xl text-sm leading-7 text-slate-300">
-              Browse public previews, compare pricing in XLM, and unlock purchased
-              prompts through the same Vercel app. Full prompt content never appears
-              in public cards or browse modals.
+              Browse public previews, compare pricing in XLM, and unlock
+              purchased prompts through the same Vercel app. Full prompt content
+              never appears in public cards or browse modals.
             </p>
           </div>
           <div className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-white/5 p-5 text-sm text-slate-200 sm:grid-cols-3 lg:grid-cols-1">
@@ -55,8 +56,8 @@ export default function BrowsePage() {
                 Filters
               </p>
               <p className="mt-2 leading-6">
-                Category, text search, sort order, and XLM price range all apply to
-                the live contract-backed grid below.
+                Category, text search, sort order, and XLM price range all apply
+                to the live contract-backed grid below.
               </p>
             </div>
             <div>
@@ -64,8 +65,8 @@ export default function BrowsePage() {
                 Public data
               </p>
               <p className="mt-2 leading-6">
-                Title, image, category, preview text, price, seller, and sales count
-                are visible. Full prompt text stays encrypted.
+                Title, image, category, preview text, price, seller, and sales
+                count are visible. Full prompt text stays encrypted.
               </p>
             </div>
             <div>
@@ -73,8 +74,8 @@ export default function BrowsePage() {
                 Unlock path
               </p>
               <p className="mt-2 leading-6">
-                Wallet signs a challenge, the API checks on-chain access, then the
-                server decrypts the stored ciphertext if the license exists.
+                Wallet signs a challenge, the API checks on-chain access, then
+                the server decrypts the stored ciphertext if the license exists.
               </p>
             </div>
           </div>
@@ -93,9 +94,12 @@ export default function BrowsePage() {
               <label className="text-xs uppercase tracking-[0.25em] text-slate-400">
                 Category
               </label>
-              <Select value={selectedCategoryLabel} onValueChange={(value) => {
-                setSelectedCategory(value === "All categories" ? "" : value);
-              }}>
+              <Select
+                value={selectedCategoryLabel}
+                onValueChange={(value) => {
+                  setSelectedCategory(value === "All categories" ? "" : value);
+                }}
+              >
                 <SelectTrigger className="border-white/10 bg-white/5 text-slate-100">
                   <SelectValue />
                 </SelectTrigger>

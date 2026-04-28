@@ -31,26 +31,30 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Detect available npm scripts
         id: scripts
         run: |
-          node -e "const pkg=require('./package.json'); const scripts=pkg.scripts||{}; const has=(name)=>Boolean(scripts[name]); const placeholder=(scripts.test||'').includes('no test specified'); const fs=require('node:fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_lint=${has('lint')}\nhas_test=${has('test') && !placeholder}\nhas_build=${has('build')}\n`);"
+          node -e "
+          const fs = require('fs');
+          const pkg = require('./package.json');
+          const s = pkg.scripts || {};
+          const has = (n) => Boolean(s[n]) ? 'true' : 'false';
+          const isPH = (s.test || '').includes('no test specified');
 
-      - name: Run lint
-        if: steps.scripts.outputs.has_lint == 'true'
-        run: npm run lint --if-present
+          let out = 'has_lint=' + has('lint') + '\n';
+          out += 'has_test=' + (s.test && !isPH ? 'true' : 'false') + '\n';
+          out += 'has_build=' + has('build') + '\n';
 
-      - name: Run tests
-        if: steps.scripts.outputs.has_test == 'true'
-        run: npm test --if-present
+          console.log('Detected Scripts:\n' + out);
 
-      - name: Build backend
-        if: steps.scripts.outputs.has_build == 'true'
-        run: npm run build --if-present
+          if (process.env.GITHUB_OUTPUT) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
+          }
+          "

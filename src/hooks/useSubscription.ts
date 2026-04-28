@@ -4,7 +4,7 @@ import { xdr } from "@stellar/stellar-sdk";
 import { rpcUrl, stellarNetwork } from "../contracts/util";
 
 /**
- * Concatenated `${contractId}:${topic}`
+ * Concatenated `${contractId}:${topic ?? "*"}`
  */
 type PagingKey = string;
 
@@ -21,24 +21,31 @@ const paging: Record<
 const server = new Server(rpcUrl, { allowHttp: stellarNetwork === "LOCAL" });
 
 /**
- * Subscribe to events for a given topic from a given contract, using a library
- * generated with `soroban contract bindings typescript`.
+ * Subscribe to events from a given contract, optionally filtered by topic.
  *
- * Someday such generated libraries will include functions for subscribing to
- * the events the contract emits, but for now you can copy this hook into your
- * React project if you need to subscribe to events, or adapt this logic for
- * non-React use.
+ * When `topic` is omitted, all events from the contract are delivered.
+ * The `onEvent` callback is held in a ref so the poll loop is not restarted
+ * when the callback identity changes between renders.
  */
 export function useSubscription(
   contractId: string,
-  topic: string,
+  topic: string | undefined,
   onEvent: (event: Api.EventResponse) => void,
   pollInterval = 5000,
 ) {
-  const id = `${contractId}:${topic}`;
-  paging[id] = paging[id] || {};
+  const id = `${contractId}:${topic ?? "*"}`;
+
+  // Stable ref so the poll loop doesn't restart when onEvent identity changes.
+  const onEventRef = React.useRef(onEvent);
+  React.useLayoutEffect(() => {
+    onEventRef.current = onEvent;
+  });
 
   React.useEffect(() => {
+    // Don't start polling when contract is not configured.
+    if (!contractId) return;
+
+    paging[id] = paging[id] || {};
     let timeoutId: NodeJS.Timeout | null = null;
     let stop = false;
 
@@ -49,7 +56,11 @@ export function useSubscription(
           paging[id].lastLedgerStart = latestLedgerState.sequence;
         }
 
-        // @ts-ignore
+        const topicFilter = topic
+          ? { topics: [[xdr.ScVal.scvSymbol(topic).toXDR("base64")]] }
+          : {};
+
+        // @ts-expect-error: The Stellar SDK types for getEvents are incomplete
         const response = await server.getEvents({
           startLedger: !paging[id].pagingToken
             ? paging[id].lastLedgerStart
@@ -58,7 +69,7 @@ export function useSubscription(
           filters: [
             {
               contractIds: [contractId],
-              topics: [[xdr.ScVal.scvSymbol(topic).toXDR("base64")]],
+              ...topicFilter,
               type: "contract",
             },
           ],
@@ -72,14 +83,14 @@ export function useSubscription(
         if (response.events) {
           response.events.forEach((event) => {
             try {
-              onEvent(event);
+              onEventRef.current(event);
             } catch (error) {
               console.error(
                 "Poll Events: subscription callback had error: ",
                 error,
               );
             } finally {
-              // @ts-ignore
+              // @ts-expect-error: The pagingToken field is missing from some event types
               paging[id].pagingToken = event.pagingToken;
             }
           });
@@ -99,5 +110,5 @@ export function useSubscription(
       if (timeoutId != null) clearTimeout(timeoutId);
       stop = true;
     };
-  }, [contractId, topic, onEvent, id, pollInterval]);
+  }, [contractId, topic, id, pollInterval]);
 }
