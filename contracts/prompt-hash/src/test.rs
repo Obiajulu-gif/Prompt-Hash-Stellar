@@ -420,6 +420,28 @@ fn test_global_pause_blocks_mutations_but_not_reads() {
 }
 
 #[test]
+fn test_bulk_buy_fails_when_paused() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Bulk Paused Prompt", 10_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+
+    client.set_pause_status(&true);
+    let mut prompt_ids = soroban_sdk::Vec::new(&env);
+    prompt_ids.push_back(prompt_id);
+    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
+    match result {
+        Err(Ok(Error::ContractPaused)) => {}
+        other => panic!("expected ContractPaused for buy_prompts_bulk, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_lease_prompt_grants_temporary_access_and_expires() {
     let env: Env = Default::default();
     let context = setup(&env);

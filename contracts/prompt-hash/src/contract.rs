@@ -178,6 +178,7 @@ impl PromptHashTrait for PromptHashContract {
 
     fn buy_prompts_bulk(env: Env, buyer: Address, prompt_ids: Vec<u128>) -> Result<(), Error> {
         buyer.require_auth();
+        require_not_paused(&env)?;
         Storage::set_reentrancy_guard(&env)?;
 
         let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
