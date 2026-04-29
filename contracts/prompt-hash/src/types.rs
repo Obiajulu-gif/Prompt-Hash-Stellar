@@ -23,7 +23,7 @@ pub enum Error {
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
     PromptModerated = 19,
-    ContractPaused = 19,
+    ContractPaused = 20,
 }
 
 #[contracttype]

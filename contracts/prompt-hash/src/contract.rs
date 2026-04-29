@@ -186,6 +186,7 @@ impl PromptHashTrait for PromptHashContract {
         ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
         let xlm = Storage::get_stellar_asset_contract(&env)?;
+        let now = env.ledger().timestamp();
 
         for prompt_id in prompt_ids.iter() {
             let mut prompt = Storage::require_prompt(&env, prompt_id)?;
@@ -194,7 +195,7 @@ impl PromptHashTrait for PromptHashContract {
             ensure(!prompt.moderated, Error::PromptModerated)?;
             ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
             ensure(
-                !Storage::has_purchase(&env, prompt_id, &buyer),
+                !Storage::has_active_purchase(&env, prompt_id, &buyer, now),
                 Error::AlreadyPurchased,
             )?;
 
@@ -218,7 +219,7 @@ impl PromptHashTrait for PromptHashContract {
                 .checked_add(1)
                 .ok_or(Error::ArithmeticOverflow)?;
             Storage::update_prompt(&env, &prompt);
-            Storage::grant_purchase(&env, prompt_id, &buyer);
+            Storage::grant_purchase(&env, prompt_id, &buyer, MAX_ACCESS_EXPIRY);
 
             Events::emit_prompt_purchased(
                 &env,
@@ -309,10 +310,7 @@ impl PromptHashTrait for PromptHashContract {
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
         let prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
-        Ok(
-            prompt.creator == user
-                || Storage::has_active_purchase(&env, prompt_id, &user, now),
-        )
+        Ok(prompt.creator == user || Storage::has_active_purchase(&env, prompt_id, &user, now))
     }
 
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {

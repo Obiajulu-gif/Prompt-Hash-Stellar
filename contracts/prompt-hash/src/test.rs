@@ -2,7 +2,10 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    token, Address, BytesN, Env, String,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
