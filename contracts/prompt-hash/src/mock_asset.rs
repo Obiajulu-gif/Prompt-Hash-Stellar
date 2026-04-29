@@ -1,6 +1,6 @@
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 use stellar_access::ownable::{self as ownable, Ownable};
-use stellar_macros::{default_impl, only_owner};
+use stellar_macros::default_impl;
 use stellar_tokens::fungible::{Base, FungibleToken};
 
 #[contract]
