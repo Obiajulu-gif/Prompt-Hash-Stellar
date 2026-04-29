@@ -1,274 +1,267 @@
-use super::events::Events;
-use super::storage::Storage;
-use super::types::{DataKey, Error, Prompt, PromptHashTrait};
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
-use stellar_access::ownable::{self as ownable, Ownable};
-use stellar_macros::{default_impl, only_owner};
+use crate::types::{DataKey, Error, Prompt};
+use soroban_sdk::{
+    contract, contractimpl, token, Address, Env, String, Vec,
+};
 
-const DEFAULT_FEE_BPS: u32 = 500;
-const MAX_BPS: u32 = 10_000;
-const MAX_TITLE_LEN: u32 = 120;
-const MAX_CATEGORY_LEN: u32 = 40;
-const MAX_PREVIEW_LEN: u32 = 280;
-const MAX_ENCRYPTED_PROMPT_LEN: u32 = 4096;
-const MAX_WRAPPED_KEY_LEN: u32 = 256;
-const MAX_IMAGE_URL_LEN: u32 = 512;
-const MAX_IV_LEN: u32 = 64;
+const PLATFORM_FEE_BPS: i128 = 500; // 5%
 
 #[contract]
 pub struct PromptHashContract;
 
 #[contractimpl]
-impl PromptHashTrait for PromptHashContract {
-    fn __constructor(
-        env: Env,
-        admin: Address,
-        fee_wallet: Address,
-        xlm_sac: Address,
-    ) -> Result<(), Error> {
-        ownable::set_owner(&env, &admin);
-        Storage::set_fee_wallet(&env, &fee_wallet);
-        Storage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
-        Storage::set_xlm_address(&env, &xlm_sac);
-        env.storage().instance().extend_ttl(
-            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
-            super::storage::PERSISTENT_BUMP_AMOUNT,
-        );
-        Ok(())
+impl PromptHashContract {
+    pub fn initialize(env: Env, fee_wallet: Address, token_contract: Address) {
+        if env.storage().instance().has(&DataKey::FeeWallet) {
+            panic!("already initialized");
+        }
+        env.storage().instance().set(&DataKey::FeeWallet, &fee_wallet);
+        env.storage()
+            .instance()
+            .set(&DataKey::TokenContract, &token_contract);
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn create_prompt(
+    pub fn create_prompt(
         env: Env,
         creator: Address,
         image_url: String,
         title: String,
         category: String,
         preview_text: String,
-        encrypted_prompt: String,
+        encrypted_payload: String,
         encryption_iv: String,
-        wrapped_key: String,
-        content_hash: BytesN<32>,
-        price_stroops: i128,
-    ) -> Result<u128, Error> {
+        wrapped_aes_key: String,
+        content_hash: String,
+        price: i128,
+        max_supply: u32,
+    ) -> Result<u32, Error> {
         creator.require_auth();
-        validate_prompt_fields(
-            &image_url,
-            &title,
-            &category,
-            &preview_text,
-            &encrypted_prompt,
-            &encryption_iv,
-            &wrapped_key,
-            price_stroops,
-        )?;
 
-        let prompt_id = Storage::get_prompt_counter(&env);
+        if price <= 0 {
+            return Err(Error::InvalidPrice);
+        }
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PromptCount)
+            .unwrap_or(0);
+        let id = count;
+
         let prompt = Prompt {
-            id: prompt_id,
+            id,
             creator: creator.clone(),
             image_url,
             title,
             category,
             preview_text,
-            encrypted_prompt,
+            encrypted_payload,
             encryption_iv,
-            wrapped_key,
+            wrapped_aes_key,
             content_hash,
-            price_stroops,
+            price,
             active: true,
             sales_count: 0,
+            max_supply,
         };
 
-        Storage::save_prompt(&env, &prompt)?;
-        Storage::add_prompt_to_creator(&env, &creator, prompt_id);
-        Events::emit_prompt_created(&env, prompt_id, creator, price_stroops);
-        Ok(prompt_id)
+        env.storage().instance().set(&DataKey::Prompt(id), &prompt);
+        env.storage()
+            .instance()
+            .set(&DataKey::PromptCount, &(count + 1));
+
+        let mut creator_prompts: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::CreatorPrompts(creator.clone()))
+            .unwrap_or(Vec::new(&env));
+        creator_prompts.push_back(id);
+        env.storage()
+            .instance()
+            .set(&DataKey::CreatorPrompts(creator), &creator_prompts);
+
+        Ok(id)
     }
 
-    fn set_prompt_sale_status(
+    pub fn buy_prompt(env: Env, buyer: Address, prompt_id: u32) -> Result<(), Error> {
+        buyer.require_auth();
+
+        let mut prompt: Prompt = env
+            .storage()
+            .instance()
+            .get(&DataKey::Prompt(prompt_id))
+            .ok_or(Error::NotFound)?;
+
+        if !prompt.active {
+            return Err(Error::NotActive);
+        }
+
+        if prompt.max_supply > 0 && prompt.sales_count >= prompt.max_supply {
+            return Err(Error::MaxSupplyReached);
+        }
+
+        let fee_wallet: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeWallet)
+            .expect("fee wallet not set");
+
+        let platform_fee = (prompt.price * PLATFORM_FEE_BPS) / 10000;
+        let seller_amount = prompt.price - platform_fee;
+
+        let token_contract: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::TokenContract)
+            .expect("token contract not set");
+
+        let token_client = token::Client::new(&env, &token_contract);
+        // Transfer buyer -> contract (full price)
+        token_client.transfer(&buyer, &env.current_contract_address(), &prompt.price);
+        // Transfer contract -> seller
+        token_client.transfer(&env.current_contract_address(), &prompt.creator, &seller_amount);
+        // Transfer contract -> fee wallet
+        token_client.transfer(&env.current_contract_address(), &fee_wallet, &platform_fee);
+
+        prompt.sales_count += 1;
+        env.storage()
+            .instance()
+            .set(&DataKey::Prompt(prompt_id), &prompt);
+
+        let mut buyer_prompts: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::BuyerPrompts(buyer.clone()))
+            .unwrap_or(Vec::new(&env));
+        if !buyer_prompts.contains(prompt_id) {
+            buyer_prompts.push_back(prompt_id);
+            env.storage()
+                .instance()
+                .set(&DataKey::BuyerPrompts(buyer), &buyer_prompts);
+        }
+
+        Ok(())
+    }
+
+    pub fn has_access(env: Env, buyer: Address, prompt_id: u32) -> bool {
+        let buyer_prompts: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::BuyerPrompts(buyer))
+            .unwrap_or(Vec::new(&env));
+        buyer_prompts.contains(prompt_id)
+    }
+
+    pub fn get_prompt(env: Env, prompt_id: u32) -> Result<Prompt, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Prompt(prompt_id))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn get_all_prompts(env: Env) -> Vec<Prompt> {
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PromptCount)
+            .unwrap_or(0);
+        let mut prompts = Vec::new(&env);
+        for i in 0..count {
+            if let Some(prompt) = env.storage().instance().get(&DataKey::Prompt(i)) {
+                prompts.push_back(prompt);
+            }
+        }
+        prompts
+    }
+
+    pub fn get_prompts_by_creator(env: Env, creator: Address) -> Vec<Prompt> {
+        let ids: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::CreatorPrompts(creator))
+            .unwrap_or(Vec::new(&env));
+        let mut prompts = Vec::new(&env);
+        for id in ids.iter() {
+            if let Some(prompt) = env.storage().instance().get(&DataKey::Prompt(id)) {
+                prompts.push_back(prompt);
+            }
+        }
+        prompts
+    }
+
+    pub fn get_prompts_by_buyer(env: Env, buyer: Address) -> Vec<Prompt> {
+        let ids: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::BuyerPrompts(buyer))
+            .unwrap_or(Vec::new(&env));
+        let mut prompts = Vec::new(&env);
+        for id in ids.iter() {
+            if let Some(prompt) = env.storage().instance().get(&DataKey::Prompt(id)) {
+                prompts.push_back(prompt);
+            }
+        }
+        prompts
+    }
+
+    pub fn update_prompt_price(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u32,
+        new_price: i128,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+
+        if new_price <= 0 {
+            return Err(Error::InvalidPrice);
+        }
+
+        let mut prompt: Prompt = env
+            .storage()
+            .instance()
+            .get(&DataKey::Prompt(prompt_id))
+            .ok_or(Error::NotFound)?;
+
+        if prompt.creator != creator {
+            return Err(Error::Unauthorized);
+        }
+
+        prompt.price = new_price;
+        env.storage()
+            .instance()
+            .set(&DataKey::Prompt(prompt_id), &prompt);
+        Ok(())
+    }
+
+    pub fn set_prompt_sale_status(
+        env: Env,
+        creator: Address,
+        prompt_id: u32,
         active: bool,
     ) -> Result<(), Error> {
         creator.require_auth();
-        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        ensure(prompt.creator == creator, Error::Unauthorized)?;
 
-        prompt.active = active;
-        Storage::update_prompt(&env, &prompt);
-        Events::emit_prompt_sale_status_updated(&env, prompt_id, active);
-        Ok(())
-    }
+        let mut prompt: Prompt = env
+            .storage()
+            .instance()
+            .get(&DataKey::Prompt(prompt_id))
+            .ok_or(Error::NotFound)?;
 
-    fn update_prompt_price(
-        env: Env,
-        creator: Address,
-        prompt_id: u128,
-        price_stroops: i128,
-    ) -> Result<(), Error> {
-        creator.require_auth();
-        ensure(price_stroops > 0, Error::InvalidPrice)?;
-
-        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        ensure(prompt.creator == creator, Error::Unauthorized)?;
-        prompt.price_stroops = price_stroops;
-
-        Storage::update_prompt(&env, &prompt);
-        Events::emit_prompt_price_updated(&env, prompt_id, price_stroops);
-        Ok(())
-    }
-
-    fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error> {
-        buyer.require_auth();
-        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-
-        ensure(prompt.active, Error::PromptInactive)?;
-        ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
-        ensure(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
-
-        Storage::set_reentrancy_guard(&env)?;
-
-        let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
-        let this_contract = env.current_contract_address();
-        let fee_percentage = Storage::get_fee_percentage(&env);
-        ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
-
-        let fee_amount = prompt
-            .price_stroops
-            .checked_mul(fee_percentage as i128)
-            .ok_or(Error::ArithmeticOverflow)?
-            / MAX_BPS as i128;
-        let seller_amount = prompt
-            .price_stroops
-            .checked_sub(fee_amount)
-            .ok_or(Error::ArithmeticOverflow)?;
-
-        let xlm = Storage::get_stellar_asset_contract(&env)?;
-        xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &seller_amount);
-        if fee_amount > 0 {
-            xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
+        if prompt.creator != creator {
+            return Err(Error::Unauthorized);
         }
 
-        prompt.sales_count = prompt
-            .sales_count
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
-        Storage::update_prompt(&env, &prompt);
-        Storage::grant_purchase(&env, prompt_id, &buyer);
-        Storage::clear_reentrancy_guard(&env);
-        Events::emit_prompt_purchased(
-            &env,
-            prompt_id,
-            buyer,
-            prompt.creator,
-            prompt.price_stroops,
-        );
+        prompt.active = active;
+        env.storage()
+            .instance()
+            .set(&DataKey::Prompt(prompt_id), &prompt);
         Ok(())
     }
 
-    fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
-        let prompt = Storage::require_prompt(&env, prompt_id)?;
-        Ok(prompt.creator == user || Storage::has_purchase(&env, prompt_id, &user))
-    }
-
-    fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {
-        Storage::require_prompt(&env, prompt_id)
-    }
-
-    fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error> {
-        Ok(Storage::get_all_prompts(&env))
-    }
-
-    fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
-        Ok(Storage::get_prompts_by_creator(&env, &creator))
-    }
-
-    fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error> {
-        Ok(Storage::get_prompts_by_buyer(&env, &buyer))
-    }
-
-    #[only_owner]
-    fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error> {
-        ensure(new_fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
-        Storage::set_fee_percentage(&env, &new_fee_percentage);
-        Events::emit_fee_updated(&env, new_fee_percentage);
-        Ok(())
-    }
-
-    #[only_owner]
-    fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error> {
-        Storage::set_fee_wallet(&env, &new_fee_wallet);
-        Events::emit_fee_wallet_updated(&env, new_fee_wallet);
-        Ok(())
-    }
-
-    fn get_fee_percentage(env: Env) -> u32 {
-        Storage::get_fee_percentage(&env)
-    }
-
-    fn get_fee_wallet(env: Env) -> Option<Address> {
-        Storage::get_fee_wallet(&env)
-    }
-
-    fn get_xlm_sac(env: Env) -> Option<Address> {
-        Storage::get_xlm_address(&env)
-    }
-
-    #[only_owner]
-    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.storage().instance().extend_ttl(
-            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
-            super::storage::PERSISTENT_BUMP_AMOUNT,
-        );
-        Ok(())
-    }
-
-    fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error> {
-        Storage::extend_key_ttl(&env, &key);
-        Ok(())
+    pub fn set_fee_wallet(env: Env, admin: Address, fee_wallet: Address) {
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeWallet, &fee_wallet);
     }
 }
 
-#[default_impl]
-#[contractimpl]
-impl Ownable for PromptHashContract {}
-
-fn validate_prompt_fields(
-    image_url: &String,
-    title: &String,
-    category: &String,
-    preview_text: &String,
-    encrypted_prompt: &String,
-    encryption_iv: &String,
-    wrapped_key: &String,
-    price_stroops: i128,
-) -> Result<(), Error> {
-    ensure(price_stroops > 0, Error::InvalidPrice)?;
-    validate_len(image_url, MAX_IMAGE_URL_LEN, Error::InvalidImageUrlLength)?;
-    validate_len(title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
-    validate_len(category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
-    validate_len(preview_text, MAX_PREVIEW_LEN, Error::InvalidPreviewLength)?;
-    validate_len(
-        encrypted_prompt,
-        MAX_ENCRYPTED_PROMPT_LEN,
-        Error::InvalidEncryptedPromptLength,
-    )?;
-    validate_len(wrapped_key, MAX_WRAPPED_KEY_LEN, Error::InvalidWrappedKeyLength)?;
-    validate_len(encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
-    Ok(())
-}
-
-fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
-    ensure(value.len() > 0 && value.len() <= max_len, error)
-}
-
-fn ensure(condition: bool, error: Error) -> Result<(), Error> {
-    if condition {
-        Ok(())
-    } else {
-        Err(error)
-    }
-}

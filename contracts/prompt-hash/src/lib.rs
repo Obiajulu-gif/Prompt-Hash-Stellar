@@ -1,13 +1,9 @@
 #![no_std]
-#![allow(dead_code)]
 
 mod contract;
-mod events;
-mod storage;
+mod test;
 mod types;
 
-#[cfg(test)]
-mod mock_asset;
+pub use contract::PromptHashContract;
+pub use types::{DataKey, Error, Prompt};
 
-#[cfg(test)]
-mod test;
