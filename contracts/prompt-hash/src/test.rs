@@ -4,7 +4,7 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -245,4 +245,183 @@ fn test_inactive_prompt_cannot_be_bought() {
         Err(Ok(error)) => assert_eq!(error, Error::PromptInactive),
         other => panic!("unexpected inactive prompt result: {:?}", other),
     }
+}
+
+#[test]
+fn test_buy_prompt_with_zero_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    // Set fee to 0
+    client.set_fee_percentage(&0);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 10_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Zero Fee Prompt", price);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+
+    let seller_start = xlm_client.balance(&creator);
+    let fee_start = xlm_client.balance(&context.fee_wallet);
+
+    client.buy_prompt(&buyer, &prompt_id);
+
+    assert_eq!(xlm_client.balance(&creator), seller_start + price);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start);
+}
+
+#[test]
+fn test_buy_prompt_with_max_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    // Set fee to 100% (10,000 BPS)
+    client.set_fee_percentage(&10_000);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 10_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Max Fee Prompt", price);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+
+    let seller_start = xlm_client.balance(&creator);
+    let fee_start = xlm_client.balance(&context.fee_wallet);
+
+    client.buy_prompt(&buyer, &prompt_id);
+
+    assert_eq!(xlm_client.balance(&creator), seller_start);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + price);
+}
+
+#[test]
+fn test_unauthorized_seller_actions_fail() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Protected Prompt", 5_000);
+
+    // Try to update status as stranger
+    let status_res = client.try_set_prompt_sale_status(&stranger, &prompt_id, &false);
+    match status_res {
+        Err(Ok(Error::Unauthorized)) => {},
+        other => panic!("expected unauthorized for status update, got {:?}", other),
+    }
+
+    // Try to update price as stranger
+    let price_res = client.try_update_prompt_price(&stranger, &prompt_id, &1_000);
+    match price_res {
+        Err(Ok(Error::Unauthorized)) => {},
+        other => panic!("expected unauthorized for price update, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_buy_nonexistent_prompt_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let buyer = Address::generate(&env);
+
+    let result = client.try_buy_prompt(&buyer, &999_999);
+    match result {
+        Err(Ok(Error::PromptNotFound)) => {},
+        other => panic!("expected PromptNotFound for nonexistent prompt, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_arithmetic_safety_for_massive_prices() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    
+    // Test with a very large price that might cause overflow in fee calculation if not careful
+    // price * fee / 10000. 
+    let massive_price = i128::MAX / 10_000; 
+    let prompt_id = create_prompt(&env, &client, &creator, "Massive Price Prompt", massive_price);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, massive_price);
+
+    // This should not panic and should calculate fees correctly
+    client.buy_prompt(&buyer, &prompt_id);
+    
+    let fee_bps = 500i128;
+    let expected_fee = massive_price * fee_bps / 10_000;
+    let expected_seller = massive_price - expected_fee;
+    
+    assert_eq!(xlm_client.balance(&creator), expected_seller);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), expected_fee);
+}
+
+#[test]
+fn test_global_pause_blocks_mutations_but_not_reads() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    client.set_pause_status(&true);
+    assert!(client.get_pause_status());
+
+    let create_res = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/prompt.png"),
+        &String::from_str(&env, "Paused Create"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 1),
+        &10_000,
+    );
+    match create_res {
+        Err(Ok(Error::ContractPaused)) => {}
+        other => panic!("expected ContractPaused for create_prompt, got {:?}", other),
+    }
+
+    client.set_pause_status(&false);
+    let prompt_id = create_prompt(&env, &client, &creator, "Readable Prompt", 10_000);
+    client.set_pause_status(&true);
+
+    assert!(client.get_prompt(&prompt_id).id == prompt_id);
+    assert!(client.has_access(&creator, &prompt_id));
+}
+
+#[test]
+fn test_lease_prompt_grants_temporary_access_and_expires() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_000;
+    });
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Lease Prompt", 10_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+
+    client.lease_prompt(&buyer, &prompt_id, &600);
+    assert!(client.has_access(&buyer, &prompt_id));
+
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_700;
+    });
+    assert!(!client.has_access(&buyer, &prompt_id));
 }

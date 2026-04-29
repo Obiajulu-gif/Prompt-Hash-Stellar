@@ -4,11 +4,13 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "react";
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
 import { stellarWalletNetwork } from "../lib/env";
 import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit";
+import { useAsyncTransaction } from "../components/useAsyncTransaction";
 
 export type WalletStatus = 
   | "idle" 
@@ -24,7 +26,7 @@ export interface WalletContextType {
   status: WalletStatus;
   error?: string;
   connect: (id: string) => Promise<void>;
-  disconnect: () => void;
+  disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
 }
@@ -37,19 +39,35 @@ const initialState = {
   error: undefined,
 };
 
+const boundSignTransaction = wallet.signTransaction.bind(wallet);
+const boundSignMessage = wallet.signMessage.bind(wallet);
+
 export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
+  const isConnectingRef = useRef(false);
 
-  const disconnect = useCallback(() => {
-    storage.removeItem("walletId");
-    storage.removeItem("walletAddress");
-    storage.removeItem("walletNetwork");
-    storage.removeItem("networkPassphrase");
-    wallet.disconnect().catch(console.error);
-    setState(initialState);
-  }, []);
+  const { execute: executeDisconnect } = useAsyncTransaction(
+    async () => {
+      await wallet.disconnect();
+    },
+    {
+      pendingMessage: "Disconnecting wallet...",
+      successMessage: "Wallet disconnected",
+      onSuccess: () => {
+        storage.removeItem("walletId");
+        storage.removeItem("walletAddress");
+        storage.removeItem("walletNetwork");
+        storage.removeItem("networkPassphrase");
+        setState(initialState);
+      }
+    }
+  );
+
+  const disconnect = useCallback(async () => {
+    await executeDisconnect().catch(console.error);
+  }, [executeDisconnect]);
 
   // Helper to safely get network info (handles Albedo's lack of getNetwork support)
   const getSafeNetworkInfo = useCallback(async (walletId: string) => {
@@ -65,9 +83,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const connect = useCallback(async (walletId: string) => {
-    setState(prev => ({ ...prev, status: "connecting", error: undefined }));
-    try {
+  const { execute: executeConnect } = useAsyncTransaction(
+    async (walletId: string) => {
       wallet.setWallet(walletId);
       
       const [a, n] = await Promise.all([
@@ -76,37 +93,55 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       ]);
 
       if (!a.address) throw new Error("No address returned from wallet");
+      return { address: a.address, network: n.network, networkPassphrase: n.networkPassphrase, walletId };
+    },
+    {
+      pendingMessage: (walletId) => `Connecting to ${walletId}...`,
+      successMessage: "Wallet connected successfully",
+      onOptimistic: () => {
+        setState(prev => ({ ...prev, status: "connecting", error: undefined }));
+      },
+      onSuccess: (data) => {
+        storage.setItem("walletId", data.walletId);
+        storage.setItem("walletAddress", data.address);
+        if (data.network) storage.setItem("walletNetwork", data.network);
+        else storage.removeItem("walletNetwork");
+        
+        if (data.networkPassphrase) storage.setItem("networkPassphrase", data.networkPassphrase);
+        else storage.removeItem("networkPassphrase");
 
-      storage.setItem("walletId", walletId);
-      storage.setItem("walletAddress", a.address);
-      if (n.network) {
-        storage.setItem("walletNetwork", n.network);
-      } else {
-        storage.removeItem("walletNetwork");
+        setState({
+          address: data.address,
+          network: data.network,
+          networkPassphrase: data.networkPassphrase,
+          status: "connected",
+          error: undefined,
+        });
+      },
+      onError: (e) => {
+        console.error("Connection error:", e);
+        const message = e instanceof Error ? e.message : "Failed to connect wallet";
+        setState(prev => ({ 
+          ...prev, 
+          status: "error", 
+          error: message 
+        }));
       }
-      if (n.networkPassphrase) {
-        storage.setItem("networkPassphrase", n.networkPassphrase);
-      } else {
-        storage.removeItem("networkPassphrase");
-      }
-
-      setState({
-        address: a.address,
-        network: n.network,
-        networkPassphrase: n.networkPassphrase,
-        status: "connected",
-        error: undefined,
-      });
-    } catch (e: unknown) {
-      console.error("Connection error:", e);
-      const message = e instanceof Error ? e.message : "Failed to connect wallet";
-      setState(prev => ({ 
-        ...prev, 
-        status: "error", 
-        error: message 
-      }));
     }
-  }, [getSafeNetworkInfo]);
+  );
+
+  const connect = useCallback(async (walletId: string) => {
+    if (state.status === "connecting" || state.status === "reconnecting" || isConnectingRef.current) {
+      return;
+    }
+    
+    isConnectingRef.current = true;
+    try {
+      await executeConnect(walletId).catch(() => {});
+    } finally {
+      isConnectingRef.current = false;
+    }
+  }, [executeConnect, state.status]);
 
   const checkExtensionAccount = useCallback(async () => {
     if (state.status !== "connected" && state.status !== "reconnecting") return;
@@ -191,8 +226,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       ...state,
       connect,
       disconnect,
-      signTransaction: wallet.signTransaction.bind(wallet),
-      signMessage: wallet.signMessage.bind(wallet),
+      signTransaction: boundSignTransaction,
+      signMessage: boundSignMessage,
     }),
     [state, connect, disconnect]
   );

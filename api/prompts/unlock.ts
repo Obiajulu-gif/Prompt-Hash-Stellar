@@ -16,7 +16,35 @@ import {
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
-import { getSecret } from "../../src/lib/auth/secretManager";
+import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
+
+/**
+ * Get active secrets for token verification
+ * Supports multiple secrets during rotation grace period
+ */
+function getActiveSecrets(primarySecret: string): string[] {
+  const secrets = [primarySecret];
+  
+  // Check for previous secret within grace period
+  const previousSecret = process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS;
+  const rotationTimestamp = parseInt(
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP || "0",
+    10
+  );
+  const gracePeriodMs = parseInt(
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS || "300000", // 5 minutes default
+    10
+  );
+  
+  if (previousSecret && rotationTimestamp) {
+    const timeSinceRotation = Date.now() - rotationTimestamp;
+    if (timeSinceRotation < gracePeriodMs) {
+      secrets.push(previousSecret);
+    }
+  }
+  
+  return secrets;
+}
 
 function getServerConfig(): PromptHashConfig {
   const rpcUrl =
@@ -50,21 +78,30 @@ async function handler(req: any, res: any) {
   const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string;
   const { token, promptId, address, signedMessage } = req.body ?? {};
 
-  // Rate limit by IP
-  const ipRateLimit = checkRateLimit("unlock", clientIp);
+  // Authenticated bucket: wallet address is present.
+  const isAuthenticated = Boolean(address);
+
+  // Rate limit by IP (unauthenticated bucket — strictest guard).
+  const ipRateLimit = await checkRateLimit("unlock", clientIp, false);
   if (!ipRateLimit.success) {
     req.logger.warn({ clientIp }, "Rate limit exceeded for unlock (IP)");
     metrics.trackRateLimitHit("unlock_ip", clientIp);
+    res.setHeader("X-RateLimit-Limit", ipRateLimit.limit);
+    res.setHeader("X-RateLimit-Remaining", 0);
+    res.setHeader("X-RateLimit-Reset", ipRateLimit.reset);
     res.status(429).json({ error: "Too many requests. Please try again later." });
     return;
   }
 
-  // Rate limit by wallet if provided
+  // Rate limit by wallet address (authenticated bucket — per-wallet brute-force guard).
   if (address) {
-    const walletRateLimit = checkRateLimit("unlock", String(address));
+    const walletRateLimit = await checkRateLimit("unlock", String(address), isAuthenticated);
     if (!walletRateLimit.success) {
       req.logger.warn({ address }, "Rate limit exceeded for unlock (Wallet)");
       metrics.trackRateLimitHit("unlock_wallet", String(address));
+      res.setHeader("X-RateLimit-Limit", walletRateLimit.limit);
+      res.setHeader("X-RateLimit-Remaining", 0);
+      res.setHeader("X-RateLimit-Reset", walletRateLimit.reset);
       res.status(429).json({ error: "Too many unlock attempts for this wallet." });
       return;
     }
@@ -88,8 +125,11 @@ async function handler(req: any, res: any) {
   }
 
   try {
+    // Support multiple active secrets during rotation grace period
+    const activeSecrets = getActiveSecrets(challengeSecret);
+    
     const payload = verifyChallengeToken(
-      challengeSecret,
+      activeSecrets,
       String(token),
       String(address),
       String(promptId),
@@ -141,6 +181,13 @@ async function handler(req: any, res: any) {
 
     metrics.trackUnlockSuccess(String(address), String(promptId));
     req.logger.info({ address, promptId }, "Prompt unlocked successfully");
+
+    // Fire-and-forget webhook dispatch so the creator is notified of the sale.
+    void dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
+      promptId: prompt.id.toString(),
+      buyer: String(address),
+      title: prompt.title,
+    }).catch(() => {});
 
     res.status(200).json({
       promptId: prompt.id.toString(),

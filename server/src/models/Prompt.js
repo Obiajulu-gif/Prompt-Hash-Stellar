@@ -49,6 +49,11 @@ const promptSchema = new mongoose.Schema(
       ],
       default: "Other",
     },
+    currentVersionIndex: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
   },
   {
     timestamps: true,

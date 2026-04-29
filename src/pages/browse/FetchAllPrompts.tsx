@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useQueries, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import {
+  ChevronLeft,
+  ChevronRight,
+  PackageSearch,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
@@ -15,6 +20,7 @@ import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
 const ITEMS_PER_PAGE = 9;
+const ENABLE_INFINITE_SCROLL = true;
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&
@@ -39,24 +45,43 @@ const FetchAllPrompts = ({
 }: FetchAllPromptsProps) => {
   const queryClient = useQueryClient();
   const { address } = useWallet();
-  const [selectedPrompt, setSelectedPrompt] = useState<PromptRecord | null>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<PromptRecord | null>(
+    null,
+  );
   const [currentPage, setCurrentPage] = useState(1);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const promptsQuery = useQuery({
     queryKey: ["marketplace-prompts"],
     queryFn: async () => {
-      if (!isMarketplaceConfigured) {
-        return [];
-      }
-
+      if (!isMarketplaceConfigured) return [];
       return getAllPrompts(browserStellarConfig);
     },
   });
 
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const target = entries[0];
+        if (target.isIntersecting && currentPage < totalPages) {
+          setCurrentPage((prev) => prev + 1);
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [currentPage]);
+
   const accessQueries = useQueries({
-    queries: (address ? promptsQuery.data ?? [] : []).map((prompt) => ({
+    queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
       queryKey: ["prompt-access", address, prompt.id.toString()],
-      queryFn: async () => hasAccess(browserStellarConfig, address!, prompt.id),
+      queryFn: async () =>
+        hasAccess(browserStellarConfig, address!, prompt.id.toString()),
       staleTime: 15_000,
     })),
   });
@@ -65,7 +90,9 @@ const FetchAllPrompts = ({
     return new Map(
       (promptsQuery.data ?? []).map((prompt, index) => [
         prompt.id.toString(),
-        address ? accessQueries[index]?.data ?? prompt.creator === address : false,
+        address
+          ? (accessQueries[index]?.data ?? prompt.creator === address)
+          : false,
       ]),
     );
   }, [accessQueries, address, promptsQuery.data]);
@@ -79,7 +106,6 @@ const FetchAllPrompts = ({
       const matchesSearch =
         !normalizedSearch ||
         prompt.title.toLowerCase().includes(normalizedSearch) ||
-        prompt.previewText.toLowerCase().includes(normalizedSearch) ||
         prompt.category.toLowerCase().includes(normalizedSearch);
       const matchesPrice =
         promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
@@ -89,27 +115,32 @@ const FetchAllPrompts = ({
 
     switch (sortBy) {
       case "price-low":
-        return [...prompts].sort((left, right) =>
-          left.priceStroops < right.priceStroops ? -1 : 1,
+        return [...prompts].sort((a, b) =>
+          a.priceStroops < b.priceStroops ? -1 : 1,
         );
       case "price-high":
-        return [...prompts].sort((left, right) =>
-          left.priceStroops > right.priceStroops ? -1 : 1,
+        return [...prompts].sort((a, b) =>
+          a.priceStroops > b.priceStroops ? -1 : 1,
         );
       case "sales":
-        return [...prompts].sort((left, right) => right.salesCount - left.salesCount);
+        return [...prompts].sort((a, b) => b.salesCount - a.salesCount);
       default:
-        return [...prompts].sort((left, right) => Number(right.id - left.id));
+        return [...prompts].sort((a, b) => Number(b.id - a.id));
     }
   }, [priceRange, promptsQuery.data, searchQuery, selectedCategory, sortBy]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE));
-  const currentPrompts = filteredPrompts.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE,
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
   );
-
-  const refreshQueries = () => invalidateAllPromptQueries(queryClient);
+  
+  // For infinite scroll, show all items up to current page
+  const currentPrompts = ENABLE_INFINITE_SCROLL
+    ? filteredPrompts.slice(0, currentPage * ITEMS_PER_PAGE)
+    : filteredPrompts.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE,
+      );
 
   useEffect(() => {
     setCurrentPage(1);
@@ -117,82 +148,131 @@ const FetchAllPrompts = ({
 
   if (promptsQuery.isLoading) {
     return (
-      <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-slate-200">
-        Loading live prompts from Stellar testnet...
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        {[...Array(6)].map((_, i) => (
+          <div
+            key={i}
+            className="h-[400px] rounded-3xl border border-white/5 bg-white/[0.02] animate-pulse"
+          />
+        ))}
       </div>
     );
   }
 
   if (promptsQuery.isError) {
     return (
-      <div className="rounded-3xl border border-red-400/20 bg-red-500/10 p-6 text-sm text-red-200">
-        {promptsQuery.error instanceof Error
-          ? promptsQuery.error.message
-          : "Failed to load live marketplace prompts."}
+      <div className="flex flex-col items-center justify-center p-12 rounded-3xl border border-red-500/20 bg-red-500/5 text-center">
+        <p className="text-red-400 font-medium mb-2">Sync Error</p>
+        <p className="text-sm text-slate-400">
+          {promptsQuery.error instanceof Error
+            ? promptsQuery.error.message
+            : "Stellar network connection timed out."}
+        </p>
+        <Button
+          variant="link"
+          className="mt-4 text-emerald-400"
+          onClick={() => promptsQuery.refetch()}
+        >
+          Try Reconnecting
+        </Button>
       </div>
     );
   }
 
   return (
     <>
-      {!isMarketplaceConfigured ? (
-        <div className="mb-6 rounded-3xl border border-amber-400/20 bg-amber-500/10 p-5 text-sm text-amber-100">
-          Add `PUBLIC_PROMPT_HASH_CONTRACT_ID` and `PUBLIC_STELLAR_SIMULATION_ACCOUNT`
-          to load live marketplace listings from Stellar testnet.
-        </div>
-      ) : null}
-
-      {filteredPrompts.length === 0 ? (
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-10 text-center text-slate-300">
-          No live prompts match the current filters.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {currentPrompts.map((prompt) => (
-            <PromptCard
-              key={prompt.id.toString()}
-              prompt={prompt}
-              hasAccess={accessMap.get(prompt.id.toString()) ?? false}
-              openModal={setSelectedPrompt}
-            />
-          ))}
+      {!isMarketplaceConfigured && (
+        <div className="mb-8 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-sm flex gap-3 items-center">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          Contract config missing. Connect a network to view live listings.
         </div>
       )}
 
-      {filteredPrompts.length > ITEMS_PER_PAGE ? (
-        <div className="mt-8 flex items-center justify-center gap-3">
-          <Button
-            variant="outline"
-            className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-            disabled={currentPage === 1}
-          >
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Previous
-          </Button>
-          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100">
-            Page {currentPage} of {totalPages}
+      {filteredPrompts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+          <div className="p-4 rounded-full bg-slate-900 border border-white/5">
+            <PackageSearch className="h-8 w-8 text-slate-500" />
           </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold">No prompts found</h3>
+            <p className="text-slate-500 max-w-[280px]">
+              Try adjusting your filters or search terms to find what you're
+              looking for.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
+            {currentPrompts.map((prompt) => (
+              <PromptCard
+                key={prompt.id.toString()}
+                prompt={prompt}
+                hasAccess={accessMap.get(prompt.id.toString()) ?? false}
+                openModal={setSelectedPrompt}
+              />
+            ))}
+          </div>
+
+          {/* Infinite Scroll Trigger */}
+          {ENABLE_INFINITE_SCROLL && currentPage < totalPages && (
+            <div
+              ref={loadMoreRef}
+              className="mt-12 flex items-center justify-center py-8"
+            >
+              <div className="flex items-center gap-3 text-slate-400">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading more prompts...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Show count indicator for infinite scroll */}
+          {ENABLE_INFINITE_SCROLL && filteredPrompts.length > ITEMS_PER_PAGE && (
+            <div className="mt-8 text-center">
+              <p className="text-sm text-slate-500">
+                Showing <span className="text-white font-semibold">{currentPrompts.length}</span> of{" "}
+                <span className="text-white font-semibold">{filteredPrompts.length}</span> prompts
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Traditional Pagination (fallback when infinite scroll disabled) */}
+      {!ENABLE_INFINITE_SCROLL && filteredPrompts.length > ITEMS_PER_PAGE && (
+        <div className="mt-16 flex items-center justify-center gap-6">
           <Button
-            variant="outline"
-            className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-            disabled={currentPage === totalPages}
+            variant="ghost"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            className="text-slate-400 hover:text-white"
           >
-            Next
-            <ChevronRight className="ml-2 h-4 w-4" />
+            <ChevronLeft className="h-5 w-5 mr-2" /> Previous
+          </Button>
+          <span className="text-sm font-medium text-slate-500 uppercase tracking-widest">
+            Page <span className="text-white">{currentPage}</span> /{" "}
+            {totalPages}
+          </span>
+          <Button
+            variant="ghost"
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            className="text-slate-400 hover:text-white"
+          >
+            Next <ChevronRight className="h-5 w-5 ml-2" />
           </Button>
         </div>
-      ) : null}
+      )}
 
-      {selectedPrompt ? (
+      {selectedPrompt && (
         <PromptModal
-          prompt={selectedPrompt}
-          initialHasAccess={accessMap.get(selectedPrompt.id.toString()) ?? false}
-          closeModal={() => setSelectedPrompt(null)}
-          onRefresh={refreshQueries}
+          itemId={selectedPrompt.id.toString()}
+          isOpen={!!selectedPrompt}
+          onClose={() => setSelectedPrompt(null)}
+          onRefresh={() => invalidateAllPromptQueries(queryClient)}
         />
-      ) : null}
+      )}
     </>
   );
 };

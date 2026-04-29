@@ -1,0 +1,20 @@
+name: Hygiene
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  check-conflicts:
+    name: Check for merge conflict markers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Search for conflict markers
+        run: |
+          if grep -rE "<<<<<<<|=======|>>>>>>>" . --exclude-dir=.git --exclude=hygiene.yml; then
+            echo "Merge conflict markers found in the codebase. Please resolve them."
+            exit 1
+          else
+            echo "No merge conflict markers found."
+          fi

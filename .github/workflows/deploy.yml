@@ -1,0 +1,127 @@
+name: Deploy - Frontend to Vercel and Artifacts
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          CI: true
+
+      - name: Deploy to Vercel
+        uses: vercel/action@v5
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+        if: |
+          env.VERCEL_TOKEN != '' &&
+          env.VERCEL_ORG_ID != '' &&
+          env.VERCEL_PROJECT_ID != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  contract-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-target-
+
+      - name: Build contract
+        run: cargo build --release -p prompt-hash --target wasm32-unknown-unknown
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: List WASM artifacts
+        run: ls -lah target/wasm32-unknown-unknown/release/*.wasm
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: contract-wasm-${{ github.sha }}
+          path: target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 30
+          if-no-files-found: warn
+
+  create-release:
+    needs: [contract-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: contract-wasm-${{ github.sha }}
+          path: ./wasm-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./wasm-artifacts/*.wasm
+          tag_name: v${{ github.run_number }}
+          body: |
+            Automatic release for commit ${{ github.sha }}
+            
+            **WASM Artifacts:**
+            - Contract build for Soroban deployment
+            - Build date: ${{ github.event.head_commit.timestamp }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
