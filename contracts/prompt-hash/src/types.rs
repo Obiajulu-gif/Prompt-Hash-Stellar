@@ -29,7 +29,7 @@ pub enum Error {
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
-    InvalidSplits = 19,
+    ContractPaused = 19,
 }
 
 #[contracttype]
@@ -43,9 +43,15 @@ pub enum DataKey {
     CreatorPrompts(Address),
     BuyerPrompts(Address),
     Purchase(u128, Address),
+    PauseStatus,
     Reentrancy,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Purchase {
+    pub expires_at: u64,
+}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,6 +117,12 @@ pub trait PromptHashTrait {
     ) -> Result<(), Error>;
 
     fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error>;
+    fn lease_prompt(
+        env: Env,
+        buyer: Address,
+        prompt_id: u128,
+        lease_duration_secs: u64,
+    ) -> Result<(), Error>;
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
@@ -121,6 +133,8 @@ pub trait PromptHashTrait {
     fn get_fee_percentage(env: Env) -> u32;
     fn get_fee_wallet(env: Env) -> Option<Address>;
     fn get_xlm_sac(env: Env) -> Option<Address>;
+    fn set_pause_status(env: Env, is_paused: bool) -> Result<(), Error>;
+    fn get_pause_status(env: Env) -> bool;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
 }

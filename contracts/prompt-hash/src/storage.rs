@@ -1,4 +1,4 @@
-use super::types::{DataKey, Error, Prompt};
+use super::types::{DataKey, Error, Prompt, Purchase};
 use soroban_sdk::{token, Address, Env, Vec};
 
 pub const DAY_IN_LEDGERS: u32 = 17280;
@@ -127,18 +127,25 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
-    pub fn has_purchase(env: &Env, prompt_id: u128, buyer: &Address) -> bool {
+    pub fn get_purchase(env: &Env, prompt_id: u128, buyer: &Address) -> Option<Purchase> {
         let key = DataKey::Purchase(prompt_id, buyer.clone());
-        let has = env.storage().persistent().get(&key).unwrap_or(false);
+        let purchase = env.storage().persistent().get(&key);
         if env.storage().persistent().has(&key) {
             Self::extend_key_ttl(env, &key);
         }
-        has
+        purchase
     }
 
-    pub fn grant_purchase(env: &Env, prompt_id: u128, buyer: &Address) {
+    pub fn has_active_purchase(env: &Env, prompt_id: u128, buyer: &Address, now: u64) -> bool {
+        Self::get_purchase(env, prompt_id, buyer)
+            .map(|purchase| purchase.expires_at >= now)
+            .unwrap_or(false)
+    }
+
+    pub fn grant_purchase(env: &Env, prompt_id: u128, buyer: &Address, expires_at: u64) {
         let key = DataKey::Purchase(prompt_id, buyer.clone());
-        env.storage().persistent().set(&key, &true);
+        let purchase = Purchase { expires_at };
+        env.storage().persistent().set(&key, &purchase);
         Self::extend_key_ttl(env, &key);
         Self::add_prompt_to_buyer(env, buyer, prompt_id);
     }
@@ -206,5 +213,20 @@ impl Storage {
         let key = DataKey::Reentrancy;
         env.storage().persistent().set(&key, &false);
         Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn set_pause_status(env: &Env, is_paused: bool) {
+        let key = DataKey::PauseStatus;
+        env.storage().persistent().set(&key, &is_paused);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_pause_status(env: &Env) -> bool {
+        let key = DataKey::PauseStatus;
+        let is_paused = env.storage().persistent().get(&key).unwrap_or(false);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        is_paused
     }
 }

@@ -4,7 +4,7 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::{CreatePromptParams, Error, Split};
 extern crate std;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -370,162 +370,61 @@ fn test_arithmetic_safety_for_massive_prices() {
 }
 
 #[test]
-fn test_buy_prompt_distributes_splits_correctly() {
+fn test_global_pause_blocks_mutations_but_not_reads() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    client.set_pause_status(&true);
+    assert!(client.get_pause_status());
+
+    let create_res = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/prompt.png"),
+        &String::from_str(&env, "Paused Create"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 1),
+        &10_000,
+    );
+    match create_res {
+        Err(Ok(Error::ContractPaused)) => {}
+        other => panic!("expected ContractPaused for create_prompt, got {:?}", other),
+    }
+
+    client.set_pause_status(&false);
+    let prompt_id = create_prompt(&env, &client, &creator, "Readable Prompt", 10_000);
+    client.set_pause_status(&true);
+
+    assert!(client.get_prompt(&prompt_id).id == prompt_id);
+    assert!(client.has_access(&creator, &prompt_id));
+}
+
+#[test]
+fn test_lease_prompt_grants_temporary_access_and_expires() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_000;
+    });
+
     let creator = Address::generate(&env);
-    let co_creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let price: i128 = 10_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Lease Prompt", 10_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
 
-    // fee = 500 BPS (5%), co_creator split = 2000 BPS (20%), creator gets remainder 7500 BPS (75%)
-    let mut splits = Vec::new(&env);
-    splits.push_back(Split { recipient: co_creator.clone(), bps: 2000 });
+    client.lease_prompt(&buyer, &prompt_id, &600);
+    assert!(client.has_access(&buyer, &prompt_id));
 
-    client.create_prompt(
-        &creator,
-        &CreatePromptParams {
-            image_url: String::from_str(&env, "https://example.com/prompt.png"),
-            title: String::from_str(&env, "Split Prompt"),
-            category: String::from_str(&env, "Software Development"),
-            preview_text: String::from_str(&env, "Generate a production-ready implementation plan."),
-            encrypted_prompt: String::from_str(&env, "ciphertext"),
-            encryption_iv: String::from_str(&env, "iv"),
-            wrapped_key: String::from_str(&env, "wrapped-key"),
-            content_hash: hash(&env, 7),
-            price_stroops: price,
-            splits,
-        },
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-
-    let creator_start = xlm_client.balance(&creator);
-    let co_creator_start = xlm_client.balance(&co_creator);
-    let fee_start = xlm_client.balance(&context.fee_wallet);
-
-    client.buy_prompt(&buyer, &0u128);
-
-    let fee_amount = price * 500 / 10_000;           // 500
-    let co_creator_amount = price * 2000 / 10_000;   // 2000
-    let creator_amount = price - fee_amount - co_creator_amount; // 7500
-
-    assert_eq!(xlm_client.balance(&creator), creator_start + creator_amount);
-    assert_eq!(xlm_client.balance(&co_creator), co_creator_start + co_creator_amount);
-    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + fee_amount);
-}
-
-#[test]
-fn test_create_prompt_rejects_splits_exceeding_available_bps() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-
-    let creator = Address::generate(&env);
-    let co_creator = Address::generate(&env);
-
-    // fee = 500 BPS, split = 9600 BPS → total 10100 > 10000, must fail
-    let mut splits = Vec::new(&env);
-    splits.push_back(Split { recipient: co_creator.clone(), bps: 9600 });
-
-    let result = client.try_create_prompt(
-        &creator,
-        &CreatePromptParams {
-            image_url: String::from_str(&env, "https://example.com/prompt.png"),
-            title: String::from_str(&env, "Overflow Split Prompt"),
-            category: String::from_str(&env, "Software Development"),
-            preview_text: String::from_str(&env, "Generate a production-ready implementation plan."),
-            encrypted_prompt: String::from_str(&env, "ciphertext"),
-            encryption_iv: String::from_str(&env, "iv"),
-            wrapped_key: String::from_str(&env, "wrapped-key"),
-            content_hash: hash(&env, 7),
-            price_stroops: 10_000i128,
-            splits,
-        },
-    );
-
-    match result {
-        Err(Ok(Error::InvalidSplits)) => {}
-        other => panic!("expected InvalidSplits, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_create_prompt_rejects_zero_bps_split() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-
-    let creator = Address::generate(&env);
-    let co_creator = Address::generate(&env);
-
-    let mut splits = Vec::new(&env);
-    splits.push_back(Split { recipient: co_creator.clone(), bps: 0 });
-
-    let result = client.try_create_prompt(
-        &creator,
-        &CreatePromptParams {
-            image_url: String::from_str(&env, "https://example.com/prompt.png"),
-            title: String::from_str(&env, "Zero BPS Split Prompt"),
-            category: String::from_str(&env, "Software Development"),
-            preview_text: String::from_str(&env, "Generate a production-ready implementation plan."),
-            encrypted_prompt: String::from_str(&env, "ciphertext"),
-            encryption_iv: String::from_str(&env, "iv"),
-            wrapped_key: String::from_str(&env, "wrapped-key"),
-            content_hash: hash(&env, 7),
-            price_stroops: 10_000i128,
-            splits,
-        },
-    );
-
-    match result {
-        Err(Ok(Error::InvalidSplits)) => {}
-        other => panic!("expected InvalidSplits for zero BPS, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_buy_prompt_with_multiple_splits() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-
-    let creator = Address::generate(&env);
-    let partner_a = Address::generate(&env);
-    let partner_b = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price: i128 = 10_000;
-
-    // fee=500, partner_a=1500, partner_b=1000, creator=7000
-    let mut splits = Vec::new(&env);
-    splits.push_back(Split { recipient: partner_a.clone(), bps: 1500 });
-    splits.push_back(Split { recipient: partner_b.clone(), bps: 1000 });
-
-    client.create_prompt(
-        &creator,
-        &CreatePromptParams {
-            image_url: String::from_str(&env, "https://example.com/prompt.png"),
-            title: String::from_str(&env, "Multi Split Prompt"),
-            category: String::from_str(&env, "Software Development"),
-            preview_text: String::from_str(&env, "Generate a production-ready implementation plan."),
-            encrypted_prompt: String::from_str(&env, "ciphertext"),
-            encryption_iv: String::from_str(&env, "iv"),
-            wrapped_key: String::from_str(&env, "wrapped-key"),
-            content_hash: hash(&env, 7),
-            price_stroops: price,
-            splits,
-        },
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_prompt(&buyer, &0u128);
-
-    assert_eq!(xlm_client.balance(&partner_a), 1500i128);
-    assert_eq!(xlm_client.balance(&partner_b), 1000i128);
-    assert_eq!(xlm_client.balance(&creator), 7000i128);
-    assert_eq!(xlm_client.balance(&context.fee_wallet), 500i128);
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_700;
+    });
+    assert!(!client.has_access(&buyer, &prompt_id));
 }
