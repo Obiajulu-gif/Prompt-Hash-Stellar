@@ -116,19 +116,31 @@ export function ChatInterface() {
       setIsTyping(false);
       setConversation((prev) => [...prev, newAgentMessage]);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "The chat gateway could not be reached.";
+      let message = "The chat gateway could not be reached.";
+      let fallbackContent = "I couldn't reach the AI service. The service may be disabled or unconfigured in the backend.";
+
+      if (error instanceof Error) {
+        try {
+          const errorData = JSON.parse(error.message);
+          if (errorData.code === "SERVICE_UNAVAILABLE") {
+            message = "AI service is currently disabled or unconfigured.";
+            fallbackContent = "The AI service is currently unavailable. Please contact the administrator to configure the AI provider.";
+          } else if (errorData.message) {
+            message = errorData.message;
+          }
+        } catch {
+          message = error.message;
+        }
+      }
+
       console.error("Error getting chat response:", error);
       setChatError(message);
 
-      // Fallback response
+      // Add AI fallback response
       const fallbackMessage: Message = {
         id: Date.now().toString(),
         sender: "agent",
-        content:
-          "I couldn't reach the AI service. The service may be disabled or unconfigured in the backend.",
+        content: fallbackContent,
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",

@@ -17,6 +17,15 @@ export class AIServiceError extends Error {
 }
 
 export class AIService {
+  /**
+   * Redacts sensitive content (like prompts) from logs or error messages.
+   */
+  private static redact(text: string): string {
+    if (!text) return text;
+    if (text.length <= 20) return "***";
+    return `${text.substring(0, 10)}...[REDACTED]...${text.substring(text.length - 10)}`;
+  }
+
   private static async fetchWithTimeout(
     url: string,
     options: RequestInit,
@@ -48,6 +57,10 @@ export class AIService {
   ): Promise<T> {
     if (!config.ai.enabled) {
       throw new AIServiceError("AI service is currently disabled", 503);
+    }
+
+    if (!config.ai.providerUrl) {
+      throw new AIServiceError("AI service is unconfigured (missing provider URL)", 503);
     }
 
     const url = `${config.ai.providerUrl}${path}`;
@@ -85,14 +98,32 @@ export class AIService {
         return responseData as T;
       } catch (error) {
         lastError = error;
-        if (error instanceof AIServiceError && error.status < 500) {
-          throw error;
+        
+        // If it's a client error (4xx) other than 429/408, don't retry
+        if (error instanceof AIServiceError && error.status >= 400 && error.status < 500) {
+          if (error.status !== 429 && error.status !== 408) {
+            throw error;
+          }
         }
-        console.warn(`AI Service request failed (attempt ${attempt + 1}):`, error);
+
+        const redactedBody = body ? (typeof body === "string" ? this.redact(body) : "[OBJECT]") : "none";
+        console.warn(
+          `AI Service request failed (attempt ${attempt + 1}/${config.ai.maxRetries + 1}) for ${method} ${path}. Body snippet: ${redactedBody}. Error: ${error instanceof Error ? error.message : String(error)}`
+        );
+        
+        if (attempt === config.ai.maxRetries) {
+          break;
+        }
+        
+        // Exponential backoff for retries
+        const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
-    throw lastError;
+    throw lastError instanceof AIServiceError 
+      ? lastError 
+      : new AIServiceError(lastError instanceof Error ? lastError.message : String(lastError));
   }
 
   public static async improvePrompt(promptText: string): Promise<any> {
@@ -100,17 +131,7 @@ export class AIService {
   }
 
   public static async chat(messages: AiMessage[], model?: string): Promise<any> {
-    // To maintain compatibility with existing tests/frontend that might use query params
-    // we could check if we should use GET or POST. 
-    // But let's stick to POST for the service boundary as per modern standards.
-    // If we need to support the legacy GET, we can do it here.
-    
-    // Check if it's a simple one-message chat that could be a GET
-    if (messages.length === 1 && messages[0].role === "user") {
-      const prompt = messages[0].content;
-      return this.request(`/api/chat?prompt=${encodeURIComponent(prompt)}${model ? `&model=${model}` : ""}`, "GET");
-    }
-
+    // Standardize on POST for chat boundary
     return this.request("/api/chat", "POST", { messages, model });
   }
 
@@ -118,13 +139,14 @@ export class AIService {
     try {
       const data = await this.request<{ models: string[] }>("/api/models");
       return data.models;
-    } catch {
-      return ["gpt-4o", "gpt-3.5-turbo"];
+    } catch (error) {
+      console.error("Failed to fetch AI models:", error instanceof Error ? error.message : String(error));
+      return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
     }
   }
 
   public static async checkHealth(): Promise<boolean> {
-    if (!config.ai.enabled) return false;
+    if (!config.ai.enabled || !config.ai.providerUrl) return false;
     try {
       await this.request("/api/health");
       return true;

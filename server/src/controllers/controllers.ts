@@ -24,11 +24,14 @@ export const ImproveProxy = async (
     const result = await AIService.improvePrompt(text);
     return res.json(result);
   } catch (err: unknown) {
-    console.error("Error in improve-proxy:", err);
+    const status = err instanceof AIServiceError ? err.status : 500;
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({
+    console.error(`Error in improve-proxy (${status}):`, message);
+    
+    return res.status(status).json({
       error: "AI Service Error",
       message: message,
+      code: status === 503 ? "SERVICE_UNAVAILABLE" : "PROVIDER_ERROR"
     });
   }
 };
@@ -270,11 +273,14 @@ export const PostChat = async (
     const result = await AIService.chat(messages, model);
     return res.json(result);
   } catch (err: unknown) {
-    console.error("Error in PostChat:", err);
+    const status = err instanceof AIServiceError ? err.status : 500;
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({
+    console.error(`Error in PostChat (${status}):`, message);
+    
+    return res.status(status).json({
       error: "AI Service Error",
       message: message,
+      code: status === 503 ? "SERVICE_UNAVAILABLE" : "PROVIDER_ERROR"
     });
   }
 };
