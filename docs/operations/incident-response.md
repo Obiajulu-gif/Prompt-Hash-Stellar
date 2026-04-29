@@ -36,15 +36,20 @@ This guide documents how to handle security or operational incidents related to 
 
 ### Key or secret compromise
 - If `UNLOCK_PRIVATE_KEY` or `CHALLENGE_TOKEN_SECRET` may be compromised, rotate immediately.
-- Deploy a new keypair and update `UNLOCK_KEY_VERSION`, `UNLOCK_PUBLIC_KEY`, and `UNLOCK_PRIVATE_KEY` for the current version.
-- If older prompt listings must remain decryptable, keep the previous version in `UNLOCK_PUBLIC_KEYS` / `UNLOCK_PRIVATE_KEYS` until all legacy prompts are migrated or re-encrypted.
+- Use a secure key custody tool or managed secret store to generate and store the new values.
+- Deploy a new unlock keypair and update `UNLOCK_KEY_VERSION`, `UNLOCK_PUBLIC_KEY`, and `UNLOCK_PRIVATE_KEY` for the current version.
+- If older prompt listings must remain decryptable, keep the previous version(s) in `UNLOCK_PUBLIC_KEYS` / `UNLOCK_PRIVATE_KEYS` until all legacy prompts are migrated or re-encrypted.
+- Keep older challenge secrets in `CHALLENGE_TOKEN_PREVIOUS_SECRETS` only if existing tokens must stay valid during the transition.
 - Remove any compromised secret from `CHALLENGE_TOKEN_PREVIOUS_SECRETS` and deploy a fresh `CHALLENGE_TOKEN_SECRET`.
 
 ### Emergency revocation path
-- Mark the unlock endpoint unhealthy in your deployment if necessary.
-- Rotate the challenge secret first to invalidate all active challenge tokens.
-- Rotate the unlock keypair and publish the new public key for future listings.
-- Maintain an overlap window where both the current and previous unlock key versions are available so existing prompt listings still decrypt successfully.
+
+1. Rotate the challenge secret first to invalidate active challenge tokens.
+2. Publish a new unlock keypair and set `UNLOCK_KEY_VERSION` to the new version.
+3. Update `PUBLIC_UNLOCK_PUBLIC_KEY` and `PUBLIC_UNLOCK_KEY_VERSION` for the browser so new prompts are encrypted with the current key.
+4. Maintain an overlap window where both the current and previous unlock key versions are present in `UNLOCK_PUBLIC_KEYS` / `UNLOCK_PRIVATE_KEYS`.
+5. Verify the unlock endpoint succeeds for current requests before removing old key material.
+6. Once legacy prompts are migrated or re-encrypted, remove old key versions from the deployment configuration.
 
 ## Escalation
 - Contact the backend security lead if `integrity_failure` is widespread (potential key compromise).

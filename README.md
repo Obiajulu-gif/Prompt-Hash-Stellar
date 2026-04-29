@@ -287,13 +287,31 @@ See `.env.example` for the full template. Main variables:
 
 ## Unlock key custody and rotation
 
-The unlock service protects encrypted prompt delivery and challenge issuance.
+The unlock service protects encrypted prompt delivery and challenge issuance. These secrets should never be checked into source control.
 
-- Use `UNLOCK_PUBLIC_KEY` / `UNLOCK_PRIVATE_KEY` for the current service keypair when you are only running a single version.
-- Use `UNLOCK_KEY_VERSION` and `PUBLIC_UNLOCK_KEY_VERSION` to label the current key version.
-- Use `UNLOCK_PRIVATE_KEYS` and `UNLOCK_PUBLIC_KEYS` for multi-version rotation support, e.g. `v1:<key>,v2:<key>`.
-- Use `CHALLENGE_TOKEN_PREVIOUS_SECRETS` to keep older signed challenge secrets valid until existing tokens expire.
-- Remove compromised secrets from `CHALLENGE_TOKEN_PREVIOUS_SECRETS` and deploy a fresh `CHALLENGE_TOKEN_SECRET` immediately for emergency revocation.
+### Environment guidance
+
+- Local / development: use `.env` only for safe local testing and never commit it. Keep the unlock key pair and challenge secret in a local secret manager or secure vault when possible.
+- Testnet / staging: use managed environment secrets (Vercel secrets, AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, GitHub Actions secrets, etc.). The runtime should read the secret values from the deployment platform, not from committed files.
+- Production: store `UNLOCK_PRIVATE_KEY`, `UNLOCK_PUBLIC_KEYS`, `UNLOCK_PRIVATE_KEYS`, `CHALLENGE_TOKEN_SECRET`, and `CHALLENGE_TOKEN_PREVIOUS_SECRETS` in a KMS-backed secret store or platform secret manager.
+
+### Recommended rotation procedure
+
+1. Generate a fresh unlock keypair securely in an offline or hardened environment.
+2. Add the new keypair to `UNLOCK_PUBLIC_KEYS` / `UNLOCK_PRIVATE_KEYS` with a new version label, e.g. `v2:<base64>`.
+3. Set `UNLOCK_KEY_VERSION` to the new version for the unlock service.
+4. Set `PUBLIC_UNLOCK_PUBLIC_KEY` and `PUBLIC_UNLOCK_KEY_VERSION` to the new version for the browser listing flow.
+5. If prompts encrypted to the previous key still need to be unlocked, keep those old versions present in both `UNLOCK_PUBLIC_KEYS` and `UNLOCK_PRIVATE_KEYS` until migration is complete.
+6. If existing challenge tokens need to remain valid during the overlap, add the previous secret(s) to `CHALLENGE_TOKEN_PREVIOUS_SECRETS` while updating `CHALLENGE_TOKEN_SECRET` to the new secret.
+7. After all old tokens expire and legacy listings are migrated, remove the old secrets and old key versions from deployment configuration.
+
+### Emergency revocation
+
+- Rotate the challenge secret first to immediately invalidate outstanding challenge tokens.
+- Deploy a new unlock keypair and update `UNLOCK_KEY_VERSION` / `UNLOCK_PUBLIC_KEY` / `UNLOCK_PRIVATE_KEY` for the current key.
+- Keep the previous unlock key version(s) in `UNLOCK_PUBLIC_KEYS` / `UNLOCK_PRIVATE_KEYS` only as long as needed for decrypting legacy prompt listings.
+- Remove compromised secrets from `CHALLENGE_TOKEN_PREVIOUS_SECRETS` and replace them with a fresh `CHALLENGE_TOKEN_SECRET`.
+- Verify the deployment is healthy and that unlock requests using the current key version succeed before removing old key material.
 
 ## Usage
 
