@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
