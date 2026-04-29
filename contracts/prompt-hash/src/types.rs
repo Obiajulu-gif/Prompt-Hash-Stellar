@@ -1,5 +1,12 @@
 use soroban_sdk::{contracterror, contracttype, Address, BytesN, Env, String, Vec};
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Split {
+    pub recipient: Address,
+    pub bps: u32,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -48,6 +55,21 @@ pub struct Purchase {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatePromptParams {
+    pub image_url: String,
+    pub title: String,
+    pub category: String,
+    pub preview_text: String,
+    pub encrypted_prompt: String,
+    pub encryption_iv: String,
+    pub wrapped_key: String,
+    pub content_hash: BytesN<32>,
+    pub price_stroops: i128,
+    pub splits: Vec<Split>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
     pub id: u128,
     pub creator: Address,
@@ -62,6 +84,7 @@ pub struct Prompt {
     pub price_stroops: i128,
     pub active: bool,
     pub sales_count: u64,
+    pub splits: Vec<Split>,
 }
 
 pub trait PromptHashTrait {
@@ -76,15 +99,7 @@ pub trait PromptHashTrait {
     fn create_prompt(
         env: Env,
         creator: Address,
-        image_url: String,
-        title: String,
-        category: String,
-        preview_text: String,
-        encrypted_prompt: String,
-        encryption_iv: String,
-        wrapped_key: String,
-        content_hash: BytesN<32>,
-        price_stroops: i128,
+        params: CreatePromptParams,
     ) -> Result<u128, Error>;
 
     fn set_prompt_sale_status(
