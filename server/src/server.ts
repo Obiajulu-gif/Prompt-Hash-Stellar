@@ -6,6 +6,7 @@ import { userRouter } from "./routes/userRoutes";
 import { chatRouter } from "./routes/chatRoutes";
 import { webhookRouter } from "./routes/webhookRoutes";
 import { versioningRouter } from "./routes/versioningRoutes";
+import { governanceRouter } from "./routes/governanceRoutes"; // Issue #113
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use("/api/user", userRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/webhooks", webhookRouter);
 app.use("/api/versions", versioningRouter);
+app.use("/api/governance", governanceRouter); // Issue #113
 
 app.get("/health", async (req, res) => {
   const state = await IndexerState.findOne({ key: "prompt_hash_contract" });

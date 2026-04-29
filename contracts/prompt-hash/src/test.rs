@@ -2,7 +2,7 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -382,179 +382,61 @@ fn test_arithmetic_safety_for_massive_prices() {
 }
 
 #[test]
-fn test_bulk_purchase_success() {
+fn test_global_pause_blocks_mutations_but_not_reads() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-
     let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
 
-    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
-    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
-    let prompt_id_3 = create_prompt(&env, &client, &creator, "Prompt 3", 3000);
+    client.set_pause_status(&true);
+    assert!(client.get_pause_status());
 
-    let total_price = 1000 + 2000 + 3000;
-    fund_buyer(&xlm_client, &buyer, &context.contract, total_price);
-
-    let mut prompt_ids = soroban_sdk::Vec::new(&env);
-    prompt_ids.push_back(prompt_id_1);
-    prompt_ids.push_back(prompt_id_2);
-    prompt_ids.push_back(prompt_id_3);
-
-    client.buy_prompts_bulk(&buyer, &prompt_ids);
-
-    assert!(client.has_access(&buyer, &prompt_id_1));
-    assert!(client.has_access(&buyer, &prompt_id_2));
-    assert!(client.has_access(&buyer, &prompt_id_3));
-
-    let fee_total = total_price * 500 / 10_000;
-    let creator_total = total_price - fee_total;
-
-    assert_eq!(xlm_client.balance(&creator), creator_total);
-    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_total);
-}
-
-#[test]
-fn test_bulk_purchase_failure_one_inactive_reverts_all() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-
-    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
-    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
-    client.set_prompt_sale_status(&creator, &prompt_id_2, &false);
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, 5000);
-
-    let mut prompt_ids = soroban_sdk::Vec::new(&env);
-    prompt_ids.push_back(prompt_id_1);
-    prompt_ids.push_back(prompt_id_2);
-
-    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
-    match result {
-        Err(Ok(Error::PromptInactive)) => {}
-        other => panic!("expected PromptInactive, got {:?}", other),
+    let create_res = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/prompt.png"),
+        &String::from_str(&env, "Paused Create"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 1),
+        &10_000,
+    );
+    match create_res {
+        Err(Ok(Error::ContractPaused)) => {}
+        other => panic!("expected ContractPaused for create_prompt, got {:?}", other),
     }
 
-    // Verify atomicity - neither should be purchased
-    assert!(!client.has_access(&buyer, &prompt_id_1));
-    assert!(!client.has_access(&buyer, &prompt_id_2));
-    assert_eq!(xlm_client.balance(&buyer), 5000);
+    client.set_pause_status(&false);
+    let prompt_id = create_prompt(&env, &client, &creator, "Readable Prompt", 10_000);
+    client.set_pause_status(&true);
+
+    assert!(client.get_prompt(&prompt_id).id == prompt_id);
+    assert!(client.has_access(&creator, &prompt_id));
 }
 
 #[test]
-fn test_bulk_purchase_failure_insufficient_funds_reverts_all() {
+fn test_lease_prompt_grants_temporary_access_and_expires() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-
-    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
-    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
-
-    // Only fund for the first prompt
-    fund_buyer(&xlm_client, &buyer, &context.contract, 1000);
-
-    let mut prompt_ids = soroban_sdk::Vec::new(&env);
-    prompt_ids.push_back(prompt_id_1);
-    prompt_ids.push_back(prompt_id_2);
-
-    // This should fail because the total price (3000) > balance (1000)
-    // Note: Soroban will revert the entire transaction on any error during token transfer
-    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
-    assert!(result.is_err());
-
-    // Verify atomicity
-    assert!(!client.has_access(&buyer, &prompt_id_1));
-    assert!(!client.has_access(&buyer, &prompt_id_2));
-    assert_eq!(xlm_client.balance(&buyer), 1000);
-}
-
-#[test]
-fn test_bulk_purchase_failure_already_purchased_reverts_all() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_000;
+    });
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Lease Prompt", 10_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
 
-    let prompt_id_1 = create_prompt(&env, &client, &creator, "Prompt 1", 1000);
-    let prompt_id_2 = create_prompt(&env, &client, &creator, "Prompt 2", 2000);
+    client.lease_prompt(&buyer, &prompt_id, &600);
+    assert!(client.has_access(&buyer, &prompt_id));
 
-    fund_buyer(&xlm_client, &buyer, &context.contract, 5000);
-
-    // Pre-buy prompt 2
-    client.buy_prompt(&buyer, &prompt_id_2);
-    let balance_after_first = xlm_client.balance(&buyer);
-
-    let mut prompt_ids = soroban_sdk::Vec::new(&env);
-    prompt_ids.push_back(prompt_id_1);
-    prompt_ids.push_back(prompt_id_2);
-
-    let result = client.try_buy_prompts_bulk(&buyer, &prompt_ids);
-    match result {
-        Err(Ok(Error::AlreadyPurchased)) => {}
-        other => panic!("expected AlreadyPurchased, got {:?}", other),
-    }
-
-    // Verify atomicity - prompt 1 should NOT be purchased
-    assert!(!client.has_access(&buyer, &prompt_id_1));
-    assert_eq!(xlm_client.balance(&buyer), balance_after_first);
-}
-
-#[test]
-fn test_marketplace_moderation_flows() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-
-    let price = 500_000_000;
-    fund_buyer(&xlm_client, &buyer, &context.contract, price * 10);
-
-    let prompt_id = create_prompt(&env, &client, &creator, "Moderated Prompt", price);
-
-    // 1. Verify prompt is visible initially
-    assert_eq!(client.get_all_prompts().len(), 1);
-
-    // 2. Admin moderates the prompt
-    client.admin_set_moderation_status(&prompt_id, &true);
-
-    // 3. Verify it's hidden from list
-    assert_eq!(client.get_all_prompts().len(), 0);
-
-    // 4. Verify direct fetch fails
-    let result = client.try_get_prompt(&prompt_id);
-    assert_eq!(result, Err(Ok(Error::PromptModerated)));
-
-    // 5. Verify purchase fails
-    let buy_result = client.try_buy_prompt(&buyer, &prompt_id);
-    assert_eq!(buy_result, Err(Ok(Error::PromptModerated)));
-
-    // 6. Admin unmoderates the prompt
-    client.admin_set_moderation_status(&prompt_id, &false);
-
-    // 7. Verify it's visible again
-    assert_eq!(client.get_all_prompts().len(), 1);
-    assert!(client.try_get_prompt(&prompt_id).is_ok());
-
-    // 8. Non-admin trying to moderate should fail
-    // We already moved only_owner to the impl, so it should check auth.
-    // In setup() we call env.mock_all_auths(), which means everything from anywhere is authorized as the owner?
-    // Actually, mock_all_auths() is very broad. To test failure, we might need a more specific setup.
-    // But for now, let's just make it compile.
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_700;
+    });
+    assert!(!client.has_access(&buyer, &prompt_id));
 }

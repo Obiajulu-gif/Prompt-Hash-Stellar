@@ -3,6 +3,7 @@ import { Activity, Menu, MessageCircle, Search, ShoppingBag, User } from "lucide
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
+import { ThemeToggle } from "./ThemeToggle";
 
 const navItems = [
   { to: "/browse", label: "Browse", icon: Search },
@@ -52,7 +53,8 @@ export function Navigation() {
           </nav>
         </div>
 
-        <div className="hidden md:block">
+        <div className="flex items-center gap-2 md:gap-4">
+          <ThemeToggle />
           <DisplayWallet />
         </div>
 
@@ -74,7 +76,8 @@ export function Navigation() {
                   {item.label}
                 </NavLink>
               ))}
-              <div className="pt-4">
+              <div className="flex items-center gap-2 border-t border-white/10 pt-4">
+                <ThemeToggle />
                 <DisplayWallet />
               </div>
             </div>

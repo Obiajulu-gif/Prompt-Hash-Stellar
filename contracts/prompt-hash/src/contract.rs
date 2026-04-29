@@ -15,6 +15,8 @@ const MAX_ENCRYPTED_PROMPT_LEN: u32 = 4096;
 const MAX_WRAPPED_KEY_LEN: u32 = 256;
 const MAX_IMAGE_URL_LEN: u32 = 512;
 const MAX_IV_LEN: u32 = 64;
+const LEASE_PRICE_BPS: u32 = 4_000;
+const MAX_ACCESS_EXPIRY: u64 = u64::MAX;
 
 #[contract]
 pub struct PromptHashContract;
@@ -32,6 +34,7 @@ impl PromptHashTrait for PromptHashContract {
         Storage::set_fee_wallet(&env, &fee_wallet);
         Storage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
         Storage::set_xlm_address(&env, &xlm_sac);
+        Storage::set_pause_status(&env, false);
         env.storage().instance().extend_ttl(
             super::storage::PERSISTENT_LIFETIME_THRESHOLD,
             super::storage::PERSISTENT_BUMP_AMOUNT,
@@ -54,6 +57,7 @@ impl PromptHashTrait for PromptHashContract {
         price_stroops: i128,
     ) -> Result<u128, Error> {
         creator.require_auth();
+        require_not_paused(&env)?;
         validate_prompt_fields(
             &image_url,
             &title,
@@ -112,6 +116,7 @@ impl PromptHashTrait for PromptHashContract {
         price_stroops: i128,
     ) -> Result<(), Error> {
         creator.require_auth();
+        require_not_paused(&env)?;
         ensure(price_stroops > 0, Error::InvalidPrice)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
@@ -125,13 +130,15 @@ impl PromptHashTrait for PromptHashContract {
 
     fn buy_prompt(env: Env, buyer: Address, prompt_id: u128) -> Result<(), Error> {
         buyer.require_auth();
+        require_not_paused(&env)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        let now = env.ledger().timestamp();
 
         ensure(prompt.active, Error::PromptInactive)?;
         ensure(!prompt.moderated, Error::PromptModerated)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(
-            !Storage::has_purchase(&env, prompt_id, &buyer),
+            !Storage::has_active_purchase(&env, prompt_id, &buyer, now),
             Error::AlreadyPurchased,
         )?;
 
@@ -163,7 +170,7 @@ impl PromptHashTrait for PromptHashContract {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_prompt(&env, &prompt);
-        Storage::grant_purchase(&env, prompt_id, &buyer);
+        Storage::grant_purchase(&env, prompt_id, &buyer, MAX_ACCESS_EXPIRY);
         Storage::clear_reentrancy_guard(&env);
         Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, prompt.price_stroops);
         Ok(())
@@ -238,9 +245,74 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    fn lease_prompt(
+        env: Env,
+        buyer: Address,
+        prompt_id: u128,
+        lease_duration_secs: u64,
+    ) -> Result<(), Error> {
+        buyer.require_auth();
+        require_not_paused(&env)?;
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        let now = env.ledger().timestamp();
+
+        ensure(prompt.active, Error::PromptInactive)?;
+        ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure(lease_duration_secs > 0, Error::InvalidPrice)?;
+        ensure(
+            !Storage::has_active_purchase(&env, prompt_id, &buyer, now),
+            Error::AlreadyPurchased,
+        )?;
+
+        Storage::set_reentrancy_guard(&env)?;
+
+        let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+        let this_contract = env.current_contract_address();
+        let fee_percentage = Storage::get_fee_percentage(&env);
+        ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
+
+        let lease_price = prompt
+            .price_stroops
+            .checked_mul(LEASE_PRICE_BPS as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            / MAX_BPS as i128;
+        ensure(lease_price > 0, Error::InvalidPrice)?;
+
+        let fee_amount = lease_price
+            .checked_mul(fee_percentage as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            / MAX_BPS as i128;
+        let seller_amount = lease_price
+            .checked_sub(fee_amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        let xlm = Storage::get_stellar_asset_contract(&env)?;
+        xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &seller_amount);
+        if fee_amount > 0 {
+            xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
+        }
+
+        prompt.sales_count = prompt
+            .sales_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let expires_at = now
+            .checked_add(lease_duration_secs)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Storage::update_prompt(&env, &prompt);
+        Storage::grant_purchase(&env, prompt_id, &buyer, expires_at);
+        Storage::clear_reentrancy_guard(&env);
+        Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, lease_price);
+        Ok(())
+    }
+
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
         let prompt = Storage::require_prompt(&env, prompt_id)?;
-        Ok(prompt.creator == user || Storage::has_purchase(&env, prompt_id, &user))
+        let now = env.ledger().timestamp();
+        Ok(
+            prompt.creator == user
+                || Storage::has_active_purchase(&env, prompt_id, &user, now),
+        )
     }
 
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {
@@ -286,6 +358,16 @@ impl PromptHashTrait for PromptHashContract {
 
     fn get_xlm_sac(env: Env) -> Option<Address> {
         Storage::get_xlm_address(&env)
+    }
+
+    #[only_owner]
+    fn set_pause_status(env: Env, is_paused: bool) -> Result<(), Error> {
+        Storage::set_pause_status(&env, is_paused);
+        Ok(())
+    }
+
+    fn get_pause_status(env: Env) -> bool {
+        Storage::get_pause_status(&env)
     }
 
     #[only_owner]
@@ -348,4 +430,8 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     } else {
         Err(error)
     }
+}
+
+fn require_not_paused(env: &Env) -> Result<(), Error> {
+    ensure(!Storage::get_pause_status(env), Error::ContractPaused)
 }

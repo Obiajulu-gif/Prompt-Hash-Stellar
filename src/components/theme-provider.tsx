@@ -1,11 +1,17 @@
-// 'use client'
+import { useEffect } from 'react'
+import { useTheme } from '../hooks/useTheme'
 
-// import * as React from 'react'
-// import {
-//   ThemeProvider as NextThemesProvider,
-//   type ThemeProviderProps,
-// } from 'next-themes'
+interface ThemeProviderProps {
+  children: React.ReactNode
+}
 
-// export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
-//   return <NextThemesProvider {...props}>{children}</NextThemesProvider>
-// }
+/**
+ * ThemeProvider initializes theme detection on app mount
+ * Integrates with useTheme to manage light/dark/system themes
+ */
+export function ThemeProvider({ children }: ThemeProviderProps) {
+  // Initialize theme once on mount
+  useTheme()
+  
+  return <>{children}</>
+}
