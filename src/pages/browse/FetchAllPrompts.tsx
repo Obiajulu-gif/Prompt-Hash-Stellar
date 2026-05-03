@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { useQueries, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,6 +29,60 @@ const isMarketplaceConfigured = Boolean(
 );
 
 const parseXlmNumber = (value: bigint) => Number(stroopsToXlmString(value));
+const normalizeSearchValue = (value: string) => value.trim().toLowerCase();
+
+const buildSearchIndex = (prompt: PromptRecord) =>
+  [
+    prompt.title,
+    prompt.category,
+    prompt.previewText,
+    prompt.creator,
+    prompt.id.toString(),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+const filterAndSortPrompts = ({
+  prompts,
+  selectedCategory,
+  priceRange,
+  normalizedSearchQuery,
+  sortBy,
+}: {
+  prompts: PromptRecord[];
+  selectedCategory: string;
+  priceRange: number[];
+  normalizedSearchQuery: string;
+  sortBy: string;
+}) => {
+  const filtered = prompts.filter((prompt) => {
+    const promptPrice = parseXlmNumber(prompt.priceStroops);
+    const matchesCategory =
+      !selectedCategory || prompt.category === selectedCategory;
+    const matchesSearch =
+      !normalizedSearchQuery ||
+      buildSearchIndex(prompt).includes(normalizedSearchQuery);
+    const matchesPrice =
+      promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
+
+    return prompt.active && matchesCategory && matchesSearch && matchesPrice;
+  });
+
+  switch (sortBy) {
+    case "price-low":
+      return [...filtered].sort((a, b) =>
+        a.priceStroops < b.priceStroops ? -1 : 1,
+      );
+    case "price-high":
+      return [...filtered].sort((a, b) =>
+        a.priceStroops > b.priceStroops ? -1 : 1,
+      );
+    case "sales":
+      return [...filtered].sort((a, b) => b.salesCount - a.salesCount);
+    default:
+      return [...filtered].sort((a, b) => Number(b.id - a.id));
+  }
+};
 
 export interface FetchAllPromptsProps {
   selectedCategory: string;
@@ -59,23 +113,45 @@ const FetchAllPrompts = ({
     },
   });
 
-  // Infinite scroll observer
-  useEffect(() => {
-    if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
+  const normalizedSearchQuery = normalizeSearchValue(searchQuery);
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const target = entries[0];
-        if (target.isIntersecting && currentPage < totalPages) {
-          setCurrentPage((prev) => prev + 1);
-        }
-      },
-      { threshold: 0.1, rootMargin: "100px" }
-    );
+  const filteredPromptsQuery = useQuery({
+    queryKey: [
+      "marketplace-prompts",
+      "filtered",
+      selectedCategory,
+      priceRange[0],
+      priceRange[1],
+      normalizedSearchQuery,
+      sortBy,
+    ],
+    enabled: promptsQuery.status === "success",
+    queryFn: async () => {
+      const sourcePrompts =
+        queryClient.getQueryData<PromptRecord[]>(["marketplace-prompts"]) ?? [];
 
-    observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [currentPage]);
+      return filterAndSortPrompts({
+        prompts: sourcePrompts,
+        selectedCategory,
+        priceRange,
+        normalizedSearchQuery,
+        sortBy,
+      });
+    },
+    initialData: () => {
+      if (promptsQuery.status !== "success") {
+        return [];
+      }
+
+      return filterAndSortPrompts({
+        prompts: promptsQuery.data,
+        selectedCategory,
+        priceRange,
+        normalizedSearchQuery,
+        sortBy,
+      });
+    },
+  });
 
   const accessQueries = useQueries({
     queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
@@ -97,43 +173,30 @@ const FetchAllPrompts = ({
     );
   }, [accessQueries, address, promptsQuery.data]);
 
-  const filteredPrompts = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-    const prompts = (promptsQuery.data ?? []).filter((prompt) => {
-      const promptPrice = parseXlmNumber(prompt.priceStroops);
-      const matchesCategory =
-        !selectedCategory || prompt.category === selectedCategory;
-      const matchesSearch =
-        !normalizedSearch ||
-        prompt.title.toLowerCase().includes(normalizedSearch) ||
-        prompt.category.toLowerCase().includes(normalizedSearch);
-      const matchesPrice =
-        promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
-
-      return prompt.active && matchesCategory && matchesSearch && matchesPrice;
-    });
-
-    switch (sortBy) {
-      case "price-low":
-        return [...prompts].sort((a, b) =>
-          a.priceStroops < b.priceStroops ? -1 : 1,
-        );
-      case "price-high":
-        return [...prompts].sort((a, b) =>
-          a.priceStroops > b.priceStroops ? -1 : 1,
-        );
-      case "sales":
-        return [...prompts].sort((a, b) => b.salesCount - a.salesCount);
-      default:
-        return [...prompts].sort((a, b) => Number(b.id - a.id));
-    }
-  }, [priceRange, promptsQuery.data, searchQuery, selectedCategory, sortBy]);
+  const filteredPrompts = filteredPromptsQuery.data ?? [];
 
   const totalPages = Math.max(
     1,
     Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
   );
-  
+
+  useEffect(() => {
+    if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const target = entries[0];
+        if (target.isIntersecting && currentPage < totalPages) {
+          setCurrentPage((prev) => prev + 1);
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" },
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [currentPage, totalPages]);
+
   // For infinite scroll, show all items up to current page
   const currentPrompts = ENABLE_INFINITE_SCROLL
     ? filteredPrompts.slice(0, currentPage * ITEMS_PER_PAGE)
@@ -231,8 +294,15 @@ const FetchAllPrompts = ({
           {ENABLE_INFINITE_SCROLL && filteredPrompts.length > ITEMS_PER_PAGE && (
             <div className="mt-8 text-center">
               <p className="text-sm text-slate-500">
-                Showing <span className="text-white font-semibold">{currentPrompts.length}</span> of{" "}
-                <span className="text-white font-semibold">{filteredPrompts.length}</span> prompts
+                Showing{" "}
+                <span className="text-white font-semibold">
+                  {currentPrompts.length}
+                </span>{" "}
+                of{" "}
+                <span className="text-white font-semibold">
+                  {filteredPrompts.length}
+                </span>{" "}
+                prompts
               </p>
             </div>
           )}
