@@ -1,7 +1,7 @@
 use super::events::Events;
 use super::storage::Storage;
 use super::types::{DataKey, Error, Prompt, PromptHashTrait};
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
 
@@ -59,7 +59,7 @@ impl PromptHashTrait for PromptHashContract {
         max_supply: u64, // #119: 0 = unlimited
     ) -> Result<u128, Error> {
         creator.require_auth();
-        require_not_paused(&env)?;
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
         validate_prompt_fields(
             &image_url,
             &title,
@@ -88,6 +88,7 @@ impl PromptHashTrait for PromptHashContract {
             sales_count: 0,
             expires_at,
             max_supply, // #119
+            max_supply: 0, // default unlimited; use set_prompt_max_supply to restrict
         };
 
         Storage::save_prompt(&env, &prompt)?;
@@ -103,12 +104,28 @@ impl PromptHashTrait for PromptHashContract {
         active: bool,
     ) -> Result<(), Error> {
         creator.require_auth();
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
         prompt.active = active;
         Storage::update_prompt(&env, &prompt);
         Events::emit_prompt_sale_status_updated(&env, prompt_id, active);
+        Ok(())
+    }
+
+    fn set_prompt_max_supply(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        max_supply: u64,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+        prompt.max_supply = max_supply;
+        Storage::update_prompt(&env, &prompt);
         Ok(())
     }
 
@@ -119,7 +136,7 @@ impl PromptHashTrait for PromptHashContract {
         price_stroops: i128,
     ) -> Result<(), Error> {
         creator.require_auth();
-        require_not_paused(&env)?;
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
         ensure(price_stroops > 0, Error::InvalidPrice)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
@@ -135,11 +152,12 @@ impl PromptHashTrait for PromptHashContract {
         env: Env,
         buyer: Address,
         prompt_id: u128,
-        payment_amount_stroops: i128, // #121: must be >= prompt.price_stroops
-        referrer: Option<Address>,    // #118: optional referrer
+        referrer: Option<Address>,
+        payment_amount_stroops: i128,
+        voucher: Option<Bytes>,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        require_not_paused(&env)?;
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
 
@@ -156,75 +174,87 @@ impl PromptHashTrait for PromptHashContract {
             Error::AlreadyPurchased,
         )?;
 
-        // #121: payment must cover the base price
-        ensure(payment_amount_stroops >= prompt.price_stroops, Error::PaymentBelowPrice)?;
-
-        // #119: enforce max supply
+        // Enforce max supply (0 = unlimited)
         if prompt.max_supply > 0 {
-            ensure(prompt.sales_count < prompt.max_supply, Error::MaxSupplyReached)?;
+            ensure(
+                prompt.sales_count < prompt.max_supply,
+                Error::MaxSupplyReached,
+            )?;
         }
 
-        // #118: validate referrer is neither buyer nor creator
-        if let Some(ref ref_addr) = referrer {
-            ensure(*ref_addr != buyer, Error::InvalidReferrer)?;
-            ensure(*ref_addr != prompt.creator, Error::InvalidReferrer)?;
+        // Apply voucher discount if provided
+        let mut required_price = prompt.price_stroops;
+        if let Some(code) = voucher {
+            let hashed_raw = env.crypto().sha256(&code);
+            let hashed = BytesN::from_array(&env, &hashed_raw.to_array());
+            if let Some(discount_bps) = Storage::get_voucher(&env, prompt_id, &hashed) {
+                let discount_amount = required_price
+                    .checked_mul(discount_bps as i128)
+                    .ok_or(Error::ArithmeticOverflow)?
+                    / MAX_BPS as i128;
+                required_price = required_price
+                    .checked_sub(discount_amount)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                Storage::remove_voucher(&env, prompt_id, &hashed);
+            } else {
+                return Err(Error::InvalidVoucher);
+            }
+        }
+
+        ensure(
+            payment_amount_stroops >= required_price,
+            Error::InvalidPaymentAmount,
+        )?;
+
+        if let Some(ref r) = referrer {
+            ensure(
+                r != &buyer && r != &prompt.creator,
+                Error::ReferrerCannotBeBuyerOrCreator,
+            )?;
         }
 
         Storage::set_reentrancy_guard(&env)?;
 
         let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
         let this_contract = env.current_contract_address();
+
         let fee_percentage = Storage::get_fee_percentage(&env);
         ensure!(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
-        // Apply platform fee on total payment amount (#121 tip is included in fee base)
         let fee_amount = payment_amount_stroops
             .checked_mul(fee_percentage as i128)
             .ok_or(Error::ArithmeticOverflow)?
             / MAX_BPS as i128;
 
-        let after_fee = payment_amount_stroops
-            .checked_sub(fee_amount)
+        let referral_percentage = Storage::get_referral_percentage(&env);
+        let referral_amount = if referrer.is_some() {
+            payment_amount_stroops
+                .checked_mul(referral_percentage as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128
+        } else {
+            0
+        };
+
+        let deductions = fee_amount
+            .checked_add(referral_amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let creator_amount = payment_amount_stroops
+            .checked_sub(deductions)
             .ok_or(Error::ArithmeticOverflow)?;
 
         let xlm = Storage::get_stellar_asset_contract(&env)?;
 
-        // #118: three-way split when referrer is present
-        let creator_amount = if let Some(ref ref_addr) = referrer {
-            let referral_bps = Storage::get_referral_bps(&env);
-            let referral_amount = payment_amount_stroops
-                .checked_mul(referral_bps as i128)
-                .ok_or(Error::ArithmeticOverflow)?
-                / MAX_BPS as i128;
-            let creator_amt = after_fee
-                .checked_sub(referral_amount)
-                .ok_or(Error::ArithmeticOverflow)?;
-            if referral_amount > 0 {
-                xlm.transfer_from(&this_contract, &buyer, ref_addr, &referral_amount);
-            }
-            creator_amt
-        } else {
-            after_fee
-        };
-
         xlm.transfer_from(&this_contract, &buyer, &prompt.creator, &creator_amount);
+
         if fee_amount > 0 {
             xlm.transfer_from(&this_contract, &buyer, &fee_wallet, &fee_amount);
         }
 
-        // #121: emit tip event if payment exceeds base price
-        let tip = payment_amount_stroops
-            .checked_sub(prompt.price_stroops)
-            .unwrap_or(0);
-        if tip > 0 {
-            Events::emit_prompt_tipped(
-                &env,
-                prompt_id,
-                buyer.clone(),
-                prompt.creator.clone(),
-                prompt.price_stroops,
-                tip,
-            );
+        if let Some(ref r) = referrer {
+            if referral_amount > 0 {
+                xlm.transfer_from(&this_contract, &buyer, r, &referral_amount);
+            }
         }
 
         prompt.sales_count = prompt
@@ -234,28 +264,26 @@ impl PromptHashTrait for PromptHashContract {
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, prompt_id, &buyer, MAX_ACCESS_EXPIRY);
         Storage::clear_reentrancy_guard(&env);
+
         Events::emit_prompt_purchased(
             &env,
             prompt_id,
-            buyer,
+            buyer.clone(),
             prompt.creator,
-            prompt.price_stroops,
+            payment_amount_stroops,
             referrer,
         );
+
+        if payment_amount_stroops > required_price {
+            Events::emit_prompt_tipped(
+                &env,
+                prompt_id,
+                buyer,
+                payment_amount_stroops - required_price,
+            );
+        }
+
         Ok(())
-    }
-
-    // ── #118: Referral BPS admin functions ────────────────────────────────────
-
-    fn set_referral_bps(env: Env, referral_bps: u32) -> Result<(), Error> {
-        ensure(referral_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
-        ownable::get_owner(&env).require_auth();
-        Storage::set_referral_bps(&env, referral_bps);
-        Ok(())
-    }
-
-    fn get_referral_bps(env: Env) -> u32 {
-        Storage::get_referral_bps(&env)
     }
 
     fn lease_prompt(
@@ -265,7 +293,7 @@ impl PromptHashTrait for PromptHashContract {
         lease_duration_secs: u64,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        require_not_paused(&env)?;
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
 
@@ -325,17 +353,14 @@ impl PromptHashTrait for PromptHashContract {
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, prompt_id, &buyer, expires_at);
         Storage::clear_reentrancy_guard(&env);
-        Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, lease_price);
+        Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, lease_price, None);
         Ok(())
     }
 
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
         let prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
-        Ok(
-            prompt.creator == user
-                || Storage::has_active_purchase(&env, prompt_id, &user, now),
-        )
+        Ok(prompt.creator == user || Storage::has_active_purchase(&env, prompt_id, &user, now))
     }
 
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {
@@ -382,13 +407,60 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     #[only_owner]
-    fn set_pause_status(env: Env, is_paused: bool) -> Result<(), Error> {
-        Storage::set_pause_status(&env, is_paused);
+    fn set_pause_status(env: Env, paused: bool) -> Result<(), Error> {
+        Storage::set_pause_status(&env, paused);
+        Events::emit_contract_paused_state_changed(&env, paused);
         Ok(())
     }
 
-    fn get_pause_status(env: Env) -> bool {
-        Storage::get_pause_status(&env)
+    fn is_paused(env: Env) -> bool {
+        Storage::is_paused(&env)
+    }
+
+    #[only_owner]
+    fn set_referral_percentage(env: Env, new_referral_percentage: u32) -> Result<(), Error> {
+        ensure(
+            new_referral_percentage <= MAX_BPS,
+            Error::InvalidReferralPercentage,
+        )?;
+        Storage::set_referral_percentage(&env, new_referral_percentage);
+        Ok(())
+    }
+
+    fn get_referral_percentage(env: Env) -> u32 {
+        Storage::get_referral_percentage(&env)
+    }
+
+    fn add_voucher(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        hashed_code: BytesN<32>,
+        discount_bps: u32,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        ensure(discount_bps <= MAX_BPS, Error::InvalidDiscountPercentage)?;
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+
+        Storage::add_voucher(&env, prompt_id, &hashed_code, discount_bps);
+        Events::emit_voucher_added(&env, prompt_id, hashed_code, discount_bps);
+        Ok(())
+    }
+
+    fn remove_voucher(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        hashed_code: BytesN<32>,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+
+        Storage::remove_voucher(&env, prompt_id, &hashed_code);
+        Events::emit_voucher_removed(&env, prompt_id, hashed_code);
+        Ok(())
     }
 
     #[only_owner]
@@ -489,6 +561,7 @@ fn extend_listing(
 #[contractimpl]
 impl Ownable for PromptHashContract {}
 
+#[allow(clippy::too_many_arguments)]
 fn validate_prompt_fields(
     image_url: &String,
     title: &String,
@@ -509,13 +582,17 @@ fn validate_prompt_fields(
         MAX_ENCRYPTED_PROMPT_LEN,
         Error::InvalidEncryptedPromptLength,
     )?;
-    validate_len(wrapped_key, MAX_WRAPPED_KEY_LEN, Error::InvalidWrappedKeyLength)?;
+    validate_len(
+        wrapped_key,
+        MAX_WRAPPED_KEY_LEN,
+        Error::InvalidWrappedKeyLength,
+    )?;
     validate_len(encryption_iv, MAX_IV_LEN, Error::InvalidIvLength)?;
     Ok(())
 }
 
 fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
-    ensure(value.len() > 0 && value.len() <= max_len, error)
+    ensure(!value.is_empty() && value.len() <= max_len, error)
 }
 
 fn ensure(condition: bool, error: Error) -> Result<(), Error> {
@@ -524,8 +601,4 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     } else {
         Err(error)
     }
-}
-
-fn require_not_paused(env: &Env) -> Result<(), Error> {
-    ensure(!Storage::get_pause_status(env), Error::ContractPaused)
 }

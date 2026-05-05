@@ -22,7 +22,6 @@ struct PromptPriceUpdated {
     pub price_stroops: i128,
 }
 
-/// #118 #121: Updated to carry referral and tip data.
 #[contractevent]
 struct PromptPurchased {
     #[topic]
@@ -33,15 +32,32 @@ struct PromptPurchased {
     pub referrer: Option<Address>,
 }
 
-/// #121: Emitted when the buyer pays more than the base price.
 #[contractevent]
 struct PromptTipped {
     #[topic]
     pub prompt_id: u128,
     pub buyer: Address,
-    pub creator: Address,
-    pub base_price_stroops: i128,
-    pub tip_amount_stroops: i128,
+    pub amount_tipped: i128,
+}
+
+#[contractevent]
+struct VoucherAdded {
+    #[topic]
+    pub prompt_id: u128,
+    pub hashed_code: soroban_sdk::BytesN<32>,
+    pub discount_bps: u32,
+}
+
+#[contractevent]
+struct VoucherRemoved {
+    #[topic]
+    pub prompt_id: u128,
+    pub hashed_code: soroban_sdk::BytesN<32>,
+}
+
+#[contractevent]
+struct ContractPausedStateChanged {
+    pub is_paused: bool,
 }
 
 #[contractevent]
@@ -108,21 +124,33 @@ impl Events {
         .publish(env);
     }
 
-    /// #121: Emit tip event when payment exceeds base price.
-    pub fn emit_prompt_tipped(
-        env: &Env,
-        prompt_id: u128,
-        buyer: Address,
-        creator: Address,
-        base_price_stroops: i128,
-        tip_amount_stroops: i128,
-    ) {
+    pub fn emit_prompt_tipped(env: &Env, prompt_id: u128, buyer: Address, amount_tipped: i128) {
         PromptTipped {
             prompt_id,
             buyer,
-            creator,
-            base_price_stroops,
-            tip_amount_stroops,
+            amount_tipped,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_voucher_added(
+        env: &Env,
+        prompt_id: u128,
+        hashed_code: soroban_sdk::BytesN<32>,
+        discount_bps: u32,
+    ) {
+        VoucherAdded {
+            prompt_id,
+            hashed_code,
+            discount_bps,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_voucher_removed(env: &Env, prompt_id: u128, hashed_code: soroban_sdk::BytesN<32>) {
+        VoucherRemoved {
+            prompt_id,
+            hashed_code,
         }
         .publish(env);
     }
@@ -143,6 +171,8 @@ impl Events {
             fee_paid,
         }
         .publish(env);
+    pub fn emit_contract_paused_state_changed(env: &Env, is_paused: bool) {
+        ContractPausedStateChanged { is_paused }.publish(env);
     }
 
     pub fn emit_fee_updated(env: &Env, new_fee_percentage: u32) {

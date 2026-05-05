@@ -52,3 +52,5 @@ fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
 }
 ```
 This ensures that ONLY the original creator or a verified buyer can ever trigger the unlock flow successfully.
+
+// Starting on the issue
