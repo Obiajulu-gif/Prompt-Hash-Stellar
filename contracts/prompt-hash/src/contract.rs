@@ -14,6 +14,8 @@ const MAX_ENCRYPTED_PROMPT_LEN: u32 = 4096;
 const MAX_WRAPPED_KEY_LEN: u32 = 256;
 const MAX_IMAGE_URL_LEN: u32 = 512;
 const MAX_IV_LEN: u32 = 64;
+const SECONDS_PER_DAY: u64 = 86400;
+const DEFAULT_EXPIRY_DAYS: u64 = 30;
 const LEASE_PRICE_BPS: u32 = 4_000;
 const MAX_ACCESS_EXPIRY: u64 = u64::MAX;
 
@@ -53,6 +55,8 @@ impl PromptHashTrait for PromptHashContract {
         wrapped_key: String,
         content_hash: BytesN<32>,
         price_stroops: i128,
+        expires_at: Option<u64>,
+        max_supply: u64, // #119: 0 = unlimited
     ) -> Result<u128, Error> {
         creator.require_auth();
         ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
@@ -82,6 +86,8 @@ impl PromptHashTrait for PromptHashContract {
             price_stroops,
             active: true,
             sales_count: 0,
+            expires_at,
+            max_supply, // #119
             max_supply: 0, // default unlimited; use set_prompt_max_supply to restrict
         };
 
@@ -155,6 +161,12 @@ impl PromptHashTrait for PromptHashContract {
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
 
+        ensure!(prompt.active, Error::PromptInactive)?;
+        ensure!(prompt.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure!(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
+        if let Some(expiry) = prompt.expires_at {
+            ensure!(env.ledger().timestamp() < expiry, Error::PromptExpired)?;
+        }
         ensure(prompt.active, Error::PromptInactive)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(
@@ -207,7 +219,7 @@ impl PromptHashTrait for PromptHashContract {
         let this_contract = env.current_contract_address();
 
         let fee_percentage = Storage::get_fee_percentage(&env);
-        ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
+        ensure!(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
         let fee_amount = payment_amount_stroops
             .checked_mul(fee_percentage as i128)
@@ -325,6 +337,16 @@ impl PromptHashTrait for PromptHashContract {
             .sales_count
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
+        Storage::update_prompt(&env, &prompt);
+        Storage::grant_purchase(&env, prompt_id, &buyer);
+        Storage::clear_reentrancy_guard(&env);
+        Events::emit_prompt_purchased(
+            &env,
+            prompt_id,
+            buyer,
+            prompt.creator,
+            prompt.price_stroops,
+        );
         let expires_at = now
             .checked_add(lease_duration_secs)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -453,6 +475,84 @@ impl PromptHashTrait for PromptHashContract {
 
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error> {
         Storage::extend_key_ttl(&env, &key);
+        Ok(())
+    }
+
+fn extend_listing(
+    env: Env,
+    creator: Address,
+    prompt_id: u128,
+    extension_days: u64,
+    fee_percentage_bps: Option<u32>,
+) -> Result<(), Error> {
+    creator.require_auth();
+    let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+    ensure!(prompt.creator == creator, Error::Unauthorized)?;
+
+    ensure!(extension_days > 0, Error::InvalidExtensionDuration)?;
+
+    let extension_seconds = extension_days
+        .checked_mul(SECONDS_PER_DAY)
+        .ok_or(Error::ArithmeticOverflow)?;
+
+    let now = env.ledger().timestamp();
+    let new_expiry = if let Some(current_expiry) = prompt.expires_at {
+        if now >= current_expiry {
+            now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+        } else {
+            current_expiry.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+        }
+    } else {
+        now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+    };
+
+    let mut fee_paid = 0i128;
+    if let Some(fee_bps) = fee_percentage_bps {
+        ensure!(fee_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
+        let fee = prompt
+            .price_stroops
+            .checked_mul(fee_bps as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            / MAX_BPS as i128;
+        if fee > 0 {
+            let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+            let xlm = Storage::get_stellar_asset_contract(&env)?;
+            let this_contract = env.current_contract_address();
+            xlm.transfer_from(&this_contract, &creator, &fee_wallet, &fee);
+            fee_paid = fee;
+        }
+    }
+
+    prompt.expires_at = Some(new_expiry);
+    Storage::update_prompt(&env, &prompt);
+    Events::emit_listing_extended(&env, prompt_id, creator, Some(new_expiry), extension_days, fee_paid);
+    Ok(())
+}
+        } else {
+            // No previous expiry; set from now
+            now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+        };
+
+        let mut fee_paid = 0i128;
+        if let Some(fee_bps) = fee_percentage_bps {
+            ensure!(fee_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
+            let fee = prompt
+                .price_stroops
+                .checked_mul(fee_bps as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            if fee > 0 {
+                let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+                let xlm = Storage::get_stellar_asset_contract(&env)?;
+                let this_contract = env.current_contract_address();
+                xlm.transfer_from(&this_contract, &creator, &fee_wallet, &fee)?;
+                fee_paid = fee;
+            }
+        }
+
+        prompt.expires_at = Some(new_expiry);
+        Storage::update_prompt(&env, &prompt);
+        Events::emit_listing_extended(&env, prompt_id, creator, Some(new_expiry), extension_days, fee_paid);
         Ok(())
     }
 }

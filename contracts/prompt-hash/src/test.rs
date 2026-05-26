@@ -4,6 +4,8 @@ use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::Error;
 extern crate std;
+use soroban_sdk::{testutils::Address as _, testutils::Ledger, token, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token, Address, Bytes, BytesN, Env, String,
@@ -46,6 +48,7 @@ fn create_prompt(
     creator: &Address,
     title: &str,
     price_stroops: i128,
+    expires_at: Option<u64> = None,
 ) -> u128 {
     client.create_prompt(
         creator,
@@ -58,6 +61,7 @@ fn create_prompt(
         &String::from_str(env, "wrapped-key"),
         &hash(env, 7),
         &price_stroops,
+        &expires_at,
     )
 }
 
@@ -447,6 +451,117 @@ fn test_arithmetic_safety_for_massive_prices() {
 }
 
 #[test]
+fn test_prompt_with_no_expiry_never_expires() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let prompt_id = create_prompt(&env, &client, &creator, "Never Expires", 5_000, None);
+
+    // Advance time far into the future
+    env.ledger().set_timestamp(1_000_000_000);
+
+    // Should still appear in all prompts
+    let all = client.get_all_prompts();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all.get(0).unwrap().id, prompt_id);
+}
+
+#[test]
+fn test_expired_prompt_is_filtered() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Expires Soon", 5_000, Some(expiry));
+
+    // Before expiry: present
+    assert_eq!(client.get_all_prompts().len(), 1);
+
+    // After expiry
+    env.ledger().set_timestamp(1_020);
+    let all = client.get_all_prompts();
+    assert_eq!(all.len(), 0);
+
+    // get_prompt still returns the prompt (even expired)
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.id, prompt_id);
+}
+
+#[test]
+fn test_buying_expired_prompt_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Buy Expired", 5_000, Some(expiry));
+
+    // Expire it
+    env.ledger().set_timestamp(1_020);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+    let result = client.try_buy_prompt(&buyer, &prompt_id);
+    match result {
+        Err(Ok(Error::PromptExpired)) => {},
+        other => panic!("expected PromptExpired, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_extend_listing_without_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Extend No Fee", 5_000, Some(expiry));
+
+    // Extend by 2 days
+    let extension_days: u64 = 2;
+    client.extend_listing(&creator, &prompt_id, &extension_days, &None);
+
+    let expected = 1_010u64 + (extension_days * 86400);
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.expires_at, Some(expected));
+}
+
+#[test]
+fn test_extend_expired_listing_sets_expiry_from_now() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Expired Then Extended", 5_000, Some(expiry));
+
+    // Let it expire
+    env.ledger().set_timestamp(2_000);
+
+    let extension_days: u64 = 1;
+    client.extend_listing(&creator, &prompt_id, &extension_days, &None);
+
+    // New expiry should be from current time (2000) + 1 day
+    let expected = 2_000u64 + 86400;
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.expires_at, Some(expected));
+}
+
+#[test]
+fn test_extend_listing_with_fee_transfers_correct_amount() {
 fn test_global_pause_blocks_mutations_but_not_reads() {
     let env: Env = Default::default();
     let context = setup(&env);
@@ -491,6 +606,67 @@ fn test_lease_prompt_grants_temporary_access_and_expires() {
     let client = PromptHashContractClient::new(&env, &context.contract);
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
+    let creator = Address::generate(&env);
+    let price: i128 = 10_000;
+    let fee_bps: u32 = 500; // 5%
+    let fee_amount = price * fee_bps as i128 / 10_000; // 500
+
+    // Fund creator
+    xlm_client.mint(&creator, &(price * 2));
+    xlm_client.approve(&creator, &context.contract, &(fee_amount + 1), &1_000);
+
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Fee Extension", price, Some(expiry));
+
+    let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
+
+    let extension_days: u64 = 1;
+    client.extend_listing(&creator, &prompt_id, &extension_days, &Some(fee_bps));
+
+    let fee_wallet_balance_after = xlm_client.balance(&context.fee_wallet);
+    assert_eq!(fee_wallet_balance_after, fee_wallet_balance_before + fee_amount);
+
+    let expected_expiry = 1_010u64 + 86400;
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.expires_at, Some(expected_expiry));
+}
+
+#[test]
+fn test_extend_listing_unauthorized_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Protected Extension", 5_000, Some(expiry));
+
+    let result = client.try_extend_listing(&stranger, &prompt_id, &1u64, &None);
+    match result {
+        Err(Ok(Error::Unauthorized)) => {},
+        other => panic!("expected Unauthorized, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_extend_listing_invalid_duration_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Invalid Duration", 5_000, Some(expiry));
+
+    let result = client.try_extend_listing(&creator, &prompt_id, &0u64, &None);
+    match result {
+        Err(Ok(Error::InvalidExtensionDuration)) => {},
+        other => panic!("expected InvalidExtensionDuration, got {:?}", other),
+    }
     env.ledger().with_mut(|ledger| {
         ledger.timestamp = 1_000;
     });

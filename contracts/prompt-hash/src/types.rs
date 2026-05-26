@@ -22,6 +22,15 @@ pub enum Error {
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
+    PromptExpired = 19,
+    InvalidExtensionDuration = 20,
+    ContractPaused = 19,
+    /// #119: Limited-edition supply exhausted.
+    MaxSupplyReached = 20,
+    /// #118: Referrer cannot be the buyer or the creator.
+    InvalidReferrer = 21,
+    /// #121: Payment amount is below the listed price.
+    PaymentBelowPrice = 22,
     ContractIsPaused = 19,
     ReferrerCannotBeBuyerOrCreator = 20,
     InvalidPaymentAmount = 21,
@@ -70,6 +79,9 @@ pub struct Prompt {
     pub price_stroops: i128,
     pub active: bool,
     pub sales_count: u64,
+    pub expires_at: Option<u64>,
+    /// #119: Maximum number of licenses (0 = unlimited).
+    pub max_supply: u64,
     pub max_supply: u64, // 0 = unlimited
 }
 
@@ -162,4 +174,11 @@ pub trait PromptHashTrait {
     fn get_xlm_sac(env: Env) -> Option<Address>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
+    fn extend_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        extension_days: u64,
+        fee_percentage_bps: Option<u32>,
+    ) -> Result<(), Error>;
 }

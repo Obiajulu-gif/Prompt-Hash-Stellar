@@ -15,6 +15,15 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     }
 }
 
+fn is_expired(env: &Env, prompt: &Prompt) -> bool {
+    if let Some(expiry) = prompt.expires_at {
+        let now = env.ledger().timestamp();
+        now >= expiry
+    } else {
+        false
+    }
+}
+
 impl Storage {
     pub fn extend_key_ttl(env: &Env, key: &DataKey) {
         if env.storage().persistent().has(key) {
@@ -74,7 +83,9 @@ impl Storage {
         let mut prompts = Vec::new(env);
         for prompt_id in 0..prompt_count {
             if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                prompts.push_back(prompt);
+                if !is_expired(env, &prompt) {
+                    prompts.push_back(prompt);
+                }
             }
         }
         prompts
