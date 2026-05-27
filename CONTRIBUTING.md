@@ -28,6 +28,7 @@ This project is an in-development Soroban application for encrypted prompt licen
 ## Recommended Local Checks
 
 ```bash
+yarn check:setup
 yarn test:frontend
 yarn build
 cargo test -p prompt-hash

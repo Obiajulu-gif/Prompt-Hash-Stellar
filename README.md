@@ -264,6 +264,16 @@ cargo test -p prompt-hash
 yarn test:frontend
 ```
 
+## Setup Validation
+
+Run the one-command setup check to verify all prerequisites and environment variables before starting development:
+
+```bash
+yarn check:setup
+```
+
+This checks Node/Yarn versions, Rust toolchain, Stellar CLI, dependencies, and required environment variables without printing secret values.
+
 ## Environment Variables
 
 See `.env.example` for the full template. Main variables:
@@ -353,6 +363,10 @@ Contributions are welcome, especially in the following areas:
 - creator onboarding and marketplace moderation
 
 See `CONTRIBUTING.md` for workflow details.
+
+## Product Journeys
+
+See [`docs/product-journeys.md`](./docs/product-journeys.md) for a beginner-friendly walkthrough of the creator and buyer flows, including which components handle each step.
 
 ## License
 

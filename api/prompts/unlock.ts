@@ -18,6 +18,7 @@ import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
 import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
+import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 
 /**
  * Get active secrets for token verification
@@ -72,7 +73,7 @@ function getServerConfig(): PromptHashConfig {
 
 async function handler(req: any, res: any) {
   if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed." });
+    res.status(405).json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
     return;
   }
 
@@ -99,7 +100,11 @@ async function handler(req: any, res: any) {
     res.setHeader("X-RateLimit-Limit", ipRateLimit.limit);
     res.setHeader("X-RateLimit-Remaining", 0);
     res.setHeader("X-RateLimit-Reset", ipRateLimit.reset);
-    res.status(429).json({ error: "Too many requests. Please try again later." });
+    res.status(429).json(
+      apiError(ErrorCode.RATE_LIMIT_IP, "Too many requests. Please try again later.", {
+        reset: ipRateLimit.reset,
+      }),
+    );
     return;
   }
 
@@ -121,7 +126,11 @@ async function handler(req: any, res: any) {
       res.setHeader("X-RateLimit-Limit", walletRateLimit.limit);
       res.setHeader("X-RateLimit-Remaining", 0);
       res.setHeader("X-RateLimit-Reset", walletRateLimit.reset);
-      res.status(429).json({ error: "Too many unlock attempts for this wallet." });
+      res.status(429).json(
+        apiError(ErrorCode.RATE_LIMIT_WALLET, "Too many unlock attempts for this wallet.", {
+          reset: walletRateLimit.reset,
+        }),
+      );
       return;
     }
   }
@@ -132,14 +141,17 @@ async function handler(req: any, res: any) {
 
   if (!challengeSecret || !unlockPublicKey || !unlockPrivateKey) {
     req.logger.error("Unlock service is missing configuration secrets.");
-    res.status(500).json({ error: "Configuration error." });
+    res.status(500).json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
     return;
   }
 
   if (!token || !promptId || !address || !signedMessage) {
-    res.status(400).json({
-      error: "token, promptId, address, and signedMessage are required.",
-    });
+    res.status(400).json(
+      apiError(
+        ErrorCode.MISSING_FIELDS,
+        "token, promptId, address, and signedMessage are required.",
+      ),
+    );
     return;
   }
 
@@ -172,7 +184,7 @@ async function handler(req: any, res: any) {
         clientIp,
         reason: "invalid_signature",
       });
-      res.status(401).json({ error: "Invalid wallet signature." });
+      res.status(401).json(apiError(ErrorCode.INVALID_SIGNATURE, "Invalid wallet signature."));
       return;
     }
 
@@ -191,7 +203,9 @@ async function handler(req: any, res: any) {
         clientIp,
         reason: "no_access",
       });
-      res.status(403).json({ error: "Prompt access has not been purchased." });
+      res.status(403).json(
+        apiError(ErrorCode.ACCESS_NOT_PURCHASED, "Prompt access has not been purchased."),
+      );
       return;
     }
 
@@ -219,7 +233,9 @@ async function handler(req: any, res: any) {
         clientIp,
         reason: "integrity_failure",
       });
-      res.status(500).json({ error: "Prompt integrity check failed." });
+      res.status(500).json(
+        apiError(ErrorCode.INTEGRITY_FAILURE, "Prompt integrity check failed."),
+      );
       return;
     }
 
@@ -253,7 +269,7 @@ async function handler(req: any, res: any) {
     req.logger.error({ address, promptId, error: message }, "Unlock attempt failed");
     metrics.trackUnlockFailure(String(address), String(promptId), "error");
 
-    // Distinguish expired-challenge errors for finer-grained audit reasons.
+    // Distinguish expired-challenge errors for finer-grained audit reasons and error codes.
     const isExpired = message.toLowerCase().includes("expired");
     void recordAuditEvent({
       action: isExpired ? "unlock_expired_challenge" : "unlock_error",
@@ -265,7 +281,15 @@ async function handler(req: any, res: any) {
       reason: isExpired ? "expired_challenge" : "error",
     });
 
-    res.status(400).json({ error: message });
+    if (isExpired) {
+      res.status(400).json(
+        apiError(ErrorCode.CHALLENGE_EXPIRED, "The challenge token has expired. Please request a new one."),
+      );
+    } else {
+      res.status(400).json(
+        apiError(ErrorCode.TEMPORARY_FAILURE, "Failed to unlock prompt. Please try again."),
+      );
+    }
   }
 }
 

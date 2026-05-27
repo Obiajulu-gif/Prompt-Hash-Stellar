@@ -20,7 +20,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier . --write",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:setup": "node scripts/check-local-setup.mjs"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.9.5",

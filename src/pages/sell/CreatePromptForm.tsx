@@ -1,6 +1,10 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Loader2 } from "lucide-react";
+import {
+  ListingQualityChecklist,
+  buildChecklistItems,
+} from "@/components/sell/ListingQualityChecklist";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +63,7 @@ export function CreatePromptForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showChecklist, setShowChecklist] = useState(false);
 
   const isConfigured = useMemo(
     () =>
@@ -70,6 +75,13 @@ export function CreatePromptForm() {
       ),
     [address, signTransaction],
   );
+
+  const checklistItems = useMemo(
+    () => buildChecklistItems(formData),
+    [formData],
+  );
+
+  const checklistHasFailures = checklistItems.some((i) => i.status === "fail");
 
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -140,6 +152,11 @@ export function CreatePromptForm() {
   const handleSubmit = async () => {
     setSubmitError(null);
     setSuccessMessage(null);
+
+    // Show checklist on first click so the creator can review quality
+    if (!showChecklist) {
+      setShowChecklist(true);
+    }
 
     if (!validateForm()) {
       return;
@@ -335,9 +352,13 @@ export function CreatePromptForm() {
         ) : null}
       </div>
 
+      {showChecklist ? (
+        <ListingQualityChecklist items={checklistItems} />
+      ) : null}
+
       <Button
         className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-        disabled={isSubmitting}
+        disabled={isSubmitting || (showChecklist && checklistHasFailures)}
         onClick={handleSubmit}
       >
         {isSubmitting ? (
