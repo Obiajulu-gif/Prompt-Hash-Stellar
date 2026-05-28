@@ -42,7 +42,7 @@ export default function BrowsePage() {
       <Navigation />
 
       {/* Marketplace Header */}
-      <header className="relative pt-16 pb-12 overflow-hidden px-6">
+      <header className="relative overflow-hidden px-4 pb-12 pt-16 sm:px-6">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[300px] bg-emerald-500/10 blur-[120px] pointer-events-none" />
 
         <div className="mx-auto max-w-7xl relative">
@@ -75,7 +75,7 @@ export default function BrowsePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 pb-24">
+      <main className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">
         {/* Curated Section */}
         <div className="mb-16">
           <FeaturedPrompts limit={4} title="Editor's Choice" />
@@ -109,7 +109,7 @@ export default function BrowsePage() {
 
           <div className="flex-1 space-y-8">
             {/* Search bar */}
-            <div className="flex gap-3">
+            <div className="flex items-stretch gap-3">
               <div className="relative flex-1 group">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-emerald-400 transition-colors" />
                 <Input
@@ -124,6 +124,7 @@ export default function BrowsePage() {
                   variant="outline"
                   className="h-14 w-14 rounded-2xl border-white/10 bg-white/5"
                   onClick={() => setIsFilterOpen(true)}
+                  aria-label="Open filters"
                 >
                   <Filter className="h-5 w-5" />
                 </Button>
@@ -152,13 +153,14 @@ export default function BrowsePage() {
             className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
             onClick={() => setIsFilterOpen(false)}
           />
-          <div className="absolute right-0 top-0 h-full w-full max-w-[320px] bg-slate-900 border-l border-white/10 p-8 shadow-2xl animate-in slide-in-from-right duration-300">
-            <div className="flex items-center justify-between mb-10">
+          <div className="absolute right-0 top-0 h-full w-full max-w-[320px] overflow-y-auto border-l border-white/10 bg-slate-900 p-6 shadow-2xl animate-in slide-in-from-right duration-300 sm:p-8">
+            <div className="mb-8 flex items-center justify-between">
               <h2 className="text-xl font-bold">Filters</h2>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setIsFilterOpen(false)}
+                aria-label="Close filters"
               >
                 <X className="h-6 w-6" />
               </Button>
@@ -176,7 +178,7 @@ export default function BrowsePage() {
               onClear={handleClearFilters}
             />
             <Button
-              className="w-full mt-12 h-12 bg-emerald-500 text-slate-950 font-bold"
+              className="mt-10 h-12 w-full bg-emerald-500 font-bold text-slate-950"
               onClick={() => setIsFilterOpen(false)}
             >
               Show Results
