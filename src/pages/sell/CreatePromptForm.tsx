@@ -239,11 +239,16 @@ export function CreatePromptForm() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Image URL</label>
+          <label htmlFor="imageUrl" className="text-sm font-medium">
+            Image URL
+          </label>
           <Input
+            id="imageUrl"
             name="imageUrl"
             value={formData.imageUrl}
             onChange={handleChange}
+            type="url"
+            autoComplete="url"
             placeholder="https://example.com/prompt-cover.png"
             className={errors.imageUrl ? "border-red-500" : ""}
           />
@@ -255,11 +260,15 @@ export function CreatePromptForm() {
           ) : null}
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Title</label>
+          <label htmlFor="title" className="text-sm font-medium">
+            Title
+          </label>
           <Input
+            id="title"
             name="title"
             value={formData.title}
             onChange={handleChange}
+            autoComplete="off"
             placeholder="Board-ready launch plan"
             className={errors.title ? "border-red-500" : ""}
           />
@@ -277,8 +286,11 @@ export function CreatePromptForm() {
 
       <div className="grid gap-6 md:grid-cols-[1fr_220px]">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Preview text</label>
+          <label htmlFor="previewText" className="text-sm font-medium">
+            Preview text
+          </label>
           <Textarea
+            id="previewText"
             name="previewText"
             value={formData.previewText}
             onChange={handleChange}
@@ -297,9 +309,14 @@ export function CreatePromptForm() {
           ) : null}
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Category</label>
+          <label htmlFor="category" className="text-sm font-medium">
+            Category
+          </label>
           <Select value={formData.category} onValueChange={handleCategoryChange}>
-            <SelectTrigger className={errors.category ? "border-red-500" : ""}>
+            <SelectTrigger
+              id="category"
+              className={errors.category ? "border-red-500" : ""}
+            >
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
@@ -317,11 +334,16 @@ export function CreatePromptForm() {
             </p>
           ) : null}
 
-          <label className="pt-3 text-sm font-medium">Price in XLM</label>
+          <label htmlFor="priceXlm" className="pt-3 text-sm font-medium">
+            Price in XLM
+          </label>
           <Input
+            id="priceXlm"
             name="priceXlm"
             value={formData.priceXlm}
             onChange={handleChange}
+            inputMode="decimal"
+            autoComplete="off"
             placeholder="2.5"
             className={errors.priceXlm ? "border-red-500" : ""}
           />
@@ -335,11 +357,15 @@ export function CreatePromptForm() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Full prompt</label>
+        <label htmlFor="fullPrompt" className="text-sm font-medium">
+          Full prompt
+        </label>
         <Textarea
+          id="fullPrompt"
           name="fullPrompt"
           value={formData.fullPrompt}
           onChange={handleChange}
+          autoComplete="off"
           rows={12}
           placeholder="This plaintext is encrypted in the browser, then only encrypted fields are sent on-chain."
           className={errors.fullPrompt ? "border-red-500" : ""}
