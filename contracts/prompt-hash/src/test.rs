@@ -3,9 +3,10 @@ use crate::mock_asset::FungibleTokenContract;
 use crate::types::{Error, PricingConfig};
 extern crate std;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    token, Address, Bytes, BytesN, Env, String,
+    testutils::{Address as _, Events, Ledger},
+    token, Address, Bytes, BytesN, Env, String, TryIntoVal,
 };
+use std::{env as std_env, fs, path::PathBuf, vec::Vec as StdVec};
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -71,6 +72,78 @@ fn fund_buyer(
 ) {
     xlm_client.mint(buyer, &amount);
     xlm_client.approve(buyer, spender, &amount, &1_000);
+}
+
+fn test_wasm_hash(env: &Env) -> BytesN<32> {
+    let wasm = test_contract_wasm();
+    env.deployer()
+        .upload_contract_wasm(Bytes::from_slice(env, &wasm))
+}
+
+fn test_contract_wasm() -> StdVec<u8> {
+    let cargo_home = std_env::var("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| std_env::var("USERPROFILE").map(|home| PathBuf::from(home).join(".cargo")))
+        .or_else(|_| std_env::var("HOME").map(|home| PathBuf::from(home).join(".cargo")))
+        .expect("CARGO_HOME, USERPROFILE, or HOME must be set");
+
+    let registry_src = cargo_home.join("registry").join("src");
+    for registry in fs::read_dir(&registry_src).expect("cargo registry src must exist") {
+        let registry = registry.expect("registry entry must be readable").path();
+        let sdk_dirs = fs::read_dir(registry).expect("registry directory must be readable");
+        for sdk_dir in sdk_dirs {
+            let sdk_dir = sdk_dir.expect("sdk entry must be readable").path();
+            let Some(name) = sdk_dir.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with("soroban-sdk-23.") {
+                let wasm_path = sdk_dir.join("doctest_fixtures").join("contract.wasm");
+                if wasm_path.exists() {
+                    return fs::read(wasm_path)
+                        .expect("Soroban test contract Wasm must be readable");
+                }
+            }
+        }
+    }
+
+    panic!("could not find Soroban SDK test contract Wasm fixture");
+}
+
+#[test]
+fn test_admin_can_upgrade_contract_and_emit_event() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let new_wasm_hash = test_wasm_hash(&env);
+
+    client.upgrade_contract(&context.admin, &new_wasm_hash);
+
+    assert!(env.events().all().iter().any(|event| {
+        if event.0 != context.contract || event.1.len() < 3 {
+            return false;
+        }
+        let event_admin: Address = event.1.get(1).unwrap().try_into_val(&env).unwrap();
+        let event_hash: BytesN<32> = event.1.get(2).unwrap().try_into_val(&env).unwrap();
+        event_admin == context.admin && event_hash == new_wasm_hash
+    }));
+}
+
+#[test]
+fn test_non_admin_cannot_upgrade_contract() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let non_admin = Address::generate(&env);
+    let new_wasm_hash = hash(&env, 9);
+
+    let result = client.try_upgrade_contract(&non_admin, &new_wasm_hash);
+    match result {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!(
+            "expected Unauthorized for non-admin upgrade, got {:?}",
+            other
+        ),
+    }
 }
 
 #[test]

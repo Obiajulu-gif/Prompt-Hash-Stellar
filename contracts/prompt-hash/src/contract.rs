@@ -445,13 +445,16 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    #[only_owner]
+    fn upgrade_contract(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin_auth(&env, &admin)?;
+        upgrade_current_contract(env, admin, new_wasm_hash);
+        Ok(())
+    }
+
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.storage().instance().extend_ttl(
-            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
-            super::storage::PERSISTENT_BUMP_AMOUNT,
-        );
+        let admin = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        upgrade_current_contract(env, admin, new_wasm_hash);
         Ok(())
     }
 
@@ -505,4 +508,21 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     } else {
         Err(error)
     }
+}
+
+fn require_admin_auth(env: &Env, admin: &Address) -> Result<(), Error> {
+    let stored_admin = ownable::get_owner(env).ok_or(Error::Unauthorized)?;
+    ensure(stored_admin == *admin, Error::Unauthorized)?;
+    admin.require_auth();
+    Ok(())
+}
+
+fn upgrade_current_contract(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
+    env.storage().instance().extend_ttl(
+        super::storage::PERSISTENT_LIFETIME_THRESHOLD,
+        super::storage::PERSISTENT_BUMP_AMOUNT,
+    );
+    Events::emit_contract_upgraded(&env, admin, new_wasm_hash);
 }
