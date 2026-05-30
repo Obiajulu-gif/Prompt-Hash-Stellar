@@ -30,6 +30,10 @@ pub enum Error {
     InvalidDiscountPercentage = 24,
     MaxSupplyReached = 25,
     InvalidAsset = 26,
+    // #50 – revenue splits
+    InvalidSplits = 27,
+    // #49 – time-bound listing expiry
+    ListingExpired = 28,
 }
 
 #[contracttype]
@@ -62,6 +66,31 @@ pub struct PricingConfig {
     pub asset: Address,
 }
 
+/// A single revenue-split entry stored inside a prompt.
+/// `bps` is the share of the full payment (in basis points) paid to `recipient`
+/// before the creator receives the remainder.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Split {
+    pub recipient: Address,
+    pub bps: u32,
+}
+
+/// Full listing configuration passed to create_prompt.
+/// Bundles pricing, optional expiry, and optional revenue splits into a single
+/// parameter so the function stays within Soroban's 10-parameter limit.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListingConfig {
+    pub price: i128,
+    pub asset: Address,
+    /// Unix timestamp after which the listing can no longer be purchased.
+    /// `0` means the listing never expires.
+    pub expires_at: u64,
+    /// Optional co-creator revenue splits (empty Vec = no splits).
+    pub splits: Vec<Split>,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
@@ -79,7 +108,12 @@ pub struct Prompt {
     pub asset: Address,
     pub active: bool,
     pub sales_count: u64,
-    pub max_supply: u64, // 0 = unlimited
+    pub max_supply: u64,
+    /// Unix timestamp after which the listing can no longer be purchased.
+    /// `0` means the listing never expires.
+    pub expires_at: u64,
+    /// Optional co-creator revenue splits applied against the full payment.
+    pub splits: Vec<Split>,
 }
 
 pub trait PromptHashTrait {
@@ -102,7 +136,7 @@ pub trait PromptHashTrait {
         encryption_iv: String,
         wrapped_key: String,
         content_hash: BytesN<32>,
-        pricing: PricingConfig,
+        listing: ListingConfig,
     ) -> Result<u128, Error>;
 
     fn set_prompt_sale_status(
@@ -140,6 +174,27 @@ pub trait PromptHashTrait {
         buyer: Address,
         prompt_id: u128,
         lease_duration_secs: u64,
+    ) -> Result<(), Error>;
+
+    /// Push the expiry date of a listing forward. `new_expires_at` must be
+    /// strictly greater than the current ledger timestamp.
+    fn extend_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        new_expires_at: u64,
+    ) -> Result<(), Error>;
+
+    /// Purchase multiple prompts atomically in a single transaction.
+    /// `prompt_ids` and `payment_amounts` must have equal length.
+    /// An optional `referrer` applies to every prompt in the batch.
+    /// If any individual purchase fails the entire transaction reverts.
+    fn buy_prompts_bulk(
+        env: Env,
+        buyer: Address,
+        prompt_ids: Vec<u128>,
+        payment_amounts: Vec<i128>,
+        referrer: Option<Address>,
     ) -> Result<(), Error>;
 
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
