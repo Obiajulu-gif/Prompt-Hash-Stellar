@@ -25,14 +25,15 @@ import {
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
 import { createPrompt } from "@/lib/stellar/promptHashClient";
+import {
+  LISTING_LIMITS,
+  validateListingForm,
+} from "@/lib/validation/listing";
 
 const limits = {
-  title: 120,
-  category: 40,
-  preview: 280,
+  ...LISTING_LIMITS,
   encrypted: 4096,
   wrappedKey: 256,
-  imageUrl: 512,
 };
 
 const categories = Array.from(
@@ -191,46 +192,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   };
 
   const validateForm = () => {
-    const nextErrors: Record<string, string> = {};
-
-    if (!formData.imageUrl.trim()) {
-      nextErrors.imageUrl = "Image URL is required.";
-    } else if (formData.imageUrl.length > limits.imageUrl) {
-      nextErrors.imageUrl = `Image URL must be ${limits.imageUrl} characters or fewer.`;
-    }
-
-    if (!formData.title.trim()) {
-      nextErrors.title = "Title is required.";
-    } else if (formData.title.length > limits.title) {
-      nextErrors.title = `Title must be ${limits.title} characters or fewer.`;
-    }
-
-    if (!formData.category) {
-      nextErrors.category = "Category is required.";
-    } else if (formData.category.length > limits.category) {
-      nextErrors.category = `Category must be ${limits.category} characters or fewer.`;
-    }
-
-    if (!formData.previewText.trim()) {
-      nextErrors.previewText = "Preview text is required.";
-    } else if (formData.previewText.length > limits.preview) {
-      nextErrors.previewText = `Preview text must be ${limits.preview} characters or fewer.`;
-    }
-
-    if (!formData.fullPrompt.trim()) {
-      nextErrors.fullPrompt = "Full prompt content is required.";
-    }
-
-    try {
-      const price = xlmToStroops(formData.priceXlm);
-      if (price <= 0n) {
-        nextErrors.priceXlm = "Price must be greater than zero.";
-      }
-    } catch (error) {
-      nextErrors.priceXlm =
-        error instanceof Error ? error.message : "Enter a valid XLM price.";
-    }
-
+    const nextErrors = validateListingForm(formData);
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };

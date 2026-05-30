@@ -272,7 +272,9 @@ Run the one-command setup check to verify all prerequisites and environment vari
 yarn check:setup
 ```
 
-This checks Node/Yarn versions, Rust toolchain, Stellar CLI, dependencies, and required environment variables without printing secret values.
+This checks Node/Yarn versions, Rust toolchain, Stellar CLI, contract tooling, dependencies, and required environment variables without printing secret values.
+
+See [docs/environments.md](docs/environments.md) for local, testnet, and preview setup examples.
 
 ## Environment Variables
 

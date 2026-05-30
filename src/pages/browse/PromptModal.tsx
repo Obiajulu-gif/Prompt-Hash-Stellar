@@ -89,8 +89,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     error: unlockError,
   } = useAsyncTransaction(
     async (hash: string) => {
-      if (!wallet?.signMessage) throw new Error("Wallet not connected");
-      return await unlockPrompt(itemId, hash, wallet.signMessage);
+      if (!wallet?.signMessage || !wallet.address) throw new Error("Wallet not connected");
+      return await unlockPrompt(itemId, hash, wallet.signMessage, wallet.address);
     },
     {
       onOptimistic: () => setStatus("UNLOCKING"),

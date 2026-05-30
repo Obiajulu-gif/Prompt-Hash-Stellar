@@ -49,14 +49,14 @@ function StatusBadge({ status }: { status: DraftPrompt["listingStatus"] }) {
 }
 
 export function DraftManager() {
-  const { walletAddress } = useWallet();
+  const { address } = useWallet();
   const queryClient = useQueryClient();
   const [publishError, setPublishError] = useState<Record<string, string>>({});
 
   const draftsQuery = useQuery({
-    queryKey: ["creator-drafts", walletAddress],
-    queryFn: () => fetchDrafts(walletAddress!),
-    enabled: Boolean(walletAddress),
+    queryKey: ["creator-drafts", address],
+    queryFn: () => fetchDrafts(address!),
+    enabled: Boolean(address),
   });
 
   const publishMutation = useMutation({
@@ -70,7 +70,7 @@ export function DraftManager() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["creator-drafts"] }),
   });
 
-  if (!walletAddress) {
+  if (!address) {
     return (
       <div className="rounded-xl border border-dashed border-white/15 p-10 text-center">
         <FileText className="mx-auto mb-3 h-10 w-10 text-slate-500" />

@@ -32,6 +32,34 @@ vi.mock("@/lib/prompts/unlock", () => ({
 }));
 
 describe("marketplace purchase and unlock integration coverage", () => {
+  it("shows only active listings on the marketplace grid", async () => {
+    const activePrompt = makePrompt({
+      id: 3n,
+      title: "Active marketplace listing",
+      active: true,
+    });
+    const inactivePrompt = makePrompt({
+      id: 4n,
+      title: "Inactive delisted prompt",
+      active: false,
+    });
+
+    getAllPromptsMock.mockResolvedValue([activePrompt, inactivePrompt]);
+    hasAccessMock.mockResolvedValue(false);
+
+    renderWithProviders(
+      <FetchAllPrompts
+        selectedCategory=""
+        priceRange={[0, 25]}
+        searchQuery=""
+        sortBy="recent"
+      />,
+    );
+
+    expect(await screen.findByText("Active marketplace listing")).toBeInTheDocument();
+    expect(screen.queryByText("Inactive delisted prompt")).not.toBeInTheDocument();
+  });
+
   it("buys access, unlocks content, and refreshes the marketplace access state", async () => {
     const prompt = makePrompt({
       id: 7n,
