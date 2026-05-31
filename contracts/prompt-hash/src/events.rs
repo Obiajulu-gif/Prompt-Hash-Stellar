@@ -79,6 +79,9 @@ struct ContractUpgraded {
     pub admin: Address,
     #[topic]
     pub new_wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
 struct ListingExtended {
     #[topic]
     pub prompt_id: u128,
