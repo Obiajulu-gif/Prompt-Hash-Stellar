@@ -1,12 +1,10 @@
 import { CheckCircle2, AlertCircle, XCircle, Info } from "lucide-react";
+import {
+  buildListingChecklistItems,
+  type ListingChecklistItem,
+} from "@/lib/validation/listing";
 
-export interface ChecklistItem {
-  id: string;
-  label: string;
-  /** true = passes, false = fails, null = warning (non-blocking) */
-  status: "pass" | "fail" | "warn" | "info";
-  hint?: string;
-}
+export type ChecklistItem = ListingChecklistItem;
 
 interface ListingQualityChecklistProps {
   items: ChecklistItem[];
@@ -86,10 +84,6 @@ export function ListingQualityChecklist({ items }: ListingQualityChecklistProps)
   );
 }
 
-/**
- * Derive checklist items from the current form state.
- * Returns required (fail) and recommended (warn) checks.
- */
 export function buildChecklistItems(formData: {
   imageUrl: string;
   title: string;
@@ -98,103 +92,5 @@ export function buildChecklistItems(formData: {
   fullPrompt: string;
   priceXlm: string;
 }): ChecklistItem[] {
-  const items: ChecklistItem[] = [];
-
-  // ── Required checks (block submission) ──────────────────────────────────
-
-  items.push({
-    id: "title",
-    label: "Title",
-    status: formData.title.trim().length > 0 ? "pass" : "fail",
-    hint: formData.title.trim().length === 0 ? "A title is required" : undefined,
-  });
-
-  items.push({
-    id: "category",
-    label: "Category",
-    status: formData.category ? "pass" : "fail",
-    hint: !formData.category ? "Select a category" : undefined,
-  });
-
-  items.push({
-    id: "previewText",
-    label: "Preview text",
-    status: formData.previewText.trim().length > 0 ? "pass" : "fail",
-    hint: formData.previewText.trim().length === 0 ? "Preview text is required" : undefined,
-  });
-
-  items.push({
-    id: "fullPrompt",
-    label: "Full prompt content",
-    status: formData.fullPrompt.trim().length > 0 ? "pass" : "fail",
-    hint: formData.fullPrompt.trim().length === 0 ? "Full prompt is required" : undefined,
-  });
-
-  const price = parseFloat(formData.priceXlm);
-  items.push({
-    id: "price",
-    label: "Price",
-    status: !isNaN(price) && price > 0 ? "pass" : "fail",
-    hint: isNaN(price) || price <= 0 ? "Enter a valid XLM price greater than zero" : undefined,
-  });
-
-  items.push({
-    id: "imageUrl",
-    label: "Image URL",
-    status: formData.imageUrl.trim().length > 0 ? "pass" : "fail",
-    hint: formData.imageUrl.trim().length === 0 ? "An image URL is required" : undefined,
-  });
-
-  // ── Recommended checks (warn, non-blocking) ──────────────────────────────
-
-  const titleWords = formData.title.trim().split(/\s+/).filter(Boolean).length;
-  if (formData.title.trim().length > 0 && titleWords < 3) {
-    items.push({
-      id: "title-length",
-      label: "Title could be more descriptive",
-      status: "warn",
-      hint: "Aim for at least 3 words to help buyers find your listing",
-    });
-  }
-
-  const previewLen = formData.previewText.trim().length;
-  if (previewLen > 0 && previewLen < 60) {
-    items.push({
-      id: "preview-length",
-      label: "Preview text is short",
-      status: "warn",
-      hint: "A longer preview (60+ characters) improves buyer confidence",
-    });
-  }
-
-  const promptLen = formData.fullPrompt.trim().length;
-  if (promptLen > 0 && promptLen < 100) {
-    items.push({
-      id: "prompt-length",
-      label: "Full prompt seems short",
-      status: "warn",
-      hint: "Buyers expect substantial prompt content — consider expanding it",
-    });
-  }
-
-  if (!isNaN(price) && price > 0 && price < 0.5) {
-    items.push({
-      id: "price-low",
-      label: "Price is very low",
-      status: "warn",
-      hint: "Listings under 0.5 XLM may signal low quality to buyers",
-    });
-  }
-
-  const imageUrl = formData.imageUrl.trim();
-  if (imageUrl.length > 0 && !/^https?:\/\//i.test(imageUrl)) {
-    items.push({
-      id: "image-url-format",
-      label: "Image URL does not start with http:// or https://",
-      status: "warn",
-      hint: "Use a full URL so the image loads correctly on browse cards",
-    });
-  }
-
-  return items;
+  return buildListingChecklistItems(formData);
 }

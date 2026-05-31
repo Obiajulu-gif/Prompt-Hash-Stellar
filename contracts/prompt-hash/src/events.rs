@@ -79,6 +79,10 @@ struct ContractUpgraded {
     pub admin: Address,
     #[topic]
     pub new_wasm_hash: BytesN<32>,
+struct ListingExtended {
+    #[topic]
+    pub prompt_id: u128,
+    pub new_expires_at: u64,
 }
 
 pub struct Events;
@@ -177,6 +181,10 @@ impl Events {
         ContractUpgraded {
             admin,
             new_wasm_hash,
+    pub fn emit_listing_extended(env: &Env, prompt_id: u128, new_expires_at: u64) {
+        ListingExtended {
+            prompt_id,
+            new_expires_at,
         }
         .publish(env);
     }

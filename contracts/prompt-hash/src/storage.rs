@@ -71,10 +71,14 @@ impl Storage {
 
     pub fn get_all_prompts(env: &Env) -> Vec<Prompt> {
         let prompt_count = Self::get_prompt_counter(env);
+        let now = env.ledger().timestamp();
         let mut prompts = Vec::new(env);
         for prompt_id in 0..prompt_count {
             if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                prompts.push_back(prompt);
+                // Skip expired listings (expires_at == 0 means never expires)
+                if prompt.expires_at == 0 || prompt.expires_at >= now {
+                    prompts.push_back(prompt);
+                }
             }
         }
         prompts

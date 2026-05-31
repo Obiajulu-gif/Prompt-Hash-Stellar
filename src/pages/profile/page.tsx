@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   BadgeCheck,
   BookOpenCheck,
+  Bookmark,
   Boxes,
   CheckCircle2,
   CircleOff,
@@ -51,6 +52,12 @@ import {
   xlmToStroops,
 } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
+import {
+  fetchSavedPrompts,
+  savePromptListing,
+  unsavePromptListing,
+  type SavedPromptListing,
+} from "@/lib/prompts/library";
 import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
@@ -618,6 +625,97 @@ function CreatedPromptCard({
   );
 }
 
+function SavedPromptCard({
+  savedPrompt,
+  isBusy,
+  onToggleSaved,
+}: {
+  savedPrompt: SavedPromptListing;
+  isBusy: boolean;
+  onToggleSaved: Handler<[string, boolean]>;
+}) {
+  const { prompt } = savedPrompt;
+  const isActive = prompt.isActive ?? true;
+
+  return (
+    <article className="overflow-hidden rounded-xl border border-white/10 bg-[#0f1419] transition-colors hover:border-white/[0.18]">
+      <div className="grid lg:grid-cols-[10rem_1fr]">
+        <img
+          src={prompt.image || promptImageFallback}
+          alt={prompt.title}
+          className="h-48 w-full object-cover lg:h-full"
+        />
+        <div className="min-w-0 p-5 md:p-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className={
+                isActive
+                  ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+                  : "border-amber-300/30 bg-amber-300/10 text-amber-100"
+              }
+            >
+              <Bookmark className="mr-1 h-3.5 w-3.5" />
+              {isActive ? "Saved listing" : "Paused listing"}
+            </Badge>
+            <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
+              {prompt.category}
+            </Badge>
+            <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
+              {new Date(savedPrompt.savedAt).toLocaleDateString()}
+            </Badge>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_auto]">
+            <div className="min-w-0">
+              <h3 className="text-xl font-semibold text-white">{prompt.title}</h3>
+              <p className="mt-2 line-clamp-2 text-sm leading-7 text-slate-400">
+                {prompt.content}
+              </p>
+            </div>
+            <div className="flex gap-3 text-sm xl:w-60">
+              <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Price
+                </p>
+                <p className="mt-1.5 text-xl font-semibold text-white">
+                  {prompt.price.toLocaleString()} XLM
+                </p>
+              </div>
+              <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Owner
+                </p>
+                <p className="mt-1.5 text-xl font-semibold text-white">
+                  {prompt.owner?.username ?? "Creator"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              className="h-10 shrink-0 border-white/15 bg-white/[0.03] text-white hover:bg-white/10 disabled:opacity-50"
+              onClick={() => onToggleSaved(savedPrompt.promptId, true)}
+              disabled={isBusy}
+            >
+              {isBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Bookmark className="h-4 w-4" />
+              )}
+              Remove from saved
+            </Button>
+            <p className="font-mono text-xs text-slate-600">
+              {shortHash(savedPrompt.promptId)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function ProfilePage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -648,8 +746,15 @@ export default function ProfilePage() {
     enabled: Boolean(address),
   });
 
+  const savedQuery = useQuery({
+    queryKey: ["saved-prompts", address],
+    queryFn: async () => (address ? fetchSavedPrompts(address) : []),
+    enabled: Boolean(address),
+  });
+
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
+  const savedPrompts = savedQuery.data ?? [];
   const activeListingCount = createdPrompts.filter((p) => p.active).length;
 
   const mergedDrafts = useMemo(() => {
@@ -720,6 +825,28 @@ export default function ProfilePage() {
       updateError(
         error instanceof Error ? error.message : "Failed to update price.",
       );
+    } finally {
+      setBusyPromptId(null);
+    }
+  };
+
+  const handleToggleSaved = async (promptId: string, saved: boolean) => {
+    if (!address) {
+      updateError("Connect a wallet before saving listings.");
+      return;
+    }
+
+    setBusyPromptId(promptId);
+    try {
+      if (saved) {
+        await unsavePromptListing(address, promptId);
+      } else {
+        await savePromptListing(address, promptId);
+      }
+      updateStatus(saved ? "Listing removed from saved items." : "Listing saved.");
+      await queryClient.invalidateQueries({ queryKey: ["saved-prompts"] });
+    } catch (error) {
+      updateError(error instanceof Error ? error.message : "Failed to update saved listings.");
     } finally {
       setBusyPromptId(null);
     }
@@ -860,7 +987,7 @@ export default function ProfilePage() {
                     </p>
                   </div>
 
-                  <TabsList className="mb-6 grid h-auto w-full grid-cols-2 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[34rem]">
+                  <TabsList className="mb-6 grid h-auto w-full grid-cols-3 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[48rem]">
                     <TabsTrigger
                       value="purchased"
                       aria-label="Open my library tab"
@@ -881,6 +1008,17 @@ export default function ProfilePage() {
                       My Inventory
                       <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
                         {createdPrompts.length}
+                      </span>
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="saved"
+                      aria-label="Open saved listings tab"
+                      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-emerald-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                    >
+                      <Bookmark className="h-4 w-4" />
+                      Saved
+                      <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
+                        {savedPrompts.length}
                       </span>
                     </TabsTrigger>
                   </TabsList>
@@ -955,6 +1093,37 @@ export default function ProfilePage() {
                       </div>
                     )}
                     <WebhookSettings walletAddress={address} />
+                  </TabsContent>
+
+                  <TabsContent value="saved" className="mt-0 space-y-4">
+                    {savedQuery.isLoading ? (
+                      <LoadingState label="Loading your saved listings..." />
+                    ) : savedPrompts.length === 0 ? (
+                      <EmptyState
+                        icon={Bookmark}
+                        title="No saved listings yet"
+                        body="Save marketplace prompts while browsing to keep a short list of listings you want to revisit or compare later."
+                        action={{
+                          label: "Browse marketplace",
+                          to: "/browse",
+                          icon: ShoppingBag,
+                        }}
+                        accent="cyan"
+                      />
+                    ) : (
+                      <div className="space-y-4">
+                        {savedPrompts.map((savedPrompt) => (
+                          <SavedPromptCard
+                            key={savedPrompt.promptId}
+                            savedPrompt={savedPrompt}
+                            isBusy={busyPromptId === savedPrompt.promptId}
+                            onToggleSaved={(promptId, saved) =>
+                              void handleToggleSaved(promptId, saved)
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
                   </TabsContent>
                 </Tabs>
               </section>

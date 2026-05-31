@@ -65,6 +65,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Validate environment template
+        run: yarn check:setup --warn-only
+
       - name: Run lint
         run: yarn lint
 

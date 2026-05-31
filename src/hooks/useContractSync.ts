@@ -29,6 +29,7 @@ import { browserStellarConfig } from "@/lib/stellar/browserConfig";
  *   Any contract event → ["marketplace-prompts"]  (browse grid, prices, active flag)
  *   Any contract event → ["created-prompts"]       (creator inventory + sales count)
  *   Any contract event → ["purchased-prompts"]     (buyer's license list)
+ *   Any contract event → ["saved-prompts"]          (buyer saved listings)
  *   Any contract event → ["prompt-access"]         (per-prompt access checks)
  */
 
@@ -39,6 +40,7 @@ export function invalidateAllPromptQueries(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
     queryClient.invalidateQueries({ queryKey: ["created-prompts"] }),
     queryClient.invalidateQueries({ queryKey: ["purchased-prompts"] }),
+    queryClient.invalidateQueries({ queryKey: ["saved-prompts"] }),
     queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
   ]);
 }

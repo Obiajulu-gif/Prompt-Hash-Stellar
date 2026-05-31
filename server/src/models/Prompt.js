@@ -86,6 +86,17 @@ const promptSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    listingStatus: {
+      type: String,
+      enum: ['draft', 'ready', 'published', 'archived'],
+      default: 'draft',
+      index: true,
+    },
+    savedPrompts: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: 'User',
+      default: [],
+    },
     salesCount: {
       type: Number,
       default: 0,

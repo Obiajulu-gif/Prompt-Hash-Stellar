@@ -46,14 +46,27 @@ export class PromptHashClient {
    * Checks if the user already has access to the prompt.
    */
   static async checkAccess(
-    config: PromptHashConfig | string, // Accept config or itemId for compatibility
+    config: PromptHashConfig | string,
     address: string,
-    itemId?: string,
+    itemId?: string | bigint,
   ): Promise<boolean> {
     warnMockUse();
     return new Promise((resolve) => {
-      setTimeout(() => resolve(false), 1000); // Mock: Assume false initially
+      setTimeout(() => resolve(false), 1000);
     });
+  }
+
+  static async getPrompt(
+    config: PromptHashConfig,
+    promptId: bigint,
+  ): Promise<PromptRecord> {
+    warnMockUse();
+    const prompts = await PromptHashClient.getAllPrompts(config);
+    const match = prompts.find((p) => p.id === promptId);
+    if (!match) {
+      throw new Error(`Prompt #${promptId.toString()} not found.`);
+    }
+    return match;
   }
 
   /**
@@ -161,8 +174,15 @@ export class PromptHashClient {
 export const hasAccess = async (
   config: PromptHashConfig,
   address: string,
-  itemId: string,
-) => PromptHashClient.checkAccess(config, address, itemId);
+  itemId: string | bigint,
+) =>
+  PromptHashClient.checkAccess(
+    config,
+    address,
+    typeof itemId === "bigint" ? itemId.toString() : itemId,
+  );
+export const getPrompt = async (config: PromptHashConfig, promptId: bigint) =>
+  PromptHashClient.getPrompt(config, promptId);
 export const getAllPrompts = async (config: PromptHashConfig) =>
   PromptHashClient.getAllPrompts(config);
 export const getPromptsByBuyer = async (

@@ -1,5 +1,7 @@
 import {
   ArrowUpRight,
+  Bookmark,
+  BookmarkCheck,
   LockKeyhole,
   ShieldCheck,
   TrendingUp,
@@ -18,10 +20,16 @@ export const PromptCard = ({
   prompt,
   hasAccess,
   openModal,
+  isSaved,
+  isSaving,
+  onToggleSave,
 }: {
   prompt: PromptRecord;
   hasAccess: boolean;
   openModal: (prompt: PromptRecord) => void;
+  isSaved: boolean;
+  isSaving: boolean;
+  onToggleSave: (prompt: PromptRecord) => void;
 }) => {
   const isBestSeller = prompt.salesCount >= 10;
 
@@ -64,6 +72,25 @@ export const PromptCard = ({
               <TrendingUp className="h-3 w-3 mr-1" /> Best Seller
             </Badge>
           )}
+        </div>
+        <div className="absolute top-4 right-4">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 rounded-full border border-white/10 bg-slate-950/75 px-3 text-xs text-white shadow-lg backdrop-blur-md hover:bg-slate-900"
+            disabled={isSaving}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSave(prompt);
+            }}
+          >
+            {isSaved ? (
+              <BookmarkCheck className="mr-1.5 h-3.5 w-3.5 text-emerald-300" />
+            ) : (
+              <Bookmark className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {isSaved ? "Saved" : "Save"}
+          </Button>
         </div>
       </div>
 

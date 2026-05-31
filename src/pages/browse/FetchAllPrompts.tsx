@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { useQueries, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, useRef } from "react";
+import {
+  useQueries,
+  useQuery,
+  useQueryClient,
+  useMutation,
+} from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,8 +19,12 @@ import {
   hasAccess,
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
+import {
+  fetchSavedPrompts,
+  savePromptListing,
+  unsavePromptListing,
+} from "@/lib/prompts/library";
 import { stroopsToXlmString } from "@/lib/stellar/format";
-import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
 
@@ -50,12 +59,42 @@ const FetchAllPrompts = ({
   );
   const [currentPage, setCurrentPage] = useState(1);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
 
   const promptsQuery = useQuery({
     queryKey: ["marketplace-prompts"],
     queryFn: async () => {
       if (!isMarketplaceConfigured) return [];
       return getAllPrompts(browserStellarConfig);
+    },
+  });
+
+  const savedPromptsQuery = useQuery({
+    queryKey: ["saved-prompts", address],
+    queryFn: async () => (address ? fetchSavedPrompts(address) : []),
+    enabled: Boolean(address),
+  });
+
+  const savePromptMutation = useMutation({
+    mutationFn: async ({
+      promptId,
+      saved,
+    }: {
+      promptId: string;
+      saved: boolean;
+    }) => {
+      if (!address) {
+        throw new Error("Connect your wallet before saving listings.");
+      }
+
+      if (saved) {
+        await unsavePromptListing(address, promptId);
+      } else {
+        await savePromptListing(address, promptId);
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["saved-prompts"] });
     },
   });
 
@@ -96,6 +135,27 @@ const FetchAllPrompts = ({
       ]),
     );
   }, [accessQueries, address, promptsQuery.data]);
+
+  const savedPromptIds = useMemo(() => {
+    return new Set((savedPromptsQuery.data ?? []).map((item) => item.promptId));
+  }, [savedPromptsQuery.data]);
+
+  const handleToggleSave = async (prompt: PromptRecord) => {
+    if (!address) {
+      return;
+    }
+
+    const promptId = prompt.id.toString();
+    setSavingPromptId(promptId);
+    try {
+      await savePromptMutation.mutateAsync({
+        promptId,
+        saved: savedPromptIds.has(promptId),
+      });
+    } finally {
+      setSavingPromptId(null);
+    }
+  };
 
   const filteredPrompts = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -210,6 +270,9 @@ const FetchAllPrompts = ({
                 prompt={prompt}
                 hasAccess={accessMap.get(prompt.id.toString()) ?? false}
                 openModal={setSelectedPrompt}
+                isSaved={savedPromptIds.has(prompt.id.toString())}
+                isSaving={savingPromptId === prompt.id.toString()}
+                onToggleSave={handleToggleSave}
               />
             ))}
           </div>

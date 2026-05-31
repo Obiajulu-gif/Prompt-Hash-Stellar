@@ -6,6 +6,7 @@ import {
 import {
   decryptPromptCiphertext,
   hashPromptPlaintext,
+  normalizeContentHash,
   unwrapPromptKey,
 } from "../../src/lib/crypto/promptCrypto";
 import {
@@ -221,7 +222,8 @@ async function handler(req: any, res: any) {
       keyBytes,
     );
     const contentHash = await hashPromptPlaintext(plaintext);
-    if (contentHash !== prompt.contentHash) {
+    const storedHash = normalizeContentHash(prompt.contentHash);
+    if (contentHash !== storedHash) {
       req.logger.error({ address, promptId }, "Prompt integrity check failed");
       metrics.trackUnlockFailure(String(address), String(promptId), "integrity_failure");
       void recordAuditEvent({
@@ -252,11 +254,13 @@ async function handler(req: any, res: any) {
     });
 
     // Fire-and-forget webhook dispatch so the creator is notified of the sale.
-    void dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
-      promptId: prompt.id.toString(),
-      buyer: String(address),
-      title: prompt.title,
-    }).catch(() => {});
+    void Promise.resolve(
+      dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
+        promptId: prompt.id.toString(),
+        buyer: String(address),
+        title: prompt.title,
+      }),
+    ).catch(() => {});
 
     res.status(200).json({
       promptId: prompt.id.toString(),

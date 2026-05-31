@@ -10,6 +10,15 @@ const createPromptMock = vi.fn();
 
 vi.mock("@/lib/env", () => ({
   unlockPublicKey: "unlock-public-key",
+  stellarWalletNetwork: "TESTNET",
+  stellarNetwork: "TESTNET",
+}));
+
+vi.mock("@/util/wallet", () => ({
+  wallet: {
+    signTransaction: vi.fn(),
+    signMessage: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/stellar/browserConfig", () => ({
@@ -50,14 +59,12 @@ describe("create listing integration coverage", () => {
       screen.getByRole("button", { name: /create prompt listing/i }),
     );
 
-    expect(await screen.findByText("Image URL is required.")).toBeInTheDocument();
-    expect(screen.getByText("Title is required.")).toBeInTheDocument();
-    expect(screen.getByText("Category is required.")).toBeInTheDocument();
-    expect(screen.getByText("Preview text is required.")).toBeInTheDocument();
-    expect(
-      screen.getByText("Full prompt content is required."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Price must be greater than zero.")).toBeInTheDocument();
+    expect((await screen.findAllByText(/add an image url/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/add a title/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/select a category/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/add preview text/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/paste the full prompt content/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/greater than zero/i).length).toBeGreaterThan(0);
     expect(createPromptMock).not.toHaveBeenCalled();
   });
 

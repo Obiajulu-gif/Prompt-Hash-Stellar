@@ -21,6 +21,11 @@ const purchaseSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    saved: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   { timestamps: true },
 );

@@ -1,83 +1,244 @@
-# API Reference: Unlock Service
+# API Reference
 
-The Unlock Service is a gated delivery system that provides plaintext prompt content (or unwrapped encryption keys) only to users who have a verifiable purchase on the Stellar blockchain.
+This reference covers the marketplace and account endpoints used by the PromptHash frontend and the Express backend.
 
-## Authentication: Challenge-Response Protocol
+## Common Response Rules
 
-The service uses a cryptographic challenge-response flow to verify wallet ownership without requiring persistent sessions or passwords.
+- Successful requests return JSON.
+- Validation failures return `422` with a field-level error map when available.
+- Missing resources return `404`.
+- Auth or ownership failures return `403`.
 
-### 1. Request Challenge
-**Endpoint:** `POST /api/unlock/challenge`
+### Shared validation error shape
 
-Generates a short-lived challenge token that the user must sign with their Stellar wallet.
-
-**Request Body:**
 ```json
 {
-  "address": "G...",
-  "promptId": "123"
+  "error": "Invalid listing metadata",
+  "fields": {
+    "title": "Title is required.",
+    "price": "Price must be greater than zero."
+  }
 }
 ```
 
-**Response (200 OK):**
+## Marketplace Endpoints
+
+### List prompts
+
+`GET /api/prompts`
+
+Returns published, active marketplace prompts.
+
+Optional query parameters:
+
+- `category`
+- `walletAddress`
+
+Example response:
+
+```json
+[
+  {
+    "_id": "6650f1...",
+    "image": "https://example.com/cover.png",
+    "title": "Launch Strategy Pack",
+    "content": "Public preview text ...",
+    "owner": {
+      "username": "faithorji",
+      "walletAddress": "g..."
+    },
+    "price": 2.5,
+    "category": "Marketing",
+    "listingStatus": "published",
+    "isActive": true,
+    "salesCount": 12
+  }
+]
+```
+
+### Create a prompt
+
+`POST /api/prompts`
+
+Creates a creator listing after validating and normalizing the listing metadata.
+
+Request body:
+
 ```json
 {
-  "token": "base64payload.serverSignature",
-  "challenge": "prompt-hash unlock:G...:123:uuid:timestamp",
-  "expiresAt": 1714230000000
+  "image": "https://example.com/cover.png",
+  "title": "Launch Strategy Pack",
+  "content": "Long-form prompt content",
+  "walletAddress": "g...",
+  "price": 2.5,
+  "category": "marketing"
 }
 ```
 
-### 2. Verify and Unlock
-**Endpoint:** `POST /api/unlock/verify`
+Example response:
 
-Verifies the wallet signature and the challenge token. If the wallet has purchased the prompt (verified on-chain), it returns the decrypted content.
-
-**Request Body:**
 ```json
 {
-  "token": "base64payload.serverSignature",
-  "address": "G...",
-  "promptId": "123",
-  "signature": "base64_or_hex_signature"
+  "message": "Prompt created successfully",
+  "prompt": {
+    "_id": "6650f1...",
+    "title": "Launch Strategy Pack",
+    "price": 2.5,
+    "category": "Marketing"
+  }
 }
 ```
 
-**Response (200 OK):**
+### Publish a draft
+
+`POST /api/prompts/:id/publish`
+
+Publishes a draft prompt after validating required fields.
+
+Example error response:
+
 ```json
 {
-  "decryptedContent": "Act as a senior engineer...",
-  "contentHash": "..."
+  "error": "Prompt is not publishable",
+  "fields": {
+    "content": "Content is required."
+  }
 }
 ```
 
-**Error Responses:**
-- `401 Unauthorized`: Invalid signature or malformed token.
-- `403 Forbidden`: Wallet does not have access (no purchase recorded on-chain).
-- `410 Gone`: Challenge token has expired.
+### Archive a prompt
 
----
+`POST /api/prompts/:id/archive`
 
-## Client-Side Encryption Protocol
+Marks a prompt as archived and removes it from active workflow views.
 
-To ensure privacy, prompt content is encrypted before it ever reaches the blockchain.
+## Buyer Library Endpoints
 
-### 1. Encryption (Creator Side)
-1. Generate a random 256-bit AES key.
-2. Encrypt the prompt content using **AES-256-GCM**.
-3. Generate a content hash (SHA-256) of the plaintext.
-4. Wrap the AES key using the Unlock Service's public key (RSA-OAEP or ECIES).
-5. Submit the encrypted payload, wrapped key, and metadata to the Soroban contract.
+### Get owned prompts
 
-### 2. Decryption (Unlock Service Side)
-1. Verify the buyer's entitlement on the Soroban contract.
-2. Unwrap the AES key using the service's private key.
-3. Decrypt the ciphertext.
-4. Verify the integrity of the plaintext against the stored content hash.
-5. Return the plaintext to the authorized buyer.
+`GET /api/prompts/buyer/:walletAddress/owned`
 
-## Implementation Details
+Returns prompts tied to purchases for the buyer wallet.
 
-- **AES-GCM**: Used for symmetric encryption of the prompt body.
-- **Key Wrapping**: Prevents the server from reading content unless requested by an authorized buyer (assuming the server follows the protocol).
-- **On-Chain Verification**: The service calls the `has_access` method on the `PromptHash` Soroban contract.
+Example response:
+
+```json
+{
+  "owned": [
+    {
+      "purchaseId": "66a1...",
+      "prompt": {
+        "_id": "6650f1...",
+        "title": "Launch Strategy Pack",
+        "content": "Public preview text ...",
+        "category": "Marketing"
+      },
+      "txHash": "tx_123",
+      "versionIndex": 1,
+      "purchasedAt": "2026-05-28T10:15:30.000Z"
+    }
+  ]
+}
+```
+
+### Get saved prompts
+
+`GET /api/prompts/buyer/:walletAddress/saved`
+
+Returns the buyer's saved marketplace listings.
+
+Example response:
+
+```json
+{
+  "saved": [
+    {
+      "purchaseId": "66a1...",
+      "prompt": {
+        "_id": "6650f1...",
+        "title": "Launch Strategy Pack",
+        "content": "Preview text ...",
+        "price": 2.5,
+        "category": "Marketing",
+        "owner": {
+          "username": "faithorji"
+        }
+      },
+      "savedAt": "2026-05-28T10:15:30.000Z"
+    }
+  ]
+}
+```
+
+### Save a prompt
+
+`POST /api/prompts/buyer/save`
+
+Request body:
+
+```json
+{
+  "walletAddress": "g...",
+  "promptId": "6650f1..."
+}
+```
+
+Example response:
+
+```json
+{ "saved": true, "purchaseId": "66a1..." }
+```
+
+### Remove a saved prompt
+
+`POST /api/prompts/buyer/unsave`
+
+Request body:
+
+```json
+{
+  "walletAddress": "g...",
+  "promptId": "6650f1..."
+}
+```
+
+Example response:
+
+```json
+{ "saved": false }
+```
+
+## Creator Workspace Endpoints
+
+### Get draft prompts
+
+`GET /api/prompts/creator/:walletAddress/drafts`
+
+Returns draft and ready-to-publish prompts for the connected creator wallet.
+
+### Version updates
+
+`POST /api/prompts/version`
+
+Creates a new version for a prompt owned by the calling wallet.
+
+## Account And Auth Flow
+
+### Challenge token
+
+`POST /api/unlock/challenge`
+
+Issues a short-lived challenge token for wallet verification.
+
+### Unlock prompt
+
+`POST /api/unlock/verify`
+
+Verifies the wallet signature and on-chain entitlement before returning decrypted content.
+
+## Notes For Frontend Contributors
+
+- Listing metadata is normalized server-side before persistence.
+- Category casing is canonicalized so the frontend can send user-friendly values.
+- The buyer dashboard reads from `/api/prompts/buyer/:walletAddress/saved` and `/api/prompts/buyer/:walletAddress/owned` to populate separate library sections.
+- Save and unsave actions are intentionally idempotent from the UI perspective.
