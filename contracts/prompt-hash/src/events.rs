@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, Env};
+use soroban_sdk::{contractevent, Address, BytesN, Env};
 
 #[contractevent]
 struct PromptCreated {
@@ -71,6 +71,14 @@ struct FeeUpdated {
 struct FeeWalletUpdated {
     #[topic]
     pub new_fee_wallet: Address,
+}
+
+#[contractevent]
+struct ContractUpgraded {
+    #[topic]
+    pub admin: Address,
+    #[topic]
+    pub new_wasm_hash: BytesN<32>,
 }
 
 #[contractevent]
@@ -170,6 +178,14 @@ impl Events {
 
     pub fn emit_fee_wallet_updated(env: &Env, new_fee_wallet: Address) {
         FeeWalletUpdated { new_fee_wallet }.publish(env);
+    }
+
+    pub fn emit_contract_upgraded(env: &Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        ContractUpgraded {
+            admin,
+            new_wasm_hash,
+        }
+        .publish(env);
     }
 
     pub fn emit_listing_extended(env: &Env, prompt_id: u128, new_expires_at: u64) {

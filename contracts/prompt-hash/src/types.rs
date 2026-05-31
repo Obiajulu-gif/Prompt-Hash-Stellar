@@ -224,6 +224,7 @@ pub trait PromptHashTrait {
         hashed_code: BytesN<32>,
     ) -> Result<(), Error>;
     fn get_xlm_sac(env: Env) -> Option<Address>;
+    fn upgrade_contract(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
 }

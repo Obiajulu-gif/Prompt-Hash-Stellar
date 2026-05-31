@@ -72,7 +72,10 @@ impl PromptHashTrait for PromptHashContract {
 
         // #49: optional listing expiry must be in the future when provided
         if listing.expires_at != 0 {
-            ensure(listing.expires_at > env.ledger().timestamp(), Error::InvalidPrice)?;
+            ensure(
+                listing.expires_at > env.ledger().timestamp(),
+                Error::InvalidPrice,
+            )?;
         }
 
         // #50: validate revenue splits
@@ -275,7 +278,10 @@ impl PromptHashTrait for PromptHashContract {
     ) -> Result<(), Error> {
         buyer.require_auth();
         ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
-        ensure(prompt_ids.len() == payment_amounts.len(), Error::InvalidPrice)?;
+        ensure(
+            prompt_ids.len() == payment_amounts.len(),
+            Error::InvalidPrice,
+        )?;
 
         for i in 0..prompt_ids.len() {
             let prompt_id = prompt_ids.get(i).unwrap();
@@ -391,13 +397,16 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    #[only_owner]
+    fn upgrade_contract(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin_auth(&env, &admin)?;
+        upgrade_current_contract(env, admin, new_wasm_hash);
+        Ok(())
+    }
+
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        env.storage().instance().extend_ttl(
-            super::storage::PERSISTENT_LIFETIME_THRESHOLD,
-            super::storage::PERSISTENT_BUMP_AMOUNT,
-        );
+        let admin = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        upgrade_current_contract(env, admin, new_wasm_hash);
         Ok(())
     }
 
@@ -549,12 +558,7 @@ fn execute_buy(
             .ok_or(Error::ArithmeticOverflow)?
             / MAX_BPS as i128;
         if split_amount > 0 {
-            asset_client.transfer_from(
-                &this_contract,
-                buyer,
-                &split.recipient,
-                &split_amount,
-            );
+            asset_client.transfer_from(&this_contract, buyer, &split.recipient, &split_amount);
         }
     }
 
@@ -650,4 +654,21 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     } else {
         Err(error)
     }
+}
+
+fn require_admin_auth(env: &Env, admin: &Address) -> Result<(), Error> {
+    let stored_admin = ownable::get_owner(env).ok_or(Error::Unauthorized)?;
+    ensure(stored_admin == *admin, Error::Unauthorized)?;
+    admin.require_auth();
+    Ok(())
+}
+
+fn upgrade_current_contract(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
+    env.storage().instance().extend_ttl(
+        super::storage::PERSISTENT_LIFETIME_THRESHOLD,
+        super::storage::PERSISTENT_BUMP_AMOUNT,
+    );
+    Events::emit_contract_upgraded(&env, admin, new_wasm_hash);
 }
