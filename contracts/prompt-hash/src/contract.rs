@@ -72,7 +72,10 @@ impl PromptHashTrait for PromptHashContract {
 
         // #49: optional listing expiry must be in the future when provided
         if listing.expires_at != 0 {
-            ensure(listing.expires_at > env.ledger().timestamp(), Error::InvalidPrice)?;
+            ensure(
+                listing.expires_at > env.ledger().timestamp(),
+                Error::InvalidPrice,
+            )?;
         }
 
         // #50: validate revenue splits
@@ -275,7 +278,10 @@ impl PromptHashTrait for PromptHashContract {
     ) -> Result<(), Error> {
         buyer.require_auth();
         ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
-        ensure(prompt_ids.len() == payment_amounts.len(), Error::InvalidPrice)?;
+        ensure(
+            prompt_ids.len() == payment_amounts.len(),
+            Error::InvalidPrice,
+        )?;
 
         for i in 0..prompt_ids.len() {
             let prompt_id = prompt_ids.get(i).unwrap();
@@ -552,12 +558,7 @@ fn execute_buy(
             .ok_or(Error::ArithmeticOverflow)?
             / MAX_BPS as i128;
         if split_amount > 0 {
-            asset_client.transfer_from(
-                &this_contract,
-                buyer,
-                &split.recipient,
-                &split_amount,
-            );
+            asset_client.transfer_from(&this_contract, buyer, &split.recipient, &split_amount);
         }
     }
 

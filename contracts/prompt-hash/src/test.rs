@@ -4,7 +4,7 @@ use crate::types::{Error, ListingConfig, Split};
 extern crate std;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    token, Address, Bytes, BytesN, Env, String, TryIntoVal,
+    token, Address, Bytes, BytesN, Env, String, TryIntoVal, Vec,
 };
 use std::{env as std_env, fs, path::PathBuf, vec::Vec as StdVec};
 
@@ -1827,7 +1827,10 @@ fn test_only_creator_can_extend_listing() {
     let result = client.try_extend_listing(&stranger, &prompt_id, &9_000u64);
     match result {
         Err(Ok(Error::Unauthorized)) => {}
-        other => panic!("expected Unauthorized for stranger extend_listing, got {:?}", other),
+        other => panic!(
+            "expected Unauthorized for stranger extend_listing, got {:?}",
+            other
+        ),
     }
 }
 
@@ -1917,8 +1920,8 @@ fn test_buy_prompt_with_splits_distributes_correctly() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
-    let expected_fee = price * 500 / 10_000;       // 500
-    let expected_split = price * 2_000 / 10_000;   // 2_000
+    let expected_fee = price * 500 / 10_000; // 500
+    let expected_split = price * 2_000 / 10_000; // 2_000
     let expected_creator = price - expected_fee - expected_split; // 7_500
 
     assert_eq!(
@@ -1971,7 +1974,10 @@ fn test_splits_exceeding_max_bps_minus_fee_rejected() {
     );
     match result {
         Err(Ok(Error::InvalidSplits)) => {}
-        other => panic!("expected InvalidSplits for over-allocated splits, got {:?}", other),
+        other => panic!(
+            "expected InvalidSplits for over-allocated splits, got {:?}",
+            other
+        ),
     }
 }
 
@@ -2070,8 +2076,7 @@ fn test_buy_prompts_bulk_purchases_all_and_grants_access() {
     let fee_bps = 500i128;
     let expected_creator =
         (price_a - price_a * fee_bps / 10_000) + (price_b - price_b * fee_bps / 10_000);
-    let expected_fee =
-        price_a * fee_bps / 10_000 + price_b * fee_bps / 10_000;
+    let expected_fee = price_a * fee_bps / 10_000 + price_b * fee_bps / 10_000;
     assert_eq!(xlm_client.balance(&creator), expected_creator);
     assert_eq!(xlm_client.balance(&context.fee_wallet), expected_fee);
 }

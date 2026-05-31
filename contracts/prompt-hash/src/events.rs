@@ -184,6 +184,10 @@ impl Events {
         ContractUpgraded {
             admin,
             new_wasm_hash,
+        }
+        .publish(env);
+    }
+
     pub fn emit_listing_extended(env: &Env, prompt_id: u128, new_expires_at: u64) {
         ListingExtended {
             prompt_id,
