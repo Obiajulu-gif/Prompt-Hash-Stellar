@@ -1171,7 +1171,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/runtime@npm:^7.11.2":
+"@babel/runtime@npm:^7.11.2, @babel/runtime@npm:^7.23.2, @babel/runtime@npm:^7.29.2":
   version: 7.29.7
   resolution: "@babel/runtime@npm:7.29.7"
   checksum: 10c0/ca11572f7146b21e0bde6a9ed4bb6a89eafbee5f0944c7eb54d0d8a2dac962c33638a1d611e14faa71dfbb92b4b5f9236232208568a6b7d5c6f3f39ddb91771e
@@ -8178,6 +8178,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"html-parse-stringify@npm:^3.0.1":
+  version: 3.0.1
+  resolution: "html-parse-stringify@npm:3.0.1"
+  dependencies:
+    void-elements: "npm:3.1.0"
+  checksum: 10c0/159292753d48b84d216d61121054ae5a33466b3db5b446e2ffc093ac077a411a99ce6cbe0d18e55b87cf25fa3c5a86c4d8b130b9719ec9b66623259000c72c15
+  languageName: node
+  linkType: hard
+
 "html-url-attributes@npm:^3.0.0":
   version: 3.0.1
   resolution: "html-url-attributes@npm:3.0.1"
@@ -8207,6 +8216,27 @@ __metadata:
   bin:
     husky: bin.js
   checksum: 10c0/35bb110a71086c48906aa7cd3ed4913fb913823715359d65e32e0b964cb1e255593b0ae8014a5005c66a68e6fa66c38dcfa8056dbbdfb8b0187c0ffe7ee3a58f
+  languageName: node
+  linkType: hard
+
+"i18next-browser-languagedetector@npm:^8.2.1":
+  version: 8.2.1
+  resolution: "i18next-browser-languagedetector@npm:8.2.1"
+  dependencies:
+    "@babel/runtime": "npm:^7.23.2"
+  checksum: 10c0/d200847a79b4cb2764ef59b33e5399085d4d56b2b038e884bb54fffe17953b467899142a6ef6e985592234f10049d14d06b80f2c56441ae80648c5a6717704f3
+  languageName: node
+  linkType: hard
+
+"i18next@npm:^26.3.0":
+  version: 26.3.0
+  resolution: "i18next@npm:26.3.0"
+  peerDependencies:
+    typescript: ^5 || ^6
+  peerDependenciesMeta:
+    typescript:
+      optional: true
+  checksum: 10c0/e5dc29171d9a05746b31ad68e179ce2f36459c0a20d2d6733837961fe9492d1b48706804fa12059aa91dbb004655cb54ade817eb9e72371649f26d6dba1ca211
   languageName: node
   linkType: hard
 
@@ -10643,6 +10673,8 @@ __metadata:
     framer-motion: "npm:^12.38.0"
     globals: "npm:^17.5.0"
     husky: "npm:^9.1.7"
+    i18next: "npm:^26.3.0"
+    i18next-browser-languagedetector: "npm:^8.2.1"
     jsdom: "npm:^29.0.2"
     libsodium-wrappers: "npm:^0.8.4"
     lint-staged: "npm:^16.4.0"
@@ -10653,6 +10685,7 @@ __metadata:
     react: "npm:^19.2.5"
     react-chartjs-2: "npm:^5.3.1"
     react-dom: "npm:^19.2.5"
+    react-i18next: "npm:^17.0.8"
     react-markdown: "npm:^10.1.0"
     react-router-dom: "npm:^7.14.2"
     redis: "npm:^4.7.0"
@@ -10860,6 +10893,28 @@ __metadata:
   peerDependencies:
     react: ^19.2.6
   checksum: 10c0/dbf2aef67857c03a612bc9316a4562e5066f43fa04bf28f7f0734963fc1350da2c9f8eb973930655453281079f30cc8222bab383dbec4b5097084e2c081e3334
+  languageName: node
+  linkType: hard
+
+"react-i18next@npm:^17.0.8":
+  version: 17.0.8
+  resolution: "react-i18next@npm:17.0.8"
+  dependencies:
+    "@babel/runtime": "npm:^7.29.2"
+    html-parse-stringify: "npm:^3.0.1"
+    use-sync-external-store: "npm:^1.6.0"
+  peerDependencies:
+    i18next: ">= 26.2.0"
+    react: ">= 16.8.0"
+    typescript: ^5 || ^6
+  peerDependenciesMeta:
+    react-dom:
+      optional: true
+    react-native:
+      optional: true
+    typescript:
+      optional: true
+  checksum: 10c0/4d13d396208927ed3c80eb62db011a98dae16d93fc951bb4cb220fc5a3a5dd2f0046244fdbd197f627f595230d6fa05cc5d1c6f52b6241acd63ff818dff63acb
   languageName: node
   linkType: hard
 
@@ -13053,7 +13108,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"use-sync-external-store@npm:^1.5.0":
+"use-sync-external-store@npm:^1.5.0, use-sync-external-store@npm:^1.6.0":
   version: 1.6.0
   resolution: "use-sync-external-store@npm:1.6.0"
   peerDependencies:
@@ -13335,6 +13390,13 @@ __metadata:
   version: 1.1.2
   resolution: "vm-browserify@npm:1.1.2"
   checksum: 10c0/0cc1af6e0d880deb58bc974921320c187f9e0a94f25570fca6b1bd64e798ce454ab87dfd797551b1b0cc1849307421aae0193cedf5f06bdb5680476780ee344b
+  languageName: node
+  linkType: hard
+
+"void-elements@npm:3.1.0":
+  version: 3.1.0
+  resolution: "void-elements@npm:3.1.0"
+  checksum: 10c0/0b8686f9f9aa44012e9bd5eabf287ae0cde409b9a2854c5a2335cb83920c957668ac5876e3f0d158dd424744ac411a7270e64128556b451ed3bec875ef18534d
   languageName: node
   linkType: hard
 

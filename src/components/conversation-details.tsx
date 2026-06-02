@@ -18,13 +18,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+/* eslint-disable no-unused-vars */
 interface ConversationDetailsProps {
   isOpen: boolean;
   activeTab: "parameters" | "engineer" | "settings";
-  onTabChange: (tab: "parameters" | "engineer" | "settings") => void;
+  onTabChange: (_tab: "parameters" | "engineer" | "settings") => void;
   customerName: string;
   onClose: () => void;
 }
+/* eslint-enable no-unused-vars */
 
 export function ConversationDetails({
   isOpen,

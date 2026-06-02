@@ -27,13 +27,11 @@ const pipelineAsync = promisify(pipeline);
 // ---------------------------------------------------------------------------
 
 async function getS3Client() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { S3Client } = await import("@aws-sdk/client-s3" as string);
   return new S3Client({ region: process.env.BACKUP_S3_REGION ?? "us-east-1" });
 }
 
 async function uploadToS3(key: string, body: Buffer, contentType: string): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { PutObjectCommand } = await import("@aws-sdk/client-s3" as string);
   const client = await getS3Client();
   const bucket = process.env.BACKUP_S3_BUCKET;

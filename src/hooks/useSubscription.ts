@@ -30,7 +30,8 @@ const server = new Server(rpcUrl, { allowHttp: stellarNetwork === "LOCAL" });
 export function useSubscription(
   contractId: string,
   topic: string | undefined,
-  onEvent: (event: Api.EventResponse) => void,
+  // eslint-disable-next-line no-unused-vars
+  onEvent: (_event: Api.EventResponse) => void,
   pollInterval = 5000,
 ) {
   const id = `${contractId}:${topic ?? "*"}`;

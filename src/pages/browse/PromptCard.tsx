@@ -26,10 +26,12 @@ export const PromptCard = ({
 }: {
   prompt: PromptRecord;
   hasAccess: boolean;
-  openModal: (prompt: PromptRecord) => void;
+  // eslint-disable-next-line no-unused-vars
+  openModal: (_prompt: PromptRecord) => void;
   isSaved: boolean;
   isSaving: boolean;
-  onToggleSave: (prompt: PromptRecord) => void;
+  // eslint-disable-next-line no-unused-vars
+  onToggleSave: (_prompt: PromptRecord) => void;
 }) => {
   const isBestSeller = prompt.salesCount >= 10;
 

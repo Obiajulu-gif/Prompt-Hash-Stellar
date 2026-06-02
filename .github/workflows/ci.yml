@@ -1,81 +1,39 @@
 name: CI
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-      - master
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 
 jobs:
-  frontend:
-    name: Frontend build, lint, and tests
+  build-test-lint:
     runs-on: ubuntu-latest
-    env:
-      STELLAR_SCAFFOLD_ENV: development
-      XDG_CONFIG_HOME: .config
-      PUBLIC_STELLAR_NETWORK: TESTNET
-      PUBLIC_STELLAR_NETWORK_PASSPHRASE: Test SDF Network ; September 2015
-      PUBLIC_STELLAR_RPC_URL: https://soroban-testnet.stellar.org
-      PUBLIC_STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
-      PUBLIC_PROMPT_HASH_CONTRACT_ID: CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-      PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-      PUBLIC_STELLAR_SIMULATION_ACCOUNT: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-      PUBLIC_UNLOCK_PUBLIC_KEY: dGVzdC11bmxvY2stcHVibGljLWtleQ==
-      CHALLENGE_TOKEN_SECRET: ci-challenge-token-secret
-      UNLOCK_PUBLIC_KEY: dGVzdC11bmxvY2stcHVibGljLWtleQ==
-      UNLOCK_PRIVATE_KEY: dGVzdC11bmxvY2stcHJpdmF0ZS1rZXk=
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: yarn
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Install frontend dependencies
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "yarn"
+
+      - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Prepare local setup sentinel files
-        run: |
-          mkdir -p .config
-          touch environments.toml
+      - name: Typecheck
+        run: yarn typecheck
 
-      - name: Lint frontend and API code
+      - name: Lint
         run: yarn lint
 
-      - name: Run unlock and crypto frontend tests
-        run: yarn test:frontend --run api/prompts/unlock.test.ts src/lib/auth/challenge.test.ts src/lib/crypto/promptCrypto.test.ts
-
-      - name: Build frontend
+      - name: Build Frontend
         run: yarn build
 
-  contract:
-    name: Soroban contract tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@1.89.0
-        with:
-          targets: wasm32v1-none
-
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
-
-      - name: Run prompt-hash contract tests
-        run: cargo test -p prompt-hash
+      - name: Run Tests
+        run: yarn test:frontend

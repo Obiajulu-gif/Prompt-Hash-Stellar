@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Copy,
   ThumbsUp,
@@ -29,22 +29,24 @@ import type { AIModel } from "@/lib/api";
 import { Typewriter } from "@/components/typewriter";
 import ReactMarkdown from "react-markdown";
 
+/* eslint-disable no-unused-vars */
 interface ChatAreaProps {
   conversation: Message[];
   isTyping: boolean;
   chatError: string | null;
   customerName: string;
-  onSendMessage: (content: string) => void;
-  onImprovePrompt: (content: string) => Promise<string>;
-  onReaction: (messageId: string, type: "like" | "dislike") => void;
+  onSendMessage: (_content: string) => void;
+  onImprovePrompt: (_content: string) => Promise<string>;
+  onReaction: (_messageId: string, _type: "like" | "dislike") => void;
   onSaveConversation: () => void;
   onCloseConversation: () => void;
   inputValue: string;
-  setInputValue: (value: string) => void;
+  setInputValue: (_value: string) => void;
   selectedModel: AIModel;
-  setSelectedModel: (model: AIModel) => void;
+  setSelectedModel: (_model: AIModel) => void;
   onToggleDetails: () => void;
 }
+/* eslint-enable no-unused-vars */
 
 export function ChatArea({
   conversation,

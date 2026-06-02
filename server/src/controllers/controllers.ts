@@ -1,8 +1,7 @@
-import { NextFunction, Request, Response } from "express";
+import { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import User from "../models/User";
 import Prompt from "../models/Prompt";
-import Purchase from "../models/Purchase";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import {
@@ -16,7 +15,6 @@ const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 export const ImproveProxy = async (
   req: Request,
   res: Response,
-  next: NextFunction,
 ): Promise<Response<any>> => {
   try {
     const promptText = req.body;
@@ -64,7 +62,6 @@ export const ImproveProxy = async (
 export const CreatePrompt = async (
   req: Request,
   res: Response,
-  next: NextFunction,
 ): Promise<Response<any>> => {
   try {
     await connectDb();
@@ -146,7 +143,6 @@ export const CreatePrompt = async (
 export const GetPrompts = async (
   req: Request,
   res: Response,
-  next: NextFunction,
 ): Promise<Response<any>> => {
   try {
     await connectDb();
@@ -155,7 +151,7 @@ export const GetPrompts = async (
     const category = searchParams.get("category");
     const walletAddress = searchParams.get("walletAddress");
 
-    let query: any = { listingStatus: 'published', isActive: true };
+    const query: any = { listingStatus: 'published', isActive: true };
 
     if (category) {
       query.category = category;
@@ -189,7 +185,6 @@ export const GetPrompts = async (
 export const CreateUser = async (
   req: Request,
   res: Response,
-  next: NextFunction,
 ): Promise<Response<any>> => {
   try {
     await connectDb();
@@ -241,7 +236,6 @@ export const CreateUser = async (
 export const GetUsers = async (
   req: Request,
   res: Response,
-  next: NextFunction,
 ): Promise<Response<any>> => {
   try {
     await connectDb();
@@ -280,7 +274,6 @@ export const GetUsers = async (
 export const TestPromptProxy = async (
   req: Request,
   res: Response,
-  _next: NextFunction,
 ): Promise<void> => {
   try {
     const { previewPrompt, userInput } = req.body;

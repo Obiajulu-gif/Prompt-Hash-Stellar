@@ -1,4 +1,4 @@
-import React from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,18 +9,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+/* eslint-disable no-unused-vars */
 export interface MarketplaceFiltersProps {
   categories: string[];
   selectedCategory: string;
-  setSelectedCategory: (cat: string) => void;
+  setSelectedCategory: (_cat: string) => void;
   searchQuery: string;
-  setSearchQuery: (q: string) => void;
+  setSearchQuery: (_q: string) => void;
   priceRange: [number, number];
-  setPriceRange: (r: [number, number]) => void;
+  setPriceRange: (_r: [number, number]) => void;
   sortBy: string;
-  setSortBy: (s: string) => void;
+  setSortBy: (_s: string) => void;
   onClear: () => void;
 }
+/* eslint-enable no-unused-vars */
 
 const PRICE_MAX = 25;
 

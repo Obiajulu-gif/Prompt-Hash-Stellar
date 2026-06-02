@@ -790,7 +790,7 @@ export default function ProfilePage() {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
+        promptId.toString(),
         !active,
       );
       updateStatus(!active ? "Prompt listing reactivated." : "Prompt listing paused.");
@@ -816,8 +816,8 @@ export default function ProfilePage() {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
-        nextPrice,
+        promptId.toString(),
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();

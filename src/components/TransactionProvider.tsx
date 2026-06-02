@@ -11,12 +11,14 @@ export interface TransactionState {
   retryAction?: () => void;
 }
 
+/* eslint-disable no-unused-vars */
 interface TransactionContextType {
   transactions: TransactionState[];
-  addTransaction: (tx: TransactionState) => void;
-  updateTransaction: (id: string, updates: Partial<TransactionState>) => void;
-  removeTransaction: (id: string) => void;
+  addTransaction: (_tx: TransactionState) => void;
+  updateTransaction: (_id: string, _updates: Partial<TransactionState>) => void;
+  removeTransaction: (_id: string) => void;
 }
+/* eslint-enable no-unused-vars */
 
 const TransactionContext = createContext<TransactionContextType | undefined>(undefined);
 

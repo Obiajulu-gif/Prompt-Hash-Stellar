@@ -18,7 +18,8 @@ const fetchDraftMetadata = async () => {
 };
 
 // 2. Mock: Stellar Soroban contract call for listing the asset
-const listAssetContractCall = async (data: { name: string; price: string; description: string }) => {
+const listAssetContractCall = async (_data: any) => {
+  void _data;
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       // Simulate a random failure (like 'op_not_authorized' or 'tx_bad_auth')

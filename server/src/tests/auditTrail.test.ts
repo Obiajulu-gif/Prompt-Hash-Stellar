@@ -29,7 +29,6 @@ import { recordAuditEvent, queryAuditEvents } from "../services/auditTrail";
 
 const mockCreate = AuditLog.create as jest.MockedFunction<typeof AuditLog.create>;
 const mockFind = AuditLog.find as jest.MockedFunction<typeof AuditLog.find>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockChain = (AuditLog as any).__chain;
 
 beforeEach(() => {

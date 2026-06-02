@@ -1,6 +1,6 @@
 import "dotenv/config";
 import express from "express";
-import { ImproveProxy, TestPromptProxy } from "./controllers/controllers";
+import { TestPromptProxy } from "./controllers/controllers";
 import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
 import { userRouter } from "./routes/userRoutes";
