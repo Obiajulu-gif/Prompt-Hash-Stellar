@@ -49,7 +49,7 @@ async function deliverWithRetry(
         $set: { failureCount: 0 },
       });
       return;
-    } catch (err) {
+    } catch {
       const isLastAttempt = attempt === MAX_RETRIES;
       if (!isLastAttempt) {
         await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));

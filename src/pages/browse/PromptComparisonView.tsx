@@ -44,7 +44,8 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 
 interface PromptComparisonViewProps {
   selected: ComparisonPrompt[];
-  onRemove: (id: string) => void;
+  // eslint-disable-next-line no-unused-vars
+  onRemove: (_id: string) => void;
   onClear: () => void;
 }
 

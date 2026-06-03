@@ -80,8 +80,8 @@ describe("creator dashboard refresh integration coverage", () => {
         expect.anything(),
         { signTransaction },
         "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
-        21n,
-        3_5000000n,
+        "21",
+        "35000000",
       );
       expect(getPromptsByCreatorMock).toHaveBeenCalledTimes(2);
     });

@@ -19,17 +19,19 @@ export type WalletStatus =
   | "reconnecting" 
   | "error";
 
+/* eslint-disable no-unused-vars */
 export interface WalletContextType {
   address?: string;
   network?: string;
   networkPassphrase?: string;
   status: WalletStatus;
   error?: string;
-  connect: (id: string) => Promise<void>;
+  connect: (_id: string) => Promise<void>;
   disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
 }
+/* eslint-enable no-unused-vars */
 
 const initialState = {
   address: undefined,
@@ -77,7 +79,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     }
     try {
       return await wallet.getNetwork();
-    } catch (e) {
+    } catch {
       console.warn(`Wallet ${walletId} does not support getNetwork, using env default.`);
       return { network: stellarWalletNetwork, networkPassphrase: undefined };
     }
@@ -207,7 +209,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           if (aborted) return;
           disconnect();
         }
-      } catch (e) {
+    } catch {
         if (aborted) return;
         console.warn("Session rehydration failed, clearing stale data.");
         disconnect();

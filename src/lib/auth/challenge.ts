@@ -101,57 +101,15 @@ export function verifyChallengeToken(
   return payload;
 }
 
-function decodeSignature(signature: string) {
-  const candidates = [
-    () => Buffer.from(signature, "base64"),
-    () => Buffer.from(signature, "hex"),
-    () => Buffer.from(signature, "utf8"),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      const value = candidate();
-      if (value.length > 0) {
-        return value;
-      }
-    } catch {
-      // Try the next encoding.
-    }
-  }
-
-  throw new Error("Invalid signed message encoding.");
-}
-
 export function verifyChallengeSignature(
   address: string,
   message: string,
-  signedMessage: string,
-) {
-  return Keypair.fromPublicKey(address).verify(
-    Buffer.from(message, "utf8"),
-    decodeSignature(signedMessage),
-  );
-}
-
-export function verifyUnlock(
-  secret: string | string[],
-  token: string,
-  address: string,
-  promptId: string,
-  signedMessage: string,
-  now = Date.now()
-) {
-  // 1. Verify the token payload (checks expiry, promptId, address, and server signature)
-  const payload = verifyChallengeToken(secret, token, address, promptId, now);
-
-  // 2. Reconstruct the challenge message that the user was required to sign
-  const message = buildChallengeMessage(payload);
-
-  // 3. Verify the wallet's cryptographic signature over the message
-  const isValid = verifyChallengeSignature(address, message, signedMessage);
-  if (!isValid) {
-    throw new Error("Invalid wallet signature for the unlock challenge.");
+  signatureBase64: string,
+): boolean {
+  try {
+    const keypair = Keypair.fromPublicKey(address);
+    return keypair.verify(Buffer.from(message, "utf8"), Buffer.from(signatureBase64, "base64"));
+  } catch {
+    return false;
   }
-
-  return payload;
 }

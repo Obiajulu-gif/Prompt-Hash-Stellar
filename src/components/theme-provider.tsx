@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useTheme } from '../hooks/useTheme'
 
 interface ThemeProviderProps {

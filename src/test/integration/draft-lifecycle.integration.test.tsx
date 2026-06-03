@@ -86,26 +86,24 @@ describe("draft listing lifecycle integration coverage", () => {
       },
     ];
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes("/drafts")) {
-          return new Response(JSON.stringify({ drafts }), { status: 200 });
-        }
-        if (url.includes("/publish")) {
-          return new Response(
-            JSON.stringify({
-              error: "Prompt is not publishable",
-              fields: { image: "Image URL is required." },
-              missingFields: ["image", "content"],
-            }),
-            { status: 422 },
-          );
-        }
-        return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
-      }),
-    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/drafts")) {
+        return new Response(JSON.stringify({ drafts }), { status: 200 });
+      }
+      if (url.includes("/publish")) {
+        return new Response(
+          JSON.stringify({
+            error: "Prompt is not publishable",
+            fields: { image: "Image URL is required." },
+            missingFields: ["image", "content"],
+          }),
+          { status: 422 },
+        );
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     renderWithProviders(<DraftManager />, {
       wallet: { address: walletAddress },
@@ -117,21 +115,19 @@ describe("draft listing lifecycle integration coverage", () => {
   });
 
   it("returns 404-shaped errors for invalid draft ids without crashing", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes("/drafts")) {
-          return new Response(JSON.stringify({ drafts: [] }), { status: 200 });
-        }
-        if (url.includes("/publish")) {
-          return new Response(JSON.stringify({ error: "Prompt not found" }), {
-            status: 404,
-          });
-        }
-        return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
-      }),
-    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/drafts")) {
+        return new Response(JSON.stringify({ drafts: [] }), { status: 200 });
+      }
+      if (url.includes("/publish")) {
+        return new Response(JSON.stringify({ error: "Prompt not found" }), {
+          status: 404,
+        });
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     renderWithProviders(<DraftManager />, {
       wallet: { address: walletAddress },

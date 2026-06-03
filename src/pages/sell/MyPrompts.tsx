@@ -21,7 +21,13 @@ const emptyState = (
   </div>
 );
 
-const MyPrompts = () => {
+interface MyPromptsProps {
+  onCreateNew?: () => void;
+}
+
+const MyPrompts = ({ onCreateNew: _onCreateNew }: MyPromptsProps) => {
+  void _onCreateNew;
+
   const queryClient = useQueryClient();
   const { address, signMessage, signTransaction } = useWallet();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -87,7 +93,7 @@ const MyPrompts = () => {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
+        promptId.toString(),
         !active,
       );
       updateStatus(!active ? "Prompt reactivated." : "Prompt deactivated.");
@@ -112,8 +118,8 @@ const MyPrompts = () => {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
-        nextPrice,
+        promptId.toString(),
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
@@ -132,7 +138,7 @@ const MyPrompts = () => {
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId, signMessage);
+      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,

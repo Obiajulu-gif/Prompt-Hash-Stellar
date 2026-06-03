@@ -3,13 +3,15 @@ import { History, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+/* eslint-disable no-unused-vars */
 interface Props {
   promptId: string;
   promptTitle: string;
   walletAddress: string;
   currentVersion: number;
-  onSuccess?: (newVersion: number) => void;
+  onSuccess?: (_newVersion: number) => void;
 }
+/* eslint-enable no-unused-vars */
 
 export function PostVersionUpdate({ promptId, promptTitle, walletAddress, currentVersion, onSuccess }: Props) {
   const [open, setOpen] = useState(false);

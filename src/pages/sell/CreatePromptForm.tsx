@@ -83,7 +83,6 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     () =>
       Boolean(
         address &&
-          signTransaction &&
           browserStellarConfig.promptHashContractId &&
           unlockPublicKey,
       ),

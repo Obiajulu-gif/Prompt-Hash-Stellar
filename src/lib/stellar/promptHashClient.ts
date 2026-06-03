@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars, @typescript-eslint/no-unused-vars */
 /**
  * WARNING: MOCK CONTRACT IMPLEMENTATION
  * This file currently stubs all on-chain reads/writes with mock data.
@@ -48,9 +49,9 @@ export class PromptHashClient {
    * Checks if the user already has access to the prompt.
    */
   static async checkAccess(
-    config: PromptHashConfig | string,
-    address: string,
-    itemId?: string | bigint,
+    _config: PromptHashConfig | string,
+    _address: string,
+    _itemId?: string | bigint,
   ): Promise<boolean> {
     warnMockUse();
     return new Promise((resolve) => {
@@ -59,11 +60,11 @@ export class PromptHashClient {
   }
 
   static async getPrompt(
-    config: PromptHashConfig,
+    _config: PromptHashConfig,
     promptId: bigint,
   ): Promise<PromptRecord> {
     warnMockUse();
-    const prompts = await PromptHashClient.getAllPrompts(config);
+    const prompts = await PromptHashClient.getAllPrompts(_config);
     const match = prompts.find((p) => p.id === promptId);
     if (!match) {
       throw new Error(`Prompt #${promptId.toString()} not found.`);
@@ -75,8 +76,8 @@ export class PromptHashClient {
    * Invokes the Soroban contract to purchase a prompt.
    */
   static async purchasePrompt(
-    itemId: string,
-    userAddress: string,
+    _itemId: string,
+    _userAddress: string,
     options?: { forceFailure?: string; delay?: number },
   ): Promise<{ txHash: string; success: boolean }> {
     warnMockUse();
@@ -95,7 +96,7 @@ export class PromptHashClient {
   }
 
   static async getAllPrompts(
-    config: PromptHashConfig,
+    _config: PromptHashConfig,
   ): Promise<PromptRecord[]> {
     warnMockUse();
     // Returning mock data so the Browse page isn't empty
@@ -135,43 +136,43 @@ export class PromptHashClient {
     ];
   }
 
-  static async getPromptsByBuyer(config: PromptHashConfig, address: string) {
+  static async getPromptsByBuyer(_config: PromptHashConfig, _address: string): Promise<PromptRecord[]> {
     warnMockUse();
     return [];
   }
 
-  static async getPromptsByCreator(config: PromptHashConfig, address: string) {
+  static async getPromptsByCreator(_config: PromptHashConfig, _address: string): Promise<PromptRecord[]> {
     warnMockUse();
     return [];
   }
 
   static async createPrompt(
-    config: PromptHashConfig,
-    walletSignerLike: any,
-    address: string,
-    data: CreatePromptInput,
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _data: CreatePromptInput,
   ) {
     warnMockUse();
-    return { success: true, txHash: "tx_mock" };
+    return { success: true, txHash: "tx_mock", promptId: "123" };
   }
 
   static async setPromptSaleStatus(
-    config: PromptHashConfig,
-    walletSignerLike: any,
-    address: string,
-    promptId: string,
-    isForSale: boolean,
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _promptId: string,
+    _isForSale: boolean,
   ) {
     warnMockUse();
     return { success: true };
   }
 
   static async updatePromptPrice(
-    config: PromptHashConfig,
-    walletSignerLike: any,
-    address: string,
-    promptId: string,
-    newPrice: string,
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _promptId: string,
+    _newPrice: string,
   ) {
     warnMockUse();
     return { success: true };
