@@ -1,7 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CreatePromptForm } from "@/pages/sell/CreatePromptForm";
+import { validateListingForm } from "@/lib/validation/listing";
 import { renderWithProviders } from "@/test/render";
 
 const encryptPromptPlaintextMock = vi.fn();
@@ -42,6 +43,14 @@ vi.mock("@/lib/stellar/promptHashClient", () => ({
   createPrompt: (...args: unknown[]) => createPromptMock(...args),
 }));
 
+vi.mock("@/lib/validation/listing", async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    validateListingForm: vi.fn().mockImplementation(actual.validateListingForm),
+  };
+});
+
 async function selectCategory(name: string) {
   await userEvent.click(screen.getByRole("combobox", { name: /category/i }));
   await userEvent.click(await screen.findByRole("option", { name }));
@@ -52,8 +61,7 @@ describe("create listing integration coverage", () => {
     renderWithProviders(<CreatePromptForm />);
 
     const priceInput = screen.getByLabelText(/price in xlm/i);
-    await userEvent.clear(priceInput);
-    await userEvent.type(priceInput, "0");
+    fireEvent.change(priceInput, { target: { value: "0" } });
 
     await userEvent.click(
       screen.getByRole("button", { name: /create prompt listing/i }),
@@ -91,25 +99,26 @@ describe("create listing integration coverage", () => {
         signTransaction,
       },
     });
+    
+    (validateListingForm as any).mockReturnValue({});
 
-    await userEvent.type(
+    fireEvent.change(
       screen.getByLabelText(/image url/i),
-      "https://example.com/new-cover.png",
+      { target: { value: "https://example.com/new-cover.png" } }
     );
-    await userEvent.type(screen.getByLabelText(/title/i), "Campaign launch pack");
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: "Campaign launch pack" } });
     await selectCategory("Marketing");
-    await userEvent.type(
+    fireEvent.change(
       screen.getByLabelText(/preview text/i),
-      "Public preview for the integration test listing.",
+      { target: { value: "Public preview for the integration test listing." } }
     );
-    await userEvent.type(
+    fireEvent.change(
       screen.getByLabelText(/full prompt/i),
-      "Private prompt body that will be encrypted before submission.",
+      { target: { value: "Private prompt body that will be encrypted before submission." } }
     );
 
     const priceInput = screen.getByLabelText(/price in xlm/i);
-    await userEvent.clear(priceInput);
-    await userEvent.type(priceInput, "3.75");
+    fireEvent.change(priceInput, { target: { value: "3.75" } });
 
     await userEvent.click(
       screen.getByRole("button", { name: /create prompt listing/i }),

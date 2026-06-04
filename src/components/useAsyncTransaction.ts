@@ -35,17 +35,20 @@ const translateStellarError = (error: unknown): string => {
   return err.message || "Failed to submit transaction to the Stellar network.";
 };
 
+/* eslint-disable no-unused-vars */
 interface UseAsyncTransactionOptions<TData, TVariables> {
-  onOptimistic?: (variables: TVariables) => void;
-  onSuccess?: (data: TData, variables: TVariables) => void;
-  onError?: (error: Error, variables: TVariables) => void;
-  onSettled?: (variables: TVariables, result?: TData, error?: unknown) => void;
-  pendingMessage?: string | ((variables: TVariables) => string);
-  successMessage?: string | ((data: TData) => string);
-  errorMessage?: string | ((error: Error) => string);
+  onOptimistic?: (_variables: TVariables) => void;
+  onSuccess?: (_data: TData, _variables: TVariables) => void;
+  onError?: (_error: Error, _variables: TVariables) => void;
+  onSettled?: (_variables: TVariables, _result?: TData, _error?: unknown) => void;
+  pendingMessage?: string | ((_variables: TVariables) => string);
+  successMessage?: string | ((_data: TData) => string);
+  errorMessage?: string | ((_error: Error) => string);
 }
+/* eslint-enable no-unused-vars */
 
 export function useAsyncTransaction<TData, TVariables = void>(
+  // eslint-disable-next-line no-unused-vars
   mutationFn: (variables: TVariables) => Promise<TData>,
   options?: UseAsyncTransactionOptions<TData, TVariables>
 ) {

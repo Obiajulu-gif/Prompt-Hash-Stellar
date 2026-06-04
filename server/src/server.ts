@@ -1,5 +1,6 @@
+import "dotenv/config";
 import express from "express";
-import { ImproveProxy } from "./controllers/controllers";
+import { TestPromptProxy } from "./controllers/controllers";
 import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
 import { userRouter } from "./routes/userRoutes";
@@ -8,6 +9,8 @@ import { webhookRouter } from "./routes/webhookRoutes";
 import { versioningRouter } from "./routes/versioningRoutes";
 import { governanceRouter } from "./routes/governanceRoutes"; // Issue #113
 import { runBackup, getBackupHealth } from "./services/backupService";
+import { IndexerState } from "./models/IndexerState"; 
+// import { startIndexer } from "./services/indexerService"; // TODO: Update path when ready
 
 const app = express();
 
@@ -25,6 +28,8 @@ app.use("/api/chat", chatRouter);
 app.use("/api/webhooks", webhookRouter);
 app.use("/api/versions", versioningRouter);
 app.use("/api/governance", governanceRouter); // Issue #113
+
+app.post("/api/test-prompt", TestPromptProxy);
 
 app.get("/health", async (req, res) => {
   const [state, backupHealth] = await Promise.all([
@@ -45,9 +50,9 @@ app.listen(port, () => {
   console.log(`Listening on port ${port}`);
 
   // STARTS THE INDEXER HERE
-  startIndexer().catch((err) => {
-    console.error("Failed to start Soroban Indexer:", err);
-  });
+  // startIndexer().catch((err: any) => {
+  //   console.error("Failed to start Soroban Indexer:", err);
+  // });
 
   // DAILY AUTOMATED BACKUP — runs immediately on startup then every 24 h.
   // Use BACKUP_S3_BUCKET env var to enable; silently skips if not configured.

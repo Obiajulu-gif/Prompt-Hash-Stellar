@@ -2,7 +2,8 @@ import { v4 as uuidv4 } from "uuid";
 import { logger } from "./logger";
 import { metrics } from "./metrics";
 
-export type ApiHandler = (req: any, res: any) => Promise<void> | void;
+// eslint-disable-next-line no-unused-vars
+export type ApiHandler = (_req: any, _res: any) => Promise<void> | void;
 
 export function withObservability(handler: ApiHandler, name: string): ApiHandler {
   return async (req, res) => {

@@ -4,6 +4,7 @@ import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { FeaturedPrompts } from "@/components/featured-prompts";
 import { Button } from "@/components/ui/button";
+import { MarketplaceAnalyticsCards } from "@/components/analytics/MarketplaceAnalyticsCards";
 
 const stats = [
   {
@@ -75,6 +76,15 @@ export default function Home() {
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Marketplace Analytics */}
+        <section className="mx-auto max-w-7xl px-6 py-8">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-white mb-2">Marketplace Overview</h2>
+            <p className="text-sm text-slate-400">Real-time metrics from the Stellar network</p>
+          </div>
+          <MarketplaceAnalyticsCards />
         </section>
 
         <section className="mx-auto max-w-7xl px-6">

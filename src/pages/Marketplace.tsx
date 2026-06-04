@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { Skeleton } from "../components/Skeleton";
@@ -11,7 +11,8 @@ export interface MarketplaceItem {
 }
 
 // Simulating a Stellar Soroban contract call
-const buyAssetContractCall = async (itemId: string) => {
+const buyAssetContractCall = async (_itemId: string) => {
+  void _itemId;
   // E.g., await contract.call('buy_asset', { id: itemId });
   return new Promise((resolve, reject) => {
     setTimeout(() => {

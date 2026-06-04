@@ -1,15 +1,17 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from "react";
 
 export type TransactionStatus = "idle" | "pending" | "success" | "error";
 
+/* eslint-disable no-unused-vars */
 interface TransactionFeedbackContextType {
   status: TransactionStatus;
   error: string | null;
-  setStatus: (status: TransactionStatus) => void;
-  setError: (error: string | null) => void;
+  setStatus: (_status: TransactionStatus) => void;
+  setError: (_error: string | null) => void;
   clear: () => void;
   retry?: () => void;
 }
+/* eslint-enable no-unused-vars */
 
 const TransactionFeedbackContext = createContext<TransactionFeedbackContextType | undefined>(undefined);
 

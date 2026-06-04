@@ -18,12 +18,20 @@ import {
   MessageSquare,
   Copy,
   Check,
+  User,
+  DollarSign,
+  ShoppingBag,
+  Hash,
 } from "lucide-react";
 import { ReviewForm } from "../../components/prompts/ReviewForm";
 import { ReviewList } from "../../components/prompts/ReviewList";
 import { StarRating } from "../../components/prompts/StarRating";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { browserStellarConfig } from "../../lib/stellar/browserConfig";
+import { stroopsToXlmString } from "../../lib/stellar/format";
+import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
+import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
 
 export type BuyerStatus =
   | "IDLE"
@@ -40,6 +48,95 @@ interface PromptModalProps {
   onClose: () => void;
   onRefresh?: () => void;
 }
+
+// Metadata display component
+const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus }> = ({ itemId, status }) => {
+  const { data: prompt, isLoading } = useQuery({
+    queryKey: ["prompt-detail", itemId],
+    queryFn: async () => {
+      return await PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId));
+    },
+    enabled: !!itemId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mb-6 space-y-3">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>
+    );
+  }
+
+  if (!prompt) return null;
+
+  const isPurchased = status === "PURCHASED_LOCKED" || status === "SUCCESS";
+  const priceXlm = stroopsToXlmString(prompt.priceStroops);
+
+  return (
+    <div className="mb-6 space-y-4">
+      {/* Preview Content */}
+      <div className="p-4 rounded-xl bg-white/5 border border-white/5">
+        <p className="text-xs uppercase tracking-wider text-slate-400 mb-2">Preview</p>
+        <p className="text-sm text-slate-300 leading-relaxed">{prompt.previewText}</p>
+      </div>
+
+      {/* Metadata Grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <User className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Creator</p>
+          </div>
+          <p className="text-xs font-mono text-white truncate" title={prompt.creator}>
+            {prompt.creator.slice(0, 8)}...{prompt.creator.slice(-4)}
+          </p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <DollarSign className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Price</p>
+          </div>
+          <p className="text-sm font-bold text-white">{priceXlm} XLM</p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <ShoppingBag className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Sales</p>
+          </div>
+          <p className="text-sm font-bold text-white">{prompt.salesCount}</p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <Hash className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Content Hash</p>
+          </div>
+          <p className="text-xs font-mono text-white truncate" title={prompt.contentHash}>
+            {prompt.contentHash.slice(0, 8)}...
+          </p>
+        </div>
+      </div>
+
+      {/* Purchase State Indicator */}
+      {isPurchased && (
+        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-emerald-400" />
+          <p className="text-xs text-emerald-300 font-semibold">You own this prompt license</p>
+        </div>
+      )}
+
+      {!prompt.active && (
+        <div className="p-3 rounded-lg bg-slate-500/10 border border-slate-500/20 flex items-center gap-2">
+          <X className="h-4 w-4 text-slate-400" />
+          <p className="text-xs text-slate-400 font-semibold">This prompt is currently unavailable</p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const PromptModal: React.FC<PromptModalProps> = ({
   itemId,
@@ -156,6 +253,22 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   } = useAsyncTransaction(
     async () => {
       if (!wallet?.address) throw new Error("Wallet connection required.");
+      
+      // Check network state before purchase
+      const networkState = detectNetworkMismatch(
+        !!wallet.address,
+        wallet.network,
+        wallet.status
+      );
+      
+      if (networkState.type === "wrong-network") {
+        throw new Error(networkState.message || "Wrong network connected");
+      }
+      
+      if (networkState.type === "disconnected") {
+        throw new Error("Please connect your wallet first");
+      }
+      
       setStatus("AWAITING_APPROVAL");
       const mockHash = "tx_" + Math.random().toString(16).slice(2, 14);
       setTxHash(mockHash);
@@ -226,6 +339,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             </p>
           </div>
 
+          {/* Prompt Metadata Section */}
+          <PromptMetadataSection itemId={itemId} status={status} />
+
           {isCheckingAccess ? (
             <div className="space-y-4 py-4">
               <Skeleton className="h-4 w-full" />
@@ -234,6 +350,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             </div>
           ) : (
             <div className="space-y-6">
+              {/* Network Mismatch Warning */}
+              <NetworkMismatchBanner />
+
               {/* TRANSACTION STAGES */}
               {(status === "IDLE" || status === "ERROR") && (
                 <div className="space-y-6">
@@ -259,8 +378,11 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
                   <button
                     onClick={() => runPurchase().catch(() => {})}
-                    disabled={isPurchasing}
-                    className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2"
+                    disabled={
+                      isPurchasing || 
+                      detectNetworkMismatch(!!wallet?.address, wallet?.network, wallet?.status).type !== "correct"
+                    }
+                    className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Confirm & Purchase <Wallet className="w-4 h-4" />
                   </button>

@@ -21,9 +21,11 @@ interface Notification {
   isVisible: boolean;
 }
 
+/* eslint-disable no-unused-vars */
 interface NotificationContextType {
-  addNotification: (message: string, type: NotificationType) => void;
+  addNotification: (_message: string, _type: NotificationType) => void;
 }
+/* eslint-enable no-unused-vars */
 
 const NotificationContext = createContext<NotificationContextType | undefined>(
   undefined,
