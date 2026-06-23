@@ -91,6 +91,14 @@ struct ListingExtended {
     pub new_expires_at: u64,
 }
 
+/// Emitted when a creator revises their listing metadata (#226).
+#[contractevent]
+struct ListingRevised {
+    #[topic]
+    pub prompt_id: u128,
+    pub new_revision: u32,
+}
+
 pub struct Events;
 
 impl Events {
@@ -207,6 +215,14 @@ impl Events {
         ListingExtended {
             prompt_id,
             new_expires_at,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_listing_revised(env: &Env, prompt_id: u128, new_revision: u32) {
+        ListingRevised {
+            prompt_id,
+            new_revision,
         }
         .publish(env);
     }

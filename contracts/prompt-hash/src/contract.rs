@@ -1,6 +1,6 @@
 use super::events::Events;
 use super::storage::Storage;
-use super::types::{DataKey, Error, ListingConfig, Prompt, PromptHashTrait, Split};
+use super::types::{DataKey, Error, ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, Split};
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
@@ -101,6 +101,7 @@ impl PromptHashTrait for PromptHashContract {
             max_supply: 0,
             expires_at: listing.expires_at,
             splits: listing.splits,
+            revision: 0,
         };
 
         Storage::save_prompt(&env, &prompt)?;
@@ -362,6 +363,73 @@ impl PromptHashTrait for PromptHashContract {
             royalty_amount,
         );
         Ok(())
+    }
+
+    // ─── Issue #226: Listing revision support ────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn revise_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        title: String,
+        category: String,
+        preview_text: String,
+        image_url: String,
+        price_stroops: i128,
+    ) -> Result<u32, Error> {
+        creator.require_auth();
+        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+
+        // Validate incoming field lengths and price
+        ensure(price_stroops > 0, Error::InvalidPrice)?;
+        validate_len(&image_url, MAX_IMAGE_URL_LEN, Error::InvalidImageUrlLength)?;
+        validate_len(&title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
+        validate_len(&category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
+        validate_len(&preview_text, MAX_PREVIEW_LEN, Error::InvalidPreviewLength)?;
+
+        // Snapshot the current (about-to-be-replaced) metadata before overwriting.
+        // Buyers can call get_listing_revision(prompt_id, old_revision) to verify
+        // what was advertised at the time of their purchase.
+        let snapshot = ListingRevisionRecord {
+            prompt_id,
+            revision: prompt.revision,
+            title: prompt.title.clone(),
+            category: prompt.category.clone(),
+            preview_text: prompt.preview_text.clone(),
+            image_url: prompt.image_url.clone(),
+            price_stroops: prompt.price_stroops,
+            revised_at: env.ledger().timestamp(),
+        };
+        Storage::save_listing_revision(&env, &snapshot);
+
+        // Apply updates
+        prompt.title = title;
+        prompt.category = category;
+        prompt.preview_text = preview_text;
+        prompt.image_url = image_url;
+        prompt.price_stroops = price_stroops;
+        prompt.revision = prompt
+            .revision
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        Storage::update_prompt(&env, &prompt);
+        Events::emit_listing_revised(&env, prompt_id, prompt.revision);
+        Ok(prompt.revision)
+    }
+
+    fn get_listing_revision(
+        env: Env,
+        prompt_id: u128,
+        revision: u32,
+    ) -> Result<ListingRevisionRecord, Error> {
+        // Verify the listing exists before looking up the revision.
+        Storage::require_prompt(&env, prompt_id)?;
+        Storage::get_listing_revision(&env, prompt_id, revision)
+            .ok_or(Error::PromptNotFound)
     }
 
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {

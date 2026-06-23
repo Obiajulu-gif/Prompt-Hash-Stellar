@@ -1,4 +1,4 @@
-use super::types::{DataKey, Error, Prompt, Purchase};
+use super::types::{DataKey, Error, ListingRevisionRecord, Prompt, Purchase};
 use soroban_sdk::{token, Address, BytesN, Env, Vec};
 
 pub const DAY_IN_LEDGERS: u32 = 17280;
@@ -346,5 +346,29 @@ impl Storage {
             Self::extend_key_ttl(env, &key);
         }
         discount
+    }
+
+    // ── Listing revision storage (#226) ──────────────────────────────────────
+
+    /// Persist a revision snapshot for `old_revision` before overwriting the listing.
+    pub fn save_listing_revision(env: &Env, record: &ListingRevisionRecord) {
+        let key = DataKey::ListingRevision(record.prompt_id, record.revision);
+        env.storage().persistent().set(&key, record);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    /// Retrieve a revision snapshot. Returns `None` when the revision number
+    /// has never been committed (e.g. revision 0 on a never-revised listing).
+    pub fn get_listing_revision(
+        env: &Env,
+        prompt_id: u128,
+        revision: u32,
+    ) -> Option<ListingRevisionRecord> {
+        let key = DataKey::ListingRevision(prompt_id, revision);
+        let record = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        record
     }
 }

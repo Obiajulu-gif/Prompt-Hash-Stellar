@@ -36,6 +36,8 @@ pub enum Error {
     ListingExpired = 28,
     LicenseNotFound = 29,
     InvalidLicenseTransfer = 30,
+    // #226 – listing revision support
+    RevisionFieldsUnchanged = 31,
 }
 
 #[contracttype]
@@ -53,6 +55,9 @@ pub enum DataKey {
     ReferralPercentage,
     IsPaused,
     VoucherKey(u128, BytesN<32>),
+    /// Snapshot of a listing taken before a revision (#226).
+    /// Key: (prompt_id, revision_number_before_change)
+    ListingRevision(u128, u32),
 }
 
 #[contracttype]
@@ -123,6 +128,25 @@ pub struct Prompt {
     pub expires_at: u64,
     /// Optional co-creator revenue splits applied against the full payment.
     pub splits: Vec<Split>,
+    /// Monotonically increasing revision counter. Starts at 0 on creation and
+    /// increments by 1 on each successful `revise_listing` call (#226).
+    pub revision: u32,
+}
+
+/// Snapshot of the mutable listing fields captured before a revision (#226).
+/// Stored under `DataKey::ListingRevision(prompt_id, old_revision)` so
+/// buyers can verify what metadata was in effect when they purchased.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListingRevisionRecord {
+    pub prompt_id: u128,
+    pub revision: u32,
+    pub title: String,
+    pub category: String,
+    pub preview_text: String,
+    pub image_url: String,
+    pub price_stroops: i128,
+    pub revised_at: u64,
 }
 
 pub trait PromptHashTrait {
@@ -213,6 +237,31 @@ pub trait PromptHashTrait {
         new_buyer: Address,
         resale_price: i128,
     ) -> Result<(), Error>;
+
+    /// Update the mutable metadata fields of an existing listing.
+    ///
+    /// The old title, category, preview_text, image_url, and price_stroops are
+    /// preserved as a `ListingRevisionRecord` keyed on the pre-change revision
+    /// number. Existing `Purchase` records remain valid — revision does not
+    /// affect access rights (#226).
+    #[allow(clippy::too_many_arguments)]
+    fn revise_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        title: String,
+        category: String,
+        preview_text: String,
+        image_url: String,
+        price_stroops: i128,
+    ) -> Result<u32, Error>;
+
+    /// Return the metadata snapshot for a specific revision number (#226).
+    fn get_listing_revision(
+        env: Env,
+        prompt_id: u128,
+        revision: u32,
+    ) -> Result<ListingRevisionRecord, Error>;
 
     fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
     fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error>;

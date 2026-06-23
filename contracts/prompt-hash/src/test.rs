@@ -2449,3 +2449,126 @@ fn test_buy_prompts_bulk_with_referrer() {
     assert!(client.has_access(&buyer, &prompt_a));
     assert!(client.has_access(&buyer, &prompt_b));
 }
+
+// ─── Issue #226: Listing revision tests ─────────────────────────────────────
+
+#[test]
+fn test_revise_listing_increments_revision_and_snapshots_old_metadata() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Original Title", 1_000, &context.xlm);
+
+    // Revision starts at 0
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.revision, 0);
+
+    let new_revision = client.revise_listing(
+        &creator,
+        &prompt_id,
+        &String::from_str(&env, "Updated Title"),
+        &String::from_str(&env, "Updated Category"),
+        &String::from_str(&env, "Updated preview text for the prompt."),
+        &String::from_str(&env, "https://example.com/new-image.png"),
+        &2_000_i128,
+    );
+    assert_eq!(new_revision, 1);
+
+    // Live listing reflects updates
+    let updated = client.get_prompt(&prompt_id);
+    assert_eq!(updated.revision, 1);
+    assert_eq!(updated.price_stroops, 2_000);
+
+    // Revision 0 snapshot preserves original metadata
+    let snapshot = client.get_listing_revision(&prompt_id, &0);
+    assert_eq!(snapshot.revision, 0);
+    assert_eq!(snapshot.price_stroops, 1_000);
+    assert_eq!(snapshot.prompt_id, prompt_id);
+}
+
+#[test]
+fn test_revise_listing_multiple_times_each_revision_preserved() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "V0 Title", 100, &context.xlm);
+
+    client.revise_listing(
+        &creator,
+        &prompt_id,
+        &String::from_str(&env, "V1 Title"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "Preview v1"),
+        &String::from_str(&env, "https://example.com/img1.png"),
+        &200_i128,
+    );
+
+    client.revise_listing(
+        &creator,
+        &prompt_id,
+        &String::from_str(&env, "V2 Title"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "Preview v2"),
+        &String::from_str(&env, "https://example.com/img2.png"),
+        &300_i128,
+    );
+
+    assert_eq!(client.get_prompt(&prompt_id).revision, 2);
+    assert_eq!(client.get_listing_revision(&prompt_id, &0).price_stroops, 100);
+    assert_eq!(client.get_listing_revision(&prompt_id, &1).price_stroops, 200);
+}
+
+#[test]
+fn test_revise_listing_unauthorized_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let other = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "My Prompt", 500, &context.xlm);
+
+    let result = client.try_revise_listing(
+        &other,
+        &prompt_id,
+        &String::from_str(&env, "Hijacked Title"),
+        &String::from_str(&env, "Cat"),
+        &String::from_str(&env, "Preview"),
+        &String::from_str(&env, "https://example.com/img.png"),
+        &100_i128,
+    );
+    assert_eq!(result, Err(Ok(crate::types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_revise_listing_buyer_retains_access_after_revision() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price: i128 = 5_000;
+
+    let prompt_id = create_prompt(&env, &client, &creator, "My Prompt", price, &context.xlm);
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None, &price, &None);
+
+    // Revise after purchase — buyer must still have access
+    client.revise_listing(
+        &creator,
+        &prompt_id,
+        &String::from_str(&env, "New Title After Sale"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "New Preview"),
+        &String::from_str(&env, "https://example.com/new.png"),
+        &9_999_i128,
+    );
+
+    assert!(client.has_access(&buyer, &prompt_id));
+}
