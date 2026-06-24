@@ -26,6 +26,7 @@ import {
 import { ReviewForm } from "../../components/prompts/ReviewForm";
 import { ReviewList } from "../../components/prompts/ReviewList";
 import { StarRating } from "../../components/prompts/StarRating";
+import { UnlockErrorBanner } from "../../components/UnlockErrorBanner";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { browserStellarConfig } from "../../lib/stellar/browserConfig";
@@ -442,9 +443,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                   />
 
                   {unlockError && (
-                    <StatusBanner
-                      status="error"
+                    <UnlockErrorBanner
                       message={unlockError.message}
+                      onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
                     />
                   )}
 

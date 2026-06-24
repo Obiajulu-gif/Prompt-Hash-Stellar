@@ -4,10 +4,16 @@ import { Footer } from "@/components/footer";
 import { Navigation } from "@/components/navigation";
 import { CreatePromptForm } from "./CreatePromptForm";
 import MyPrompts from "./MyPrompts";
+import { usePageMeta } from "@/lib/seo/usePageMeta";
 
 type View = "create" | "manage";
 
 export default function SellPage() {
+  usePageMeta({
+    title: "Sell Prompts",
+    description: "List your AI prompts on the Stellar blockchain. Set your price, encrypt your content, and earn XLM.",
+  });
+
   const [view, setView] = useState<View>("create");
 
   return (

@@ -5,6 +5,7 @@ import { Footer } from "@/components/footer";
 import { FeaturedPrompts } from "@/components/featured-prompts";
 import { Button } from "@/components/ui/button";
 import { MarketplaceAnalyticsCards } from "@/components/analytics/MarketplaceAnalyticsCards";
+import { usePageMeta } from "@/lib/seo/usePageMeta";
 
 const stats = [
   {
@@ -25,6 +26,11 @@ const stats = [
 ];
 
 export default function Home() {
+  usePageMeta({
+    title: "Marketplace",
+    description: "Discover and purchase AI prompts secured on the Stellar blockchain. Wallet-verified access, on-chain ownership.",
+  });
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.18),_transparent_26%),linear-gradient(180deg,_#020617,_#0f172a_45%,_#020617)] text-white">
       <Navigation />

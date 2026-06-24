@@ -83,13 +83,51 @@ export function apiError(
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   MISSING_FIELDS: "Some required fields are missing. Please check your request.",
   METHOD_NOT_ALLOWED: "This action is not supported.",
-  CHALLENGE_EXPIRED: "Your session has expired. Please try again to get a new challenge.",
-  CHALLENGE_INVALID: "The challenge token is invalid. Please start the unlock flow again.",
-  INVALID_SIGNATURE: "Wallet signature verification failed. Please try signing again.",
-  ACCESS_NOT_PURCHASED: "You have not purchased access to this prompt.",
-  RATE_LIMIT_IP: "Too many requests. Please wait a moment and try again.",
-  RATE_LIMIT_WALLET: "Too many unlock attempts for this wallet. Please wait and try again.",
-  CONFIGURATION_ERROR: "A server configuration error occurred. Please try again later.",
-  INTEGRITY_FAILURE: "Prompt content could not be verified. Please contact support.",
+  CHALLENGE_EXPIRED: "Your session has expired. Click Decrypt Content to try again.",
+  CHALLENGE_INVALID: "The unlock session is no longer valid. Click Decrypt Content to start over.",
+  INVALID_SIGNATURE: "Wallet signature did not match. Open your wallet and try signing again.",
+  ACCESS_NOT_PURCHASED: "You have not purchased access to this prompt. Complete a purchase first.",
+  RATE_LIMIT_IP: "Too many requests. Please wait a moment, then try again.",
+  RATE_LIMIT_WALLET: "Too many unlock attempts for this wallet. Please wait a minute and try again.",
+  CONFIGURATION_ERROR: "Something went wrong on our end. Please try again later.",
+  INTEGRITY_FAILURE: "Prompt content could not be verified. Please contact support if this persists.",
   TEMPORARY_FAILURE: "A temporary error occurred. Please try again in a moment.",
 };
+
+export type UnlockErrorCategory = "wallet" | "access" | "server";
+
+/**
+ * Classify an unlock error message as a wallet issue, access/permission issue, or server error.
+ * Used by the UI to show appropriate recovery guidance.
+ */
+export function classifyUnlockError(message: string): UnlockErrorCategory {
+  const lower = message.toLowerCase();
+
+  const accessPhrases = [
+    "not purchased",
+    "access to this prompt",
+    "purchase access",
+  ];
+  if (accessPhrases.some((p) => lower.includes(p))) return "access";
+
+  const walletPhrases = [
+    "wallet",
+    "signing",
+    "signature",
+    "session",
+    "unlock session",
+    "sign",
+    "extension",
+    "rejected",
+    "cancelled",
+    "wrong network",
+    "insufficient",
+    "balance",
+    "transaction failed",
+    "timed out",
+    "connection",
+  ];
+  if (walletPhrases.some((p) => lower.includes(p))) return "wallet";
+
+  return "server";
+}

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { MarketplaceFilters } from "@/components/MarketplaceFilters";
 import FetchAllPrompts from "./FetchAllPrompts";
 import { HeroAnimation } from "./HeroAnimation";
+import { usePageMeta } from "@/lib/seo/usePageMeta";
 
 const categories = Array.from(
   new Set(featuredPromptTemplates.map((prompt) => prompt.category)),
@@ -16,6 +17,11 @@ const categories = Array.from(
 const tags = ["AI", "Creative", "Product", "Sales", "Finance", "Support"];
 
 export default function BrowsePage() {
+  usePageMeta({
+    title: "Browse Prompts",
+    description: "Explore AI prompts across categories. Buy verified prompt licenses secured on the Stellar blockchain.",
+  });
+
   const [priceRange, setPriceRange] = useState([0, 25]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");

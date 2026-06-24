@@ -62,6 +62,7 @@ import {
 import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
+import { usePageMeta } from "@/lib/seo/usePageMeta";
 
 const promptImageFallback = "/images/codeguru.png";
 
@@ -718,6 +719,11 @@ function SavedPromptCard({
 }
 
 export default function ProfilePage() {
+  usePageMeta({
+    title: "My Profile",
+    description: "Manage your purchased prompts, listings, and wallet settings on Prompt Hash Stellar.",
+  });
+
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const viewAddress = searchParams.get("address");
