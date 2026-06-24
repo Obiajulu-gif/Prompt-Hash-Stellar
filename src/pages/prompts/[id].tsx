@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import PurchaseProgress from '../../components/PurchaseProgress';
 
 // Prompt preview page — shows ONLY public preview metadata. Hidden prompt content is never fetched.
 
@@ -91,12 +92,11 @@ export default function PromptPreviewPage() {
     fetchPreview();
   }, [id]);
 
-  const handlePurchase = (promptId: string) => {
-    // Placeholder for Stellar/Freighter integration.
-    // Must be replaced with real wallet/payment flow that confirms purchase on-chain.
-    // For now, log and show a simple alert.
-    console.log('[Purchase] triggered for promptId=', promptId);
-    alert(`Purchase flow started for ${promptId} (mock). Connect Freighter or other Stellar wallet to proceed.`);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+
+  const handlePurchase = (_promptId: string) => {
+    // Open the purchase modal that handles the flow (mocked).
+    setShowPurchaseModal(true);
   };
 
   if (loading) {
@@ -207,6 +207,15 @@ export default function PromptPreviewPage() {
                 >
                   Purchase Prompt
                 </button>
+                {showPurchaseModal && (
+                  <PurchaseProgress
+                    onClose={() => setShowPurchaseModal(false)}
+                    onViewUnlocked={() => {
+                      setShowPurchaseModal(false);
+                      router.push('/profile/MyPurchasesPage');
+                    }}
+                  />
+                )}
 
                 <button
                   onClick={() => navigator.clipboard?.writeText(window.location.href)}

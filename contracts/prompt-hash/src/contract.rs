@@ -504,13 +504,14 @@ impl PromptHashTrait for PromptHashContract {
     }
 
     // New governance API: secure, bounded platform fee updates with cryptographic event logging.
-    fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error> {
-        // Enforce caller auth explicitly against provided admin address.
-        admin.require_auth();
+    #[only_owner]
+    fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error> {
         ensure(new_fee <= MAX_PLATFORM_FEE, Error::FeeExceedsMaximum)?;
 
         let old_fee = Storage::get_fee_percentage(&env);
         Storage::set_fee_percentage(&env, &new_fee);
+        // Emit event with the invoker as admin for auditability
+        let admin = env.invoker();
         Events::emit_platform_fee_updated(&env, old_fee, new_fee, admin);
         Ok(())
     }

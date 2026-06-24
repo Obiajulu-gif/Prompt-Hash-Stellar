@@ -290,7 +290,7 @@ pub trait PromptHashTrait {
     fn set_referral_percentage(env: Env, new_referral_percentage: u32) -> Result<(), Error>;
     fn get_referral_percentage(env: Env) -> u32;
     // New platform fee governance API
-    fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error>;
+    fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error>;
     fn get_platform_fee(env: Env) -> u32;
     fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>;
     fn is_paused(env: Env) -> bool;

@@ -411,7 +411,7 @@ fn test_admin_can_update_platform_fee_within_bounds() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     // admin sets platform fee to 300 BPS (3%)
-    client.update_platform_fee(&context.admin, &300u32);
+    client.update_platform_fee(&300u32);
     assert_eq!(client.get_platform_fee(), 300u32);
 }
 
@@ -451,7 +451,7 @@ fn test_update_platform_fee_emits_event() {
 
     // Capture event count before
     let before = env.events().all().len();
-    client.update_platform_fee(&context.admin, &400u32);
+    client.update_platform_fee(&400u32);
     let after = env.events().all().len();
     assert!(after >= before + 1, "expected at least one new event");
 }
