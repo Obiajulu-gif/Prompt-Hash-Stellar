@@ -233,7 +233,16 @@ cd server && npm install && cd ..
 
 ## Local Development Setup
 
-For the complete contributor workflow, including required tools, environment variables, frontend startup, Soroban contract tests, unlock endpoint testing, and troubleshooting, see [docs/contributing.md](docs/contributing.md).
+For the complete contributor workflow, including required tools, environment variables, frontend startup, Soroban contract tests, unlock endpoint testing, and troubleshooting, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## 🚀 Getting Started
+
+Need to get the project running locally? See the full contributor setup guide:
+
+👉 [CONTRIBUTING / SETUP](./CONTRIBUTING.md)
+
+It covers prerequisites (Node.js, Rust, Soroban CLI), step-by-step setup (install dependencies, build contracts, run dev server), environment variables, testing, and contributor conventions.
+
 
 Quick start:
 
