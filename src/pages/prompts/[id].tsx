@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
+import { useParams } from 'react-router-dom';
 import PurchaseProgress from '../../components/PurchaseProgress';
 
 // Prompt preview page — shows ONLY public preview metadata. Hidden prompt content is never fetched.
@@ -46,8 +46,7 @@ const MOCK_PROMPTS: Record<string, PromptPreview> = {
 };
 
 export default function PromptPreviewPage() {
-  const router = useRouter();
-  const { id } = router.query as { id?: string };
+  const { id } = useParams<{ id: string }>();
 
   const [prompt, setPrompt] = useState<PromptPreview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -212,7 +211,7 @@ export default function PromptPreviewPage() {
                     onClose={() => setShowPurchaseModal(false)}
                     onViewUnlocked={() => {
                       setShowPurchaseModal(false);
-                      router.push('/profile/MyPurchasesPage');
+                      window.location.href = '/purchases';
                     }}
                   />
                 )}

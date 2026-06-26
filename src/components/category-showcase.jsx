@@ -1,27 +1,11 @@
 import { Button } from "./ui/button";
-// import Link from "next/link";
 import { Link } from "react-router-dom";
 
-const categories = [
-  {
-    id: 1,
-    name: "Image Generation",
-    count: 1243,
-    image: "/images/image-generator.png",
-  },
-  {
-    id: 2,
-    name: "Text & Writing",
-    count: 876,
-    image: "/images/text&writing.png",
-  },
-  {
-    id: 3,
-    name: "Code & Development",
-    count: 542,
-    image: "/images/code&dev.png",
-  },
-  { id: 4, name: "Marketing", count: 321, image: "/images/marketing.png" },
+const showcaseCategories = [
+  { name: "Software Development", slug: "software-development", count: 42, image: "/images/code&dev.png" },
+  { name: "Marketing", slug: "marketing", count: 38, image: "/images/marketing.png" },
+  { name: "Creative", slug: "creative", count: 27, image: "/images/text&writing.png" },
+  { name: "Sales", slug: "sales", count: 19, image: "/images/sales.png" },
 ];
 
 export function CategoryShowcase() {
@@ -29,11 +13,11 @@ export function CategoryShowcase() {
     <section className="py-16 px-6 bg-gray-950">
       <div className="mx-auto max-w-7xl">
         <h2 className="text-2xl font-bold tracking-tight text-white mb-8">
-          Explore the App Store
+          Explore Categories
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {categories.map((category) => (
-            <Link to={`/category/${category.id}`} key={category.id}>
+          {showcaseCategories.map((category) => (
+            <Link to={`/category/${category.slug}`} key={category.slug}>
               <div className="relative group overflow-hidden rounded-lg">
                 <div className="aspect-[4/3] overflow-hidden">
                   <img
