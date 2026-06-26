@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { Skeleton } from "../components/Skeleton";
+import { usePerformanceAudit } from "@/hooks/usePerformanceAudit";
 
 export interface MarketplaceItem {
   id: string;
@@ -59,6 +60,8 @@ export default function Marketplace() {
   const queryClient = useQueryClient();
   const [optimisticPurchases, setOptimisticPurchases] = useState<Set<string>>(new Set());
 
+  const { markDone: markLoadDone } = usePerformanceAudit({ scope: "marketplace_load" });
+
   // 1. Fetching marketplace items
   const { data: items, isLoading: isFetching, isError } = useQuery({
     queryKey: ["marketplace-items"],
@@ -71,6 +74,12 @@ export default function Marketplace() {
       ];
     },
   });
+
+  useEffect(() => {
+    if (!isFetching && !isError) {
+      markLoadDone({ item_count: items?.length ?? 0 });
+    }
+  }, [isFetching, isError, items, markLoadDone]);
 
   // 2. Wrap purchase flow in useAsyncTransaction
   const { execute, isLoading: isPurchasing } = useAsyncTransaction(

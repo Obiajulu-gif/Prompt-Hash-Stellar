@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import PurchaseProgress from '../../components/PurchaseProgress';
 
@@ -52,45 +52,42 @@ export default function PromptPreviewPage() {
   const [prompt, setPrompt] = useState<PromptPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
+  const fetchPreview = useCallback(async () => {
     if (!id) return;
-
     setLoading(true);
     setError(null);
 
     // Simulate fetching ONLY public preview metadata by ID.
-    // SECURITY: This simulated fetch returns only publicPreview and metadata. The full prompt payload is not available on this route.
-    const fetchPreview = async () => {
-      // small delay to mimic network
-      await new Promise((r) => setTimeout(r, 350));
+    // SECURITY: returns only publicPreview and metadata — full prompt payload is never available on this route.
+    await new Promise((r) => setTimeout(r, 350));
 
-      const data = MOCK_PROMPTS[id];
-      if (!data) {
-        setError('Prompt not found');
-        setPrompt(null);
-      } else {
-        // intentionally only set public fields
-        const safe = {
-          id: data.id,
-          title: data.title,
-          description: data.description,
-          creator: data.creator,
-          category: data.category,
-          priceXLM: data.priceXLM,
-          salesCount: data.salesCount,
-          createdAt: data.createdAt,
-          rating: data.rating,
-          reviewsCount: data.reviewsCount,
-          publicPreview: data.publicPreview
-        };
-        setPrompt(safe);
-      }
-      setLoading(false);
-    };
-
-    fetchPreview();
+    const data = MOCK_PROMPTS[id];
+    if (!data) {
+      setError('Prompt not found');
+      setPrompt(null);
+    } else {
+      setPrompt({
+        id: data.id,
+        title: data.title,
+        description: data.description,
+        creator: data.creator,
+        category: data.category,
+        priceXLM: data.priceXLM,
+        salesCount: data.salesCount,
+        createdAt: data.createdAt,
+        rating: data.rating,
+        reviewsCount: data.reviewsCount,
+        publicPreview: data.publicPreview,
+      });
+    }
+    setLoading(false);
   }, [id]);
+
+  useEffect(() => {
+    void fetchPreview();
+  }, [fetchPreview, retryCount]);
 
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
 
@@ -101,24 +98,88 @@ export default function PromptPreviewPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-gray-100">
-        <div className="animate-pulse text-center">
-          <div className="h-6 w-72 bg-gray-700 rounded mb-4" />
-          <div className="h-4 w-40 bg-gray-700 rounded mx-auto" />
+      <div className="min-h-screen bg-gray-950 text-gray-100 py-12 px-6 animate-pulse">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-gray-800 rounded-lg p-6">
+              <div className="flex items-start gap-4">
+                <div className="h-16 w-16 rounded-full bg-gray-700 shrink-0" />
+                <div className="flex-1 space-y-3">
+                  <div className="h-6 w-3/4 bg-gray-700 rounded" />
+                  <div className="h-4 w-full bg-gray-700 rounded" />
+                  <div className="h-4 w-1/2 bg-gray-700 rounded" />
+                </div>
+              </div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-3">
+              <div className="h-5 w-32 bg-gray-700 rounded" />
+              <div className="h-32 w-full bg-gray-700 rounded" />
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-3">
+              <div className="h-4 w-40 bg-gray-700 rounded" />
+              <div className="h-4 w-full bg-gray-700 rounded" />
+              <div className="h-4 w-5/6 bg-gray-700 rounded" />
+            </div>
+          </div>
+          <aside>
+            <div className="bg-gray-800 rounded-lg p-6 space-y-4">
+              <div className="h-8 w-24 bg-gray-700 rounded" />
+              <div className="h-12 w-full bg-gray-700 rounded" />
+              <div className="h-10 w-full bg-gray-700 rounded" />
+            </div>
+          </aside>
         </div>
       </div>
     );
   }
 
-  if (error || !prompt) {
+  if (error === 'Prompt not found' || (!loading && !prompt && !error)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-red-400">
-        <div className="p-6 bg-gray-800 rounded">
-          <h2 className="text-xl font-semibold">{error ?? 'Prompt not found'}</h2>
+      <div className="min-h-screen flex items-center justify-center bg-gray-950 text-gray-100">
+        <div className="text-center p-8 max-w-sm">
+          <div className="text-5xl mb-4" aria-hidden>🔍</div>
+          <h2 className="text-2xl font-semibold mb-2">Prompt not found</h2>
+          <p className="text-gray-400 mb-6">
+            This prompt may have been removed or the link may be incorrect.
+          </p>
+          <button
+            onClick={() => router.push('/browse')}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md text-white font-semibold"
+          >
+            Browse all prompts
+          </button>
         </div>
       </div>
     );
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950 text-gray-100">
+        <div className="text-center p-8 max-w-sm">
+          <div className="text-5xl mb-4" aria-hidden>⚠️</div>
+          <h2 className="text-2xl font-semibold mb-2 text-red-400">Something went wrong</h2>
+          <p className="text-gray-400 mb-6">{error}</p>
+          <div className="flex flex-col gap-3 sm:flex-row justify-center">
+            <button
+              onClick={() => setRetryCount((n) => n + 1)}
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md text-white font-semibold"
+            >
+              Try again
+            </button>
+            <button
+              onClick={() => router.push('/browse')}
+              className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-md text-gray-300"
+            >
+              Back to Browse
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!prompt) return null;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 py-12 px-6">

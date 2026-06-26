@@ -6,6 +6,7 @@ import {
   buildChecklistItems,
 } from "@/components/sell/ListingQualityChecklist";
 import { CreatorOnboarding } from "@/components/sell/CreatorOnboarding";
+import { PricingGuidance } from "@/components/sell/PricingGuidance";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -411,6 +412,8 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           ) : null}
         </div>
       </div>
+
+      <PricingGuidance currentPriceXlm={formData.priceXlm} />
 
       <div className="space-y-2">
         <label htmlFor="fullPrompt" className="text-sm font-medium">

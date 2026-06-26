@@ -20,6 +20,7 @@ import {
   PencilLine,
   PlugZap,
   RadioTower,
+  Settings2,
   ShieldCheck,
   ShoppingBag,
   Wallet,
@@ -63,6 +64,7 @@ import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
+import { CreatorProfileSettings } from "@/components/profile/CreatorProfileSettings";
 
 const promptImageFallback = "/images/codeguru.png";
 
@@ -994,7 +996,7 @@ export default function ProfilePage() {
                     </p>
                   </div>
 
-                  <TabsList className="mb-6 grid h-auto w-full grid-cols-3 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[48rem]">
+                  <TabsList className="mb-6 grid h-auto w-full grid-cols-4 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[64rem]">
                     <TabsTrigger
                       value="purchased"
                       aria-label="Open my library tab"
@@ -1028,6 +1030,16 @@ export default function ProfilePage() {
                         {savedPrompts.length}
                       </span>
                     </TabsTrigger>
+                    {!isPublicView && (
+                      <TabsTrigger
+                        value="settings"
+                        aria-label="Open profile settings tab"
+                        className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-slate-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                      >
+                        <Settings2 className="h-4 w-4" />
+                        Settings
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   <TabsContent value="purchased" className="mt-0 space-y-4">
@@ -1114,6 +1126,12 @@ export default function ProfilePage() {
                     )}
                     <WebhookSettings walletAddress={address} />
                   </TabsContent>
+
+                  {!isPublicView && address && (
+                    <TabsContent value="settings" className="mt-0">
+                      <CreatorProfileSettings walletAddress={address} />
+                    </TabsContent>
+                  )}
 
                   <TabsContent value="saved" className="mt-0 space-y-4">
                     {savedQuery.isLoading ? (
