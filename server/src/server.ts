@@ -8,8 +8,9 @@ import { chatRouter } from "./routes/chatRoutes";
 import { webhookRouter } from "./routes/webhookRoutes";
 import { versioningRouter } from "./routes/versioningRoutes";
 import { governanceRouter } from "./routes/governanceRoutes"; // Issue #113
+import searchRouter from "./routes/searchRoutes";
 import { runBackup, getBackupHealth } from "./services/backupService";
-import { IndexerState } from "./models/IndexerState"; 
+import { IndexerState } from "./models/IndexerState";
 // import { startIndexer } from "./services/indexerService"; // TODO: Update path when ready
 
 const app = express();
@@ -28,6 +29,7 @@ app.use("/api/chat", chatRouter);
 app.use("/api/webhooks", webhookRouter);
 app.use("/api/versions", versioningRouter);
 app.use("/api/governance", governanceRouter); // Issue #113
+app.use("/api/search", searchRouter);
 
 app.post("/api/test-prompt", TestPromptProxy);
 

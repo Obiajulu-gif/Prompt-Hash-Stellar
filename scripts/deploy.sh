@@ -9,12 +9,31 @@ echo "==========================================="
 NETWORK=${NETWORK:-testnet}
 ENV_FILE=".env"
 ENV_LOCAL_FILE=".env.local"
+DRY_RUN=${DRY_RUN:-false}
+
+# Mainnet safeguard
+if [ "$NETWORK" == "mainnet" ]; then
+    echo "⚠️  WARNING: You are about to deploy to STELLAR MAINNET"
+    echo "This involves real XLM and cannot be undone."
+    echo ""
+    read -p "Type 'CONFIRM' to proceed with mainnet deployment: " confirmation
+    if [ "$confirmation" != "CONFIRM" ]; then
+        echo "❌ Deployment cancelled. Confirmation not received."
+        exit 1
+    fi
+    echo "✅ Mainnet deployment confirmed."
+fi
 
 if [ "$NETWORK" == "testnet" ]; then
     RPC_URL="https://soroban-testnet.stellar.org"
     NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
     STELLAR_NETWORK="testnet"
     HORIZON_URL="https://horizon-testnet.stellar.org"
+elif [ "$NETWORK" == "mainnet" ]; then
+    RPC_URL=${RPC_URL:-"https://soroban-rpc.mainnet.stellar.org"}
+    NETWORK_PASSPHRASE=${NETWORK_PASSPHRASE:-"Public Global Stellar Network ; September 2015"}
+    STELLAR_NETWORK="mainnet"
+    HORIZON_URL=${HORIZON_URL:-"https://horizon.stellar.org"}
 elif [ "$NETWORK" == "local" ]; then
     RPC_URL="http://localhost:8000"
     NETWORK_PASSPHRASE="Standalone Network ; February 2017"

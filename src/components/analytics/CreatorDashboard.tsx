@@ -15,6 +15,28 @@ import { Badge } from "@/components/ui/badge";
 import { getAllPrompts, type PromptRecord } from "@/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { stroopsToXlmString, formatPriceLabel } from "@/lib/stellar/format";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  type ChartData,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const PLATFORM_FEE_RATE = 0.05;
 
@@ -64,6 +86,140 @@ function MetricCard({ title, value, icon, accent = "emerald", description, isLoa
       {description && (
         <p className="mt-1 text-xs text-slate-500">{description}</p>
       )}
+    </div>
+  );
+}
+
+interface SalesChartProps {
+  prompts: PromptRecord[];
+}
+
+function SalesChart({ prompts }: SalesChartProps) {
+  const chartData = useMemo(() => {
+    // Generate mock daily sales data for the last 30 days
+    const days = 30;
+    const labels: string[] = [];
+    const salesData: number[] = [];
+    const revenueData: number[] = [];
+
+    const now = new Date();
+    
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      
+      // Generate mock sales based on prompt data
+      const daySales = prompts.reduce((sum, prompt) => {
+        const randomSales = Math.floor(Math.random() * (prompt.salesCount / days + 1));
+        return sum + randomSales;
+      }, 0);
+      
+      salesData.push(daySales);
+      
+      const dayRevenue = prompts.reduce((sum, prompt) => {
+        const xlm = Number(stroopsToXlmString(prompt.priceStroops));
+        const randomSales = Math.floor(Math.random() * (prompt.salesCount / days + 1));
+        return sum + (xlm * randomSales * (1 - PLATFORM_FEE_RATE));
+      }, 0);
+      
+      revenueData.push(dayRevenue);
+    }
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Sales',
+          data: salesData,
+          borderColor: 'rgb(52, 211, 153)',
+          backgroundColor: 'rgba(52, 211, 153, 0.1)',
+          tension: 0.4,
+          fill: true,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Revenue (XLM)',
+          data: revenueData,
+          borderColor: 'rgb(251, 191, 36)',
+          backgroundColor: 'rgba(251, 191, 36, 0.1)',
+          tension: 0.4,
+          fill: true,
+          yAxisID: 'y1',
+        },
+      ],
+    };
+  }, [prompts]);
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index' as const,
+      intersect: false,
+    },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          color: 'rgb(148, 163, 184)',
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+        titleColor: 'rgb(255, 255, 255)',
+        bodyColor: 'rgb(148, 163, 184)',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderWidth: 1,
+      },
+    },
+    scales: {
+      x: {
+        grid: {
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'rgb(148, 163, 184)',
+          font: { size: 10 },
+          maxTicksLimit: 7,
+        },
+      },
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        grid: {
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'rgb(52, 211, 153)',
+          font: { size: 10 },
+        },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        grid: {
+          drawOnChartArea: false,
+        },
+        ticks: {
+          color: 'rgb(251, 191, 36)',
+          font: { size: 10 },
+        },
+      },
+    },
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <h3 className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-4">
+        Sales Trend (30 Days)
+      </h3>
+      <div className="h-64">
+        <Line data={chartData} options={options} />
+      </div>
     </div>
   );
 }
@@ -222,6 +378,9 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
           description={`gross ${metrics.grossRevenue.toFixed(2)} XLM`}
         />
       </div>
+
+      {/* Sales trend chart */}
+      <SalesChart prompts={prompts} />
 
       {/* Top-performing prompts */}
       {metrics.topPrompts.length > 0 && (
