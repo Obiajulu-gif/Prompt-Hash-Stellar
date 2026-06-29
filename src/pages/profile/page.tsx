@@ -20,6 +20,7 @@ import {
   PencilLine,
   PlugZap,
   RadioTower,
+  Receipt,
   Settings2,
   ShieldCheck,
   ShoppingBag,
@@ -65,6 +66,7 @@ import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { CreatorProfileSettings } from "@/components/profile/CreatorProfileSettings";
+import { TransactionHistory } from "@/components/profile/TransactionHistory";
 
 const promptImageFallback = "/images/codeguru.png";
 
@@ -996,7 +998,7 @@ export default function ProfilePage() {
                     </p>
                   </div>
 
-                  <TabsList className="mb-6 grid h-auto w-full grid-cols-4 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[64rem]">
+                  <TabsList className="mb-6 grid h-auto w-full grid-cols-5 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[64rem]">
                     <TabsTrigger
                       value="purchased"
                       aria-label="Open my library tab"
@@ -1030,6 +1032,16 @@ export default function ProfilePage() {
                         {savedPrompts.length}
                       </span>
                     </TabsTrigger>
+                    {!isPublicView && (
+                      <TabsTrigger
+                        value="transactions"
+                        aria-label="Open transaction history tab"
+                        className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-sky-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                      >
+                        <Receipt className="h-4 w-4" />
+                        Transactions
+                      </TabsTrigger>
+                    )}
                     {!isPublicView && (
                       <TabsTrigger
                         value="settings"
@@ -1126,6 +1138,22 @@ export default function ProfilePage() {
                     )}
                     <WebhookSettings walletAddress={address} />
                   </TabsContent>
+
+                  {!isPublicView && address && (
+                    <TabsContent value="transactions" className="mt-0">
+                      <div className="mb-4">
+                        <h3 className="text-lg font-semibold text-white">
+                          Transaction history
+                        </h3>
+                        <p className="mt-1 text-sm leading-6 text-slate-400">
+                          Prompts you have purchased or licensed, with the amount
+                          paid in XLM and a link to verify each payment on the
+                          Stellar block explorer.
+                        </p>
+                      </div>
+                      <TransactionHistory walletAddress={address} />
+                    </TabsContent>
+                  )}
 
                   {!isPublicView && address && (
                     <TabsContent value="settings" className="mt-0">
