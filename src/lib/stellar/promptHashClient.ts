@@ -60,6 +60,40 @@ export interface CreatePromptInput {
   splits?: RevenueSplitInput[];
 }
 
+export interface BundleRecord {
+  id: bigint;
+  creator: string;
+  title: string;
+  promptIds: bigint[];
+  priceStroops: bigint;
+  active: boolean;
+  salesCount: number;
+  expiresAt?: number;
+}
+
+export interface AccessPassRecord {
+  id: bigint;
+  creator: string;
+  title: string;
+  durationSecs: number;
+  priceStroops: bigint;
+  active: boolean;
+  salesCount: number;
+}
+
+export interface CreateBundleInput {
+  title: string;
+  promptIds: Array<string | bigint>;
+  priceStroops: bigint;
+  expiresAt?: number;
+}
+
+export interface CreateAccessPassInput {
+  title: string;
+  durationSecs: number;
+  priceStroops: bigint;
+}
+
 export class PromptHashClient {
   /**
    * Checks if the user already has access to the prompt.
@@ -107,6 +141,48 @@ export class PromptHashClient {
         const mockHash =
           "tx_" + Math.random().toString(16).slice(2, 14).padStart(12, "0");
         resolve({ txHash: mockHash, success: true });
+      }, delay);
+    });
+  }
+
+  static async purchaseBundle(
+    _bundleId: string,
+    _userAddress: string,
+    options?: { forceFailure?: string; delay?: number },
+  ): Promise<{ txHash: string; success: boolean }> {
+    warnMockUse();
+    return new Promise((resolve, reject) => {
+      const delay = options?.delay ?? 2000;
+      setTimeout(() => {
+        if (options?.forceFailure) {
+          return reject(new Error(options.forceFailure));
+        }
+
+        resolve({
+          txHash: "tx_bundle_" + Math.random().toString(16).slice(2, 14),
+          success: true,
+        });
+      }, delay);
+    });
+  }
+
+  static async purchaseAccessPass(
+    _passId: string,
+    _userAddress: string,
+    options?: { forceFailure?: string; delay?: number },
+  ): Promise<{ txHash: string; success: boolean }> {
+    warnMockUse();
+    return new Promise((resolve, reject) => {
+      const delay = options?.delay ?? 2000;
+      setTimeout(() => {
+        if (options?.forceFailure) {
+          return reject(new Error(options.forceFailure));
+        }
+
+        resolve({
+          txHash: "tx_pass_" + Math.random().toString(16).slice(2, 14),
+          success: true,
+        });
       }, delay);
     });
   }
@@ -168,6 +244,22 @@ export class PromptHashClient {
     return [];
   }
 
+  static async getBundlesByCreator(
+    _config: PromptHashConfig,
+    _address: string,
+  ): Promise<BundleRecord[]> {
+    warnMockUse();
+    return [];
+  }
+
+  static async getAccessPassesByCreator(
+    _config: PromptHashConfig,
+    _address: string,
+  ): Promise<AccessPassRecord[]> {
+    warnMockUse();
+    return [];
+  }
+
   static async createPrompt(
     _config: PromptHashConfig,
     _walletSignerLike: any,
@@ -176,6 +268,26 @@ export class PromptHashClient {
   ) {
     warnMockUse();
     return { success: true, txHash: "tx_mock", promptId: "123" };
+  }
+
+  static async createBundle(
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _data: CreateBundleInput,
+  ) {
+    warnMockUse();
+    return { success: true, txHash: "tx_bundle_mock", bundleId: "1" };
+  }
+
+  static async createAccessPass(
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _data: CreateAccessPassInput,
+  ) {
+    warnMockUse();
+    return { success: true, txHash: "tx_pass_mock", passId: "1" };
   }
 
   static async setPromptSaleStatus(
@@ -230,6 +342,30 @@ export const createPrompt = async (
   address: string,
   data: CreatePromptInput,
 ) => PromptHashClient.createPrompt(config, walletSignerLike, address, data);
+export const createBundle = async (
+  config: PromptHashConfig,
+  walletSignerLike: any,
+  address: string,
+  data: CreateBundleInput,
+) => PromptHashClient.createBundle(config, walletSignerLike, address, data);
+export const createAccessPass = async (
+  config: PromptHashConfig,
+  walletSignerLike: any,
+  address: string,
+  data: CreateAccessPassInput,
+) => PromptHashClient.createAccessPass(config, walletSignerLike, address, data);
+export const getBundlesByCreator = async (
+  config: PromptHashConfig,
+  address: string,
+) => PromptHashClient.getBundlesByCreator(config, address);
+export const getAccessPassesByCreator = async (
+  config: PromptHashConfig,
+  address: string,
+) => PromptHashClient.getAccessPassesByCreator(config, address);
+export const purchaseBundle = async (bundleId: string, address: string) =>
+  PromptHashClient.purchaseBundle(bundleId, address);
+export const purchaseAccessPass = async (passId: string, address: string) =>
+  PromptHashClient.purchaseAccessPass(passId, address);
 export const setPromptSaleStatus = async (
   config: PromptHashConfig,
   walletSignerLike: any,

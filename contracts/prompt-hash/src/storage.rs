@@ -1,4 +1,7 @@
-use super::types::{DataKey, Error, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute};
+use super::types::{
+    AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, ListingRevisionRecord, Prompt,
+    Purchase, PurchaseDispute,
+};
 use soroban_sdk::{token, Address, BytesN, Env, Vec};
 
 pub const DAY_IN_LEDGERS: u32 = 17280;
@@ -252,6 +255,177 @@ impl Storage {
         env.storage().persistent().set(&key, &purchase);
         Self::extend_key_ttl(env, &key);
         Self::add_prompt_to_buyer(env, buyer, prompt.id);
+    }
+
+    pub fn save_bundle(env: &Env, bundle: &Bundle) -> Result<(), Error> {
+        let key = DataKey::Bundle(bundle.id);
+        env.storage().persistent().set(&key, bundle);
+        Self::extend_key_ttl(env, &key);
+
+        let counter_key = DataKey::BundleCounter;
+        let next_bundle_id = bundle.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
+        env.storage()
+            .persistent()
+            .set(&counter_key, &next_bundle_id);
+        Self::extend_key_ttl(env, &counter_key);
+        Ok(())
+    }
+
+    pub fn update_bundle(env: &Env, bundle: &Bundle) {
+        let key = DataKey::Bundle(bundle.id);
+        env.storage().persistent().set(&key, bundle);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle(env: &Env, bundle_id: u128) -> Option<Bundle> {
+        let key = DataKey::Bundle(bundle_id);
+        let bundle = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        bundle
+    }
+
+    pub fn require_bundle(env: &Env, bundle_id: u128) -> Result<Bundle, Error> {
+        Self::get_bundle(env, bundle_id).ok_or(Error::BundleNotFound)
+    }
+
+    pub fn get_bundle_counter(env: &Env) -> u128 {
+        let key = DataKey::BundleCounter;
+        let count = env.storage().persistent().get(&key).unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        count
+    }
+
+    pub fn add_bundle_to_creator(env: &Env, creator: &Address, bundle_id: u128) {
+        let key = DataKey::CreatorBundles(creator.clone());
+        let mut ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        ids.push_back(bundle_id);
+        env.storage().persistent().set(&key, &ids);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundles_by_creator(env: &Env, creator: &Address) -> Vec<Bundle> {
+        let key = DataKey::CreatorBundles(creator.clone());
+        let ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+
+        let mut bundles = Vec::new(env);
+        for index in 0..ids.len() {
+            if let Some(bundle) = Self::get_bundle(env, ids.get(index).unwrap()) {
+                bundles.push_back(bundle);
+            }
+        }
+        bundles
+    }
+
+    pub fn save_access_pass(env: &Env, access_pass: &AccessPass) -> Result<(), Error> {
+        let key = DataKey::AccessPass(access_pass.id);
+        env.storage().persistent().set(&key, access_pass);
+        Self::extend_key_ttl(env, &key);
+
+        let counter_key = DataKey::AccessPassCounter;
+        let next_pass_id = access_pass
+            .id
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        env.storage().persistent().set(&counter_key, &next_pass_id);
+        Self::extend_key_ttl(env, &counter_key);
+        Ok(())
+    }
+
+    pub fn update_access_pass(env: &Env, access_pass: &AccessPass) {
+        let key = DataKey::AccessPass(access_pass.id);
+        env.storage().persistent().set(&key, access_pass);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_pass(env: &Env, pass_id: u128) -> Option<AccessPass> {
+        let key = DataKey::AccessPass(pass_id);
+        let access_pass = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        access_pass
+    }
+
+    pub fn require_access_pass(env: &Env, pass_id: u128) -> Result<AccessPass, Error> {
+        Self::get_access_pass(env, pass_id).ok_or(Error::AccessPassNotFound)
+    }
+
+    pub fn get_access_pass_counter(env: &Env) -> u128 {
+        let key = DataKey::AccessPassCounter;
+        let count = env.storage().persistent().get(&key).unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        count
+    }
+
+    pub fn add_access_pass_to_creator(env: &Env, creator: &Address, pass_id: u128) {
+        let key = DataKey::CreatorAccessPasses(creator.clone());
+        let mut ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        ids.push_back(pass_id);
+        env.storage().persistent().set(&key, &ids);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_passes_by_creator(env: &Env, creator: &Address) -> Vec<AccessPass> {
+        let key = DataKey::CreatorAccessPasses(creator.clone());
+        let ids: Vec<u128> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+
+        let mut passes = Vec::new(env);
+        for index in 0..ids.len() {
+            if let Some(access_pass) = Self::get_access_pass(env, ids.get(index).unwrap()) {
+                passes.push_back(access_pass);
+            }
+        }
+        passes
+    }
+
+    pub fn save_catalog_pass_purchase(env: &Env, purchase: &CatalogPassPurchase) {
+        let key = DataKey::CatalogPass(purchase.creator.clone(), purchase.buyer.clone());
+        env.storage().persistent().set(&key, purchase);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn has_active_creator_pass(
+        env: &Env,
+        creator: &Address,
+        buyer: &Address,
+        now: u64,
+    ) -> bool {
+        let key = DataKey::CatalogPass(creator.clone(), buyer.clone());
+        let purchase: Option<CatalogPassPurchase> = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        purchase
+            .map(|catalog_pass| catalog_pass.expires_at >= now)
+            .unwrap_or(false)
     }
 
     pub fn save_dispute(env: &Env, dispute: &PurchaseDispute) {
