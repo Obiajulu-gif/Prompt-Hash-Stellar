@@ -5,10 +5,12 @@ import {
   ArrowLeft,
   BadgeCheck,
   BarChart3,
+  Clock,
   Loader2,
   PackageSearch,
   ShoppingBag,
   Sparkles,
+  ThumbsUp,
 } from "lucide-react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
@@ -23,6 +25,11 @@ import {
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
 import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
+import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
+import {
+  CreatorReputationSummary,
+  CreatorVerifiedBadge,
+} from "@/components/reputation/CreatorReputationBadge";
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&
@@ -73,6 +80,10 @@ export default function SellerPage() {
     const categories = new Set(sellerPrompts.map((prompt) => prompt.category));
     return { totalSales, totalListedValue, categoryCount: categories.size };
   }, [sellerPrompts]);
+  const reputation = useMemo(
+    () => buildCreatorReputation(sellerAddress, sellerPrompts),
+    [sellerAddress, sellerPrompts],
+  );
 
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-emerald-500/30">
@@ -96,6 +107,9 @@ export default function SellerPage() {
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-200">
                 <Sparkles className="h-3.5 w-3.5" /> Seller profile
               </div>
+              <div className="mb-4">
+                <CreatorVerifiedBadge reputation={reputation} />
+              </div>
               <h1 className="max-w-3xl text-3xl font-black tracking-tight text-white sm:text-5xl">
                 {sellerAddress
                   ? shortenAddress(sellerAddress)
@@ -110,6 +124,9 @@ export default function SellerPage() {
                   {sellerAddress}
                 </p>
               )}
+              <div className="mt-5">
+                <CreatorReputationSummary reputation={reputation} />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
               <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
@@ -119,11 +136,25 @@ export default function SellerPage() {
               </div>
               <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
                 <BarChart3 className="mb-3 h-5 w-5 text-cyan-300" />
-                <p className="text-2xl font-black">{stats.totalSales}</p>
+                <p className="text-2xl font-black">{reputation.totalSales}</p>
                 <p className="text-sm text-slate-400">Marketplace sales</p>
               </div>
               <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
-                <BadgeCheck className="mb-3 h-5 w-5 text-amber-300" />
+                <ThumbsUp className="mb-3 h-5 w-5 text-emerald-300" />
+                <p className="text-2xl font-black">{reputation.positiveRatings}</p>
+                <p className="text-sm text-slate-400">
+                  Positive ratings · {reputation.positiveRate}% positive
+                </p>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
+                <Clock className="mb-3 h-5 w-5 text-amber-300" />
+                <p className="text-2xl font-black">
+                  {reputation.timeOnPlatformLabel}
+                </p>
+                <p className="text-sm text-slate-400">Time on platform</p>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
+                <BadgeCheck className="mb-3 h-5 w-5 text-purple-300" />
                 <p className="text-2xl font-black">
                   {formatPriceLabel(stats.totalListedValue)}
                 </p>

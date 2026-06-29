@@ -18,6 +18,11 @@ import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 import { StarRating } from "@/components/prompts/StarRating";
 import { useQuery } from "@tanstack/react-query";
 import { ReviewClient } from "@/lib/reviews/reviewClient";
+import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
+import {
+  CreatorReputationSummary,
+  CreatorVerifiedBadge,
+} from "@/components/reputation/CreatorReputationBadge";
 
 export const PromptCard = ({
   prompt,
@@ -42,6 +47,7 @@ export const PromptCard = ({
   onToggleCompare?: (_prompt: PromptRecord) => void;
 }) => {
   const isBestSeller = prompt.salesCount >= 10;
+  const reputation = buildCreatorReputation(prompt.creator, [prompt]);
 
   // Fetch review stats for this prompt
   const { data: reviewStats } = useQuery({
@@ -84,6 +90,11 @@ export const PromptCard = ({
           {isBestSeller && (
             <Badge className="bg-emerald-500 text-slate-950 border-none font-bold">
               <TrendingUp className="h-3 w-3 mr-1" /> Best Seller
+            </Badge>
+          )}
+          {reputation.verified && (
+            <Badge className="bg-cyan-300 text-slate-950 border-none font-bold">
+              <ShieldCheck className="h-3 w-3 mr-1" /> Verified Creator
             </Badge>
           )}
         </div>
@@ -229,34 +240,40 @@ export const PromptCard = ({
         </div>
 
         {/* Purchase Info Row */}
-        <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4 sm:mt-6 sm:pt-5">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="h-6 w-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+        <div className="mt-5 space-y-3 border-t border-white/5 pt-4 sm:mt-6 sm:pt-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="h-6 w-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              </div>
+              <Link
+                to={`/sellers/${encodeURIComponent(prompt.creator)}`}
+                className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300"
+                onClick={(event) => event.stopPropagation()}
+                aria-label={`View seller ${prompt.creator}`}
+              >
+                {shortenAddress(prompt.creator)}
+              </Link>
             </div>
-            <Link
-              to={`/sellers/${encodeURIComponent(prompt.creator)}`}
-              className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300"
-              onClick={(event) => event.stopPropagation()}
-              aria-label={`View seller ${prompt.creator}`}
-            >
-              {shortenAddress(prompt.creator)}
-            </Link>
-          </div>
 
-          {hasAccess ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 font-bold"
-            >
-              Owned <ArrowUpRight className="ml-1.5 h-4 w-4" />
-            </Button>
-          ) : (
-            <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              <LockKeyhole className="h-3 w-3" /> Get Access
-            </div>
-          )}
+            {hasAccess ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 font-bold"
+              >
+                Owned <ArrowUpRight className="ml-1.5 h-4 w-4" />
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <LockKeyhole className="h-3 w-3" /> Get Access
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <CreatorVerifiedBadge reputation={reputation} compact />
+            <CreatorReputationSummary reputation={reputation} />
+          </div>
         </div>
       </CardContent>
     </Card>
