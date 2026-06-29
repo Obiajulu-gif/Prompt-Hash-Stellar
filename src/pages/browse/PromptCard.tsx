@@ -12,12 +12,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { shortenAddress } from "@/lib/utils";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 import { StarRating } from "@/components/prompts/StarRating";
 import { useQuery } from "@tanstack/react-query";
 import { ReviewClient } from "@/lib/reviews/reviewClient";
+import {
+  getCreatorDisplayName,
+  getCreatorProfile,
+} from "@/lib/profiles/creatorProfile";
 
 export const PromptCard = ({
   prompt,
@@ -49,6 +52,14 @@ export const PromptCard = ({
     queryFn: () => ReviewClient.getReviewStats(prompt.id.toString()),
     staleTime: 60_000, // Cache for 1 minute
   });
+
+  const { data: creatorProfile } = useQuery({
+    queryKey: ["creator-profile", prompt.creator],
+    queryFn: () => getCreatorProfile(prompt.creator),
+    staleTime: 5 * 60_000,
+  });
+
+  const creatorName = getCreatorDisplayName(prompt.creator, creatorProfile);
 
   return (
     <Card
@@ -223,7 +234,9 @@ export const PromptCard = ({
                 </span>
               </div>
             ) : (
-              <span className="text-[11px] text-slate-500 italic">No ratings yet</span>
+              <span className="text-[11px] text-slate-500 italic">
+                No ratings yet
+              </span>
             )}
           </div>
         </div>
@@ -238,9 +251,10 @@ export const PromptCard = ({
               to={`/sellers/${encodeURIComponent(prompt.creator)}`}
               className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300"
               onClick={(event) => event.stopPropagation()}
-              aria-label={`View seller ${prompt.creator}`}
+              aria-label={`View seller ${creatorName}`}
+              title={prompt.creator}
             >
-              {shortenAddress(prompt.creator)}
+              {creatorName}
             </Link>
           </div>
 

@@ -3,57 +3,25 @@ import { AlertCircle, CheckCircle2, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  CREATOR_PROFILE_LIMITS,
+  saveCreatorProfile,
+  validateCreatorProfile,
+  type CreatorProfileInput,
+} from "@/lib/profiles/creatorProfile";
 
-export interface CreatorProfileData {
-  displayName: string;
-  bio: string;
-  websiteUrl: string;
-  avatarUrl: string;
-  twitterHandle: string;
-}
+export type CreatorProfileData = CreatorProfileInput;
 
 interface CreatorProfileSettingsProps {
   walletAddress: string;
   initial?: Partial<CreatorProfileData>;
+  // eslint-disable-next-line no-unused-vars
   onSave?: (data: CreatorProfileData) => Promise<void>;
 }
 
-const DISPLAY_NAME_MAX = 50;
-const BIO_MAX = 280;
-
-function validate(data: CreatorProfileData): Record<string, string> {
-  const errors: Record<string, string> = {};
-
-  if (!data.displayName.trim()) {
-    errors.displayName = "Display name is required.";
-  } else if (data.displayName.trim().length > DISPLAY_NAME_MAX) {
-    errors.displayName = `Display name must be ${DISPLAY_NAME_MAX} characters or fewer.`;
-  }
-
-  if (data.bio.length > BIO_MAX) {
-    errors.bio = `Bio must be ${BIO_MAX} characters or fewer.`;
-  }
-
-  if (data.websiteUrl && !/^https?:\/\/.+/.test(data.websiteUrl.trim())) {
-    errors.websiteUrl = "Website must start with http:// or https://";
-  }
-
-  if (data.avatarUrl && !/^https?:\/\/.+/.test(data.avatarUrl.trim())) {
-    errors.avatarUrl = "Avatar URL must start with http:// or https://";
-  }
-
-  if (data.twitterHandle && !/^@?[A-Za-z0-9_]{1,15}$/.test(data.twitterHandle.trim())) {
-    errors.twitterHandle = "Enter a valid Twitter handle (1–15 alphanumeric characters).";
-  }
-
-  return errors;
-}
-
-const STORAGE_KEY = (address: string) => `prompt-hash:profile:${address}`;
-
 function loadSaved(address: string): Partial<CreatorProfileData> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY(address));
+    const raw = localStorage.getItem(`prompt-hash:profile:${address}`);
     return raw ? (JSON.parse(raw) as Partial<CreatorProfileData>) : {};
   } catch {
     return {};
@@ -81,12 +49,12 @@ export function CreatorProfileSettings({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleChange = (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => {
-      const next = { ...prev };
+    const { name, value } = event.target;
+    setForm((previous) => ({ ...previous, [name]: value }));
+    setErrors((previous) => {
+      const next = { ...previous };
       delete next[name];
       return next;
     });
@@ -97,7 +65,7 @@ export function CreatorProfileSettings({
     setSaveError(null);
     setSaved(false);
 
-    const nextErrors = validate(form);
+    const nextErrors = validateCreatorProfile(form);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -106,12 +74,13 @@ export function CreatorProfileSettings({
       if (onSave) {
         await onSave(form);
       } else {
-        await new Promise((r) => setTimeout(r, 600));
-        localStorage.setItem(STORAGE_KEY(walletAddress), JSON.stringify(form));
+        await saveCreatorProfile(walletAddress, form);
       }
       setSaved(true);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save profile.");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Failed to save profile.",
+      );
     } finally {
       setSaving(false);
     }
@@ -122,13 +91,18 @@ export function CreatorProfileSettings({
       <div>
         <h2 className="text-xl font-semibold text-white">Profile settings</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Update how you appear to buyers on the marketplace.
+          Update how you appear to buyers on the marketplace. Profile JSON is
+          pinned to IPFS when Pinata is configured, with local off-chain storage
+          used as a development fallback.
         </p>
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <label htmlFor="displayName" className="text-sm font-medium text-slate-200">
+          <label
+            htmlFor="displayName"
+            className="text-sm font-medium text-slate-200"
+          >
             Display name <span className="text-red-400">*</span>
           </label>
           <Input
@@ -149,13 +123,16 @@ export function CreatorProfileSettings({
               <span />
             )}
             <span className="text-xs text-slate-500">
-              {form.displayName.length}/{DISPLAY_NAME_MAX}
+              {form.displayName.length}/{CREATOR_PROFILE_LIMITS.displayName}
             </span>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="twitterHandle" className="text-sm font-medium text-slate-200">
+          <label
+            htmlFor="twitterHandle"
+            className="text-sm font-medium text-slate-200"
+          >
             Twitter / X handle
           </label>
           <Input
@@ -166,12 +143,12 @@ export function CreatorProfileSettings({
             placeholder="@yourhandle"
             className={errors.twitterHandle ? "border-red-500" : ""}
           />
-          {errors.twitterHandle && (
+          {errors.twitterHandle ? (
             <p className="flex items-center gap-1 text-xs text-red-400">
               <AlertCircle className="h-3.5 w-3.5" />
               {errors.twitterHandle}
             </p>
-          )}
+          ) : null}
         </div>
 
         <div className="space-y-1.5 sm:col-span-2">
@@ -183,7 +160,7 @@ export function CreatorProfileSettings({
             name="bio"
             value={form.bio}
             onChange={handleChange}
-            placeholder="Tell buyers what kind of prompts you create…"
+            placeholder="Tell buyers what kind of prompts you create..."
             rows={3}
             className={errors.bio ? "border-red-500" : ""}
           />
@@ -197,13 +174,16 @@ export function CreatorProfileSettings({
               <span />
             )}
             <span className="text-xs text-slate-500">
-              {form.bio.length}/{BIO_MAX}
+              {form.bio.length}/{CREATOR_PROFILE_LIMITS.bio}
             </span>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="websiteUrl" className="text-sm font-medium text-slate-200">
+          <label
+            htmlFor="websiteUrl"
+            className="text-sm font-medium text-slate-200"
+          >
             Website
           </label>
           <Input
@@ -215,16 +195,19 @@ export function CreatorProfileSettings({
             placeholder="https://yoursite.com"
             className={errors.websiteUrl ? "border-red-500" : ""}
           />
-          {errors.websiteUrl && (
+          {errors.websiteUrl ? (
             <p className="flex items-center gap-1 text-xs text-red-400">
               <AlertCircle className="h-3.5 w-3.5" />
               {errors.websiteUrl}
             </p>
-          )}
+          ) : null}
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="avatarUrl" className="text-sm font-medium text-slate-200">
+          <label
+            htmlFor="avatarUrl"
+            className="text-sm font-medium text-slate-200"
+          >
             Avatar URL
           </label>
           <Input
@@ -236,12 +219,12 @@ export function CreatorProfileSettings({
             placeholder="https://example.com/avatar.png"
             className={errors.avatarUrl ? "border-red-500" : ""}
           />
-          {errors.avatarUrl && (
+          {errors.avatarUrl ? (
             <p className="flex items-center gap-1 text-xs text-red-400">
               <AlertCircle className="h-3.5 w-3.5" />
               {errors.avatarUrl}
             </p>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -254,7 +237,7 @@ export function CreatorProfileSettings({
           {saving ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Saving…
+              Saving...
             </>
           ) : (
             <>
@@ -264,19 +247,19 @@ export function CreatorProfileSettings({
           )}
         </Button>
 
-        {saved && !saving && (
+        {saved && !saving ? (
           <p className="flex items-center gap-1.5 text-sm text-emerald-400">
             <CheckCircle2 className="h-4 w-4" />
             Profile saved
           </p>
-        )}
+        ) : null}
 
-        {saveError && (
+        {saveError ? (
           <p className="flex items-center gap-1.5 text-sm text-red-400">
             <AlertCircle className="h-4 w-4" />
             {saveError}
           </p>
-        )}
+        ) : null}
       </div>
     </section>
   );

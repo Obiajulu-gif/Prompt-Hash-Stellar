@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BadgeCheck,
   BarChart3,
+  ExternalLink,
   Loader2,
   PackageSearch,
   ShoppingBag,
@@ -13,16 +14,22 @@ import {
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PromptCard } from "@/pages/browse/PromptCard";
 import { PromptModal } from "@/pages/browse/PromptModal";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { formatPriceLabel } from "@/lib/stellar/format";
-import { shortenAddress } from "@/lib/utils";
 import {
   getAllPrompts,
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
 import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
+import {
+  getCreatorDisplayName,
+  getCreatorInitials,
+  getCreatorProfile,
+  shortenCreatorAddress,
+} from "@/lib/profiles/creatorProfile";
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&
@@ -54,6 +61,12 @@ export default function SellerPage() {
     enabled: Boolean(sellerAddress),
   });
 
+  const profileQuery = useQuery({
+    queryKey: ["creator-profile", sellerAddress],
+    queryFn: () => getCreatorProfile(sellerAddress),
+    enabled: Boolean(sellerAddress),
+  });
+
   const sellerPrompts = useMemo(
     () =>
       (promptsQuery.data ?? []).filter(
@@ -73,6 +86,10 @@ export default function SellerPage() {
     const categories = new Set(sellerPrompts.map((prompt) => prompt.category));
     return { totalSales, totalListedValue, categoryCount: categories.size };
   }, [sellerPrompts]);
+
+  const profile = profileQuery.data ?? null;
+  const displayName = getCreatorDisplayName(sellerAddress, profile);
+  const fallbackName = shortenCreatorAddress(sellerAddress);
 
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-emerald-500/30">
@@ -96,15 +113,57 @@ export default function SellerPage() {
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-200">
                 <Sparkles className="h-3.5 w-3.5" /> Seller profile
               </div>
-              <h1 className="max-w-3xl text-3xl font-black tracking-tight text-white sm:text-5xl">
-                {sellerAddress
-                  ? shortenAddress(sellerAddress)
-                  : "Unknown seller"}
-              </h1>
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                <Avatar className="h-24 w-24 border border-white/10 bg-slate-900 text-xl font-bold text-emerald-200">
+                  <AvatarImage src={profile?.avatarUrl} alt={displayName} />
+                  <AvatarFallback>
+                    {getCreatorInitials(sellerAddress, profile?.displayName)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <h1 className="max-w-3xl text-3xl font-black tracking-tight text-white sm:text-5xl">
+                    {displayName || "Unknown seller"}
+                  </h1>
+                  <p className="mt-2 font-mono text-sm text-slate-400">
+                    {fallbackName}
+                  </p>
+                </div>
+              </div>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-400 sm:text-lg">
-                Browse active prompt licenses from this creator and review their
-                marketplace activity before unlocking a prompt.
+                {profile?.bio ||
+                  "Browse active prompt licenses from this creator and review their marketplace activity before unlocking a prompt."}
               </p>
+              {(profile?.websiteUrl ||
+                profile?.twitterHandle ||
+                profile?.metadataUri) && (
+                <div className="mt-5 flex flex-wrap gap-3">
+                  {profile.websiteUrl ? (
+                    <a
+                      href={profile.websiteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 hover:border-emerald-300/40 hover:text-emerald-200"
+                    >
+                      Website <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                  {profile.twitterHandle ? (
+                    <a
+                      href={`https://x.com/${profile.twitterHandle.replace(/^@/, "")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 hover:border-emerald-300/40 hover:text-emerald-200"
+                    >
+                      {profile.twitterHandle}
+                    </a>
+                  ) : null}
+                  {profile.metadataUri ? (
+                    <span className="inline-flex items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-sm text-cyan-100">
+                      IPFS profile
+                    </span>
+                  ) : null}
+                </div>
+              )}
               {sellerAddress && (
                 <p className="mt-5 break-all rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 font-mono text-xs text-slate-300 sm:text-sm">
                   {sellerAddress}
@@ -147,7 +206,7 @@ export default function SellerPage() {
             Active catalog
           </p>
           <h2 className="mb-6 mt-2 text-2xl font-bold sm:text-3xl">
-            Prompts by this seller
+            Active prompts by {displayName}
           </h2>
           {promptsQuery.isLoading ? (
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
