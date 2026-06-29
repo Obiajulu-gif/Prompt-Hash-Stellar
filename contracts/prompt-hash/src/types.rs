@@ -218,6 +218,13 @@ pub trait PromptHashTrait {
         active: bool,
     ) -> Result<(), Error>;
 
+    fn admin_set_prompt_sale_status(
+        env: Env,
+        admin: Address,
+        prompt_id: u128,
+        active: bool,
+    ) -> Result<(), Error>;
+
     fn set_prompt_max_supply(
         env: Env,
         creator: Address,

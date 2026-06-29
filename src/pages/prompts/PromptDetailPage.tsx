@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Flag,
   Loader2,
   ShoppingBag,
   Sparkles,
@@ -19,6 +20,8 @@ import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import { copyToClipboard } from "@/lib/clipboard/secureClipboard";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
+import { ReportDialog } from "@/components/prompts/ReportDialog";
+import { useWallet } from "@/hooks/useWallet";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -30,7 +33,9 @@ function summarise(text: string, max = 160): string {
 export default function PromptDetailPage() {
   const { id = "" } = useParams();
   const isValidId = /^\d+$/.test(id);
+  const { address } = useWallet();
   const [copied, setCopied] = useState(false);
+  const [showReportDialog, setShowReportDialog] = useState(false);
 
   const {
     data: prompt,
@@ -187,12 +192,26 @@ export default function PromptDetailPage() {
                     </>
                   )}
                 </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowReportDialog(true)}
+                  className="h-10 flex-1 border border-rose-400/20 text-rose-200 hover:bg-rose-400/10"
+                >
+                  <Flag className="h-4 w-4" />
+                  Report listing
+                </Button>
               </div>
             </div>
           </article>
         )}
       </main>
 
+      <ReportDialog
+        promptId={id}
+        isOpen={showReportDialog}
+        onClose={() => setShowReportDialog(false)}
+        userAddress={address}
+      />
       <Footer />
     </div>
   );
