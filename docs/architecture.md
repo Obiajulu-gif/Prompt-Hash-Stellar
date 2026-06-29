@@ -1,5 +1,9 @@
 # PromptHash Stellar Architecture
 
+> For rendered diagrams of the system, the listing/purchase/unlock flows, the
+> encryption model, and the environment-variable reference, see
+> [architecture-diagram.md](./architecture-diagram.md).
+
 ## System Components
 
 PromptHash Stellar is organized into three main layers.
