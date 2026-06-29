@@ -14,6 +14,7 @@ const SellerPage = lazy(() => import("./pages/sellers/page.tsx"));
 const PromptDetailPage = lazy(
   () => import("./pages/prompts/PromptDetailPage.tsx"),
 );
+const AdminReportsPage = lazy(() => import("./pages/admin/Reports.tsx"));
 
 const AppLayout = () => (
   <main className="min-h-screen bg-slate-950 text-white">
@@ -41,6 +42,7 @@ function App() {
           <Route path="/prompts/:id" element={<PromptDetailPage />} />
           <Route path="/status" element={<StatusPage />} />
           <Route path="/sellers/:sellerId" element={<SellerPage />} />
+          <Route path="/admin/reports" element={<AdminReportsPage />} />
           <Route path="*" element={<Home />} />
         </Route>
       </Routes>

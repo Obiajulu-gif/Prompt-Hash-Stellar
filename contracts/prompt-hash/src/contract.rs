@@ -139,6 +139,24 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    #[only_owner]
+    fn admin_set_prompt_sale_status(
+        env: Env,
+        admin: Address,
+        prompt_id: u128,
+        active: bool,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        prompt.active = active;
+        Storage::update_prompt(&env, &prompt);
+        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, active);
+        Ok(())
+    }
+
     fn set_prompt_max_supply(
         env: Env,
         creator: Address,

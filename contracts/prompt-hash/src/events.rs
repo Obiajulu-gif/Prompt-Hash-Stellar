@@ -17,6 +17,14 @@ struct PromptSaleStatusUpdated {
 }
 
 #[contractevent]
+struct PromptAdminModerated {
+    #[topic]
+    pub prompt_id: u128,
+    pub admin: Address,
+    pub active: bool,
+}
+
+#[contractevent]
 struct PromptPriceUpdated {
     #[topic]
     pub prompt_id: u128,
@@ -149,6 +157,20 @@ impl Events {
 
     pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u128, active: bool) {
         PromptSaleStatusUpdated { prompt_id, active }.publish(env);
+    }
+
+    pub fn emit_prompt_admin_moderated(
+        env: &Env,
+        prompt_id: u128,
+        admin: Address,
+        active: bool,
+    ) {
+        PromptAdminModerated {
+            prompt_id,
+            admin,
+            active,
+        }
+        .publish(env);
     }
 
     pub fn emit_prompt_price_updated(env: &Env, prompt_id: u128, price_stroops: i128) {

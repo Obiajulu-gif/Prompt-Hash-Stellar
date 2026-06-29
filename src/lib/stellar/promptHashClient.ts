@@ -189,6 +189,17 @@ export class PromptHashClient {
     return { success: true };
   }
 
+  static async adminSetPromptSaleStatus(
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _adminAddress: string,
+    _promptId: string,
+    _isForSale: boolean,
+  ) {
+    warnMockUse();
+    return { success: true };
+  }
+
   static async updatePromptPrice(
     _config: PromptHashConfig,
     _walletSignerLike: any,
@@ -241,6 +252,20 @@ export const setPromptSaleStatus = async (
     config,
     walletSignerLike,
     address,
+    promptId,
+    isForSale,
+  );
+export const adminSetPromptSaleStatus = async (
+  config: PromptHashConfig,
+  walletSignerLike: any,
+  adminAddress: string,
+  promptId: string,
+  isForSale: boolean,
+) =>
+  PromptHashClient.adminSetPromptSaleStatus(
+    config,
+    walletSignerLike,
+    adminAddress,
     promptId,
     isForSale,
   );
