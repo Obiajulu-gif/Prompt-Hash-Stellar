@@ -39,6 +39,15 @@ export default defineConfig(() => {
       environment: "node",
     },
     server: {
+      // Bind all interfaces so the dev server is reachable when running inside
+      // a container (docker-compose / Dev Containers).
+      host: true,
+      watch: {
+        // File-system events do not always cross the host/container boundary
+        // (notably on Windows and macOS bind mounts), so allow opting into
+        // polling via VITE_DEV_POLLING — see docker-compose.yml.
+        usePolling: process.env.VITE_DEV_POLLING === "true",
+      },
       proxy: {
         "/friendbot": {
           // target: "http://localhost:8000/friendbot",
@@ -46,7 +55,9 @@ export default defineConfig(() => {
           changeOrigin: true,
         },
         "/api": {
-          target: "http://localhost:5000",
+          // Defaults to the local API server; overridden to the api service
+          // name when running under docker-compose.
+          target: process.env.API_PROXY_TARGET || "http://localhost:5000",
           changeOrigin: true,
         },
       },
