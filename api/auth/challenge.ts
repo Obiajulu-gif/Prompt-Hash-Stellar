@@ -1,21 +1,52 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createChallengeToken } from "../../src/lib/auth/challenge";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
-import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
+import { apiError, ErrorCode, type ApiErrorResponse } from "../../src/lib/api/errorCodes";
 import { isPlaceholder } from "../../src/lib/validation/envValidator";
 
-async function handler(req: any, res: any) {
+/* eslint-disable no-unused-vars */
+export interface ChallengeRequest {
+  address: string;
+  promptId: string;
+}
+
+export interface ChallengeResponse {
+  token: string;
+  challenge: string;
+  issuedAt: number;
+  expiresAt: number;
+  nonce: string;
+}
+/* eslint-enable no-unused-vars */
+
+// Fail-fast module-load validation: reject startup if secrets are missing.
+(function validateEnv(): void {
+  const secret = process.env.CHALLENGE_TOKEN_SECRET;
+  if (!secret || isPlaceholder(secret) || secret.length < 16) {
+    console.error("FATAL: CHALLENGE_TOKEN_SECRET is missing, placeholder, or too short (< 16 chars).");
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("CHALLENGE_TOKEN_SECRET not configured.");
+    }
+  }
+})();
+
+async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<void> {
   if (req.method !== "POST") {
     res.status(405).json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
     return;
   }
 
-  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string;
-  const { address, promptId } = req.body ?? {};
+  const clientIp = String(
+    req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
+  );
+  const { address, promptId }: Partial<ChallengeRequest> = req.body ?? {};
 
-  // Authenticated if wallet address is provided in the request body.
   const isAuthenticated = Boolean(address);
 
   const rateLimit = await checkRateLimit("challenge", clientIp, isAuthenticated);
@@ -61,7 +92,20 @@ async function handler(req: any, res: any) {
     return;
   }
 
-  const challenge = createChallengeToken(secret, String(address), String(promptId));
+  // Issue a strictly time-bound challenge (default TTL = 5 minutes).
+  // The ttlMs parameter is capped at 10 minutes server-side to prevent
+  // unreasonably long-lived tokens.
+  const MAX_TTL_MS = 10 * 60 * 1000;
+  const ttlMs = Math.min(5 * 60 * 1000, MAX_TTL_MS);
+  const challenge = createChallengeToken(secret, String(address), String(promptId), Date.now(), ttlMs);
+
+  const response: ChallengeResponse = {
+    token: challenge.token,
+    challenge: challenge.challenge,
+    issuedAt: challenge.issuedAt,
+    expiresAt: challenge.expiresAt,
+    nonce: challenge.nonce,
+  };
 
   metrics.trackChallengeIssued(String(address), String(promptId));
   req.logger.info({ address, promptId }, "Challenge token issued successfully");
@@ -76,7 +120,7 @@ async function handler(req: any, res: any) {
     reason: null,
   });
 
-  res.status(200).json(challenge);
+  res.status(200).json(response);
 }
 
 export default withObservability(handler, "auth/challenge");

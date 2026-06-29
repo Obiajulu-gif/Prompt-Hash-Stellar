@@ -30,15 +30,11 @@ pub enum Error {
     InvalidDiscountPercentage = 24,
     MaxSupplyReached = 25,
     InvalidAsset = 26,
-    // #50 – revenue splits
     InvalidSplits = 27,
-    // #49 – time-bound listing expiry
     ListingExpired = 28,
     LicenseNotFound = 29,
     InvalidLicenseTransfer = 30,
-    // #226 – listing revision support
     RevisionFieldsUnchanged = 31,
-    // #217 – collaborator split management
     DuplicateSplitRecipient = 32,
     TooManySplits = 33,
     FeeExceedsMaximum = 34,
@@ -47,25 +43,32 @@ pub enum Error {
     DisputeResolved = 37,
 }
 
+/// Instance storage keys — contract-level configuration stored in
+/// `env.storage().instance()`. These have no TTL and survive upgrades.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Prompt(u128),
+pub enum InstanceDataKey {
     PromptCounter,
     FeePercentage,
     FeeWallet,
     XlmAddress,
-    CreatorPrompts(Address),
-    BuyerPrompts(Address),
-    Purchase(u128, Address),
     Reentrancy,
     ReferralPercentage,
     IsPaused,
-    VoucherKey(u128, BytesN<32>),
-    /// Snapshot of a listing taken before a revision (#226).
-    /// Key: (prompt_id, revision_number_before_change)
-    ListingRevision(u128, u32),
-    PurchaseDispute(u128, Address),
+}
+
+/// Persistent storage keys — per-prompt and per-user data stored in
+/// `env.storage().persistent()`. Each entry is subject to TTL management.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataKey {
+    Prompt(u64),
+    CreatorPrompts(Address),
+    BuyerPrompts(Address),
+    Purchase(u64, Address),
+    VoucherKey(u64, BytesN<32>),
+    ListingRevision(u64, u32),
+    PurchaseDispute(u64, Address),
 }
 
 #[contracttype]
@@ -87,7 +90,7 @@ pub enum DisputeReason {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PurchaseDispute {
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub buyer: Address,
     pub reason: DisputeReason,
     pub opened_at: u64,
@@ -98,7 +101,7 @@ pub struct PurchaseDispute {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Purchase {
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub original_creator: Address,
     pub owner: Address,
     pub original_price: i128,
@@ -147,7 +150,7 @@ pub struct ListingConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
-    pub id: u128,
+    pub id: u64,
     pub creator: Address,
     pub image_url: String,
     pub title: String,
@@ -180,7 +183,7 @@ pub struct Prompt {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ListingRevisionRecord {
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub revision: u32,
     pub title: String,
     pub category: String,
@@ -211,33 +214,33 @@ pub trait PromptHashTrait {
         wrapped_key: String,
         content_hash: BytesN<32>,
         listing: ListingConfig,
-    ) -> Result<u128, Error>;
+    ) -> Result<u64, Error>;
 
     fn set_prompt_sale_status(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         active: bool,
     ) -> Result<(), Error>;
 
     fn set_prompt_max_supply(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         max_supply: u64,
     ) -> Result<(), Error>;
 
     fn update_prompt_price(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         price_stroops: i128,
     ) -> Result<(), Error>;
 
     fn buy_prompt(
         env: Env,
         buyer: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         referrer: Option<Address>,
         payment_amount_stroops: i128,
         voucher: Option<Bytes>,
@@ -246,7 +249,7 @@ pub trait PromptHashTrait {
     fn lease_prompt(
         env: Env,
         buyer: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         lease_duration_secs: u64,
     ) -> Result<(), Error>;
 
@@ -255,7 +258,7 @@ pub trait PromptHashTrait {
     fn extend_listing(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         new_expires_at: u64,
     ) -> Result<(), Error>;
 
@@ -266,7 +269,7 @@ pub trait PromptHashTrait {
     fn buy_prompts_bulk(
         env: Env,
         buyer: Address,
-        prompt_ids: Vec<u128>,
+        prompt_ids: Vec<u64>,
         payment_amounts: Vec<i128>,
         referrer: Option<Address>,
     ) -> Result<(), Error>;
@@ -274,7 +277,7 @@ pub trait PromptHashTrait {
     fn transfer_license(
         env: Env,
         seller: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         new_buyer: Address,
         resale_price: i128,
     ) -> Result<(), Error>;
@@ -289,7 +292,7 @@ pub trait PromptHashTrait {
     fn revise_listing(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         title: String,
         category: String,
         preview_text: String,
@@ -297,43 +300,38 @@ pub trait PromptHashTrait {
         price_stroops: i128,
     ) -> Result<u32, Error>;
 
-    /// Return the metadata snapshot for a specific revision number (#226).
     fn get_listing_revision(
         env: Env,
-        prompt_id: u128,
+        prompt_id: u64,
         revision: u32,
     ) -> Result<ListingRevisionRecord, Error>;
 
-    /// Replace the collaborator split configuration on an existing listing (#217).
-    /// Only the original creator may call this. The new splits must pass the same
-    /// validation as `create_prompt` (total bps + fee ≤ 10 000, no zero-bps
-    /// entries, no duplicate recipients, at most 10 entries).
     fn update_splits(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         new_splits: Vec<Split>,
     ) -> Result<(), Error>;
 
-    fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error>;
-    fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error>;
+    fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error>;
+    fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_category(env: Env, category: String) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_tag(env: Env, tag: String) -> Result<Vec<Prompt>, Error>;
     fn open_dispute(
         env: Env,
         buyer: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         reason: DisputeReason,
     ) -> Result<(), Error>;
     fn resolve_dispute(
         env: Env,
         admin: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         buyer: Address,
         refund: bool,
     ) -> Result<(), Error>;
-    fn get_dispute(env: Env, prompt_id: u128, buyer: Address) -> Result<PurchaseDispute, Error>;
+    fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
@@ -350,21 +348,21 @@ pub trait PromptHashTrait {
     fn add_voucher(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         hashed_code: BytesN<32>,
         discount_bps: u32,
     ) -> Result<(), Error>;
     fn remove_voucher(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         hashed_code: BytesN<32>,
     ) -> Result<(), Error>;
     fn get_xlm_sac(env: Env) -> Option<Address>;
 
     /// Fetch multiple prompts by ID in a single call. Returns only prompts
     /// that exist — missing IDs are silently skipped.
-    fn get_prompts_by_ids(env: Env, prompt_ids: Vec<u128>) -> Result<Vec<Prompt>, Error>;
+    fn get_prompts_by_ids(env: Env, prompt_ids: Vec<u64>) -> Result<Vec<Prompt>, Error>;
 
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;

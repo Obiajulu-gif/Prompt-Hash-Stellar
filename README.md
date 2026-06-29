@@ -134,45 +134,42 @@ PromptHash Stellar can serve as a reusable reference implementation for:
 
 ## Technical Architecture
 
-PromptHash Stellar currently uses a three-part architecture:
+PromptHash Stellar uses a three-part architecture where the Soroban smart contract is the **absolute, single source of truth** for prompt ownership, purchase records, and access rights.
 
-### 1. Soroban smart contract
+### 1. Soroban smart contract (authoritative source of truth)
 
 Located in `contracts/prompt-hash`.
 
-Responsibilities:
+The contract governs **all** stateful operations. Off-chain systems must never override or duplicate these responsibilities:
 
-- prompt creation
-- price updates
-- listing activation/deactivation
-- purchase tracking
-- creator and buyer prompt indexing
-- fee wallet configuration
-- contract upgrade path
+| Operation | On-chain method | Off-chain role |
+|-----------|----------------|----------------|
+| Prompt creation | `create_prompt` | Index & cache (read-only) |
+| Price updates | `update_prompt_price` | None |
+| Listing state | `set_prompt_sale_status` | Index & cache (read-only) |
+| Purchase & access | `buy_prompt` / `has_access` | Verify via RPC simulation |
+| Fee config | `set_fee_percentage` / `set_fee_wallet` | None |
+| License transfer | `transfer_license` | Index & cache (read-only) |
+| Disputes | `open_dispute` / `resolve_dispute` | Off-chain moderation data only |
 
-Key methods implemented today:
-
-- `create_prompt`
-- `buy_prompt`
-- `has_access`
-- `get_prompt`
-- `get_all_prompts`
-- `get_prompts_by_creator`
-- `get_prompts_by_buyer`
-- `update_prompt_price`
-- `set_prompt_sale_status`
+**Key invariant**: No off-chain route may grant, revoke, or modify access rights. The `api/prompts/unlock.ts` endpoint calls `has_access` via Soroban RPC simulation — it trusts the contract, not the database.
 
 ### 2. Frontend application
 
 Located in `src`.
 
-The frontend handles wallet connection, client-side encryption before listing, marketplace browsing, contract-backed purchases, creator dashboard actions, and buyer unlock requests.
+The frontend handles wallet connection, client-side encryption before listing, marketplace browsing, contract-backed purchases, creator dashboard actions, and buyer unlock requests. All state-affirming operations (create, purchase, transfer) go through the smart contract; the frontend never writes directly to the off-chain index.
 
 ### 3. Unlock and API layer
 
-Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an additional Express workspace under `server/`.
+Two authoritative serverless endpoints:
 
-The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
+| Endpoint | Responsibility |
+|----------|---------------|
+| `api/auth/challenge.ts` | Issue HMAC-signed, time-bound challenge tokens |
+| `api/prompts/unlock.ts` | Verify signature + on-chain `has_access` → decrypt → integrity check |
+
+A secondary Express workspace (`server/`) provides **read-only indexing**, preview analytics, review storage, and webhook dispatch. It is explicitly forbidden from originating prompt state changes. Write routes that duplicated `create_prompt`/`set_prompt_sale_status` have been removed — see `server/src/routes/promptRoutes.ts` for the deprecation ledger.
 
 #### Observability & Production Hardening
 

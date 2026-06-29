@@ -12,6 +12,132 @@ import {
   assembleTransaction,
 } from "@stellar/stellar-sdk/rpc";
 
+export type WalletErrorCategory =
+  | "user_rejected"
+  | "simulation_failure"
+  | "expired_auth"
+  | "network_error"
+  | "contract_error"
+  | "insufficient_funds"
+  | "unknown";
+
+export interface MappedWalletError {
+  category: WalletErrorCategory;
+  userMessage: string;
+  recoveryHint: string;
+  retryable: boolean;
+}
+
+export function mapWalletError(error: unknown): MappedWalletError {
+  const msg = extractErrorMessage(error).toLowerCase();
+
+  if (
+    msg.includes("user rejected") ||
+    msg.includes("user denied") ||
+    msg.includes("user cancelled") ||
+    msg.includes("user canceled") ||
+    msg.includes("rejected by user") ||
+    msg.includes("cancelled by user") ||
+    msg.includes("declined")
+  ) {
+    return {
+      category: "user_rejected",
+      userMessage: "Signature request was declined in your wallet.",
+      recoveryHint: "Click purchase again when you are ready to approve.",
+      retryable: true,
+    };
+  }
+
+  if (
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("expired") ||
+    msg.includes("transaction expired")
+  ) {
+    return {
+      category: "expired_auth",
+      userMessage: "Transaction authorization expired.",
+      recoveryHint: "Please try the purchase again with a fresh transaction.",
+      retryable: true,
+    };
+  }
+
+  if (
+    msg.includes("simulation") ||
+    msg.includes("host invocation failed") ||
+    msg.includes("contract error") ||
+    msg.includes("contracterror") ||
+    msg.includes("wasm trap") ||
+    msg.includes("restore")
+  ) {
+    return {
+      category: "simulation_failure",
+      userMessage: "The smart contract simulation failed.",
+      recoveryHint: "This may be a temporary issue. Please retry in a moment.",
+      retryable: true,
+    };
+  }
+
+  if (
+    msg.includes("insufficient") ||
+    msg.includes("underfunded") ||
+    msg.includes("op_underfunded") ||
+    msg.includes("not enough")
+  ) {
+    return {
+      category: "insufficient_funds",
+      userMessage: "Your wallet does not have enough XLM for this transaction.",
+      recoveryHint: "Add funds to your wallet and try again.",
+      retryable: true,
+    };
+  }
+
+  if (
+    msg.includes("network") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("connection refused")
+  ) {
+    return {
+      category: "network_error",
+      userMessage: "Could not reach the Stellar network.",
+      recoveryHint: "Check your internet connection and try again.",
+      retryable: true,
+    };
+  }
+
+  if (
+    msg.includes("tx_failed") ||
+    msg.includes("tx_bad_auth") ||
+    msg.includes("op_no_trust") ||
+    msg.includes("op_not_authorized")
+  ) {
+    return {
+      category: "contract_error",
+      userMessage: "The transaction was rejected by the Stellar network.",
+      recoveryHint: "Verify the transaction details and try again.",
+      retryable: true,
+    };
+  }
+
+  return {
+    category: "unknown",
+    userMessage: msg || "An unexpected error occurred.",
+    recoveryHint: "Please try again. If the problem persists, contact support.",
+    retryable: true,
+  };
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return "Unknown error";
+}
+
 export interface StellarNetworkConfig {
   rpcUrl: string;
   networkPassphrase: string;

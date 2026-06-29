@@ -6,6 +6,10 @@ import { PromptModal } from "@/pages/browse/PromptModal";
 import type { WalletContextType } from "@/providers/WalletProvider";
 import { PromptHashClient } from "@/lib/stellar/promptHashClient";
 
+vi.mock("@/lib/env", () => ({
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+}));
+
 // Mock the PromptHashClient
 vi.mock("@/lib/stellar/promptHashClient", () => ({
   PromptHashClient: {
@@ -75,7 +79,7 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
       signMessage: vi.fn(),
@@ -99,7 +103,7 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
       signMessage: vi.fn(),
@@ -132,7 +136,7 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
       signMessage: vi.fn(),
@@ -192,7 +196,7 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
       signMessage: vi.fn(),

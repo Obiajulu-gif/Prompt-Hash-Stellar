@@ -60,6 +60,7 @@ import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
+import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
 
 export type BuyerStatus =
   | "IDLE"
@@ -482,12 +483,22 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </div>
                   </div>
 
-                  {status === "ERROR" && purchaseError && (
-                    <StatusBanner
-                      status="error"
-                      message={purchaseError.message}
-                    />
-                  )}
+                  {status === "ERROR" && purchaseError && (() => {
+                    const mapped: MappedWalletError = mapWalletError(purchaseError);
+                    return (
+                      <div className="space-y-3">
+                        <StatusBanner
+                          status="error"
+                          message={mapped.userMessage}
+                        />
+                        {mapped.recoveryHint && (
+                          <p className="text-xs text-slate-400 px-1">
+                            {mapped.recoveryHint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <button
                     onClick={() => runPurchase().catch(() => {})}
@@ -554,12 +565,22 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     }
                   />
 
-                  {unlockError && (
-                    <UnlockErrorBanner
-                      message={unlockError.message}
-                      onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
-                    />
-                  )}
+                  {unlockError && (() => {
+                    const mapped: MappedWalletError = mapWalletError(unlockError);
+                    return (
+                      <div className="space-y-3">
+                        <UnlockErrorBanner
+                          message={mapped.userMessage}
+                          onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
+                        />
+                        {mapped.recoveryHint && (
+                          <p className="text-xs text-slate-400 px-1">
+                            {mapped.recoveryHint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <button
                     onClick={() => runUnlock(txHash || "existing").catch(() => {})}

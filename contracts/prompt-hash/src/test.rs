@@ -46,7 +46,7 @@ fn create_prompt(
     title: &str,
     price_stroops: i128,
     asset: &Address,
-) -> u128 {
+) -> u64 {
     client.create_prompt(
         creator,
         &String::from_str(env, "https://example.com/prompt.png"),
@@ -86,7 +86,7 @@ fn create_prompt_with_splits(
     price_stroops: i128,
     asset: &Address,
     splits: Vec<Split>,
-) -> u128 {
+) -> u64 {
     client.create_prompt(
         creator,
         &String::from_str(env, "https://example.com/prompt.png"),
@@ -2444,7 +2444,7 @@ fn test_buy_prompts_bulk_atomicity_one_failure_reverts_all() {
 
     let mut ids = Vec::new(&env);
     ids.push_back(prompt_a);
-    ids.push_back(999_999u128); // non-existent
+    ids.push_back(999_999u64); // non-existent
 
     let mut amounts = Vec::new(&env);
     amounts.push_back(price);
@@ -3338,4 +3338,141 @@ fn test_get_prompts_by_ids_empty_list() {
     }
 
     assert_eq!(client.get_prompt(&prompt_id).sales_count, 5);
+}
+
+// ─── Task 1: Invariant hardening tests ──────────────────────────────────────
+
+#[test]
+fn test_non_owner_cannot_set_fee_percentage() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let non_admin = Address::generate(&env);
+
+    let res = client.try_set_fee_percentage(&non_admin, &300u32);
+    match res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected Unauthorized for non-owner set_fee_percentage, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_non_owner_cannot_set_referral_percentage() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let non_admin = Address::generate(&env);
+
+    let res = client.try_set_referral_percentage(&non_admin, &300u32);
+    match res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected Unauthorized for non-owner set_referral_percentage, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_zero_price_prompt_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/img.png"),
+        &String::from_str(&env, "Zero Price Prompt"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "ciphertext"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 99),
+        &ListingConfig {
+            price: 0,
+            asset: context.xlm.clone(),
+            expires_at: 0,
+            splits: Vec::new(&env),
+            tags: Vec::new(&env),
+            max_supply: 0,
+        },
+    );
+    match result {
+        Err(Ok(Error::InvalidPrice)) => {}
+        other => panic!("expected InvalidPrice for zero price prompt, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_update_price_to_zero_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Pricey Prompt", 5_000, &context.xlm);
+
+    let result = client.try_update_prompt_price(&creator, &prompt_id, &0i128);
+    match result {
+        Err(Ok(Error::InvalidPrice)) => {}
+        other => panic!("expected InvalidPrice for zero price update, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_buyer_index_records_purchases_deterministically() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_a = create_prompt(&env, &client, &creator, "Prompt A", 5_000, &context.xlm);
+    let prompt_b = create_prompt(&env, &client, &creator, "Prompt B", 6_000, &context.xlm);
+    let prompt_c = create_prompt(&env, &client, &creator, "Prompt C", 7_000, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+
+    // Buy prompts in a specific order
+    client.buy_prompt(&buyer, &prompt_a, &None::<Address>, &5_000i128, &None::<Bytes>);
+    client.buy_prompt(&buyer, &prompt_c, &None::<Address>, &7_000i128, &None::<Bytes>);
+    client.buy_prompt(&buyer, &prompt_b, &None::<Address>, &6_000i128, &None::<Bytes>);
+
+    // Buyer index must reflect deterministic insertion order
+    let buyer_prompts = client.get_prompts_by_buyer(&buyer).unwrap();
+    assert_eq!(buyer_prompts.len(), 3);
+    assert_eq!(buyer_prompts.get(0).unwrap().id, prompt_a);
+    assert_eq!(buyer_prompts.get(1).unwrap().id, prompt_c);
+    assert_eq!(buyer_prompts.get(2).unwrap().id, prompt_b);
+}
+
+#[test]
+fn test_inactive_prompt_purchase_fails_with_correct_error() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price: i128 = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Inactive Test", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+
+    // Deactivate the listing
+    client.set_prompt_sale_status(&creator, &prompt_id, &false);
+
+    let result = client.try_buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    match result {
+        Err(Ok(Error::PromptInactive)) => {}
+        other => panic!("expected PromptInactive for deactivated listing, got {:?}", other),
+    }
+
+    // Reactivate and purchase should succeed
+    client.set_prompt_sale_status(&creator, &prompt_id, &true);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    assert!(client.has_access(&buyer, &prompt_id));
 }

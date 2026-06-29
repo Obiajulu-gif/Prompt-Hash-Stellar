@@ -20,6 +20,11 @@ export type WalletStatus =
   | "reconnecting" 
   | "error";
 
+export type NetworkCompatibility =
+  | "correct"
+  | "wrong-network"
+  | "unchecked";
+
 /* eslint-disable no-unused-vars */
 export interface WalletContextType {
   address?: string;
@@ -27,6 +32,7 @@ export interface WalletContextType {
   networkPassphrase?: string;
   status: WalletStatus;
   error?: string;
+  networkCompatibility: NetworkCompatibility;
   connect: (_id: string) => Promise<void>;
   disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
@@ -34,12 +40,23 @@ export interface WalletContextType {
 }
 /* eslint-enable no-unused-vars */
 
+function computeNetworkCompatibility(
+  network: string | undefined,
+  status: WalletStatus,
+): NetworkCompatibility {
+  if (status !== "connected" || !network) return "unchecked";
+  const expected = stellarWalletNetwork.toUpperCase();
+  const actual = network.toUpperCase();
+  return actual === expected ? "correct" : "wrong-network";
+}
+
 const initialState = {
   address: undefined,
   network: undefined,
   networkPassphrase: undefined,
   status: "idle" as WalletStatus,
   error: undefined,
+  networkCompatibility: "unchecked" as NetworkCompatibility,
 };
 
 const boundSignTransaction = wallet.signTransaction.bind(wallet);
@@ -119,6 +136,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           networkPassphrase: data.networkPassphrase,
           status: "connected",
           error: undefined,
+          networkCompatibility: computeNetworkCompatibility(data.network, "connected"),
         });
       },
       onError: (e) => {
@@ -208,6 +226,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
             networkPassphrase: n.networkPassphrase,
             status: "connected",
             error: undefined,
+            networkCompatibility: computeNetworkCompatibility(n.network, "connected"),
           });
         } else {
           if (aborted) return;
@@ -234,6 +253,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       disconnect,
       signTransaction: boundSignTransaction,
       signMessage: boundSignMessage,
+      networkCompatibility: state.networkCompatibility,
     }),
     [state, connect, disconnect]
   );
