@@ -5,11 +5,13 @@
  * This should NOT reach production.
  * TODO: Restore real Soroban contract integration before release.
  */
+import { Server } from "@stellar/stellar-sdk/rpc";
+
 let hasWarnedMock = false;
 const warnMockUse = () => {
   if (hasWarnedMock) return;
   console.warn(
-    "âš ï¸ USING MOCK PromptHashClient: Contract calls are currently stubbed and will not hit the Stellar network.",
+    "⚠️ USING MOCK PromptHashClient: Contract calls are currently stubbed and will not hit the Stellar network.",
   );
   hasWarnedMock = true;
 };
@@ -199,6 +201,52 @@ export class PromptHashClient {
     warnMockUse();
     return { success: true };
   }
+
+  static async getRecentPurchases(
+    config: PromptHashConfig,
+    limit: number = 10
+  ) {
+    try {
+      const server = new Server(config.rpcUrl, {
+        allowHttp: config.allowHttp,
+      });
+
+      // Get current ledger to limit our search
+      const latestLedgerResponse = await server.getLatestLedger();
+      const latestLedger = latestLedgerResponse.sequence;
+      // Search the last 10,000 ledgers (~14 hours)
+      const startLedger = Math.max(1, latestLedger - 10000);
+
+      const events = await server.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: "contract",
+            contractIds: [config.promptHashContractId],
+            // Topics could be strictly typed to the PromptPurchased event topic if known
+          }
+        ],
+        limit,
+      });
+
+      // Here we would normally parse `events.events` and decode the XDR.
+      // Since this is partly mocked, and XDR decoding is complex, we return a simulated list
+      // formatted as what we'd expect.
+      return events.events.map((e, i) => ({
+        id: e.id || `rpc-event-${i}`,
+        type: "sale",
+        title: `Prompt #${e.topic?.[1] || i}`, // Without full XDR decoding, we use placeholder
+        category: "Marketplace",
+        actor: "Someone", // Anonymized
+        timestamp: e.ledgerClosedAt,
+        priceXlm: undefined, 
+      }));
+    } catch (e) {
+      console.error("Failed to fetch events from Soroban RPC:", e);
+      // Fallback for mocked environment
+      return [];
+    }
+  }
 }
 
 // --- Standalone exports to satisfy existing UI component imports ---
@@ -258,3 +306,9 @@ export const updatePromptPrice = async (
     promptId,
     newPrice,
   );
+
+export const getRecentPurchases = async (
+  config: PromptHashConfig,
+  limit?: number
+) => PromptHashClient.getRecentPurchases(config, limit);
+

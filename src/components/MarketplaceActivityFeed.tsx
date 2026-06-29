@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Zap, PackagePlus, RefreshCw, ShoppingBag, Clock } from "lucide-react";
+import { getRecentPurchases } from "@/lib/stellar/promptHashClient";
+import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,84 +23,16 @@ interface ActivityItem {
 // Mock data — replace with a real contract query when available
 // ---------------------------------------------------------------------------
 
-const MOCK_ACTIVITY: ActivityItem[] = [
-  {
-    id: "act-1",
-    type: "new_listing",
-    title: "Architecture Review Sprint",
-    category: "Software Development",
-    actor: "GBKZ…4F2A",
-    timestamp: new Date(Date.now() - 1 * 60 * 1000).toISOString(),
-    priceXlm: "5",
-  },
-  {
-    id: "act-2",
-    type: "sale",
-    title: "Multi-Channel Campaign Composer",
-    category: "Marketing",
-    actor: "GCAT…8E91",
-    timestamp: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-    priceXlm: "12",
-  },
-  {
-    id: "act-3",
-    type: "update",
-    title: "Discovery Call Closer",
-    category: "Sales",
-    actor: "GDMN…2C0B",
-    timestamp: new Date(Date.now() - 9 * 60 * 1000).toISOString(),
-    priceXlm: "8",
-  },
-  {
-    id: "act-4",
-    type: "new_listing",
-    title: "Escalation Recovery Script",
-    category: "Customer Support",
-    actor: "GCFL…7D3E",
-    timestamp: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
-    priceXlm: "3",
-  },
-  {
-    id: "act-5",
-    type: "sale",
-    title: "Scenario Planning Memo",
-    category: "Finance",
-    actor: "GBKZ…4F2A",
-    timestamp: new Date(Date.now() - 32 * 60 * 1000).toISOString(),
-    priceXlm: "15",
-  },
-  {
-    id: "act-6",
-    type: "update",
-    title: "PRD to Launch Checklist",
-    category: "Product Management",
-    actor: "GDMN…2C0B",
-    timestamp: new Date(Date.now() - 55 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "act-7",
-    type: "new_listing",
-    title: "Research Synthesis Builder",
-    category: "User Experience",
-    actor: "GCAT…8E91",
-    timestamp: new Date(Date.now() - 74 * 60 * 1000).toISOString(),
-    priceXlm: "6",
-  },
-  {
-    id: "act-8",
-    type: "sale",
-    title: "Structured Hiring Scorecard",
-    category: "Recruitment",
-    actor: "GCFL…7D3E",
-    timestamp: new Date(Date.now() - 110 * 60 * 1000).toISOString(),
-    priceXlm: "10",
-  },
-];
-
 async function fetchActivityFeed(): Promise<ActivityItem[]> {
-  // Simulate network latency; swap for real contract query later.
-  await new Promise((r) => setTimeout(r, 900));
-  return MOCK_ACTIVITY;
+  try {
+    const events = await getRecentPurchases(browserStellarConfig, 10);
+    // Since getRecentPurchases might return an empty array if no events match, we could fallback 
+    // to a single mock item just to show something in development, but per requirements we just return events
+    return events as ActivityItem[];
+  } catch (error) {
+    console.error("Error fetching activity feed:", error);
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
