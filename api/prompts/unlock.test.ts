@@ -219,11 +219,12 @@ describe("unlock challenge message contract", () => {
       address: "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
       promptId: "7",
       nonce: "nonce-123",
+      issuedAt: 1_700_000_000_000,
       expiresAt: 1_700_000_000_000,
     };
 
     expect(buildChallengeMessage(payload)).toBe(
-      "prompt-hash unlock:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:nonce-123:1700000000000",
+      "prompt-hash unlock:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:nonce-123:1700000000000:1700000000000",
     );
   });
 });

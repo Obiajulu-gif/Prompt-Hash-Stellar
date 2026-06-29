@@ -5,6 +5,10 @@ import FetchAllPrompts from "@/pages/browse/FetchAllPrompts";
 import { makePrompt } from "@/test/fixtures/prompts";
 import { renderWithProviders } from "@/test/render";
 
+vi.mock("@/lib/env", () => ({
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+}));
+
 const getAllPromptsMock = vi.fn();
 const hasAccessMock = vi.fn();
 const buyPromptAccessMock = vi.fn();
@@ -168,6 +172,8 @@ describe("marketplace purchase and unlock integration coverage", () => {
       {
         wallet: {
           address: "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
+          status: "connected",
+          network: "TESTNET",
           signTransaction,
           signMessage,
         },

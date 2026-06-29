@@ -2,6 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../render";
+
+vi.mock("@stellar/design-system", () => ({
+  Button: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
+    <button {...(props as React.ButtonHTMLAttributes<HTMLButtonElement>)}>{children}</button>
+  ),
+}));
+
+vi.mock("@/lib/env", () => ({
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+}));
+
 import { WalletButton } from "@/components/WalletButton";
 import type { WalletContextType } from "@/providers/WalletProvider";
 

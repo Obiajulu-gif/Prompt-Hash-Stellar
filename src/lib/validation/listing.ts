@@ -123,18 +123,27 @@ export function validateListingForm(
   }
 
   if (!priceXlm) {
-    errors.priceXlm = "Enter a price in XLM â€” use a value greater than zero.";
+    errors.priceXlm = "Enter a price in XLM — use a value greater than zero.";
   } else {
-    try {
-      const price = xlmToStroops(priceXlm);
-      if (price <= 0n) {
-        errors.priceXlm = "Set a price greater than zero XLM.";
+    if (/e/i.test(priceXlm)) {
+      errors.priceXlm = "Enter a valid XLM amount without scientific notation.";
+    } else {
+      try {
+        const price = xlmToStroops(priceXlm);
+        if (price <= 0n) {
+          errors.priceXlm = "Set a price greater than zero XLM.";
+        }
+      } catch (error) {
+        errors.priceXlm =
+          error instanceof Error
+            ? error.message
+            : "Enter a valid XLM amount with up to 7 decimal places.";
       }
-    } catch (error) {
+    }
+  }
+    } catch (_err) {
       errors.priceXlm =
-        error instanceof Error
-          ? error.message
-          : "Enter a valid XLM amount with up to 7 decimal places.";
+        "Enter a valid XLM amount with up to 7 decimal places.";
     }
   }
 

@@ -664,23 +664,6 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       ) : null}
 
       <Button
-              type="button"
-              variant="outline"
-              className="h-9 border-cyan-300/30 bg-cyan-500/10 text-cyan-50 hover:bg-cyan-500/20"
-              onClick={() => {
-                clearDraft();
-                setFormData(createEmptyFormData());
-                setErrors({});
-                setShowChecklist(false);
-              }}
-            >
-              Discard draft
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <Button
         className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
         disabled={isSubmitting || (showChecklist && checklistHasFailures)}
         onClick={handleSubmit}
