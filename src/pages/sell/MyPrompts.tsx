@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Loader2, LockKeyhole, PackagePlus, ShoppingBag, ToggleLeft, ToggleRight } from "lucide-react";
+import {
+  CalendarDays,
+  Eye,
+  Loader2,
+  LockKeyhole,
+  PackagePlus,
+  ShoppingBag,
+  ToggleLeft,
+  ToggleRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,10 +20,16 @@ import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
   getPromptsByBuyer,
   getPromptsByCreator,
+  createAccessPass,
+  createBundle,
   setPromptSaleStatus,
   updatePromptPrice,
 } from "@/lib/stellar/promptHashClient";
-import { formatPriceLabel, stroopsToXlmString, xlmToStroops } from "@/lib/stellar/format";
+import {
+  formatPriceLabel,
+  stroopsToXlmString,
+  xlmToStroops,
+} from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
 
 interface MyPromptsProps {
@@ -22,14 +37,22 @@ interface MyPromptsProps {
 }
 
 const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
-
   const queryClient = useQueryClient();
   const { address, signMessage, signTransaction } = useWallet();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
+  const [busyOffer, setBusyOffer] = useState<"bundle" | "pass" | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [unlockedPrompts, setUnlockedPrompts] = useState<Record<string, string>>({});
+  const [unlockedPrompts, setUnlockedPrompts] = useState<
+    Record<string, string>
+  >({});
+  const [bundleTitle, setBundleTitle] = useState("Creator bundle");
+  const [bundlePriceXlm, setBundlePriceXlm] = useState("5");
+  const [bundlePromptIds, setBundlePromptIds] = useState<string[]>([]);
+  const [passTitle, setPassTitle] = useState("30-day catalog pass");
+  const [passPriceXlm, setPassPriceXlm] = useState("12");
+  const [passDurationDays, setPassDurationDays] = useState("30");
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -52,15 +75,19 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     return Object.fromEntries(
       createdPrompts.map((prompt) => [
         prompt.id.toString(),
-        priceDrafts[prompt.id.toString()] ?? stroopsToXlmString(prompt.priceStroops),
+        priceDrafts[prompt.id.toString()] ??
+          stroopsToXlmString(prompt.priceStroops),
       ]),
     );
   }, [createdPrompts, priceDrafts]);
 
   const dashboardStats = useMemo(() => {
-    const totalSales = createdPrompts.reduce((sum, p) => sum + (p.salesCount ?? 0), 0);
+    const totalSales = createdPrompts.reduce(
+      (sum, p) => sum + (p.salesCount ?? 0),
+      0,
+    );
     const totalRevenue = createdPrompts.reduce(
-      (sum, p) => sum + (p.priceStroops * BigInt(p.salesCount ?? 0)),
+      (sum, p) => sum + p.priceStroops * BigInt(p.salesCount ?? 0),
       BigInt(0),
     );
     const activeListings = createdPrompts.filter((p) => p.active).length;
@@ -110,7 +137,11 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
       updateStatus(!active ? "Prompt reactivated." : "Prompt deactivated.");
       await refreshPromptLists();
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to update sale status.");
+      updateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update sale status.",
+      );
     } finally {
       setBusyPromptId(null);
     }
@@ -135,7 +166,9 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to update price.");
+      updateError(
+        error instanceof Error ? error.message : "Failed to update price.",
+      );
     } finally {
       setBusyPromptId(null);
     }
@@ -143,22 +176,109 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
 
   const handleUnlock = async (promptId: bigint) => {
     if (!address || !signMessage) {
-      updateError("Connect a wallet with SEP-43 message signing to unlock prompts.");
+      updateError(
+        "Connect a wallet with SEP-43 message signing to unlock prompts.",
+      );
       return;
     }
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
+      const response = await unlockPromptContent(
+        address,
+        promptId.toString(),
+        signMessage,
+      );
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
       }));
       updateStatus("Prompt unlocked.");
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to unlock prompt.");
+      updateError(
+        error instanceof Error ? error.message : "Failed to unlock prompt.",
+      );
     } finally {
       setBusyPromptId(null);
+    }
+  };
+
+  const toggleBundlePrompt = (promptId: string) => {
+    setBundlePromptIds((current) =>
+      current.includes(promptId)
+        ? current.filter((id) => id !== promptId)
+        : [...current, promptId],
+    );
+  };
+
+  const handleCreateBundle = async () => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before creating bundle offers.");
+      return;
+    }
+    if (bundlePromptIds.length < 2) {
+      updateError("Select at least two prompts for a bundle.");
+      return;
+    }
+
+    setBusyOffer("bundle");
+    try {
+      const { bundleId } = await createBundle(
+        browserStellarConfig,
+        { signTransaction },
+        address,
+        {
+          title: bundleTitle.trim(),
+          promptIds: bundlePromptIds,
+          priceStroops: xlmToStroops(bundlePriceXlm),
+        },
+      );
+      updateStatus(`Bundle #${bundleId} created.`);
+      setBundlePromptIds([]);
+      await refreshPromptLists();
+    } catch (error) {
+      updateError(
+        error instanceof Error ? error.message : "Failed to create bundle.",
+      );
+    } finally {
+      setBusyOffer(null);
+    }
+  };
+
+  const handleCreateAccessPass = async () => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before creating access passes.");
+      return;
+    }
+
+    const durationDays = Number(passDurationDays);
+    if (!Number.isFinite(durationDays) || durationDays <= 0) {
+      updateError("Enter a valid pass duration.");
+      return;
+    }
+
+    setBusyOffer("pass");
+    try {
+      const { passId } = await createAccessPass(
+        browserStellarConfig,
+        { signTransaction },
+        address,
+        {
+          title: passTitle.trim(),
+          durationSecs: Math.round(durationDays * 24 * 60 * 60),
+          priceStroops: xlmToStroops(passPriceXlm),
+        },
+      );
+      updateStatus(`Access pass #${passId} created.`);
+      await refreshPromptLists();
+    } catch (error) {
+      updateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to create access pass.",
+      );
+    } finally {
+      setBusyOffer(null);
     }
   };
 
@@ -192,9 +312,137 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
 
       <section className="space-y-4">
         <div>
+          <h2 className="text-2xl font-semibold text-white">
+            Bundles and access passes
+          </h2>
+          <p className="mt-2 text-sm text-slate-400">
+            Group prompts into discounted bundles or sell time-bound access to
+            your catalog.
+          </p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-start gap-3">
+              <PackagePlus className="mt-1 h-5 w-5 text-emerald-300" />
+              <div>
+                <h3 className="font-semibold text-white">Create bundle</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  Buyers unlock every selected prompt with one purchase.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_140px]">
+              <Input
+                value={bundleTitle}
+                onChange={(event) => setBundleTitle(event.target.value)}
+                placeholder="Bundle title"
+              />
+              <Input
+                value={bundlePriceXlm}
+                onChange={(event) => setBundlePriceXlm(event.target.value)}
+                inputMode="decimal"
+                placeholder="Price XLM"
+              />
+            </div>
+            <div className="mt-4 space-y-2">
+              {createdPrompts.length < 2 ? (
+                <p className="text-sm text-slate-400">
+                  Create at least two prompts before publishing a bundle.
+                </p>
+              ) : (
+                createdPrompts.map((prompt) => {
+                  const id = prompt.id.toString();
+                  return (
+                    <label
+                      key={id}
+                      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bundlePromptIds.includes(id)}
+                        onChange={() => toggleBundlePrompt(id)}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                      />
+                      <span className="min-w-0 flex-1 truncate">
+                        {prompt.title}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {formatPriceLabel(prompt.priceStroops)}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <Button
+              type="button"
+              className="mt-5 w-full gap-2 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+              onClick={handleCreateBundle}
+              disabled={busyOffer === "bundle" || createdPrompts.length < 2}
+            >
+              {busyOffer === "bundle" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Create bundle
+            </Button>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-start gap-3">
+              <CalendarDays className="mt-1 h-5 w-5 text-cyan-300" />
+              <div>
+                <h3 className="font-semibold text-white">
+                  Create catalog pass
+                </h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  Buyers unlock your prompts until the pass expires.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3">
+              <Input
+                value={passTitle}
+                onChange={(event) => setPassTitle(event.target.value)}
+                placeholder="Pass title"
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  value={passPriceXlm}
+                  onChange={(event) => setPassPriceXlm(event.target.value)}
+                  inputMode="decimal"
+                  placeholder="Price XLM"
+                />
+                <Input
+                  value={passDurationDays}
+                  onChange={(event) => setPassDurationDays(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="Duration days"
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-5 w-full gap-2"
+              onClick={handleCreateAccessPass}
+              disabled={busyOffer === "pass" || createdPrompts.length === 0}
+            >
+              {busyOffer === "pass" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Create access pass
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div>
           <h2 className="text-2xl font-semibold text-white">Created by me</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Update pricing, pause listings, and track license sales without changing ownership.
+            Update pricing, pause listings, and track license sales without
+            changing ownership.
           </p>
         </div>
 
@@ -206,7 +454,9 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
             <PackagePlus className="h-10 w-10 text-slate-500" />
             <div>
-              <p className="text-base font-semibold text-white">No listings yet</p>
+              <p className="text-base font-semibold text-white">
+                No listings yet
+              </p>
               <p className="mt-1 text-sm text-slate-400">
                 Publish your first prompt to start earning license fees.
               </p>
@@ -240,7 +490,9 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                         {prompt.category}
                       </p>
-                      <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                      <h3 className="mt-2 text-xl font-semibold">
+                        {prompt.title}
+                      </h3>
                       <p className="mt-3 text-sm leading-6 text-slate-300">
                         {prompt.previewText}
                       </p>
@@ -305,7 +557,9 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                         ? "bg-white/5 hover:border-red-400/30 hover:text-red-300"
                         : "bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-400/40 text-emerald-400"
                     }`}
-                    onClick={() => void handleToggleSaleStatus(prompt.id, prompt.active)}
+                    onClick={() =>
+                      void handleToggleSaleStatus(prompt.id, prompt.active)
+                    }
                     disabled={busyPromptId === prompt.id.toString()}
                   >
                     {busyPromptId === prompt.id.toString() ? (
@@ -315,7 +569,9 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                     ) : (
                       <ToggleLeft className="h-4 w-4" />
                     )}
-                    {prompt.active ? "Deactivate listing" : "Reactivate listing"}
+                    {prompt.active
+                      ? "Deactivate listing"
+                      : "Reactivate listing"}
                   </Button>
                 </CardFooter>
               </Card>
@@ -328,7 +584,8 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
         <div>
           <h2 className="text-2xl font-semibold text-white">Purchased by me</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Unlock purchased prompt text on demand. Access remains available for future sessions.
+            Unlock purchased prompt text on demand. Access remains available for
+            future sessions.
           </p>
         </div>
 
@@ -340,12 +597,17 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
             <ShoppingBag className="h-10 w-10 text-slate-500" />
             <div>
-              <p className="text-base font-semibold text-white">No purchases yet</p>
+              <p className="text-base font-semibold text-white">
+                No purchases yet
+              </p>
               <p className="mt-1 text-sm text-slate-400">
                 Browse the marketplace to find and unlock prompt licenses.
               </p>
             </div>
-            <Button asChild className="mt-2 bg-white/10 text-slate-100 hover:bg-white/15">
+            <Button
+              asChild
+              className="mt-2 bg-white/10 text-slate-100 hover:bg-white/15"
+            >
               <Link to="/browse">Browse marketplace</Link>
             </Button>
           </div>
@@ -362,7 +624,9 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                         {prompt.category}
                       </p>
-                      <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                      <h3 className="mt-2 text-xl font-semibold">
+                        {prompt.title}
+                      </h3>
                     </div>
                     <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm">
                       {formatPriceLabel(prompt.priceStroops)}
@@ -406,7 +670,8 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">
-                      Unlocked plaintext appears here after the access check succeeds.
+                      Unlocked plaintext appears here after the access check
+                      succeeds.
                     </div>
                   )}
                 </CardContent>

@@ -2519,6 +2519,82 @@ fn test_buy_prompts_bulk_with_referrer() {
 // ─── Issue #226: Listing revision tests ─────────────────────────────────────
 
 #[test]
+fn test_buy_bundle_grants_access_to_all_prompts() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_a = create_prompt(&env, &client, &creator, "Bundle A", 7_000, &context.xlm);
+    let prompt_b = create_prompt(&env, &client, &creator, "Bundle B", 9_000, &context.xlm);
+    let bundle_price: i128 = 12_000;
+    fund_buyer(&xlm_client, &buyer, &context.contract, bundle_price);
+
+    let mut prompt_ids = Vec::new(&env);
+    prompt_ids.push_back(prompt_a);
+    prompt_ids.push_back(prompt_b);
+
+    let bundle_id = client.create_bundle(
+        &creator,
+        &String::from_str(&env, "Launch Bundle"),
+        &prompt_ids,
+        &bundle_price,
+        &context.xlm,
+        &0,
+    );
+
+    client.buy_bundle(&buyer, &bundle_id, &bundle_price);
+
+    assert!(client.has_access(&buyer, &prompt_a));
+    assert!(client.has_access(&buyer, &prompt_b));
+
+    let bundle = client.get_bundle(&bundle_id);
+    assert_eq!(bundle.sales_count, 1);
+    assert_eq!(client.get_prompt(&prompt_a).sales_count, 1);
+    assert_eq!(client.get_prompt(&prompt_b).sales_count, 1);
+}
+
+#[test]
+fn test_access_pass_grants_time_bound_catalog_access() {
+    let env: Env = Default::default();
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_000;
+    });
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Catalog A", 8_000, &context.xlm);
+    let pass_price: i128 = 15_000;
+    fund_buyer(&xlm_client, &buyer, &context.contract, pass_price);
+
+    let pass_id = client.create_access_pass(
+        &creator,
+        &String::from_str(&env, "30 Day Catalog"),
+        &2_000,
+        &pass_price,
+        &context.xlm,
+    );
+
+    client.buy_access_pass(&buyer, &pass_id, &pass_price);
+    assert!(client.has_access(&buyer, &prompt_id));
+
+    let future_prompt =
+        create_prompt(&env, &client, &creator, "Catalog B", 9_000, &context.xlm);
+    assert!(client.has_access(&buyer, &future_prompt));
+
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 3_001;
+    });
+    assert!(!client.has_access(&buyer, &prompt_id));
+}
+
+#[test]
 fn test_revise_listing_increments_revision_and_snapshots_old_metadata() {
     let env: Env = Default::default();
     let context = setup(&env);

@@ -45,6 +45,10 @@ pub enum Error {
     DisputeAlreadyOpen = 35,
     DisputeNotFound = 36,
     DisputeResolved = 37,
+    InvalidBundle = 38,
+    BundleNotFound = 39,
+    AccessPassNotFound = 40,
+    InvalidAccessDuration = 41,
 }
 
 #[contracttype]
@@ -66,6 +70,13 @@ pub enum DataKey {
     /// Key: (prompt_id, revision_number_before_change)
     ListingRevision(u128, u32),
     PurchaseDispute(u128, Address),
+    Bundle(u128),
+    BundleCounter,
+    CreatorBundles(Address),
+    AccessPass(u128),
+    AccessPassCounter,
+    CreatorAccessPasses(Address),
+    CatalogPass(Address, Address),
 }
 
 #[contracttype]
@@ -172,6 +183,44 @@ pub struct Prompt {
     pub tags: Vec<String>,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Bundle {
+    pub id: u128,
+    pub creator: Address,
+    pub title: String,
+    pub prompt_ids: Vec<u128>,
+    pub price_stroops: i128,
+    pub asset: Address,
+    pub active: bool,
+    pub sales_count: u64,
+    /// Unix timestamp after which the bundle can no longer be purchased.
+    /// `0` means the bundle never expires.
+    pub expires_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccessPass {
+    pub id: u128,
+    pub creator: Address,
+    pub title: String,
+    pub duration_secs: u64,
+    pub price_stroops: i128,
+    pub asset: Address,
+    pub active: bool,
+    pub sales_count: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogPassPurchase {
+    pub creator: Address,
+    pub buyer: Address,
+    pub pass_id: u128,
+    pub expires_at: u64,
+}
+
 /// Snapshot of the mutable listing fields captured before a revision (#226).
 /// Stored under `DataKey::ListingRevision(prompt_id, old_revision)` so
 /// buyers can verify what metadata was in effect when they purchased.
@@ -268,6 +317,47 @@ pub trait PromptHashTrait {
         payment_amounts: Vec<i128>,
         referrer: Option<Address>,
     ) -> Result<(), Error>;
+
+    fn create_bundle(
+        env: Env,
+        creator: Address,
+        title: String,
+        prompt_ids: Vec<u128>,
+        price_stroops: i128,
+        asset: Address,
+        expires_at: u64,
+    ) -> Result<u128, Error>;
+
+    fn buy_bundle(
+        env: Env,
+        buyer: Address,
+        bundle_id: u128,
+        payment_amount_stroops: i128,
+    ) -> Result<(), Error>;
+
+    fn get_bundle(env: Env, bundle_id: u128) -> Result<Bundle, Error>;
+
+    fn get_bundles_by_creator(env: Env, creator: Address) -> Result<Vec<Bundle>, Error>;
+
+    fn create_access_pass(
+        env: Env,
+        creator: Address,
+        title: String,
+        duration_secs: u64,
+        price_stroops: i128,
+        asset: Address,
+    ) -> Result<u128, Error>;
+
+    fn buy_access_pass(
+        env: Env,
+        buyer: Address,
+        pass_id: u128,
+        payment_amount_stroops: i128,
+    ) -> Result<(), Error>;
+
+    fn get_access_pass(env: Env, pass_id: u128) -> Result<AccessPass, Error>;
+
+    fn get_access_passes_by_creator(env: Env, creator: Address) -> Result<Vec<AccessPass>, Error>;
 
     fn transfer_license(
         env: Env,
