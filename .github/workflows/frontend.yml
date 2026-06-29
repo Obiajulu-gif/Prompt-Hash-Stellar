@@ -53,17 +53,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: yarn
-
       - name: Enable Corepack
         run: corepack enable
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
       - name: Install dependencies
         run: yarn install --immutable
+
+      - name: Validate environment template
+        run: yarn check:setup --warn-only
 
       - name: Run lint
         run: yarn lint

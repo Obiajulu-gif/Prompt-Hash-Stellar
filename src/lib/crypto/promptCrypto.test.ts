@@ -4,6 +4,8 @@ import {
   bytesToBase64,
   decryptPromptCiphertext,
   encryptPromptPlaintext,
+  hashPromptPlaintext,
+  normalizeContentHash,
   unwrapPromptKey,
   wrapPromptKey,
 } from "./promptCrypto";
@@ -37,5 +39,20 @@ describe("promptCrypto", () => {
     );
 
     expect(Array.from(unwrappedKey)).toEqual(Array.from(encrypted.keyBytes));
+  });
+
+  it("hashes plaintext to a stable lowercase hex digest", async () => {
+    const hash = await hashPromptPlaintext("Prompt body for integrity checks.");
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(await hashPromptPlaintext("Prompt body for integrity checks.")).toBe(hash);
+  });
+
+  it("normalizes hex and base64 content hash formats", async () => {
+    const plaintext = "Normalize hash formats.";
+    const hexHash = await hashPromptPlaintext(plaintext);
+    const bytes = Uint8Array.from(Buffer.from(hexHash, "hex"));
+
+    expect(normalizeContentHash(hexHash.toUpperCase())).toBe(hexHash);
+    expect(normalizeContentHash(bytesToBase64(bytes))).toBe(hexHash);
   });
 });

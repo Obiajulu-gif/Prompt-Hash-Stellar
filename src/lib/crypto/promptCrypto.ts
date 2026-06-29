@@ -23,6 +23,26 @@ async function importAesKey(rawKey: Uint8Array, usages: KeyUsage[]) {
   );
 }
 
+export async function hashPrompt(prompt: string): Promise<string> {
+  // Delegate to SHA-256 for consistent content hashing across the app
+  return hashPromptPlaintext(prompt);
+}
+
+export async function encryptPrompt(prompt: string, publicKey: string) {
+  const sodiumLib = await ensureSodium();
+  const messageBytes = cloneBytes(encoder.encode(prompt));
+  const publicKeyBytes = base64ToBytes(publicKey);
+
+  // Sealed box encryption (only decryptable by the recipient's private key)
+  const encryptedBytes = sodiumLib.crypto_box_seal(messageBytes, publicKeyBytes);
+
+  return {
+    hash: await hashPrompt(prompt),
+    encryptedBlob: bytesToBase64(encryptedBytes),
+    version: "1.0.0",
+  };
+}
+
 export function bytesToBase64(value: Uint8Array) {
   return Buffer.from(value).toString("base64");
 }
@@ -51,6 +71,29 @@ export async function hashPromptPlaintext(plaintext: string) {
     cloneBytes(encoder.encode(plaintext)),
   );
   return bytesToHex(new Uint8Array(digest));
+}
+
+/** Normalize on-chain or API content hashes to lowercase hex (64 chars). */
+export function normalizeContentHash(hash: string | Uint8Array): string {
+  if (hash instanceof Uint8Array) {
+    return bytesToHex(hash);
+  }
+
+  const trimmed = hash.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  try {
+    const bytes = base64ToBytes(trimmed);
+    if (bytes.length === 32) {
+      return bytesToHex(bytes);
+    }
+  } catch {
+    // fall through
+  }
+
+  return trimmed.toLowerCase();
 }
 
 export async function encryptPromptPlaintext(

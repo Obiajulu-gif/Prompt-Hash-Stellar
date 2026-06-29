@@ -1,0 +1,32 @@
+# Example Cron Configuration for Automated Secret Rotation
+#
+# This file provides example cron schedules for automated challenge token
+# secret rotation. Copy and customize for your deployment environment.
+#
+# Installation:
+#   1. Copy this file: cp scripts/cron-rotation.example /etc/cron.d/prompt-hash-rotation
+#   2. Set environment variables in /etc/environment or cron environment
+#   3. Adjust schedule based on your security requirements
+#   4. Ensure script has execute permissions: chmod +x scripts/rotate-secrets.sh
+#
+# Security Recommendations:
+#   - Rotate secrets every 30-90 days
+#   - Use longer grace periods (10-15 minutes) during high traffic
+#   - Monitor rotation logs for failures
+#   - Alert on-call if rotation fails
+
+# Environment variables (set these in your cron environment or systemd service)
+# ADMIN_ROTATION_TOKEN=your-secure-admin-token
+# UNLOCK_SERVICE_URL=https://your-domain.com
+
+# Rotate secrets every 30 days at 2 AM UTC
+# 0 2 1 * * /path/to/prompt-hash-stellar/scripts/rotate-secrets.sh --grace-period 600 >> /var/log/secret-rotation.log 2>&1
+
+# Rotate secrets every 60 days at 3 AM UTC (more conservative)
+# 0 3 1 */2 * /path/to/prompt-hash-stellar/scripts/rotate-secrets.sh --grace-period 900 >> /var/log/secret-rotation.log 2>&1
+
+# Rotate secrets every 90 days at 4 AM UTC (least frequent)
+# 0 4 1 */3 * /path/to/prompt-hash-stellar/scripts/rotate-secrets.sh --grace-period 600 >> /var/log/secret-rotation.log 2>&1
+
+# Weekly rotation (for high-security environments)
+# 0 2 * * 0 /path/to/prompt-hash-stellar/scripts/rotate-secrets.sh --grace-period 300 >> /var/log/secret-rotation.log 2>&1

@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Loader2, LockKeyhole } from "lucide-react";
+import { Eye, History, Loader2, LockKeyhole, PackagePlus, ShoppingBag, ToggleLeft, ToggleRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CreatorDashboard } from "@/components/sell/CreatorDashboard";
+import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
@@ -15,13 +18,12 @@ import {
 import { formatPriceLabel, stroopsToXlmString, xlmToStroops } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
 
-const emptyState = (
-  <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
-    No prompts found yet.
-  </div>
-);
+interface MyPromptsProps {
+  onCreateNew?: () => void;
+}
 
-const MyPrompts = () => {
+const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
+
   const queryClient = useQueryClient();
   const { address, signMessage, signTransaction } = useWallet();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -56,6 +58,22 @@ const MyPrompts = () => {
     );
   }, [createdPrompts, priceDrafts]);
 
+  const dashboardStats = useMemo(() => {
+    const totalSales = createdPrompts.reduce((sum, p) => sum + (p.salesCount ?? 0), 0);
+    const totalRevenue = createdPrompts.reduce(
+      (sum, p) => sum + (p.priceStroops * BigInt(p.salesCount ?? 0)),
+      BigInt(0),
+    );
+    const activeListings = createdPrompts.filter((p) => p.active).length;
+
+    return {
+      totalListings: createdPrompts.length,
+      totalSales,
+      totalRevenue: stroopsToXlmString(totalRevenue),
+      activeListings,
+    };
+  }, [createdPrompts]);
+
   const refreshPromptLists = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["created-prompts"] }),
@@ -87,7 +105,7 @@ const MyPrompts = () => {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
+        promptId.toString(),
         !active,
       );
       updateStatus(!active ? "Prompt reactivated." : "Prompt deactivated.");
@@ -112,8 +130,8 @@ const MyPrompts = () => {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
-        nextPrice,
+        promptId.toString(),
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
@@ -132,7 +150,7 @@ const MyPrompts = () => {
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId, signMessage);
+      const response = await unlockPromptContent(address, promptId.toString(), signMessage);
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
@@ -155,6 +173,13 @@ const MyPrompts = () => {
 
   return (
     <div className="space-y-8">
+      <CreatorDashboard
+        stats={dashboardStats}
+        isLoading={createdQuery.isLoading}
+        isError={createdQuery.isError}
+        onRefresh={refreshPromptLists}
+      />
+
       {statusMessage ? (
         <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
           {statusMessage}
@@ -179,7 +204,23 @@ const MyPrompts = () => {
             Loading created prompts...
           </div>
         ) : createdPrompts.length === 0 ? (
-          emptyState
+          <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
+            <PackagePlus className="h-10 w-10 text-slate-500" />
+            <div>
+              <p className="text-base font-semibold text-white">No listings yet</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Publish your first prompt to start earning license fees.
+              </p>
+            </div>
+            {onCreateNew && (
+              <Button
+                className="mt-2 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                onClick={onCreateNew}
+              >
+                Create a listing
+              </Button>
+            )}
+          </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-2">
             {createdPrompts.map((prompt) => (
@@ -195,16 +236,30 @@ const MyPrompts = () => {
                   />
                 </div>
                 <CardContent className="space-y-4 p-5">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
-                      {prompt.category}
-                    </p>
-                    <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-slate-300">
-                      {prompt.previewText}
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
+                        {prompt.category}
+                      </p>
+                      <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                      <p className="mt-3 text-sm leading-6 text-slate-300">
+                        {prompt.previewText}
+                      </p>
+                    </div>
+                    {/* Status badge */}
+                    {prompt.active ? (
+                      <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                        Inactive
+                      </span>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
+                  <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
                         Sales
@@ -215,10 +270,18 @@ const MyPrompts = () => {
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        Status
+                        Current price
                       </p>
                       <p className="mt-2 font-medium text-slate-100">
-                        {prompt.active ? "Active" : "Inactive"}
+                        {formatPriceLabel(prompt.priceStroops)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                        Revision
+                      </p>
+                      <p className="mt-2 font-medium text-slate-100">
+                        {("revision" in prompt ? prompt.revision : 0)}
                       </p>
                     </div>
                   </div>
@@ -232,6 +295,7 @@ const MyPrompts = () => {
                         }))
                       }
                       className="border-white/10 bg-white/5 text-slate-100"
+                      aria-label={`Price in XLM for ${prompt.title}`}
                     />
                     <Button
                       className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"
@@ -242,22 +306,31 @@ const MyPrompts = () => {
                     </Button>
                   </div>
                 </CardContent>
-                <CardFooter className="flex items-center justify-between p-5 pt-0">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                      Current price
-                    </p>
-                    <p className="mt-2 text-lg font-semibold text-slate-100">
-                      {formatPriceLabel(prompt.priceStroops)}
-                    </p>
-                  </div>
+                <CardFooter className="flex flex-col gap-3 p-5 pt-0">
+                  <PostVersionUpdate
+                    promptId={prompt.id.toString()}
+                    promptTitle={prompt.title}
+                    walletAddress={address ?? ""}
+                    currentVersion={("revision" in prompt ? prompt.revision : 0) + 1}
+                  />
                   <Button
                     variant="outline"
-                    className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+                    className={`w-full gap-2 border-white/10 text-slate-100 hover:bg-white/10 ${
+                      prompt.active
+                        ? "bg-white/5 hover:border-red-400/30 hover:text-red-300"
+                        : "bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-400/40 text-emerald-400"
+                    }`}
                     onClick={() => void handleToggleSaleStatus(prompt.id, prompt.active)}
                     disabled={busyPromptId === prompt.id.toString()}
                   >
-                    {prompt.active ? "Set inactive" : "Reactivate"}
+                    {busyPromptId === prompt.id.toString() ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : prompt.active ? (
+                      <ToggleRight className="h-4 w-4" />
+                    ) : (
+                      <ToggleLeft className="h-4 w-4" />
+                    )}
+                    {prompt.active ? "Deactivate listing" : "Reactivate listing"}
                   </Button>
                 </CardFooter>
               </Card>
@@ -279,7 +352,18 @@ const MyPrompts = () => {
             Loading purchased prompts...
           </div>
         ) : purchasedPrompts.length === 0 ? (
-          emptyState
+          <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
+            <ShoppingBag className="h-10 w-10 text-slate-500" />
+            <div>
+              <p className="text-base font-semibold text-white">No purchases yet</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Browse the marketplace to find and unlock prompt licenses.
+              </p>
+            </div>
+            <Button asChild className="mt-2 bg-white/10 text-slate-100 hover:bg-white/15">
+              <Link to="/browse">Browse marketplace</Link>
+            </Button>
+          </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-2">
             {purchasedPrompts.map((prompt) => (

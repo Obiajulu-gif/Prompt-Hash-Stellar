@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "browse": "Parcourir",
+    "create": "Créer",
+    "dashboard": "Tableau de bord",
+    "connect": "Connecter le portefeuille",
+    "disconnect": "Déconnecter"
+  },
+  "home": {
+    "hero_title": "Découvrez et échangez des Prompts IA",
+    "hero_subtitle": "Achetez, vendez et licenciez des prompts IA premium sur la blockchain Stellar.",
+    "browse_prompts": "Parcourir les Prompts",
+    "create_prompt": "Créer un Prompt"
+  },
+  "prompt": {
+    "buy": "Acheter le Prompt",
+    "lease": "Louer le Prompt",
+    "price": "Prix",
+    "creator": "Créateur",
+    "category": "Catégorie",
+    "sales": "Ventes",
+    "purchase_success": "Prompt acheté avec succès !",
+    "lease_success": "Prompt loué avec succès !",
+    "already_owned": "Vous possédez déjà ce prompt.",
+    "max_supply_reached": "L'offre maximale pour ce prompt est atteinte."
+  },
+  "create": {
+    "title": "Créer un Prompt",
+    "prompt_title": "Titre",
+    "category": "Catégorie",
+    "preview": "Texte d'aperçu",
+    "price": "Prix (stroops)",
+    "max_supply": "Offre maximale (0 = illimité)",
+    "submit": "Publier le Prompt",
+    "success": "Prompt publié avec succès !"
+  },
+  "errors": {
+    "not_found": "Prompt introuvable.",
+    "unauthorized": "Vous n'êtes pas autorisé.",
+    "paused": "La place de marché est actuellement en pause."
+  },
+  "language": {
+    "select": "Langue"
+  }
+}

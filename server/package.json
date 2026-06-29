@@ -7,10 +7,15 @@
   },
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest --passWithNoTests",
+    "lint": "eslint .",
+    "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
-    "start": "node build/server.js"
+    "start": "node build/server.js",
+    "backup": "ts-node scripts/runBackup.ts",
+    "reindex": "ts-node scripts/reIndexFromLedger.ts",
+    "reindex:dry-run": "ts-node scripts/reIndexFromLedger.ts --dry-run"
   },
   "files": [
     "build"
@@ -26,18 +31,26 @@
   "author": "wilfrid",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/openai": "^1.2.5",
-    "@typescript-eslint/parser": "^8.46.3",
-    "ai": "^4.1.61",
-    "express": "^5.1.0",
+    "@ai-sdk/openai": "^3.0.53",
+    "@sentry/node": "^10.62.0",
+    "@stellar/stellar-sdk": "^14.6.1",
+    "@typescript-eslint/parser": "^8.59.0",
+    "ai": "^6.0.168",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "express-async-handler": "^1.2.0",
-    "mongoose": "^8.19.3",
-    "nodemon": "^3.1.10",
-    "typescript": "^5.9.3"
+    "mongoose": "^9.5.0",
+    "nodemon": "^3.1.14",
+    "redis": "^6.0.1",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.5",
-    "@types/node": "^24.10.0",
-    "ts-node": "^10.9.2"
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "eslint": "^10.2.1",
+    "globals": "^17.5.0",
+    "ts-node": "^10.9.2",
+    "typescript-eslint": "^8.59.0"
   }
 }

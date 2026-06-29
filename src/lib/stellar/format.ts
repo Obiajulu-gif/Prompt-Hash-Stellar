@@ -1,36 +1,39 @@
-const STROOPS_PER_XLM = 10_000_000n;
+/**
+ * Converts stroops (smallest unit) to XLM string
+ * 1 XLM = 10,000,000 stroops
+ */
+export function stroopsToXlmString(stroops: bigint): string {
+  const xlm = Number(stroops) / 10_000_000;
+  return xlm.toString();
+}
 
-const DECIMAL_PATTERN = /^(?<whole>\d+)(?:\.(?<fraction>\d{1,7})?)?$/;
+/**
+ * Converts XLM to stroops
+ */
+export function xlmToStroops(xlm: number | string): bigint {
+  const val = typeof xlm === "string" ? parseFloat(xlm) : xlm;
+  return BigInt(Math.round(val * 10_000_000));
+}
 
-export function xlmToStroops(value: string | number | bigint): bigint {
-  if (typeof value === "bigint") {
-    return value * STROOPS_PER_XLM;
+/**
+ * Formats a price in stroops as a human-readable XLM label.
+ */
+export function formatPriceLabel(stroops: bigint): string {
+  const xlmStr = stroopsToXlmString(stroops);
+  return `${xlmStr} XLM`;
+}
+
+/**
+ * Formats an address for display (truncated)
+ */
+export function formatAddress(
+  address: string,
+  prefixLength = 8,
+  suffixLength = 4,
+): string {
+  if (address.length <= prefixLength + suffixLength) {
+    return address;
   }
-
-  const normalized = typeof value === "number" ? value.toString() : value.trim();
-  const match = normalized.match(DECIMAL_PATTERN);
-  if (!match?.groups?.whole) {
-    throw new Error("Enter a valid XLM amount with up to 7 decimal places.");
-  }
-
-  const whole = BigInt(match.groups.whole);
-  const fraction = (match.groups.fraction ?? "").padEnd(7, "0");
-  return (whole * STROOPS_PER_XLM) + BigInt(fraction || "0");
+  return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
 }
 
-export function stroopsToXlmString(value: string | number | bigint): string {
-  const stroops = typeof value === "bigint" ? value : BigInt(value);
-  const sign = stroops < 0 ? "-" : "";
-  const normalized = stroops < 0 ? -stroops : stroops;
-  const whole = normalized / STROOPS_PER_XLM;
-  const fraction = (normalized % STROOPS_PER_XLM)
-    .toString()
-    .padStart(7, "0")
-    .replace(/0+$/, "");
-
-  return fraction ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
-}
-
-export function formatPriceLabel(value: string | number | bigint): string {
-  return `${stroopsToXlmString(value)} XLM`;
-}

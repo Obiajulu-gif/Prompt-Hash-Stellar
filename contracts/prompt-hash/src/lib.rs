@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 mod contract;
 mod events;

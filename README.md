@@ -174,6 +174,16 @@ Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an
 
 The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
 
+#### Observability & Production Hardening
+
+The unlock service is hardened for production use with the following features:
+
+- **Rate Limiting**: Request-level limits keyed by IP and wallet to prevent brute-force and DDoS attacks.
+- **Structured Logging**: JSON-formatted logs with request ID tracking and sensitive data redaction.
+- **Operational Metrics**: Real-time tracking of unlock success/failure rates, invalid signatures, and rate limit hits.
+- **Health Monitoring**: Dedicated `/api/health` endpoint for uptime and configuration verification.
+- **Incident Response**: Documented runbooks and debugging procedures located in `docs/operations/`.
+
 ## Proposed Tech Stack
 
 - Soroban smart contracts in Rust
@@ -210,7 +220,7 @@ The current contract data model includes:
 ### Prerequisites
 
 - Node.js 22+
-- Yarn or npm
+- Yarn 4+ (Corepack enabled)
 - Rust toolchain
 - Stellar CLI with Soroban support
 
@@ -223,6 +233,19 @@ cd server && npm install && cd ..
 
 ## Local Development Setup
 
+For the complete contributor workflow, including required tools, environment variables, frontend startup, Soroban contract tests, unlock endpoint testing, and troubleshooting, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## 🚀 Getting Started
+
+Need to get the project running locally? See the full contributor setup guide:
+
+👉 [CONTRIBUTING / SETUP](./CONTRIBUTING.md)
+
+It covers prerequisites (Node.js, Rust, Soroban CLI), step-by-step setup (install dependencies, build contracts, run dev server), environment variables, testing, and contributor conventions.
+
+
+Quick start:
+
 1. Copy the environment file:
 
 ```bash
@@ -230,24 +253,51 @@ cp .env.example .env
 ```
 
 2. Fill in the required Stellar and unlock-service variables.
-3. Start the frontend:
+3. Install dependencies:
+
+```bash
+yarn install
+```
+
+4. Start the frontend:
 
 ```bash
 yarn dev
 ```
 
-4. Optional: run the auxiliary Node server:
+5. Optional: run the auxiliary Node server:
 
 ```bash
 cd server
+npm install
 npm run dev
 ```
 
-5. Run contract tests:
+6. Run contract tests:
 
 ```bash
 cargo test -p prompt-hash
 ```
+
+7. Run frontend checks before opening a PR:
+
+```bash
+yarn lint
+yarn test:frontend --run api/prompts/unlock.test.ts src/lib/auth/challenge.test.ts src/lib/crypto/promptCrypto.test.ts
+yarn build
+```
+
+## Setup Validation
+
+Run the one-command setup check to verify all prerequisites and environment variables before starting development:
+
+```bash
+yarn check:setup
+```
+
+This checks Node/Yarn versions, Rust toolchain, Stellar CLI, contract tooling, dependencies, and required environment variables without printing secret values.
+
+See [docs/environments.md](docs/environments.md) for local, testnet, and preview setup examples.
 
 ## Environment Variables
 
@@ -282,6 +332,33 @@ See `.env.example` for the full template. Main variables:
 - Unlock the purchased prompt with wallet signature verification
 - Reopen purchased prompts from `/profile`
 
+## Frontend Integration Tests
+
+The frontend suite uses Vitest + jsdom + React Testing Library to cover the main marketplace journeys without a live wallet extension or live Soroban environment.
+
+Run it with:
+
+```bash
+yarn test:frontend
+```
+
+Coverage currently includes:
+
+- disconnected wallet and wrong-network UI handling
+- create-listing validation and mocked contract submission
+- purchase and unlock behavior with mocked wallet and unlock boundaries
+- unlock failure recovery with retry
+- creator dashboard refresh after React Query invalidation
+
+Contributor notes:
+
+- Use [`src/test/render.tsx`](./src/test/render.tsx) to render components with router, wallet, and React Query providers.
+- Reuse fixtures from [`src/test/fixtures/prompts.ts`](./src/test/fixtures/prompts.ts) for realistic prompt records.
+- Mock wallet, contract, and unlock boundaries instead of relying on live chain dependencies.
+- Prefer integration coverage around real flow components such as `CreatePromptForm`, `FetchAllPrompts`, `PromptModal`, and `MyPrompts`.
+
+See `docs/frontend-testing.md` for the recommended pattern when adding new frontend coverage.
+
 ## Roadmap
 
 - Mainnet-ready deployment configuration
@@ -311,6 +388,10 @@ Contributions are welcome, especially in the following areas:
 - creator onboarding and marketplace moderation
 
 See `CONTRIBUTING.md` for workflow details.
+
+## Product Journeys
+
+See [`docs/product-journeys.md`](./docs/product-journeys.md) for a beginner-friendly walkthrough of the creator and buyer flows, including which components handle each step.
 
 ## License
 

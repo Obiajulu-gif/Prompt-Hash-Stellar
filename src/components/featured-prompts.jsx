@@ -5,6 +5,7 @@ import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardFooter } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { PromptPlayground } from "./prompt-playground";
 
 export function FeaturedPrompts({ limit = 6, title = "Featured Templates" }) {
   const [selectedPrompt, setSelectedPrompt] = useState(null);
@@ -122,6 +123,9 @@ export function FeaturedPrompts({ limit = 6, title = "Featured Templates" }) {
                     {selectedPrompt.fullPrompt}
                   </pre>
                 </div>
+              <div className="pt-4">
+                <PromptPlayground previewPrompt={selectedPrompt.previewText} title={selectedPrompt.title} />
+              </div>
               </div>
             </div>
           </div>

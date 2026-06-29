@@ -1,14 +1,27 @@
 import { Link, NavLink } from "react-router-dom";
-import { Menu, MessageCircle, Search, ShoppingBag, User } from "lucide-react";
+import NetworkSwitcher from "./NetworkSwitcher";
+import {
+  Activity,
+  LibraryBig,
+  Menu,
+  MessageCircle,
+  Search,
+  ShoppingBag,
+  User,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
+import { ThemeToggle } from "./ThemeToggle";
+import { SellerNotificationCenter } from "./SellerNotificationCenter";
 
 const navItems = [
   { to: "/browse", label: "Browse", icon: Search },
+  { to: "/collections", label: "Collections", icon: LibraryBig },
   { to: "/sell", label: "Sell", icon: ShoppingBag },
   { to: "/chat", label: "Chat", icon: MessageCircle },
   { to: "/profile", label: "Profile", icon: User },
+  { to: "/status", label: "Status", icon: Activity },
 ];
 
 const linkClasses = ({ isActive }: { isActive: boolean }) =>
@@ -36,7 +49,9 @@ export function Navigation() {
               <div className="text-sm uppercase tracking-[0.28em] text-amber-300">
                 PromptHash
               </div>
-              <div className="text-xs text-slate-400">Stellar testnet marketplace</div>
+              <div className="text-xs text-slate-400">
+                Stellar testnet marketplace
+              </div>
             </div>
           </Link>
           <nav className="hidden items-center gap-2 md:flex">
@@ -49,7 +64,9 @@ export function Navigation() {
           </nav>
         </div>
 
-        <div className="hidden md:block">
+        <div className="hidden items-center gap-2 md:flex md:gap-4">
+          <ThemeToggle />
+          <SellerNotificationCenter />
           <DisplayWallet />
         </div>
 
@@ -71,7 +88,9 @@ export function Navigation() {
                   {item.label}
                 </NavLink>
               ))}
-              <div className="pt-4">
+              <div className="flex items-center gap-2 border-t border-white/10 pt-4">
+                <ThemeToggle />
+                <SellerNotificationCenter />
                 <DisplayWallet />
               </div>
             </div>

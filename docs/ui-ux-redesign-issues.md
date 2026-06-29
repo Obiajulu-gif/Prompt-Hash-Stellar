@@ -7,8 +7,8 @@ Design backlog for the core product routes. These issues are intended to drive r
 ### `/browse`
 
 - Issue: [#1](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/1)
-- Title: `[UI/UX] Redesign the /browse marketplace experience`
-- Priority: `P1`
+- Title: `Redesign the /browse marketplace experience`
+- Priority: `High`
 - Focus:
   - stronger marketplace hierarchy
   - better filtering and search ergonomics
@@ -18,8 +18,8 @@ Design backlog for the core product routes. These issues are intended to drive r
 ### `/sell`
 
 - Issue: [#2](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/2)
-- Title: `[UI/UX] Redesign the /sell creator listing workflow`
-- Priority: `P0`
+- Title: `Redesign the /sell creator listing workflow`
+- Priority: `High`
 - Focus:
   - guided listing creation flow
   - clearer encryption and pricing communication
@@ -29,8 +29,8 @@ Design backlog for the core product routes. These issues are intended to drive r
 ### `/chat`
 
 - Issue: [#3](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/3)
-- Title: `[UI/UX] Redesign the /chat experience for stronger prompt iteration flow`
-- Priority: `P1`
+- Title: `Redesign the /chat experience for stronger prompt iteration flow`
+- Priority: `Medium`
 - Focus:
   - stronger page shell and conversation hierarchy
   - better prompt composer and controls
@@ -40,8 +40,8 @@ Design backlog for the core product routes. These issues are intended to drive r
 ### `/profile`
 
 - Issue: [#4](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/4)
-- Title: `[UI/UX] Redesign the /profile page around wallet identity and owned prompt access`
-- Priority: `P1`
+- Title: `Redesign the /profile page around wallet identity and owned prompt access`
+- Priority: `Medium`
 - Focus:
   - wallet-native profile experience
   - clearer separation of owned vs created prompts

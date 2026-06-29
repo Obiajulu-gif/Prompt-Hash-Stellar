@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "browse": "Explorar",
+    "create": "Crear",
+    "dashboard": "Panel",
+    "connect": "Conectar Billetera",
+    "disconnect": "Desconectar"
+  },
+  "home": {
+    "hero_title": "Descubre y Comercia Prompts de IA",
+    "hero_subtitle": "Compra, vende y licencia prompts premium de IA en la blockchain de Stellar.",
+    "browse_prompts": "Explorar Prompts",
+    "create_prompt": "Crear Prompt"
+  },
+  "prompt": {
+    "buy": "Comprar Prompt",
+    "lease": "Arrendar Prompt",
+    "price": "Precio",
+    "creator": "Creador",
+    "category": "Categoría",
+    "sales": "Ventas",
+    "purchase_success": "¡Prompt comprado con éxito!",
+    "lease_success": "¡Prompt arrendado con éxito!",
+    "already_owned": "Ya posees este prompt.",
+    "max_supply_reached": "Se alcanzó el suministro máximo para este prompt."
+  },
+  "create": {
+    "title": "Crear un Prompt",
+    "prompt_title": "Título",
+    "category": "Categoría",
+    "preview": "Texto de Vista Previa",
+    "price": "Precio (stroops)",
+    "max_supply": "Suministro Máximo (0 = ilimitado)",
+    "submit": "Publicar Prompt",
+    "success": "¡Prompt publicado con éxito!"
+  },
+  "errors": {
+    "not_found": "Prompt no encontrado.",
+    "unauthorized": "No estás autorizado.",
+    "paused": "El mercado está actualmente en pausa."
+  },
+  "language": {
+    "select": "Idioma"
+  }
+}
