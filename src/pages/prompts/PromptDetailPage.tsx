@@ -3,11 +3,14 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  BadgeCheck,
   Check,
+  Clock,
   Copy,
   Loader2,
   ShoppingBag,
   Sparkles,
+  ThumbsUp,
   User,
 } from "lucide-react";
 import { Navigation } from "@/components/navigation";
@@ -19,6 +22,8 @@ import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import { copyToClipboard } from "@/lib/clipboard/secureClipboard";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
+import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
+import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -65,6 +70,9 @@ export default function PromptDetailPage() {
   };
 
   const notFound = !isValidId || isError || (!isLoading && !prompt);
+  const reputation = prompt
+    ? buildCreatorReputation(prompt.creator, [prompt])
+    : null;
 
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-cyan-500/30">
@@ -126,6 +134,9 @@ export default function PromptDetailPage() {
                   <Sparkles className="mr-1 h-3 w-3" />
                   {prompt.category}
                 </Badge>
+                {reputation ? (
+                  <CreatorVerifiedBadge reputation={reputation} compact />
+                ) : null}
                 {!prompt.active && (
                   <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
                     Unavailable
@@ -155,6 +166,24 @@ export default function PromptDetailPage() {
                   <ShoppingBag className="h-3.5 w-3.5" />
                   {prompt.salesCount} sold
                 </span>
+                {reputation ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5">
+                      <ThumbsUp className="h-3.5 w-3.5 text-emerald-300" />
+                      {reputation.positiveRatings} positive
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-cyan-300" />
+                      {reputation.timeOnPlatformLabel} on platform
+                    </span>
+                    {reputation.verified ? (
+                      <span className="inline-flex items-center gap-1.5 text-emerald-300">
+                        <BadgeCheck className="h-3.5 w-3.5" />
+                        {reputation.verificationLabel}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
                 <span className="font-semibold text-white">
                   {formatPriceLabel(prompt.priceStroops)}
                 </span>

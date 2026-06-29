@@ -26,6 +26,8 @@ import {
   Hash,
   Share2,
   Flag,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
 
 // Small inline copy button used in the receipt reference details
@@ -60,6 +62,11 @@ import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
+import {
+  getCreatorThumbRating,
+  saveCreatorThumbRating,
+  type ThumbRating,
+} from "../../lib/reputation/creatorReputation";
 
 export type BuyerStatus =
   | "IDLE"
@@ -258,6 +265,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  const [creatorThumbRating, setCreatorThumbRating] = useState<ThumbRating | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<{
     visible: boolean;
     success: boolean;
@@ -339,6 +347,19 @@ export const PromptModal: React.FC<PromptModalProps> = ({
         .finally(() => setIsCheckingAccess(false));
     }
   }, [isOpen, itemId, wallet?.address]);
+
+  useEffect(() => {
+    if (isOpen && wallet?.address) {
+      setCreatorThumbRating(getCreatorThumbRating(itemId, wallet.address));
+    }
+  }, [isOpen, itemId, wallet?.address]);
+
+  const handleCreatorThumbRating = (rating: ThumbRating) => {
+    if (!wallet?.address || !promptDetail?.creator) return;
+    saveCreatorThumbRating(itemId, wallet.address, promptDetail.creator, rating);
+    setCreatorThumbRating(rating);
+    queryClient.invalidateQueries({ queryKey: ["seller-prompts"] });
+  };
 
   const {
     execute: runUnlock,
@@ -681,6 +702,41 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       Store this prompt securely. Do not share it publicly or with unauthorised users.
                     </p>
                   </div>
+
+                  {wallet?.address && promptDetail?.creator && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm font-bold text-white">Rate this creator</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Help future buyers understand whether this creator delivered a trustworthy unlock.
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("up")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "up"
+                              ? "border-emerald-300/60 bg-emerald-300/20 text-emerald-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsUp className="h-4 w-4" />
+                          Positive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("down")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "down"
+                              ? "border-rose-300/60 bg-rose-300/20 text-rose-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsDown className="h-4 w-4" />
+                          Needs work
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Review Section */}
                   {wallet?.address && (
