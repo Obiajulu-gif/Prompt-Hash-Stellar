@@ -1,4 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
+import NetworkSwitcher from "./NetworkSwitcher";
 import {
   Activity,
   LibraryBig,
@@ -63,7 +64,8 @@ export function Navigation() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="hidden md:flex items-center gap-2 md:gap-4">
+          <NetworkSwitcher />
           <ThemeToggle />
           <SellerNotificationCenter />
           <DisplayWallet />

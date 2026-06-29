@@ -1,4 +1,6 @@
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import {
   ArrowUpRight,
   Bookmark,
@@ -42,6 +44,7 @@ export const PromptCard = ({
   onToggleCompare?: (_prompt: PromptRecord) => void;
 }) => {
   const isBestSeller = prompt.salesCount >= 10;
+  const reducedMotion = useReducedMotion();
 
   // Fetch review stats for this prompt
   const { data: reviewStats } = useQuery({
@@ -50,9 +53,18 @@ export const PromptCard = ({
     staleTime: 60_000, // Cache for 1 minute
   });
 
+  const hoverProps = reducedMotion
+    ? {}
+    : {
+        whileHover: { y: -4, scale: 1.01 },
+        whileTap: { scale: 0.98 },
+        transition: { type: "spring", stiffness: 300, damping: 20 },
+      };
+
   return (
+    <motion.div {...hoverProps}>
     <Card
-      className={`group relative flex flex-col transition-all duration-300 hover:-translate-y-1 cursor-pointer overflow-hidden rounded-[24px] ${
+      className={`group relative flex flex-col cursor-pointer overflow-hidden rounded-[24px] ${
         isCompared
           ? "border-emerald-500 bg-emerald-950/5 ring-1 ring-emerald-500/30"
           : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
@@ -267,5 +279,6 @@ export const PromptCard = ({
         </div>
       </CardContent>
     </Card>
+    </motion.div>
   );
 };

@@ -71,7 +71,7 @@
   resolved "https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.7.tgz"
   integrity sha512-locTkQyKvwIEgBzVrn8693ebc97F2U8ZHjbXwDXJ5Fn2TCpNwTlKcaKLkdHop5c/icOFE7qt7Q9JC5hnKNa6Gg==
 
-"@babel/core@^7.24.4":
+"@babel/core@^7.18.5", "@babel/core@^7.24.4":
   version "7.29.7"
   resolved "https://registry.npmjs.org/@babel/core/-/core-7.29.7.tgz"
   integrity sha512-RgHBCvtjbOK2gXSNBNIkNoEc9qoVEtau3hj8gEqKQuL3HZAibKarWFEI3Lfm6EYKkLalOh8eSrj9b+ch9H/VBA==
@@ -927,13 +927,6 @@
   version "4.0.0"
   resolved "https://registry.npmjs.org/@csstools/css-tokenizer/-/css-tokenizer-4.0.0.tgz"
   integrity sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==
-
-"@emnapi/wasi-threads@1.2.2":
-  version "1.2.2"
-  resolved "https://registry.npmjs.org/@emnapi/wasi-threads/-/wasi-threads-1.2.2.tgz"
-  integrity sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==
-  dependencies:
-    tslib "^2.4.0"
 
 "@emurgo/cardano-serialization-lib-browser@^13.2.0":
   version "13.2.1"
@@ -1882,10 +1875,10 @@
   resolved "https://registry.npmjs.org/@redis/time-series/-/time-series-1.1.0.tgz"
   integrity sha512-c1Q99M5ljsIuc4YdaCwfUEXsofakb9c8+Zse2qxTadu8TalLXuAESzLvFAvNVbkmSlvlzIQOLpBCmWI9wTOt+g==
 
-"@rolldown/binding-win32-x64-msvc@1.1.3":
+"@rolldown/binding-darwin-x64@1.1.3":
   version "1.1.3"
-  resolved "https://registry.npmjs.org/@rolldown/binding-win32-x64-msvc/-/binding-win32-x64-msvc-1.1.3.tgz"
-  integrity sha512-OL4OMk7UPXOeVGGd3qo5zJyPIljf4AFgk5QAkPPS+OoLuOOozhuaQGC18MxVTnw/06q93gShAJzlwnSCY9YtqA==
+  resolved "https://registry.npmjs.org/@rolldown/binding-darwin-x64/-/binding-darwin-x64-1.1.3.tgz"
+  integrity sha512-YtiBp4disu6V560loT6PjMdiRaWmVvDNrUunAalbiFx2ggeJwxdAsgZMcoGP17uyAsTwAj5V1niksxlHnVQ1Sw==
 
 "@rolldown/pluginutils@^1.0.0", "@rolldown/pluginutils@^1.0.1":
   version "1.0.1"
@@ -1946,15 +1939,10 @@
     estree-walker "^2.0.2"
     picomatch "^4.0.2"
 
-"@rollup/rollup-win32-x64-gnu@4.62.2":
+"@rollup/rollup-darwin-x64@4.62.2":
   version "4.62.2"
-  resolved "https://registry.npmjs.org/@rollup/rollup-win32-x64-gnu/-/rollup-win32-x64-gnu-4.62.2.tgz"
-  integrity sha512-T6xr6ucWSFto+VGajA8YH26LdpHRuP4YLHEKAtCWvJDOlnmWcDZVCI2Jmjr+IFHDlt2zRaTAKE4tfjTaWLgJBg==
-
-"@rollup/rollup-win32-x64-msvc@4.62.2":
-  version "4.62.2"
-  resolved "https://registry.npmjs.org/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.62.2.tgz"
-  integrity sha512-BfzEnDJOt9T8M989/lA37EcJgat01wLRnoi5dQf3QzOH7jzpqTAzdDbVfRljVr5r+jzKqpbHeyOfAaXxAd0PAA==
+  resolved "https://registry.npmjs.org/@rollup/rollup-darwin-x64/-/rollup-darwin-x64-4.62.2.tgz"
+  integrity sha512-yl0y2vq3S3lHeuXhEdss6TWfKW8vkujImO12tn4ZkG/4oghr09LvdYm2RElVjokTQiUvDUGXLGsYeLqUMCKpGA==
 
 "@scure/base@^1.2.0", "@scure/base@~1.2.5":
   version "1.2.6"
@@ -1982,6 +1970,119 @@
   dependencies:
     "@noble/hashes" "~1.8.0"
     "@scure/base" "~1.2.5"
+
+"@sentry/babel-plugin-component-annotate@5.3.0":
+  version "5.3.0"
+  resolved "https://registry.npmjs.org/@sentry/babel-plugin-component-annotate/-/babel-plugin-component-annotate-5.3.0.tgz"
+  integrity sha512-p4q8gn8wcFqZGP/s2MnJCAAd8fTikaU6A0mM97RDHQgStcrYiaS0Sc5zUNfb1V+UOLPuvdEdL6MwyxfzjYJQTA==
+
+"@sentry/browser-utils@10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/browser-utils/-/browser-utils-10.62.0.tgz"
+  integrity sha512-mS9HVVuWIdye9o0xUGFmzNOBqktF4n5kugrF8NCOYYDrr5ZV8Cx7BlquHQn5UpCeViVhZtcDlEm4iOK7++Px7A==
+  dependencies:
+    "@sentry/core" "10.62.0"
+
+"@sentry/browser@10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/browser/-/browser-10.62.0.tgz"
+  integrity sha512-uJi0yPssB3Nt/cZ8/S8opW42gaM59/6IyNtPFYD7C0ciudi/nIo5QMVpCYBBI3jnKFOIQLlsMT4pDlOLuxxNuQ==
+  dependencies:
+    "@sentry/browser-utils" "10.62.0"
+    "@sentry/core" "10.62.0"
+    "@sentry/feedback" "10.62.0"
+    "@sentry/replay" "10.62.0"
+    "@sentry/replay-canvas" "10.62.0"
+
+"@sentry/bundler-plugin-core@5.3.0":
+  version "5.3.0"
+  resolved "https://registry.npmjs.org/@sentry/bundler-plugin-core/-/bundler-plugin-core-5.3.0.tgz"
+  integrity sha512-L5T60sWdAI3qWwdg3Ptwek/0TY59PERrxyqp4XMUkroayQvGd9r5dIW9Q1kSeXX9iJ442nXbFZKAOyCKV4Z13Q==
+  dependencies:
+    "@babel/core" "^7.18.5"
+    "@sentry/babel-plugin-component-annotate" "5.3.0"
+    "@sentry/cli" "^2.58.5"
+    dotenv "^16.3.1"
+    find-up "^5.0.0"
+    glob "^13.0.6"
+    magic-string "~0.30.8"
+
+"@sentry/cli-darwin@2.58.6":
+  version "2.58.6"
+  resolved "https://registry.npmjs.org/@sentry/cli-darwin/-/cli-darwin-2.58.6.tgz"
+  integrity sha512-udAVvcyfNa0R+95GvPz/+43/N3TC0TYKdkQ7D7jhPSzbcMc7l2fxRNN5yB3UpCA5fWFnW4toeaqwDBhb/Wh3LA==
+
+"@sentry/cli@^2.58.5":
+  version "2.58.6"
+  resolved "https://registry.npmjs.org/@sentry/cli/-/cli-2.58.6.tgz"
+  integrity sha512-baBcNPLLfUi9WuL+Tpri9BFaAdvugZIKelC5X0tt0Zdy+K0K+PCVSrnNmwMWU/HyaF/SEv6b6UHnXIdqanBlcg==
+  dependencies:
+    https-proxy-agent "^5.0.0"
+    node-fetch "^2.6.7"
+    progress "^2.0.3"
+    proxy-from-env "^1.1.0"
+    which "^2.0.2"
+  optionalDependencies:
+    "@sentry/cli-darwin" "2.58.6"
+    "@sentry/cli-linux-arm" "2.58.6"
+    "@sentry/cli-linux-arm64" "2.58.6"
+    "@sentry/cli-linux-i686" "2.58.6"
+    "@sentry/cli-linux-x64" "2.58.6"
+    "@sentry/cli-win32-arm64" "2.58.6"
+    "@sentry/cli-win32-i686" "2.58.6"
+    "@sentry/cli-win32-x64" "2.58.6"
+
+"@sentry/core@10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/core/-/core-10.62.0.tgz"
+  integrity sha512-tV69fMg2sS5DUFmQSnS7Jd5qJAp0izxwcsvBVz2ieTM9VMRi99IfOSYW9UYr3p1yfuksk41kefN5PEbeedUE+A==
+
+"@sentry/feedback@10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/feedback/-/feedback-10.62.0.tgz"
+  integrity sha512-d0BVjJVny6qpBgGJgWL0fbcoQHjtD3z3R8EK/KzTS3RO92JX5n3A536n5D/rh0gZFgcIwiUzBXegmyPOSQn9ng==
+  dependencies:
+    "@sentry/core" "10.62.0"
+
+"@sentry/react@^10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/react/-/react-10.62.0.tgz"
+  integrity sha512-PChimVpY0wzs3H/hJqyl87/ITTHwIZWTSY68QoENZyLnp7DvLcFiZYub/gFws1pzDPhtIQXVLU72fbmUjT5PSg==
+  dependencies:
+    "@sentry/browser" "10.62.0"
+    "@sentry/core" "10.62.0"
+
+"@sentry/replay-canvas@10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/replay-canvas/-/replay-canvas-10.62.0.tgz"
+  integrity sha512-CzPAxmpe5US/ABGA1TzpjFKOFZN5uqlzrRh/uM9/daVuzLVKIAQ0XRNxo/PPEXvlDm/PoMdI5L0qIODuIKnyyw==
+  dependencies:
+    "@sentry/core" "10.62.0"
+    "@sentry/replay" "10.62.0"
+
+"@sentry/replay@10.62.0":
+  version "10.62.0"
+  resolved "https://registry.npmjs.org/@sentry/replay/-/replay-10.62.0.tgz"
+  integrity sha512-rWp4hBhZOmdQhisxcKzAwTGiRk/LvWnNaElWe7nbRhjsM/usp2095yfjq4iJ47v9MtO7xxY6eUz++fLBycqXKg==
+  dependencies:
+    "@sentry/browser-utils" "10.62.0"
+    "@sentry/core" "10.62.0"
+
+"@sentry/rollup-plugin@5.3.0":
+  version "5.3.0"
+  resolved "https://registry.npmjs.org/@sentry/rollup-plugin/-/rollup-plugin-5.3.0.tgz"
+  integrity sha512-hgPGPYdQJ/G1cGYOxAb7d4z3V+/k/E5/P/5TFPEEBLuIbFFk+JG0CISUDJdzXJjO382Lb99PBJuXGbueBmO79w==
+  dependencies:
+    "@sentry/bundler-plugin-core" "5.3.0"
+    magic-string "~0.30.8"
+
+"@sentry/vite-plugin@^5.3.0":
+  version "5.3.0"
+  resolved "https://registry.npmjs.org/@sentry/vite-plugin/-/vite-plugin-5.3.0.tgz"
+  integrity sha512-qcoSzo4n2MulVQ70UUPLq6dTleb2a2HwL2wuwvAgWhPChrYTuk6A6mDg6aQb9fairPAwFPiU9PzOANpoDJcz1A==
+  dependencies:
+    "@sentry/bundler-plugin-core" "5.3.0"
+    "@sentry/rollup-plugin" "5.3.0"
 
 "@sinclair/typebox@^0.33.7":
   version "0.33.22"
@@ -2656,10 +2757,10 @@
     source-map-js "^1.2.1"
     tailwindcss "4.3.1"
 
-"@tailwindcss/oxide-win32-x64-msvc@4.3.1":
+"@tailwindcss/oxide-darwin-x64@4.3.1":
   version "4.3.1"
-  resolved "https://registry.npmjs.org/@tailwindcss/oxide-win32-x64-msvc/-/oxide-win32-x64-msvc-4.3.1.tgz"
-  integrity sha512-xDEyu1rg290472FEGaKHnzyDyh5QH+AlWvsU5hMoMtPpzmKlRI0jaYKCgSHDYtaQWZOYbMaduSyCwFwY4n1HmA==
+  resolved "https://registry.npmjs.org/@tailwindcss/oxide-darwin-x64/-/oxide-darwin-x64-4.3.1.tgz"
+  integrity sha512-Cf7abu0WVgbhU7ANgPUnSAvm7nCvMweusHb8FnaHlLfv/Caq4GYaEZg7ZImzzmjx4lIAfuS8q+eLIS7A7IzxIg==
 
 "@tailwindcss/oxide@4.3.1":
   version "4.3.1"
@@ -2972,13 +3073,6 @@
     json5 "^2.2.3"
     magic-string "^0.30.21"
     string.prototype.matchall "^4.0.12"
-
-"@tybys/wasm-util@^0.10.3":
-  version "0.10.3"
-  resolved "https://registry.npmjs.org/@tybys/wasm-util/-/wasm-util-0.10.3.tgz"
-  integrity sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==
-  dependencies:
-    tslib "^2.4.0"
 
 "@types/aria-query@^5.0.1":
   version "5.0.4"
@@ -4720,6 +4814,11 @@ domain-browser@4.22.0:
   resolved "https://registry.npmjs.org/domain-browser/-/domain-browser-4.22.0.tgz"
   integrity sha512-IGBwjF7tNk3cwypFNH/7bfzBcgSCbaMOD3GsaY1AU/JRrnHnYgEM0+9kQt52iZxjNsjBtJYtao146V+f8jFZNw==
 
+dotenv@^16.3.1:
+  version "16.6.1"
+  resolved "https://registry.npmjs.org/dotenv/-/dotenv-16.6.1.tgz"
+  integrity sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==
+
 dunder-proto@^1.0.0, dunder-proto@^1.0.1:
   version "1.0.1"
   resolved "https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz"
@@ -5276,6 +5375,11 @@ fs-extra@^9.0.1:
     jsonfile "^6.0.1"
     universalify "^2.0.0"
 
+fsevents@~2.3.2, fsevents@~2.3.3:
+  version "2.3.3"
+  resolved "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz"
+  integrity sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==
+
 function-bind@^1.1.2:
   version "1.1.2"
   resolved "https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz"
@@ -5401,6 +5505,15 @@ glob@^11.0.1:
     minipass "^7.1.2"
     package-json-from-dist "^1.0.0"
     path-scurry "^2.0.0"
+
+glob@^13.0.6:
+  version "13.0.6"
+  resolved "https://registry.npmjs.org/glob/-/glob-13.0.6.tgz"
+  integrity sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==
+  dependencies:
+    minimatch "^10.2.2"
+    minipass "^7.1.3"
+    path-scurry "^2.0.2"
 
 globals@^17.5.0:
   version "17.7.0"
@@ -5570,7 +5683,7 @@ https-browserify@^1.0.0:
   resolved "https://registry.npmjs.org/https-browserify/-/https-browserify-1.0.0.tgz"
   integrity sha512-J+FkSdyD+0mA0N+81tMotaRMfSL9SGi+xpD3T6YApKsc3bGSXJlfXri3VyFOeYkfLRQisDk1W+jIFFKBeUBbBg==
 
-https-proxy-agent@^5.0.1:
+https-proxy-agent@^5.0.0, https-proxy-agent@^5.0.1:
   version "5.0.1"
   resolved "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-5.0.1.tgz"
   integrity sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA==
@@ -6181,10 +6294,10 @@ libsodium@^0.8.0:
   resolved "https://registry.npmjs.org/libsodium/-/libsodium-0.8.4.tgz"
   integrity sha512-lMcYaRi0zcs7tarATsQUYC7rstliIXZuoq0c6zXSgNtSNtdvBgkSegjWhpMJAXzKX3SUSwIp7+zEsob+j3LuRw==
 
-lightningcss-win32-x64-msvc@1.32.0:
+lightningcss-darwin-x64@1.32.0:
   version "1.32.0"
-  resolved "https://registry.npmjs.org/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.32.0.tgz"
-  integrity sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q==
+  resolved "https://registry.npmjs.org/lightningcss-darwin-x64/-/lightningcss-darwin-x64-1.32.0.tgz"
+  integrity sha512-U+QsBp2m/s2wqpUYT/6wnlagdZbtZdndSmut/NJqlCcMLTWp5muCrID+K5UJ6jqD2BFshejCYXniPDbNh73V8w==
 
 lightningcss@^1.32.0, lightningcss@1.32.0:
   version "1.32.0"
@@ -6366,7 +6479,7 @@ lz-string@^1.5.0:
   resolved "https://registry.npmjs.org/lz-string/-/lz-string-1.5.0.tgz"
   integrity sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==
 
-magic-string@^0.30.21, magic-string@^0.30.3:
+magic-string@^0.30.21, magic-string@^0.30.3, magic-string@~0.30.8:
   version "0.30.21"
   resolved "https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz"
   integrity sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==
@@ -6758,7 +6871,7 @@ minimatch@^5.0.1:
   dependencies:
     brace-expansion "^2.0.1"
 
-minipass@^7.1.2:
+minipass@^7.1.2, minipass@^7.1.3:
   version "7.1.3"
   resolved "https://registry.npmjs.org/minipass/-/minipass-7.1.3.tgz"
   integrity sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==
@@ -6846,7 +6959,7 @@ node-fetch-native@^1.6.7:
   resolved "https://registry.npmjs.org/node-fetch-native/-/node-fetch-native-1.6.7.tgz"
   integrity sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==
 
-node-fetch@^2.6.1, node-fetch@^2.7.0:
+node-fetch@^2.6.1, node-fetch@^2.6.7, node-fetch@^2.7.0:
   version "2.7.0"
   resolved "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz"
   integrity sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==
@@ -7099,7 +7212,7 @@ path-parse@^1.0.7:
   resolved "https://registry.npmjs.org/path-parse/-/path-parse-1.0.7.tgz"
   integrity sha512-LDJzPVEEEPR+y48z93A0Ed0yXb8pAByGWo/k5YYdYgpY2/2EsOsksJrq7lOHxryrVOn1ejG6oAp8ahvOIQD8sw==
 
-path-scurry@^2.0.0:
+path-scurry@^2.0.0, path-scurry@^2.0.2:
   version "2.0.2"
   resolved "https://registry.npmjs.org/path-scurry/-/path-scurry-2.0.2.tgz"
   integrity sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg==
@@ -7302,6 +7415,11 @@ process@^0.11.10:
   resolved "https://registry.npmjs.org/process/-/process-0.11.10.tgz"
   integrity sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==
 
+progress@^2.0.3:
+  version "2.0.3"
+  resolved "https://registry.npmjs.org/progress/-/progress-2.0.3.tgz"
+  integrity sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA==
+
 property-information@^7.0.0:
   version "7.2.0"
   resolved "https://registry.npmjs.org/property-information/-/property-information-7.2.0.tgz"
@@ -7329,6 +7447,11 @@ proxy-compare@2.5.1:
   version "2.5.1"
   resolved "https://registry.npmjs.org/proxy-compare/-/proxy-compare-2.5.1.tgz"
   integrity sha512-oyfc0Tx87Cpwva5ZXezSp5V9vht1c7dZBhvuV/y3ctkgMVUmiAGDVeeB0dKhGSyT0v1ZTEQYpe/RXlBVBNuCLA==
+
+proxy-from-env@^1.1.0:
+  version "1.1.0"
+  resolved "https://registry.npmjs.org/proxy-from-env/-/proxy-from-env-1.1.0.tgz"
+  integrity sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg==
 
 proxy-from-env@^2.1.0:
   version "2.1.0"
@@ -9225,7 +9348,7 @@ which-typed-array@^1.1.16, which-typed-array@^1.1.19, which-typed-array@^1.1.2:
     gopd "^1.2.0"
     has-tostringtag "^1.0.2"
 
-which@^2.0.1:
+which@^2.0.1, which@^2.0.2:
   version "2.0.2"
   resolved "https://registry.npmjs.org/which/-/which-2.0.2.tgz"
   integrity sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==

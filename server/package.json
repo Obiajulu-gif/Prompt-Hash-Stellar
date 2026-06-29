@@ -32,6 +32,7 @@
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
+    "@sentry/node": "^10.62.0",
     "@stellar/stellar-sdk": "^14.6.1",
     "@typescript-eslint/parser": "^8.59.0",
     "ai": "^6.0.168",
