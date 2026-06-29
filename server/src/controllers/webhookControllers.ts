@@ -19,7 +19,7 @@ export const RegisterWebhook = async (req: Request, res: Response): Promise<Resp
     }
 
     const secret = randomBytes(32).toString("hex");
-    const allowedEvents = ["PromptPurchased"];
+    const allowedEvents = ["PromptPurchased", "PromptOwnershipTransferred"];
     const resolvedEvents = Array.isArray(events)
       ? events.filter((e: string) => allowedEvents.includes(e))
       : ["PromptPurchased"];
