@@ -14,6 +14,12 @@ import { fulfillmentRouter } from "./routes/fulfillmentRoutes";
 import { reviewRouter } from "./routes/reviewRoutes";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
+import {
+  globalLimiter,
+  authLimiter,
+  strictLimiter,
+  chatLimiter,
+} from "./middleware/rateLimiter";
 // import { startIndexer } from "./services/indexerService"; // TODO: Update path when ready
 
 // ── Sentry backend monitoring (#332) ─────────────────────────────────────────
@@ -33,21 +39,25 @@ const port = 5000;
 // Sentry error handler should be registered after routes (#332).
 app.use(express.json());
 
-app.use("/api/improve-proxy", proxyrouter);
+// ── Rate limiting ────────────────────────────────────────────────────────────
+// Global rate limit: 100 requests per 15 minutes per IP.
+app.use(globalLimiter);
+
+app.use("/api/improve-proxy", strictLimiter, proxyrouter);
 
 app.use("/api/prompts", promptRouter);
 
-app.use("/api/user", userRouter);
+app.use("/api/user", authLimiter, userRouter);
 
-app.use("/api/chat", chatRouter);
-app.use("/api/webhooks", webhookRouter);
+app.use("/api/chat", chatLimiter, chatRouter);
+app.use("/api/webhooks", strictLimiter, webhookRouter);
 app.use("/api/versions", versioningRouter);
-app.use("/api/governance", governanceRouter); // Issue #113
+app.use("/api/governance", authLimiter, governanceRouter); // Issue #113
 app.use("/api/search", searchRouter);
-app.use("/api/fulfillment", fulfillmentRouter);
+app.use("/api/fulfillment", strictLimiter, fulfillmentRouter);
 app.use("/api/reviews", reviewRouter);
 
-app.post("/api/test-prompt", TestPromptProxy);
+app.post("/api/test-prompt", strictLimiter, TestPromptProxy);
 
 app.get("/health", async (req, res) => {
   const [state, backupHealth] = await Promise.all([
