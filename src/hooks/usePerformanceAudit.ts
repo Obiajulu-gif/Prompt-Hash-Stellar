@@ -40,7 +40,8 @@ export function usePerformanceAudit({
       stopRef.current?.(metadata);
       stopRef.current = null;
     };
-  }, [scope, autoStart, start]);
+    // eslint-disable-next-line
+  }, [scope, autoStart]);
 
   const markDone = useCallback(
     (extraMetadata?: Record<string, string | number | boolean>): AuditEntry | null => {

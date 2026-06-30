@@ -1,4 +1,6 @@
-use super::types::{DataKey, Error, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute};
+use super::types::{
+    DataKey, Error, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
+};
 use soroban_sdk::{token, Address, BytesN, Env, Vec};
 
 pub const DAY_IN_LEDGERS: u32 = 17280;
@@ -341,7 +343,11 @@ impl Storage {
         dispute
     }
 
-    pub fn require_dispute(env: &Env, prompt_id: u64, buyer: &Address) -> Result<PurchaseDispute, Error> {
+    pub fn require_dispute(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+    ) -> Result<PurchaseDispute, Error> {
         Self::get_dispute(env, prompt_id, buyer).ok_or(Error::DisputeNotFound)
     }
 
@@ -371,7 +377,11 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
-    pub fn get_listing_revision(env: &Env, prompt_id: u64, revision: u32) -> Option<ListingRevisionRecord> {
+    pub fn get_listing_revision(
+        env: &Env,
+        prompt_id: u64,
+        revision: u32,
+    ) -> Option<ListingRevisionRecord> {
         let key = DataKey::ListingRevision(prompt_id, revision);
         let record = env.storage().persistent().get(&key);
         if env.storage().persistent().has(&key) {

@@ -333,7 +333,7 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                             Revision
                           </p>
                           <p className="mt-2 font-medium text-slate-100">
-                            {"revision" in prompt ? prompt.revision : 0}
+                            {String((prompt as any).revision || 0)}
                           </p>
                         </div>
                       </div>
@@ -363,7 +363,7 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                         promptId={prompt.id.toString()}
                         promptTitle={prompt.title}
                         walletAddress={address ?? ""}
-                        currentVersion={("revision" in prompt ? prompt.revision : 0) + 1}
+                        currentVersion={Number((prompt as any).revision || 0) + 1}
                       />
                       <Button
                         variant="outline"

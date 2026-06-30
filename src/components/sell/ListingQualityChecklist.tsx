@@ -96,5 +96,10 @@ export function buildChecklistItems(
   },
   options?: ListingValidationOptions,
 ): ChecklistItem[] {
-  return buildListingChecklistItems(formData, options);
+  return buildListingChecklistItems({ 
+    ...formData, 
+    coCreators: ('coCreators' in formData && Array.isArray((formData as any).coCreators)) 
+      ? (formData as any).coCreators 
+      : [] 
+  }, options);
 }

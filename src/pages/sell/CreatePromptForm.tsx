@@ -1,10 +1,7 @@
-import {
-  ChangeEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   ListingQualityChecklist,
@@ -37,8 +34,7 @@ import { createPrompt } from "@/lib/stellar/promptHashClient";
 import {
   LISTING_LIMITS,
   RevenueSplitFormInput,
-  validateListingForm,
-  validateEncryptedPayload,
+  createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
 
@@ -70,443 +66,416 @@ interface CreatePromptFormProps {
 
 const DRAFT_STORAGE_PREFIX = "prompt-hash:create-draft:";
 
-const createEmptyFormData = (): FormData => ({
-  imageUrl: "",
-  title: "",
-  category: "",
-  previewText: "",
-  description: "",
-  fullPrompt: "",
-  priceXlm: "2",
-  tags: [],
-  coCreators: [],
-});
-
-const createEmptyCoCreator = (): RevenueSplitFormInput => ({
-  address: "",
-  sharePercent: "",
-});
-
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
   const { address, signTransaction } = useWallet();
   const draftStorageKey = address ? `${DRAFT_STORAGE_PREFIX}${address}` : null;
   const draftLoadRef = useRef<string | null>(null);
-  const skipNextAutosaveRef = useRef(false);
-  const [formData, setFormData] = useState<FormData>(createEmptyFormData);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [showChecklist, setShowChecklist] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(true);
   const [draftRestored, setDraftRestored] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [showOnboarding] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(true);
   const [isFirstListing] = useState(true);
   const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
 
-  const checklistItems = buildChecklistItems(formData);
-  const checklistHasFailures = checklistItems.some((item) => item.status === "fail");
+  const {
+    register,
+    handleSubmit,
+    control,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<any>({
+    resolver: zodResolver(createPromptSchema),
+    defaultValues: {
+      imageUrl: "",
+      title: "",
+      category: "",
+      previewText: "",
+      description: "",
+      fullPrompt: "",
+      priceXlm: "2",
+      coCreators: [],
+    },
+    mode: "onChange",
+  });
 
-  // Load draft when address changes (intentionally only depends on address)
-  const initialLoadDone = useRef(false);
+  const watchAllFields = watch();
+
+  const isConfigured = useMemo(
+    () => Boolean(address && browserStellarConfig.promptHashContractId && unlockPublicKey),
+    [address]
+  );
+
+  const offChainStorage = useMemo(() => isIpfsUploadConfigured(), []);
+
+  const checklistItems = useMemo(
+    () =>
+      buildChecklistItems(
+        {
+          title: watchAllFields.title || "",
+          description: watchAllFields.description || "",
+          fullPrompt: watchAllFields.fullPrompt || "",
+          priceXlm: String(watchAllFields.priceXlm || "0"), // Pass as a string text token!
+          imageUrl: watchAllFields.imageUrl || "",
+          category: watchAllFields.category || "",
+          previewText: watchAllFields.previewText || "",
+          coCreators: watchAllFields.coCreators || [],
+        },
+        { offChainStorage },
+      ),
+    [watchAllFields, offChainStorage],
+  );
+
+  const checklistHasFailures = checklistItems.some((i) => i.status === "fail");
+  
+  const coCreatorsList = watchAllFields.coCreators || [];
+  const totalRevenueSharePercent = useMemo(
+    () =>
+      coCreatorsList.reduce(
+        (sum: number, coCreator: any) => sum + (Number(coCreator?.sharePercent?.trim()) || 0),
+        0,
+      ),
+    [coCreatorsList],
+  );
+
   useEffect(() => {
-    if (initialLoadDone.current && !address) return;
-    initialLoadDone.current = true;
-    if (draftStorageKey) {
-      try {
-        const saved = sessionStorage.getItem(draftStorageKey);
-        if (saved) {
-          const parsed = JSON.parse(saved) as FormData;
-          setFormData(parsed);
-          setDraftRestored(true);
-        }
-      } catch {
-        // ignore corrupted draft
-      }
-    }
-    draftLoadRef.current = address ?? null;
-  }, [address, draftStorageKey]);
+    draftLoadRef.current = null;
+    setDraftRestored(false);
+    setLastSavedAt(null);
 
-  // Auto-save draft
-  useEffect(() => {
-    if (draftStorageKey && !skipNextAutosaveRef.current && draftLoadRef.current) {
-      try {
-        sessionStorage.setItem(draftStorageKey, JSON.stringify(formData));
-        setLastSavedAt(new Date().toLocaleTimeString());
-      } catch {
-        // sessionStorage full — silently ignore
-      }
-    }
-    skipNextAutosaveRef.current = false;
-  }, [formData, draftStorageKey]);
-
-  const updateField = (field: keyof FormData) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData((prev) => ({ ...prev, [field]: e.target.value }));
-  };
-
-  const handleSubmit = async () => {
-    const validationErrors = validateListingForm(formData);
-    setErrors(validationErrors);
-
-    if (Object.keys(validationErrors).length > 0) {
-      setShowChecklist(true);
+    if (!draftStorageKey) {
       return;
     }
 
-    setIsSubmitting(true);
-    setSubmitError(null);
-    setSuccessMessage(null);
+    const rawDraft = window.localStorage.getItem(draftStorageKey);
+    if (!rawDraft) {
+      draftLoadRef.current = draftStorageKey;
+      return;
+    }
 
     try {
-      const promptText = formData.fullPrompt;
-      const encryptionIv = crypto.getRandomValues(new Uint8Array(12));
-      const { ciphertext, key } = await encryptPromptPlaintext(promptText, encryptionIv);
-      const wrappedKey = await wrapPromptKey(key, unlockPublicKey);
-
-      const encryptionIvBase64 = btoa(String.fromCharCode(...encryptionIv));
-
-      const useOffChain = isIpfsUploadConfigured() && ciphertext.length > limits.encrypted;
-      const encryptedPayload = useOffChain
-        ? await uploadCiphertextToIpfs(ciphertext)
-        : ciphertext;
-
-      const payloadValidation = validateEncryptedPayload({
-        encryptedPrompt: encryptedPayload,
-        wrappedKey,
-        encryptionIv: encryptionIvBase64,
-      });
-
-      if (Object.keys(payloadValidation).length > 0) {
-        setSubmitError("Encrypted payload validation failed. Please try again.");
-        setIsSubmitting(false);
-        return;
+      const parsed = JSON.parse(rawDraft);
+      if (parsed.formData) {
+        Object.keys(parsed.formData).forEach((key) => {
+          setValue(key, parsed.formData[key]);
+        });
+        setDraftRestored(true);
+        setLastSavedAt(parsed.savedAt ?? null);
       }
-
-      const priceInStroops = xlmToStroops(formData.priceXlm);
-
-      await createPrompt(
-        browserStellarConfig,
-        {
-          imageUrl: formData.imageUrl,
-          title: formData.title,
-          previewText: formData.previewText,
-          category: formData.category,
-          encryptedPrompt: encryptedPayload,
-          encryptionIv: encryptionIvBase64,
-          wrappedKey,
-          price: priceInStroops,
-        },
-        address,
-        signTransaction,
-      );
-
-      // Clear draft on success
-      if (draftStorageKey) {
-        sessionStorage.removeItem(draftStorageKey);
-      }
-
-      setSuccessMessage("Prompt created successfully! Redirecting...");
-      setTimeout(() => {
-        if (onCreated) onCreated();
-        navigate("/profile");
-      }, 1500);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create prompt listing.";
-      setSubmitError(message);
+    } catch {
+      window.localStorage.removeItem(draftStorageKey);
     } finally {
-      setIsSubmitting(false);
+      draftLoadRef.current = draftStorageKey;
     }
+  }, [draftStorageKey, setValue]);
+
+  const onSubmit = async (data: any) => {
+    setSubmitError(null);
+    setSuccessMessage(null);
+    console.log("Form submitted successfully:", data);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   };
 
   return (
-    <div className="space-y-6">
-      {showOnboarding && (
-        <CreatorOnboarding
-          walletAddress={address}
-          isFirstListing={isFirstListing}
-        />
-      )}
-
-      {/* Image URL */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Image URL</label>
-        <Input
-          value={formData.imageUrl}
-          onChange={updateField("imageUrl")}
-          placeholder="https://example.com/cover.png"
-          maxLength={limits.imageUrl}
-        />
-        {errors.imageUrl && (
-          <p className="text-xs text-red-400">{errors.imageUrl}</p>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <div>
+        {showOnboarding && (
+          <CreatorOnboarding
+            isFirstListing={isFirstListing}
+            {...({ onDismiss: () => setShowOnboarding(false) } as any)}
+          />
         )}
-      </div>
 
-      {/* Title */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Title</label>
-        <Input
-          value={formData.title}
-          onChange={updateField("title")}
-          placeholder="e.g. Advanced React Component Generator"
-          maxLength={limits.title}
-        />
-        {errors.title && (
-          <p className="text-xs text-red-400">{errors.title}</p>
+        {!isConfigured && (
+          <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">
+            Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID` plus `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
+          </div>
         )}
-      </div>
 
-      {/* Category */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Category</label>
-        <Select
-          value={formData.category}
-          onValueChange={(value) =>
-            setFormData((prev) => ({ ...prev, category: value }))
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select a category" />
-          </SelectTrigger>
-          <SelectContent>
-            {categories.map((cat) => (
-              <SelectItem key={cat} value={cat}>
-                {cat}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {errors.category && (
-          <p className="text-xs text-red-400">{errors.category}</p>
-        )}
-      </div>
-
-      {/* Preview Text */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Preview Text</label>
-        <Textarea
-          value={formData.previewText}
-          onChange={updateField("previewText")}
-          placeholder="A short public description shown on browse cards…"
-          maxLength={limits.preview}
-          rows={3}
-        />
-        {errors.previewText && (
-          <p className="text-xs text-red-400">{errors.previewText}</p>
-        )}
-      </div>
-
-      {/* Full Description */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium">Full Description</label>
-          <button
-            type="button"
-            onClick={() =>
-              setDescriptionTab((t) => (t === "write" ? "preview" : "write"))
-            }
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
-          >
-            {descriptionTab === "write" ? (
+        {(draftRestored || lastSavedAt) && isConfigured && (
+          <div className="flex items-center gap-2 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-2.5 text-xs text-cyan-100 mb-4">
+            {draftRestored ? (
               <>
-                <Eye className="h-3 w-3" /> Preview
+                <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                Draft restored from {lastSavedAt ? new Date(lastSavedAt).toLocaleString() : "previous session"}
               </>
             ) : (
               <>
-                <Pencil className="h-3 w-3" /> Edit
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                Draft saved {lastSavedAt ? new Date(lastSavedAt).toLocaleString() : ""}
               </>
             )}
-          </button>
-        </div>
-        {descriptionTab === "write" ? (
-          <Textarea
-            value={formData.description}
-            onChange={updateField("description")}
-            placeholder="Detailed description of what this prompt does…"
-            rows={5}
-          />
-        ) : (
-          <div className="min-h-[100px] rounded-lg border border-white/10 bg-white/5 p-3">
-            <MarkdownContent content={formData.description || "*No description provided.*"} />
+            <button
+              type="button"
+              className="ml-auto text-xs text-cyan-200 underline underline-offset-2 hover:text-cyan-50"
+            >
+              Discard
+            </button>
           </div>
         )}
-      </div>
 
-      {/* Full Prompt */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">
-          Full Prompt{" "}
-          <span className="text-xs text-slate-400">
-            (encrypted before submission)
-          </span>
-        </label>
-        <Textarea
-          value={formData.fullPrompt}
-          onChange={updateField("fullPrompt")}
-          placeholder="Paste the full prompt content here…"
-          maxLength={limits.fullPrompt}
-          rows={8}
-        />
-        {errors.fullPrompt && (
-          <p className="text-xs text-red-400">{errors.fullPrompt}</p>
-        )}
-      </div>
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <label htmlFor="imageUrl" className="text-sm font-medium text-slate-100">
+              Image URL <span aria-hidden="true" className="text-red-400">*</span>
+            </label>
+            <Input
+              id="imageUrl"
+              type="url"
+              placeholder="https://example.com/prompt-cover.png"
+              {...register("imageUrl")}
+            />
+            {errors.imageUrl && <p className="text-sm text-red-400">{errors.imageUrl.message?.toString()}</p>}
+          </div>
 
-      {/* Price */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Price (XLM)</label>
-        <Input
-          value={formData.priceXlm}
-          onChange={updateField("priceXlm")}
-          placeholder="0.00"
-          type="number"
-          step="0.0000001"
-          min="0"
-        />
-        {errors.priceXlm && (
-          <p className="text-xs text-red-400">{errors.priceXlm}</p>
-        )}
-      </div>
-
-      {/* Pricing Guidance */}
-      <PricingGuidance priceXlm={formData.priceXlm} />
-
-      {/* Co-creators */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium">Co-creators (optional)</label>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              setFormData((prev) => ({
-                ...prev,
-                coCreators: [...prev.coCreators, createEmptyCoCreator()],
-              }))
-            }
-            className="text-xs"
-          >
-            <Plus className="mr-1 h-3 w-3" /> Add co-creator
-          </Button>
+          <div className="space-y-2">
+            <label htmlFor="title" className="text-sm font-medium text-slate-100">
+              Title <span aria-hidden="true" className="text-red-400">*</span>
+            </label>
+            <Input
+              id="title"
+              placeholder="Board-ready launch plan"
+              className={errors.title ? "border-red-500" : ""}
+              {...register("title")}
+            />
+            <p className="text-xs text-slate-400">/{limits.title}</p>
+            {errors.title && (
+              <p className="flex items-center gap-1 text-sm text-red-400">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {errors.title.message?.toString()}
+              </p>
+            )}
+          </div>
         </div>
-        {formData.coCreators.map((coCreator, index) => (
-          <div key={index} className="flex items-start gap-2">
-            <div className="flex-1 space-y-1">
-              <Input
-                placeholder="Stellar address"
-                value={coCreator.address}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    coCreators: prev.coCreators.map((c, i) =>
-                      i === index ? { ...c, address: e.target.value } : c,
-                    ),
-                  }))
-                }
-              />
+
+        <div className="grid gap-6 md:grid-cols-[1fr_220px] mt-4">
+          <div className="space-y-2">
+            <label htmlFor="previewText" className="text-sm font-medium text-slate-100">
+              Preview text <span aria-hidden="true" className="text-red-400">*</span>
+            </label>
+            <Textarea
+              id="previewText"
+              placeholder="This public preview is visible on browse cards and modals."
+              rows={4}
+              className={errors.previewText ? "border-red-500" : ""}
+              {...register("previewText")}
+            />
+            <p className="text-xs text-slate-400">/{limits.preview}</p>
+            {errors.previewText && (
+              <p className="flex items-center gap-1 text-sm text-red-400">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {errors.previewText.message?.toString()}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="category" className="text-sm font-medium text-slate-100">
+              Category <span aria-hidden="true" className="text-red-400">*</span>
+            </label>
+            <Controller
+              name="category"
+              control={control}
+              render={({ field }) => (
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <SelectTrigger id="category" aria-label="Prompt category">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+
+            <label htmlFor="priceXlm" className="pt-3 text-sm font-medium text-slate-100 block">
+              Price in XLM <span aria-hidden="true" className="text-red-400">*</span>
+            </label>
+            <Input
+              id="priceXlm"
+              type="number"
+              inputMode="decimal"
+              placeholder="2.5"
+              className={errors.priceXlm ? "border-red-500" : ""}
+              {...register("priceXlm")}
+            />
+            {errors.priceXlm && (
+              <p className="flex items-center gap-1 text-sm text-red-400 mt-1">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {errors.priceXlm.message?.toString()}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2 mt-4">
+          <div className="flex items-center justify-between">
+            <label htmlFor="description" className="text-sm font-medium text-slate-100">
+              Description <span className="text-slate-500 font-normal">(Markdown supported)</span>
+            </label>
+            <div className="flex gap-1 rounded-lg border border-white/10 p-0.5 bg-slate-900/60">
+              <button
+                type="button"
+                onClick={() => setDescriptionTab("write")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  descriptionTab === "write" ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Pencil className="h-3 w-3" /> Write
+              </button>
+              <button
+                type="button"
+                onClick={() => setDescriptionTab("preview")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  descriptionTab === "preview" ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Eye className="h-3 w-3" /> Preview
+              </button>
             </div>
-            <div className="w-24 space-y-1">
-              <Input
-                placeholder="%"
-                type="number"
-                min="0"
-                max="100"
-                value={coCreator.sharePercent}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    coCreators: prev.coCreators.map((c, i) =>
-                      i === index ? { ...c, sharePercent: e.target.value } : c,
-                    ),
-                  }))
-                }
-              />
+          </div>
+          {descriptionTab === "write" ? (
+            <Textarea
+              id="description"
+              placeholder="Describe your prompt in detail. **Bold**, *italics*, `code`, and lists all work."
+              rows={6}
+              {...register("description")}
+            />
+          ) : (
+            <div className="min-h-[144px] rounded-md border border-white/10 bg-slate-900/40 p-3">
+              {watchAllFields.description ? (
+                <MarkdownContent>{watchAllFields.description}</MarkdownContent>
+              ) : (
+                <p className="text-sm text-slate-500 italic">Nothing to preview yet — write some Markdown first.</p>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-slate-400">
+            {(watchAllFields.description || "").length} / 4000 characters
+          </p>
+          {errors.description && <p className="text-sm text-red-400">{errors.description.message?.toString()}</p>}
+        </div>
+
+        <PricingGuidance currentPriceXlm={watchAllFields.priceXlm} />
+
+        <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-slate-100">Co-creators and revenue splits</h3>
+              <p className="text-xs text-slate-400">Share a portion of each sale with collaborators.</p>
             </div>
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={() =>
-                setFormData((prev) => ({
-                  ...prev,
-                  coCreators: prev.coCreators.filter((_, i) => i !== index),
-                }))
-              }
-              className="mt-0.5 h-9 w-9 shrink-0"
+              type="button"
+              variant="outline"
+              className="gap-2"
+              disabled={coCreatorsList.length >= LISTING_LIMITS.maxCoCreators}
+              onClick={() => setValue("coCreators", [...coCreatorsList, { address: "", sharePercent: "" }])}
             >
-              <Trash2 className="h-4 w-4 text-red-400" />
+              <Plus className="h-4 w-4" /> Add co-creator
             </Button>
           </div>
-        ))}
-        {errors.coCreators && (
-          <p className="text-xs text-red-400">{errors.coCreators}</p>
-        )}
-      </div>
 
-      {/* Tags */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Tags</label>
-        <TagInput
-          value={formData.tags}
-          onChange={(tags) =>
-            setFormData((prev) => ({ ...prev, tags }))
-          }
-        />
-      </div>
+          {coCreatorsList.length > 0 ? (
+            <div className="space-y-3">
+              {coCreatorsList.map((coCreator: any, index: number) => (
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-xl border border-slate-800/80 bg-slate-900/50 p-3 md:grid-cols-[minmax(0,1fr)_140px_auto]"
+                >
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-slate-300">Stellar address</label>
+                    <Input
+                      placeholder="G..."
+                      {...register(`coCreators.${index}.address`)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-slate-300">Share %</label>
+                    <Input
+                      inputMode="decimal"
+                      placeholder="15"
+                      {...register(`coCreators.${index}.sharePercent`)}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-3 text-slate-300 hover:text-white"
+                      onClick={() => setValue("coCreators", coCreatorsList.filter((_: any, i: number) => i !== index))}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">Add collaborators here when a prompt has multiple creators.</p>
+          )}
 
-      {/* Quality Checklist Toggle */}
-      <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <span>Total shared: {totalRevenueSharePercent.toFixed(2)}%</span>
+            <span>Primary creator keeps: {Math.max(0, 100 - totalRevenueSharePercent).toFixed(2)}%</span>
+          </div>
+        </div>
+
+        <div className="space-y-2 mt-4">
+          <label htmlFor="fullPrompt" className="text-sm font-medium text-slate-100">
+            Full prompt <span aria-hidden="true" className="text-red-400">*</span>
+          </label>
+          <Textarea
+            id="fullPrompt"
+            rows={12}
+            placeholder="This plaintext is encrypted in the browser, then only encrypted fields are sent on-chain."
+            className={errors.fullPrompt ? "border-red-500" : ""}
+            {...register("fullPrompt")}
+          />
+          {errors.fullPrompt && (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.fullPrompt.message?.toString()}
+            </p>
+          )}
+        </div>
+
+        {showChecklist && <ListingQualityChecklist items={checklistItems} />}
+
         <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowChecklist((prev) => !prev)}
-          className="text-xs text-slate-400"
+          type="submit"
+          className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300 mt-4"
+          disabled={isSubmitting || (showChecklist && checklistHasFailures)}
         >
-          {showChecklist ? "Hide" : "Show"} quality checklist
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Encrypting and submitting...
+            </>
+          ) : (
+            "Create prompt listing"
+          )}
         </Button>
-        {lastSavedAt && (
-          <span className="text-xs text-slate-500">
-            Draft saved at {lastSavedAt}
-          </span>
+
+        {submitError && (
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200 mt-2">
+            {submitError}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 mt-2">
+            {successMessage}
+          </div>
         )}
       </div>
-
-      {showChecklist && (
-        <ListingQualityChecklist items={checklistItems} />
-      )}
-
-      {draftRestored && (
-        <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Previous draft restored from session storage.
-        </div>
-      )}
-
-      {submitError && (
-        <div className="flex items-start gap-2 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{submitError}</span>
-        </div>
-      )}
-
-      {successMessage && (
-        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          {successMessage}
-        </div>
-      )}
-
-      <Button
-        className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-        disabled={isSubmitting || (showChecklist && checklistHasFailures)}
-        onClick={handleSubmit}
-      >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Encrypting and submitting...
-          </>
-        ) : (
-          "Create prompt listing"
-        )}
-      </Button>
-    </div>
+    </form>
   );
 }

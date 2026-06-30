@@ -165,7 +165,7 @@ export function CreatorOnboarding({
         setExpandedSteps(new Set([firstIncomplete.id]));
       }
     }
-  }, [walletAddress, completedStepIds]);
+  }, [walletAddress]);
 
   const handleDismiss = () => {
     persistDismiss(walletAddress);
@@ -178,12 +178,16 @@ export function CreatorOnboarding({
   };
 
   const toggleStep = (id: string) => {
-    setExpandedSteps((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); }
-      return next;
-    });
-  };
+  setExpandedSteps((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    return next;
+  });
+};
 
   const completedCount = ONBOARDING_STEPS.filter((s) =>
     completedStepIds.includes(s.id),

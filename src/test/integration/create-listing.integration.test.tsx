@@ -70,8 +70,10 @@ describe("create listing integration coverage", () => {
     expect((await screen.findAllByText(/add an image url/i)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/add a title/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/select a category/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/add preview text/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/paste the full prompt content/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/add preview text/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/add the full prompt content/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/greater than zero/i).length).toBeGreaterThan(0);
     expect(createPromptMock).not.toHaveBeenCalled();
   });

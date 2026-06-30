@@ -1,32 +1,36 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+
+// --- CUSTOM INLINE DIALOG FALLBACK MODULES ---
+export function Dialog({ children, open }: { children: React.ReactNode; open: boolean }) {
+  if (!open) return null;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">{children}</div>;
+}
+export function DialogContent({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={`relative w-full max-w-md rounded-xl bg-slate-900 p-6 border border-white/10 text-white shadow-xl ${className}`}>{children}</div>;
+}
+export function DialogHeader({ children }: { children: React.ReactNode }) {
+  return <div className="mb-4">{children}</div>;
+}
+export function DialogTitle({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <h2 className={`text-xl font-bold tracking-tight ${className}`}>{children}</h2>;
+}
+export function DialogDescription({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <p className={`text-sm text-slate-400 mt-1 ${className}`}>{children}</p>;
+}
 
 interface RefundRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   promptId: string;
   buyerWallet: string;
-  /** Optional on-chain dispute transaction hash the buyer already submitted. */
   disputeTxHash?: string;
 }
 
-type FulfillmentStatus =
-  | "pending"
-  | "delivered"
-  | "failed"
-  | "refund_requested"
-  | "refunded"
-  | "rejected";
+type FulfillmentStatus = "pending" | "delivered" | "failed" | "refund_requested" | "refunded" | "rejected";
 
 interface FulfillmentRecord {
   status: FulfillmentStatus;
@@ -52,18 +56,11 @@ async function requestRefund(params: {
   );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string }).error ?? "Failed to submit refund request",
-    );
+    throw new Error((body as { error?: string }).error ?? "Failed to submit refund request");
   }
   return res.json() as Promise<FulfillmentRecord>;
 }
 
-/**
- * Modal that allows a buyer to request a refund for a failed prompt unlock.
- * Calls the /api/fulfillment/:promptId/:buyerWallet/request-refund endpoint
- * and shows the result (#335).
- */
 export function RefundRequestModal({
   isOpen,
   onClose,
@@ -74,8 +71,7 @@ export function RefundRequestModal({
   const [reason, setReason] = useState("");
 
   const mutation = useMutation<FulfillmentRecord, Error, void>({
-    mutationFn: () =>
-      requestRefund({ promptId, buyerWallet, reason, disputeTxHash }),
+    mutationFn: () => requestRefund({ promptId, buyerWallet, reason, disputeTxHash }),
     onSuccess: () => {
       setReason("");
     },
@@ -95,7 +91,7 @@ export function RefundRequestModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen}>
       <DialogContent className="border-white/10 bg-slate-900 text-white sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-bold">
@@ -131,10 +127,7 @@ export function RefundRequestModal({
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label
-                htmlFor="refund-reason"
-                className="text-sm font-medium text-slate-300"
-              >
+              <label htmlFor="refund-reason" className="text-sm font-medium text-slate-300">
                 Describe the issue
               </label>
               <Textarea
