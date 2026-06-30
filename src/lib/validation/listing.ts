@@ -1,4 +1,6 @@
 import { xlmToStroops } from "@/lib/stellar/format";
+import { z } from "zod";
+
 export const LISTING_LIMITS = {
   imageUrl: 512,
   title: 120,
@@ -13,6 +15,29 @@ export const LISTING_LIMITS = {
   maxSplitBps: 9_500,
 } as const;
 
+export const createPromptSchema = z.object({
+  title: z
+    .string()
+    .min(3, "Title must be at least 3 characters")
+    .max(50, "Title cannot exceed 50 characters")
+    .nonempty("Title is required"),
+  description: z
+    .string()
+    .min(10, "Description must be at least 10 characters")
+    .nonempty("Description is required"),
+  content: z
+    .string()
+    .min(5, "Prompt instructions/content are required")
+    .nonempty("Content is required"),
+  price: z
+    .coerce // Automatically converts string input values to numbers
+    .number()
+    .positive("Price must be a positive number")
+    .min(0.00001, "Price must be greater than 0 XLM")
+    .max(100000, "Price exceeds maximum allowable XLM limit"),
+});
+
+export type CreatePromptInput = z.infer<typeof createPromptSchema>;
 export const ESTIMATED_ENCRYPTION_OVERHEAD = 1.37;
 
 export type RevenueSplitFormInput = {
@@ -63,13 +88,13 @@ export function validateListingForm(
   _options: ListingValidationOptions = {},
 ): ListingValidationErrors {
   const errors: ListingValidationErrors = {};
-  const imageUrl = trim(input.imageUrl);
-  const title = trim(input.title);
-  const category = trim(input.category);
-  const previewText = trim(input.previewText);
-  const fullPrompt = trim(input.fullPrompt);
-  const priceXlm = trim(input.priceXlm);
-  const coCreators = input.coCreators ?? [];
+  const imageUrl = trim(input?.imageUrl || "");
+  const title = trim(input?.title || "");
+  const category = trim(input?.category || "");
+  const previewText = trim(input?.previewText || "");
+  const fullPrompt = trim(input?.fullPrompt || "");
+  const priceXlm = trim(input?.priceXlm || "");
+  const coCreators = input?.coCreators ?? [];
 
   if (!imageUrl) {
     errors.imageUrl = "Add an image URL so your listing has a cover on browse cards.";
