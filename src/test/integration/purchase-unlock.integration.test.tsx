@@ -171,7 +171,7 @@ describe("Issue #219: full purchase-to-unlock integration tests", () => {
       await userEvent.click(unlockBtn);
 
       expect(
-        await within(dialog).findByText(/ACCESS_NOT_PURCHASED/),
+        await within(dialog).findByText(/access_not_purchased/i),
       ).toBeInTheDocument();
     });
 
@@ -221,7 +221,7 @@ describe("Issue #219: full purchase-to-unlock integration tests", () => {
       );
 
       expect(
-        await within(dialog).findByText(/CHALLENGE_EXPIRED/),
+        await within(dialog).findByText("Transaction authorization expired."),
       ).toBeInTheDocument();
     });
 
@@ -267,7 +267,7 @@ describe("Issue #219: full purchase-to-unlock integration tests", () => {
       );
 
       expect(
-        await within(dialog).findByText(/INVALID_SIGNATURE/),
+        await within(dialog).findByText(/invalid_signature/i),
       ).toBeInTheDocument();
     });
   });
@@ -325,7 +325,7 @@ describe("Issue #219: full purchase-to-unlock integration tests", () => {
         within(dialog).getByRole("button", { name: /decrypt content/i }),
       );
       expect(
-        await within(dialog).findByText("Temporary network error"),
+        await within(dialog).findByText("Could not reach the Stellar network."),
       ).toBeInTheDocument();
 
       const retryButton = within(dialog).getByRole("button", {
