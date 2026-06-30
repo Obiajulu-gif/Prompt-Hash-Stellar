@@ -81,9 +81,9 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-bold text-white">Connect Wallet</h2>
+            <h2 className="text-xl font-bold text-white">Sign in with wallet</h2>
             <p className="text-sm text-slate-400 mt-1">
-              Choose a Stellar wallet to continue
+              Choose a Stellar wallet and sign the verification message
             </p>
           </div>
           <button

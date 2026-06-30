@@ -6,7 +6,7 @@ import { shortenAddress } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 const DisplayWallet = () => {
-  const { address, status, error, connect, disconnect } = useWallet();
+  const { address, status, error, authStatus, connect, disconnect } = useWallet();
   const { xlm, isLoading } = useWalletBalance();
   const [showModal, setShowModal] = useState(false);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
@@ -38,21 +38,21 @@ const DisplayWallet = () => {
           className="border border-amber-300/30 bg-amber-500 text-slate-950 hover:bg-amber-400 min-w-[150px]"
         >
           <Wallet className="mr-2 h-4 w-4 shrink-0" />
-          Connect wallet
+          Sign in with wallet
         </Button>
       )}
 
       {(status === "connecting") && (
         <Button disabled className="border border-amber-300/30 bg-amber-500/50 text-slate-950 cursor-not-allowed min-w-[150px]">
           <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" />
-          Opening Wallet...
+          {authStatus === "authenticating" ? "Signing in..." : "Opening Wallet..."}
         </Button>
       )}
 
       {status === "reconnecting" && (
         <div className="flex items-center space-x-2 px-3 py-2 text-sm text-slate-300 min-w-[150px] justify-center">
           <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          <span>Restoring Session...</span>
+          <span>Restoring session...</span>
         </div>
       )}
 
