@@ -1,7 +1,6 @@
 import { Star } from "lucide-react";
 import { useState } from "react";
 
-/* eslint-disable no-unused-vars */
 interface StarRatingProps {
   rating: number;
   onRatingChange?: (_rating: number) => void;
@@ -10,7 +9,7 @@ interface StarRatingProps {
   showCount?: boolean;
   reviewCount?: number;
 }
-/* eslint-enable no-unused-vars */
+ 
 
 const sizeClasses = {
   sm: "h-3 w-3",

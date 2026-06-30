@@ -4,7 +4,7 @@ import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
-import { apiError, ErrorCode, type ApiErrorResponse } from "../../src/lib/api/errorCodes";
+import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { isPlaceholder } from "../../src/lib/validation/envValidator";
 
 type ExtendedRequest = VercelRequest & {
@@ -29,7 +29,6 @@ export interface ChallengeResponse {
   expiresAt: number;
   nonce: string;
 }
-/* eslint-enable no-unused-vars */
 
 // Fail-fast module-load validation: reject startup if secrets are missing.
 (function validateEnv(): void {

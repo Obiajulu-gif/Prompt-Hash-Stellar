@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars, @typescript-eslint/no-unused-vars */
 /**
  * WARNING: MOCK CONTRACT IMPLEMENTATION
  * This file currently stubs all on-chain reads/writes with mock data.

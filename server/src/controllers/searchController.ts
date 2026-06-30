@@ -1,5 +1,4 @@
 import Prompt from "../models/Prompt";
-import User from "../models/User";
 
 interface SearchFilters {
   query?: string;
@@ -61,7 +60,7 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
   const total = await Prompt.countDocuments(searchQuery.getFilter());
 
   // Apply sorting
-  let sortOptions: any = {};
+  let sortOptions: any;
   switch (sortBy) {
     case "price-low":
       sortOptions = { price: 1 };

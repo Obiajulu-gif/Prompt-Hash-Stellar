@@ -15,7 +15,7 @@ export interface CreatorProfileData {
 interface CreatorProfileSettingsProps {
   walletAddress: string;
   initial?: Partial<CreatorProfileData>;
-  onSave?: (data: CreatorProfileData) => Promise<void>;
+  onSave?: (_data: CreatorProfileData) => Promise<void>;
 }
 
 const DISPLAY_NAME_MAX = 50;

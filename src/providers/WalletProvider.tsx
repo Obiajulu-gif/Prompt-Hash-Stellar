@@ -25,7 +25,6 @@ export type NetworkCompatibility =
   | "wrong-network"
   | "unchecked";
 
-/* eslint-disable no-unused-vars */
 export interface WalletContextType {
   address?: string;
   network?: string;
@@ -38,7 +37,7 @@ export interface WalletContextType {
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
 }
-/* eslint-enable no-unused-vars */
+ 
 
 function computeNetworkCompatibility(
   network: string | undefined,

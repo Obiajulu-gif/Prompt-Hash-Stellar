@@ -1,7 +1,6 @@
 import { ERROR_MESSAGES, type ApiErrorResponse } from "@/lib/api/errorCodes";
 import { hashPromptPlaintext } from "@/lib/crypto/promptCrypto";
 
-// eslint-disable-next-line no-unused-vars
 type SignMessageFn = (_message: string) => Promise<{ signedMessage?: string } | string>;
 
 export interface UnlockResult {

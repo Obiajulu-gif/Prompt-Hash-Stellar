@@ -23,10 +23,9 @@ import { checkReplayProtection } from "../../src/lib/observability/replayProtect
 import { metrics } from "../../src/lib/observability/metrics";
 import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
-import { apiError, ErrorCode, type ApiErrorResponse } from "../../src/lib/api/errorCodes";
+import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
 
-/* eslint-disable no-unused-vars */
 export interface UnlockRequest {
   token: string;
   promptId: string;
@@ -40,7 +39,6 @@ export interface UnlockSuccessResponse {
   contentHash: string;
   plaintext: string;
 }
-/* eslint-enable no-unused-vars */
 
 // Fail-fast module load validation
 try {

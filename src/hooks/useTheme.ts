@@ -2,6 +2,31 @@ import { useEffect, useState } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
 
+/**
+ * Apply the saved theme synchronously before first render
+ * to prevent a light-theme flash on dark-mode preference.
+ */
+export function applyThemeBeforeRender(): void {
+  if (typeof window === 'undefined') return
+
+  const stored = localStorage.getItem('theme-preference') as Theme | null
+  const theme = stored || 'system'
+
+  let isDarkMode = theme === 'dark'
+  if (theme === 'system') {
+    isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+
+  const html = document.documentElement
+  if (isDarkMode) {
+    html.classList.add('dark')
+    html.style.colorScheme = 'dark'
+  } else {
+    html.classList.remove('dark')
+    html.style.colorScheme = 'light'
+  }
+}
+
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window === 'undefined') return 'system'

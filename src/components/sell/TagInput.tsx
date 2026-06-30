@@ -34,7 +34,7 @@ export const MAX_TAGS = 8;
 
 interface TagInputProps {
   value: string[];
-  onChange: (tags: string[]) => void;
+  onChange: (_tags: string[]) => void;
   /** Override the suggestion pool. Defaults to SUGGESTED_TAGS. */
   suggestions?: string[];
   placeholder?: string;

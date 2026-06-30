@@ -8,12 +8,11 @@ import { xlmToStroops } from "@/lib/stellar/format";
 
 const PRESET_AMOUNTS = [1, 3, 5, 10];
 
-/* eslint-disable no-unused-vars */
 export interface TipButtonProps {
   creatorAddress: string;
   onTipSent?: (_amount: string) => void;
 }
-/* eslint-enable no-unused-vars */
+ 
 
 export function TipButton({ creatorAddress, onTipSent }: TipButtonProps) {
   const { address, signTransaction } = useWallet();

@@ -13,7 +13,7 @@ interface UsePerformanceAuditOptions {
 
 interface UsePerformanceAuditResult {
   markDone: (
-    extraMetadata?: Record<string, string | number | boolean>
+    _extraMetadata?: Record<string, string | number | boolean>
   ) => AuditEntry | null;
   restart: () => void;
 }
@@ -23,7 +23,7 @@ export function usePerformanceAudit({
   metadata,
   autoStart = true,
 }: UsePerformanceAuditOptions): UsePerformanceAuditResult {
-  const stopRef = useRef<((m?: Record<string, string | number | boolean>) => AuditEntry) | null>(
+  const stopRef = useRef<((_?: Record<string, string | number | boolean>) => AuditEntry) | null>(
     null
   );
 

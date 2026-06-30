@@ -36,7 +36,7 @@ async function redisCheckAndStore(
 
 function inMemoryCheckAndStore(
   signatureHash: string,
-  config: ReplayCheckConfig,
+  _config: ReplayCheckConfig,
 ): boolean {
   if (fallbackCache.has(signatureHash)) {
     return false;

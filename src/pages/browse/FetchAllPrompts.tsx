@@ -51,9 +51,9 @@ export interface FetchAllPromptsProps {
   searchQuery: string;
   sortBy: string;
   comparedIds?: string[];
-  onToggleCompare?: (prompt: PromptRecord) => void;
-  onSetCategory?: (category: string) => void;
-  onSetTag?: (tag: string) => void;
+  onToggleCompare?: (_prompt: PromptRecord) => void;
+  onSetCategory?: (_category: string) => void;
+  onSetTag?: (_tag: string) => void;
   onClearFilters?: () => void;
 }
 

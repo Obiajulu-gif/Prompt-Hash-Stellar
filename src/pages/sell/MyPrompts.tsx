@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Eye, History, Loader2, LockKeyhole, PackagePlus, ShoppingBag, ToggleLeft, ToggleRight } from "lucide-react";
+import { Archive, ArchiveRestore, Eye, Loader2, LockKeyhole, PackagePlus, ShoppingBag, ToggleLeft, ToggleRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

@@ -173,8 +173,6 @@ describe("NonceLedger — replay prevention", () => {
     const exp = Date.now() + 60_000;
     expect(ledger.consume("nonce-cross", exp)).toBe(true);
 
-    // Simulate time passing past expiry
-    const pastExp = Date.now() - 1;
     // Prune expired entries
     ledger.consume("prune-trigger", Date.now() + 60_000);
 

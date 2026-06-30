@@ -11,8 +11,8 @@ export interface NoResultsSuggestionsProps {
   searchQuery: string;
   selectedCategory: string;
   selectedTag: string;
-  onCategoryClick: (category: string) => void;
-  onTagClick: (tag: string) => void;
+  onCategoryClick: (_category: string) => void;
+  onTagClick: (_tag: string) => void;
   onClearFilters: () => void;
 }
 

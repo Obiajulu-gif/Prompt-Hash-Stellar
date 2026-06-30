@@ -8,7 +8,7 @@ import { WalletModal } from "./wallet/WalletModal";
 export const WalletButton = () => {
   const [showModal, setShowModal] = useState(false);
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
-  const { address, status, error, connect, disconnect } = useWallet();
+  const { address, status, error, disconnect } = useWallet();
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 

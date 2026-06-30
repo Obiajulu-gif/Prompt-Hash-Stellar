@@ -146,12 +146,10 @@ export interface StellarNetworkConfig {
 }
 
 export interface WalletTransactionSigner {
-  /* eslint-disable no-unused-vars */
   signTransaction: (
     _xdr: string,
     _opts: { address: string; networkPassphrase: string },
   ) => Promise<{ signedTxXdr: string }>;
-  /* eslint-enable no-unused-vars */
 }
 
 export interface PreparedContractCall {

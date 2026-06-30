@@ -771,7 +771,221 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
         ) : null}
       </div>
 
-      {/* #259 — Tag suggestions */}
+      {/* Image URL */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Image URL</label>
+        <Input
+          value={formData.imageUrl}
+          onChange={updateField("imageUrl")}
+          placeholder="https://example.com/cover.png"
+          maxLength={limits.imageUrl}
+        />
+        {errors.imageUrl && (
+          <p className="text-xs text-red-400">{errors.imageUrl}</p>
+        )}
+      </div>
+
+      {/* Title */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Title</label>
+        <Input
+          value={formData.title}
+          onChange={updateField("title")}
+          placeholder="e.g. Advanced React Component Generator"
+          maxLength={limits.title}
+        />
+        {errors.title && (
+          <p className="text-xs text-red-400">{errors.title}</p>
+        )}
+      </div>
+
+      {/* Category */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Category</label>
+        <Select
+          value={formData.category}
+          onValueChange={(value) =>
+            setFormData((prev) => ({ ...prev, category: value }))
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a category" />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((cat) => (
+              <SelectItem key={cat} value={cat}>
+                {cat}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors.category && (
+          <p className="text-xs text-red-400">{errors.category}</p>
+        )}
+      </div>
+
+      {/* Preview Text */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Preview Text</label>
+        <Textarea
+          value={formData.previewText}
+          onChange={updateField("previewText")}
+          placeholder="A short public description shown on browse cards…"
+          maxLength={limits.preview}
+          rows={3}
+        />
+        {errors.previewText && (
+          <p className="text-xs text-red-400">{errors.previewText}</p>
+        )}
+      </div>
+
+      {/* Full Description */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium">Full Description</label>
+          <button
+            type="button"
+            onClick={() =>
+              setDescriptionTab((t) => (t === "write" ? "preview" : "write"))
+            }
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+          >
+            {descriptionTab === "write" ? (
+              <>
+                <Eye className="h-3 w-3" /> Preview
+              </>
+            ) : (
+              <>
+                <Pencil className="h-3 w-3" /> Edit
+              </>
+            )}
+          </button>
+        </div>
+        {descriptionTab === "write" ? (
+          <Textarea
+            value={formData.description}
+            onChange={updateField("description")}
+            placeholder="Detailed description of what this prompt does…"
+            rows={5}
+          />
+        ) : (
+          <div className="min-h-[100px] rounded-lg border border-white/10 bg-white/5 p-3">
+            <MarkdownContent content={formData.description || "*No description provided.*"} />
+          </div>
+        )}
+      </div>
+
+      {/* Full Prompt */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">
+          Full Prompt{" "}
+          <span className="text-xs text-slate-400">
+            (encrypted before submission)
+          </span>
+        </label>
+        <Textarea
+          value={formData.fullPrompt}
+          onChange={updateField("fullPrompt")}
+          placeholder="Paste the full prompt content here…"
+          maxLength={limits.fullPrompt}
+          rows={8}
+        />
+        {errors.fullPrompt && (
+          <p className="text-xs text-red-400">{errors.fullPrompt}</p>
+        )}
+      </div>
+
+      {/* Price */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Price (XLM)</label>
+        <Input
+          value={formData.priceXlm}
+          onChange={updateField("priceXlm")}
+          placeholder="0.00"
+          type="number"
+          step="0.0000001"
+          min="0"
+        />
+        {errors.priceXlm && (
+          <p className="text-xs text-red-400">{errors.priceXlm}</p>
+        )}
+      </div>
+
+      {/* Pricing Guidance */}
+      <PricingGuidance priceXlm={formData.priceXlm} />
+
+      {/* Co-creators */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium">Co-creators (optional)</label>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              setFormData((prev) => ({
+                ...prev,
+                coCreators: [...prev.coCreators, createEmptyCoCreator()],
+              }))
+            }
+            className="text-xs"
+          >
+            <Plus className="mr-1 h-3 w-3" /> Add co-creator
+          </Button>
+        </div>
+        {formData.coCreators.map((coCreator, index) => (
+          <div key={index} className="flex items-start gap-2">
+            <div className="flex-1 space-y-1">
+              <Input
+                placeholder="Stellar address"
+                value={coCreator.address}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    coCreators: prev.coCreators.map((c, i) =>
+                      i === index ? { ...c, address: e.target.value } : c,
+                    ),
+                  }))
+                }
+              />
+            </div>
+            <div className="w-24 space-y-1">
+              <Input
+                placeholder="%"
+                type="number"
+                min="0"
+                max="100"
+                value={coCreator.sharePercent}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    coCreators: prev.coCreators.map((c, i) =>
+                      i === index ? { ...c, sharePercent: e.target.value } : c,
+                    ),
+                  }))
+                }
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() =>
+                setFormData((prev) => ({
+                  ...prev,
+                  coCreators: prev.coCreators.filter((_, i) => i !== index),
+                }))
+              }
+              className="mt-0.5 h-9 w-9 shrink-0"
+            >
+              <Trash2 className="h-4 w-4 text-red-400" />
+            </Button>
+          </div>
+        ))}
+        {errors.coCreators && (
+          <p className="text-xs text-red-400">{errors.coCreators}</p>
+        )}
+      </div>
+
+      {/* Tags */}
       <div className="space-y-2">
         <label className="text-sm font-medium">Tags</label>
         <TagInput

@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useCallback, useMemo, ReactNode } 
 
 export type TransactionStatus = "idle" | "pending" | "success" | "error";
 
-/* eslint-disable no-unused-vars */
 interface TransactionFeedbackContextType {
   status: TransactionStatus;
   error: string | null;
@@ -11,7 +10,7 @@ interface TransactionFeedbackContextType {
   clear: () => void;
   retry?: () => void;
 }
-/* eslint-enable no-unused-vars */
+ 
 
 const TransactionFeedbackContext = createContext<TransactionFeedbackContextType | undefined>(undefined);
 

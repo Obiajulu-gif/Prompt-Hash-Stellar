@@ -34,7 +34,7 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
 }
 
 const AppLayout = () => (
-  <main className="min-h-screen bg-slate-950 text-white">
+  <main className="min-h-screen bg-background text-foreground">
     <Outlet />
   </main>
 );
@@ -43,8 +43,8 @@ function App() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center min-h-screen bg-slate-950">
-          <div className="text-white text-lg">Loading...</div>
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <div className="text-foreground text-lg">Loading...</div>
         </div>
       }
     >

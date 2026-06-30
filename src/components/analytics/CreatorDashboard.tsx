@@ -6,7 +6,6 @@ import {
   BarChart3,
   Coins,
   Eye,
-  History,
   PackageCheck,
   ShoppingBag,
   TrendingUp,
@@ -26,7 +25,6 @@ import {
   Title,
   Tooltip,
   Legend,
-  type ChartData,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 

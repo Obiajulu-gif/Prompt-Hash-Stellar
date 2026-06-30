@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/* eslint-disable no-unused-vars */
+ 
 export interface MarketplaceFiltersProps {
   categories: string[];
   tags: string[];
@@ -25,7 +25,7 @@ export interface MarketplaceFiltersProps {
   setSortBy: (_s: string) => void;
   onClear: () => void;
 }
-/* eslint-enable no-unused-vars */
+ 
 
 const PRICE_MAX = 25;
 

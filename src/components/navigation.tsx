@@ -1,5 +1,4 @@
 import { Link, NavLink } from "react-router-dom";
-import NetworkSwitcher from "./NetworkSwitcher";
 import {
   Activity,
   LibraryBig,

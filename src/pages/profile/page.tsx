@@ -76,7 +76,7 @@ const formatNetworkName = (value?: string) => {
 const shortHash = (value: string) =>
   value ? `${value.slice(0, 8)}...${value.slice(-8)}` : "Pending";
 
-// eslint-disable-next-line no-unused-vars
+ 
 type Handler<TArgs extends unknown[]> = (...args: TArgs) => void;
 
 function AlertBanner({

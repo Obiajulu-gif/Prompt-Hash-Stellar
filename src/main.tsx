@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import { applyThemeBeforeRender } from "./hooks/useTheme";
 import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
 import * as Sentry from "@sentry/react";
@@ -14,6 +15,7 @@ import { TransactionProvider } from "./components/TransactionProvider.tsx";
 import { NotificationProvider } from "./providers/NotificationProvider.tsx";
 import { ContractSyncProvider } from "./providers/ContractSyncProvider.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
+import { ThemeProvider } from "./components/theme-provider.tsx";
 
 // ── Sentry frontend monitoring (#332) ─────────────────────────────────────
 // Set PUBLIC_SENTRY_DSN in .env to enable error reporting.
@@ -35,6 +37,9 @@ if (import.meta.env.PUBLIC_SENTRY_DSN) {
   });
 }
 
+// Apply the saved theme before first paint to prevent light-theme flash.
+applyThemeBeforeRender();
+
 // Initialize the client
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,9 +58,11 @@ createRoot(document.getElementById("root") as HTMLElement).render(
           <ContractSyncProvider>
             <TransactionProvider>
               <WalletProvider>
-                <BrowserRouter>
-                  <App />
-                </BrowserRouter>
+                  <BrowserRouter>
+                    <ThemeProvider>
+                      <App />
+                    </ThemeProvider>
+                  </BrowserRouter>
               </WalletProvider>
             </TransactionProvider>
           </ContractSyncProvider>
