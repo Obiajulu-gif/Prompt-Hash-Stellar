@@ -1,10 +1,10 @@
 import { xlmToStroops } from "@/lib/stellar/format";
-
 export const LISTING_LIMITS = {
   imageUrl: 512,
   title: 120,
   category: 40,
   preview: 280,
+  previewMin: 10,
   fullPrompt: 50_000,
   encryptedPayload: 4096,
   wrappedKey: 256,
@@ -60,7 +60,7 @@ function trim(value: string) {
 
 export function validateListingForm(
   input: ListingFormInput,
-  options: ListingValidationOptions = {},
+  _options: ListingValidationOptions = {},
 ): ListingValidationErrors {
   const errors: ListingValidationErrors = {};
   const imageUrl = trim(input.imageUrl);
@@ -95,33 +95,19 @@ export function validateListingForm(
   }
 
   if (!previewText) {
-    errors.previewText =
-      "Add preview text â€” this public snippet appears on browse cards before purchase.";
-  } else if (previewText.length < 10) {
-    errors.previewText =
-      "Write at least 10 characters of preview text so buyers know what they are getting.";
+    errors.previewText = "Add preview text so buyers can understand what they are unlocking.";
+  } else if (previewText.length < LISTING_LIMITS.previewMin) {
+    errors.previewText = `Use at least ${LISTING_LIMITS.previewMin} characters for the preview.`;
   } else if (previewText.length > LISTING_LIMITS.preview) {
-    errors.previewText = `Shorten the preview to ${LISTING_LIMITS.preview} characters or fewer.`;
+    errors.previewText = `Choose a shorter preview text (max ${LISTING_LIMITS.preview} characters).`;
   }
 
   if (!fullPrompt) {
+    errors.fullPrompt = "Add the full prompt content that buyers will unlock.";
+  } else if (wouldExceedPayloadLimit(fullPrompt.length, _options)) {
     errors.fullPrompt =
-      "Paste the full prompt content â€” it is encrypted in your browser before submission.";
-  } else if (fullPrompt.length < 10) {
-    errors.fullPrompt =
-      "Add at least 10 characters of prompt content so buyers receive meaningful value.";
-  } else if (fullPrompt.length > LISTING_LIMITS.fullPrompt) {
-    errors.fullPrompt = `Shorten the prompt to ${LISTING_LIMITS.fullPrompt.toLocaleString()} characters or fewer.`;
-  } else if (!options.offChainStorage && wouldExceedPayloadLimit(fullPrompt.length)) {
-    const maxPlaintext = Math.floor(
-      LISTING_LIMITS.encryptedPayload / ESTIMATED_ENCRYPTION_OVERHEAD,
-    );
-    errors.fullPrompt =
-      `This prompt will exceed the ${LISTING_LIMITS.encryptedPayload.toLocaleString()}-character ` +
-      `on-chain encrypted payload limit after encryption. ` +
-      `Keep the prompt under ~${maxPlaintext.toLocaleString()} characters.`;
+      `Prompt is too long and would exceed the on-chain encrypted payload limit. Shorten it or enable off-chain storage.`;
   }
-
   if (!priceXlm) {
     errors.priceXlm = "Enter a price in XLM — use a value greater than zero.";
   } else {
@@ -210,8 +196,11 @@ export function estimateEncryptedSize(plaintextLength: number): number {
   return Math.ceil(plaintextLength * ESTIMATED_ENCRYPTION_OVERHEAD);
 }
 
-export function wouldExceedPayloadLimit(plaintextLength: number): boolean {
-  return estimateEncryptedSize(plaintextLength) > LISTING_LIMITS.encryptedPayload;
+export function wouldExceedPayloadLimit(
+  plaintextLength: number,
+  options: ListingValidationOptions = {},
+): boolean {
+  return !options.offChainStorage && estimateEncryptedSize(plaintextLength) > LISTING_LIMITS.encryptedPayload;
 }
 
 export function validateEncryptedPayload(

@@ -193,7 +193,7 @@ export default function PromptDetailPage() {
                 {"revision" in prompt && prompt.revision !== undefined && (
                   <span className="inline-flex items-center gap-1.5">
                     <History className="h-3.5 w-3.5" />
-                    v{prompt.revision}
+                    v{String((prompt as any).revision)}
                   </span>
                 )}
               </div>

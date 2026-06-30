@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Loader2, X, ExternalLink } from "lucide-react";
+import { Loader2, X, ExternalLink, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/useWallet";
 
 interface WalletOption {

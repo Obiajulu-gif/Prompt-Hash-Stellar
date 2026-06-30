@@ -27,7 +27,7 @@ async function redisCheckAndStore(
   const ttlSec = Math.ceil(config.ttlMs / 1000);
 
   const multi = redis!.multi();
-  multi.setnx(key, "1");
+  multi.setNX(key, "1");
   multi.expire(key, ttlSec, "NX");
   const [wasSet] = (await multi.exec()) as [number, ...unknown[]];
 
