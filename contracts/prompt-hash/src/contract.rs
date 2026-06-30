@@ -1,8 +1,8 @@
 use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
-    DataKey, DisputeReason, DisputeStatus, Error, InstanceDataKey, ListingConfig,
-    ListingRevisionRecord, Prompt, PromptHashTrait, PurchaseDispute, Split,
+    DataKey, DisputeReason, DisputeStatus, Error, ListingConfig, ListingRevisionRecord, Prompt,
+    PromptHashTrait, PurchaseDispute, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};

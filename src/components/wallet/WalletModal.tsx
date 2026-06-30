@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Loader2, X, ExternalLink } from "lucide-react";
+import { Loader2, X, ExternalLink, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/useWallet";
 
 interface WalletOption {
@@ -76,18 +77,26 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50"
+    >
       <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl max-w-md w-full mx-4 relative">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-bold text-white">Connect Wallet</h2>
+            <h2 id="modal-title" className="text-xl font-bold text-white">
+              Connect Wallet
+            </h2>
             <p className="text-sm text-slate-400 mt-1">
               Choose a Stellar wallet to continue
             </p>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close wallet modal"
             className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
           >
             <X className="w-5 h-5" />
