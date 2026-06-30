@@ -136,6 +136,8 @@ PromptHash Stellar can serve as a reusable reference implementation for:
 
 PromptHash Stellar uses a three-part architecture where the Soroban smart contract is the **absolute, single source of truth** for prompt ownership, purchase records, and access rights.
 
+> For an end-to-end visual guide with diagrams covering the listing, purchase, and unlock flows, the encryption model, wallet verification, and every environment variable, see [docs/architecture-overview.md](docs/architecture-overview.md).
+
 ### 1. Soroban smart contract (authoritative source of truth)
 
 Located in `contracts/prompt-hash`.
