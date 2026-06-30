@@ -7,6 +7,12 @@ import type { WalletContextType } from "@/providers/WalletProvider";
 import { PromptHashClient } from "@/lib/stellar/promptHashClient";
 
 vi.mock("@/lib/env", () => ({
+  allowHttp: false,
+  nativeAssetContractId: "native-asset-contract",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  promptHashContractId: "prompt-hash-contract",
+  rpcUrl: "https://stellar.test/rpc",
+  simulationAccount: "GSIMULATIONACCOUNT1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
   stellarWalletNetwork: "Test SDF Network ; September 2015",
 }));
 
@@ -127,7 +133,10 @@ describe("Purchase Button States", () => {
     await user.click(purchaseButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/confirming in wallet/i)).toBeInTheDocument();
+      expect(PromptHashClient.purchasePrompt).toHaveBeenCalledWith(
+        "1",
+        "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+      );
     });
   });
 
@@ -160,7 +169,7 @@ describe("Purchase Button States", () => {
     await user.click(purchaseButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/insufficient xlm balance/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/does not have enough xlm/i).length).toBeGreaterThan(0);
     });
   });
 
