@@ -5,8 +5,15 @@ import { renderWithProviders } from "../render";
 import { PromptModal } from "@/pages/browse/PromptModal";
 import type { WalletContextType } from "@/providers/WalletProvider";
 import { PromptHashClient } from "@/lib/stellar/promptHashClient";
+import { submitXlmPromptPayment } from "@/lib/payments/xlmGateway";
 
 vi.mock("@/lib/env", () => ({
+  allowHttp: false,
+  nativeAssetContractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  promptHashContractId: "CPROMPTHASH",
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  simulationAccount: "GSIMULATION",
   stellarWalletNetwork: "Test SDF Network ; September 2015",
 }));
 
@@ -22,6 +29,10 @@ vi.mock("@/lib/stellar/promptHashClient", () => ({
 // Mock unlock function
 vi.mock("@/lib/prompts/unlock", () => ({
   unlockPrompt: vi.fn(),
+}));
+
+vi.mock("@/lib/payments/xlmGateway", () => ({
+  submitXlmPromptPayment: vi.fn(),
 }));
 
 // Mock review client
@@ -52,6 +63,11 @@ describe("Purchase Button States", () => {
     vi.clearAllMocks();
     vi.mocked(PromptHashClient.checkAccess).mockResolvedValue(false);
     vi.mocked(PromptHashClient.getPrompt).mockResolvedValue(mockPrompt);
+    vi.mocked(submitXlmPromptPayment).mockResolvedValue({
+      txHash: "test",
+      success: true,
+      status: "confirmed",
+    });
   });
 
   it("disables purchase button when wallet is disconnected", async () => {
@@ -82,6 +98,7 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
     };
 
@@ -106,12 +123,18 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
     };
 
-    // Mock purchase to delay
-    vi.mocked(PromptHashClient.purchasePrompt).mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ txHash: "test", success: true }), 100))
+    vi.mocked(submitXlmPromptPayment).mockImplementation(
+      ({ onStatus }) => new Promise((resolve) => {
+        onStatus?.({
+          status: "awaiting_approval",
+          message: "Review and approve the XLM payment in your wallet.",
+        });
+        setTimeout(() => resolve({ txHash: "test", success: true, status: "confirmed" }), 100);
+      })
     );
 
     renderWithProviders(
@@ -139,11 +162,11 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
     };
 
-    // Mock purchase to fail
-    vi.mocked(PromptHashClient.purchasePrompt).mockRejectedValue(
+    vi.mocked(submitXlmPromptPayment).mockRejectedValue(
       new Error("Insufficient XLM balance")
     );
 
@@ -160,7 +183,7 @@ describe("Purchase Button States", () => {
     await user.click(purchaseButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/insufficient xlm balance/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/does not have enough XLM/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -171,6 +194,7 @@ describe("Purchase Button States", () => {
       network: "PUBLIC", // Wrong network
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
     };
 
@@ -199,6 +223,7 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
     };
 
