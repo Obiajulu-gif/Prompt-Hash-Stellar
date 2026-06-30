@@ -82,6 +82,18 @@ yarn dev
 | `UNLOCK_PUBLIC_KEY` | Yes | Must match `PUBLIC_UNLOCK_PUBLIC_KEY` |
 | `UNLOCK_PRIVATE_KEY` | Yes | Base64 private key for unwrap |
 
+### Serverless JWT sessions
+
+These variables are server-only. Never prefix them with `PUBLIC_` and never
+ship them to the browser bundle.
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `JWT_SESSION_SECRET` | Yes, when wallet sessions are enabled | 32+ byte random secret used to sign session JWTs |
+| `JWT_SESSION_ISSUER` | Recommended | Stable issuer, for example `prompt-hash-stellar` |
+| `JWT_SESSION_AUDIENCE` | Recommended | Expected client audience, for example `prompt-hash-stellar-web` |
+| `JWT_SESSION_TTL_SECONDS` | Recommended | Session lifetime in seconds; default local example is `86400` |
+
 ### Contract tooling
 
 | Variable / file | Required | Notes |

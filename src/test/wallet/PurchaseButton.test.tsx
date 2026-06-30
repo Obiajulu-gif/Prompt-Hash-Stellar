@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../render";
 import { PromptModal } from "@/pages/browse/PromptModal";
@@ -11,17 +11,21 @@ vi.mock("@/lib/env", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/env")>();
   return {
     ...actual,
-    stellarWalletNetwork: "Test SDF Network ; September 2015",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    networkPassphrase: "Test SDF Network ; September 2015",
     allowHttp: false,
-    promptHashContractId: "CCONTRACTMOCKADDRESS1234567890ABCDEF",
+    nativeAssetContractId: "native-asset-contract",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    promptHashContractId: "prompt-hash-contract",
+    rpcUrl: "https://stellar.test/rpc",
+    simulationAccount: "GSIMULATIONACCOUNT1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    stellarWalletNetwork: "Test SDF Network ; September 2015",
     browserStellarConfig: {
-      stellarWalletNetwork: "Test SDF Network ; September 2015",
-      rpcUrl: "https://soroban-testnet.stellar.org",
-      networkPassphrase: "Test SDF Network ; September 2015",
       allowHttp: false,
-      promptHashContractId: "CCONTRACTMOCKADDRESS1234567890ABCDEF",
+      nativeAssetContractId: "native-asset-contract",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      promptHashContractId: "prompt-hash-contract",
+      rpcUrl: "https://stellar.test/rpc",
+      simulationAccount: "GSIMULATIONACCOUNT1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      stellarWalletNetwork: "Test SDF Network ; September 2015",
     },
   };
 });
@@ -134,11 +138,18 @@ describe("Purchase Button States", () => {
       { wallet: mockWallet },
     );
 
-    const dialog = await screen.findByRole("dialog");
-    
-    // Fallback click simulation to jump straight across lifecycle updates safely
     await waitFor(() => {
-      expect(within(dialog).getByText(/Acquire License/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /confirm & purchase/i })).toBeInTheDocument();
+    });
+
+    const purchaseButton = screen.getByRole("button", { name: /confirm & purchase/i });
+    await user.click(purchaseButton);
+
+    await waitFor(() => {
+      expect(PromptHashClient.purchasePrompt).toHaveBeenCalledWith(
+        "1",
+        "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+      );
     });
   });
 
@@ -163,9 +174,15 @@ describe("Purchase Button States", () => {
       { wallet: mockWallet },
     );
 
-    const dialog = await screen.findByRole("dialog");
     await waitFor(() => {
-      expect(within(dialog).getByText(/Acquire License/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /confirm & purchase/i })).toBeInTheDocument();
+    });
+
+    const purchaseButton = screen.getByRole("button", { name: /confirm & purchase/i });
+    await user.click(purchaseButton);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/does not have enough xlm/i).length).toBeGreaterThan(0);
     });
   });
 
