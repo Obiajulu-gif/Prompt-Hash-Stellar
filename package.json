@@ -36,7 +36,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.10",
-    "@sentry/react": "^10.62.0",
+    "@sentry/react": "^10.63.0",
     "@sentry/vite-plugin": "^5.3.0",
     "@stellar/design-system": "^3.2.8",
     "@stellar/stellar-base": "^14.0.2",
