@@ -31,7 +31,7 @@
   "author": "wilfrid",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.53",
+    "@ai-sdk/openai": "^4.0.6",
     "@sentry/node": "^10.62.0",
     "@stellar/stellar-sdk": "^14.6.1",
     "@typescript-eslint/parser": "^8.59.0",
