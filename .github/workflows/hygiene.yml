@@ -9,7 +9,7 @@ jobs:
     name: Check for merge conflict markers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Search for conflict markers
         run: |
           if grep -rnE "^<<<<<<<|^=======|^>>>>>>>" . --exclude-dir=.git --exclude=hygiene.yml; then
