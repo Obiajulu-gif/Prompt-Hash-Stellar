@@ -88,7 +88,7 @@ jobs:
         run: ls -lah target/wasm32-unknown-unknown/release/*.wasm
 
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: contract-wasm-${{ github.sha }}
           path: target/wasm32-unknown-unknown/release/*.wasm
