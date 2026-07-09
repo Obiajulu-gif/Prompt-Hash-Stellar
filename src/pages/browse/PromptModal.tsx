@@ -61,6 +61,7 @@ import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
 import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
+import { submitXlmPromptPayment, type XlmPaymentStatusUpdate } from "../../lib/payments/xlmGateway";
 
 export type BuyerStatus =
   | "IDLE"
@@ -255,6 +256,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
   const [status, setStatus] = useState<BuyerStatus>("IDLE");
   const [txHash, setTxHash] = useState<string>("");
+  const [paymentMessage, setPaymentMessage] = useState<string>("");
   const [secretContent, setSecretContent] = useState<string>("");
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
@@ -334,7 +336,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   useEffect(() => {
     if (isOpen && wallet?.address) {
       setIsCheckingAccess(true);
-      PromptHashClient.checkAccess(itemId, wallet.address)
+      PromptHashClient.checkAccess(browserStellarConfig, wallet.address, itemId)
         .then((hasAccess) => setStatus(hasAccess ? "PURCHASED_LOCKED" : "IDLE"))
         .catch(() => setStatus("IDLE"))
         .finally(() => setIsCheckingAccess(false));
@@ -382,18 +384,42 @@ export const PromptModal: React.FC<PromptModalProps> = ({
       if (networkState.type === "disconnected") {
         throw new Error("Please connect your wallet first");
       }
-      
-      setStatus("AWAITING_APPROVAL");
-      const mockHash = "tx_" + Math.random().toString(16).slice(2, 14);
-      setTxHash(mockHash);
-      setStatus("CONFIRMING");
-      return await PromptHashClient.purchasePrompt(itemId, wallet.address);
+
+      if (!wallet.signTransaction) {
+        throw new Error("Wallet does not support transaction signing.");
+      }
+
+      const prompt = promptDetail ?? await PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId));
+      const handleStatus = (update: XlmPaymentStatusUpdate) => {
+        setPaymentMessage(update.message);
+        if (update.txHash) {
+          setTxHash(update.txHash);
+        }
+        if (update.status === "awaiting_approval") {
+          setStatus("AWAITING_APPROVAL");
+        } else if (update.status === "submitting" || update.status === "pending") {
+          setStatus("CONFIRMING");
+        } else if (update.status === "failed") {
+          setStatus("ERROR");
+        }
+      };
+
+      return await submitXlmPromptPayment({
+        config: browserStellarConfig,
+        signer: { signTransaction: wallet.signTransaction },
+        buyerAddress: wallet.address,
+        promptId: itemId,
+        amountStroops: prompt.priceStroops,
+        onStatus: handleStatus,
+      });
     },
     {
+      pendingMessage: "Preparing XLM payment...",
+      successMessage: "XLM payment confirmed.",
       onSuccess: (data) => {
         setStatus("UNLOCKING");
         onRefresh?.();
-        runUnlock(data.txHash || txHash).catch(() => {});
+        runUnlock(data.txHash).catch(() => {});
       },
       onError: () => setStatus("ERROR"),
     },
@@ -522,6 +548,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                   <p className="text-slate-200 font-bold text-lg italic tracking-tight">
                     Confirming in Wallet...
                   </p>
+                  {paymentMessage && (
+                    <p className="max-w-sm text-xs text-slate-400">{paymentMessage}</p>
+                  )}
                 </div>
               )}
 
@@ -529,7 +558,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                 <div className="py-6 text-center" role="status" aria-live="polite">
                   <StatusBanner
                     status="pending"
-                    message="Broadcasting to Stellar..."
+                    message={paymentMessage || "Broadcasting XLM payment to Stellar..."}
                   />
                   {txHash && (
                     <a
