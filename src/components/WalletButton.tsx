@@ -8,7 +8,7 @@ import { WalletModal } from "./wallet/WalletModal";
 export const WalletButton = () => {
   const [showModal, setShowModal] = useState(false);
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
-  const { address, status, error, disconnect } = useWallet();
+  const { address, status, error, authStatus, disconnect } = useWallet();
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -73,7 +73,7 @@ export const WalletButton = () => {
           onClick={() => setShowModal(true)}
         >
           <Wallet className="w-4 h-4" />
-          Connect Wallet
+          Sign in
         </Button>
       )}
 
@@ -86,7 +86,7 @@ export const WalletButton = () => {
           className="ml-auto font-bold border-purple-900 text-white min-w-[120px] cursor-not-allowed opacity-70"
         >
           <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" />
-          Opening Wallet...
+          {authStatus === "authenticating" ? "Signing in..." : "Opening Wallet..."}
         </Button>
       )}
 
@@ -94,7 +94,7 @@ export const WalletButton = () => {
       {status === "reconnecting" && (
         <div className="ml-auto flex items-center space-x-2 text-sm text-slate-300 min-w-[120px] justify-center">
           <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          <span>Restoring Session...</span>
+          <span>Restoring session...</span>
         </div>
       )}
 
