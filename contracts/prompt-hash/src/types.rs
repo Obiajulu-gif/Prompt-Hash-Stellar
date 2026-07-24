@@ -45,6 +45,8 @@ pub enum Error {
     BundleNotFound = 39,
     AccessPassNotFound = 40,
     InvalidAccessDuration = 41,
+    BulkPurchaseTooLarge = 42,
+    DuplicatePromptId = 43,
 }
 
 /// Instance storage keys — contract-level configuration stored in
@@ -59,11 +61,23 @@ pub enum InstanceDataKey {
     Reentrancy,
     ReferralPercentage,
     IsPaused,
-    VoucherKey(u128, BytesN<32>),
+}
+
+/// Persistent storage keys — per-item records stored in
+/// `env.storage().persistent()`. These carry a TTL managed via
+/// `Storage::extend_key_ttl`/`extend_all_ttl`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataKey {
+    Prompt(u64),
+    CreatorPrompts(Address),
+    BuyerPrompts(Address),
+    Purchase(u64, Address),
+    VoucherKey(u64, BytesN<32>),
     /// Snapshot of a listing taken before a revision (#226).
     /// Key: (prompt_id, revision_number_before_change)
-    ListingRevision(u128, u32),
-    PurchaseDispute(u128, Address),
+    ListingRevision(u64, u32),
+    PurchaseDispute(u64, Address),
     Bundle(u128),
     BundleCounter,
     CreatorBundles(Address),
@@ -185,7 +199,7 @@ pub struct Bundle {
     pub id: u128,
     pub creator: Address,
     pub title: String,
-    pub prompt_ids: Vec<u128>,
+    pub prompt_ids: Vec<u64>,
     pub price_stroops: i128,
     pub asset: Address,
     pub active: bool,
@@ -266,7 +280,7 @@ pub trait PromptHashTrait {
     fn admin_set_prompt_sale_status(
         env: Env,
         admin: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         active: bool,
     ) -> Result<(), Error>;
 
@@ -325,7 +339,7 @@ pub trait PromptHashTrait {
         env: Env,
         creator: Address,
         title: String,
-        prompt_ids: Vec<u128>,
+        prompt_ids: Vec<u64>,
         price_stroops: i128,
         asset: Address,
         expires_at: u64,
