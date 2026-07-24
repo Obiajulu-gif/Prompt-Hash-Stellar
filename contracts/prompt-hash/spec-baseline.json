@@ -1,0 +1,330 @@
+{
+  "data_types": {
+    "AccessPass": [
+      "pub id: u128",
+      "pub creator: Address",
+      "pub title: String",
+      "pub duration_secs: u64",
+      "pub price_stroops: i128",
+      "pub asset: Address",
+      "pub active: bool",
+      "pub sales_count: u64"
+    ],
+    "Bundle": [
+      "pub id: u128",
+      "pub creator: Address",
+      "pub title: String",
+      "pub prompt_ids: Vec<u128>",
+      "pub price_stroops: i128",
+      "pub asset: Address",
+      "pub active: bool",
+      "pub sales_count: u64",
+      "pub expires_at: u64"
+    ],
+    "CatalogPassPurchase": [
+      "pub creator: Address",
+      "pub buyer: Address",
+      "pub pass_id: u128",
+      "pub expires_at: u64"
+    ],
+    "DisputeReason": [
+      "InvalidEncryptedPayload",
+      "MissingMetadata",
+      "FailedIntegrityVerification"
+    ],
+    "DisputeStatus": [
+      "Open",
+      "Refunded",
+      "Rejected"
+    ],
+    "InstanceDataKey": [
+      "PromptCounter",
+      "FeePercentage",
+      "FeeWallet",
+      "XlmAddress",
+      "Reentrancy",
+      "ReferralPercentage",
+      "IsPaused",
+      "VoucherKey(u128",
+      "BytesN<32>)",
+      "ListingRevision(u128",
+      "u32)",
+      "PurchaseDispute(u128",
+      "Address)",
+      "Bundle(u128)",
+      "BundleCounter",
+      "CreatorBundles(Address)",
+      "AccessPass(u128)",
+      "AccessPassCounter",
+      "CreatorAccessPasses(Address)",
+      "CatalogPass(Address",
+      "Address)"
+    ],
+    "ListingConfig": [
+      "pub price: i128",
+      "pub asset: Address",
+      "pub expires_at: u64",
+      "pub splits: Vec<Split>",
+      "pub tags: Vec<String>",
+      "pub max_supply: u64"
+    ],
+    "ListingRevisionRecord": [
+      "pub prompt_id: u64",
+      "pub revision: u32",
+      "pub title: String",
+      "pub category: String",
+      "pub preview_text: String",
+      "pub image_url: String",
+      "pub price_stroops: i128",
+      "pub revised_at: u64"
+    ],
+    "PricingConfig": [
+      "pub price: i128",
+      "pub asset: Address"
+    ],
+    "Prompt": [
+      "pub id: u64",
+      "pub creator: Address",
+      "pub image_url: String",
+      "pub title: String",
+      "pub category: String",
+      "pub preview_text: String",
+      "pub encrypted_prompt: String",
+      "pub encryption_iv: String",
+      "pub wrapped_key: String",
+      "pub content_hash: BytesN<32>",
+      "pub price_stroops: i128",
+      "pub asset: Address",
+      "pub active: bool",
+      "pub sales_count: u64",
+      "pub max_supply: u64",
+      "pub expires_at: u64",
+      "pub splits: Vec<Split>",
+      "pub revision: u32",
+      "pub tags: Vec<String>"
+    ],
+    "Purchase": [
+      "pub prompt_id: u64",
+      "pub original_creator: Address",
+      "pub owner: Address",
+      "pub original_price: i128",
+      "pub last_transfer_price: i128",
+      "pub transfer_count: u32",
+      "pub last_transferred_at: u64",
+      "pub expires_at: u64"
+    ],
+    "PurchaseDispute": [
+      "pub prompt_id: u64",
+      "pub buyer: Address",
+      "pub reason: DisputeReason",
+      "pub opened_at: u64",
+      "pub resolved_at: u64",
+      "pub status: DisputeStatus"
+    ],
+    "Split": [
+      "pub recipient: Address",
+      "pub bps: u32"
+    ]
+  },
+  "errors": {
+    "AccessPassNotFound": "40",
+    "AlreadyPurchased": "5",
+    "ArithmeticOverflow": "17",
+    "BundleNotFound": "39",
+    "ContractIsPaused": "19",
+    "CreatorCannotBuy": "3",
+    "DisputeAlreadyOpen": "35",
+    "DisputeNotFound": "36",
+    "DisputeResolved": "37",
+    "DuplicateSplitRecipient": "32",
+    "FeeExceedsMaximum": "34",
+    "FeeWalletNotSet": "15",
+    "InvalidAccessDuration": "41",
+    "InvalidAsset": "26",
+    "InvalidBundle": "38",
+    "InvalidCategoryLength": "9",
+    "InvalidDiscountPercentage": "24",
+    "InvalidEncryptedPromptLength": "11",
+    "InvalidFeePercentage": "7",
+    "InvalidImageUrlLength": "13",
+    "InvalidIvLength": "14",
+    "InvalidLicenseTransfer": "30",
+    "InvalidPaymentAmount": "21",
+    "InvalidPreviewLength": "10",
+    "InvalidPrice": "6",
+    "InvalidReferralPercentage": "23",
+    "InvalidSplits": "27",
+    "InvalidTitleLength": "8",
+    "InvalidVoucher": "22",
+    "InvalidWrappedKeyLength": "12",
+    "LicenseNotFound": "29",
+    "ListingExpired": "28",
+    "MaxSupplyReached": "25",
+    "PromptInactive": "4",
+    "PromptNotFound": "2",
+    "ReentrancyGuard": "18",
+    "ReferrerCannotBeBuyerOrCreator": "20",
+    "RevisionFieldsUnchanged": "31",
+    "TooManySplits": "33",
+    "Unauthorized": "1",
+    "XlmAddressNotSet": "16"
+  },
+  "events": {
+    "AccessPassCreated": [
+      "pub pass_id: u128",
+      "pub creator: Address",
+      "pub duration_secs: u64",
+      "pub price_stroops: i128"
+    ],
+    "AccessPassPurchased": [
+      "pub pass_id: u128",
+      "pub buyer: Address",
+      "pub creator: Address",
+      "pub expires_at: u64"
+    ],
+    "BundleCreated": [
+      "pub bundle_id: u128",
+      "pub creator: Address",
+      "pub price_stroops: i128"
+    ],
+    "BundlePurchased": [
+      "pub bundle_id: u128",
+      "pub buyer: Address",
+      "pub creator: Address",
+      "pub price_stroops: i128"
+    ],
+    "ContractPausedStateChanged": [
+      "pub is_paused: bool"
+    ],
+    "DisputeOpened": [
+      "pub prompt_id: u64",
+      "pub buyer: Address"
+    ],
+    "DisputeResolved": [
+      "pub prompt_id: u64",
+      "pub buyer: Address",
+      "pub refunded: bool"
+    ],
+    "FeeUpdated": [
+      "pub new_fee_percentage: u32"
+    ],
+    "FeeWalletUpdated": [
+      "pub new_fee_wallet: Address"
+    ],
+    "LicenseTransferred": [
+      "pub prompt_id: u64",
+      "pub seller: Address",
+      "pub buyer: Address",
+      "pub creator: Address",
+      "pub resale_price: i128",
+      "pub royalty_amount: i128"
+    ],
+    "ListingExtended": [
+      "pub prompt_id: u64",
+      "pub new_expires_at: u64"
+    ],
+    "ListingRevised": [
+      "pub prompt_id: u64",
+      "pub new_revision: u32"
+    ],
+    "PlatformFeeUpdated": [
+      "pub old_fee: u32",
+      "pub new_fee: u32",
+      "pub admin: Address"
+    ],
+    "PromptAdminModerated": [
+      "pub prompt_id: u128",
+      "pub admin: Address",
+      "pub active: bool"
+    ],
+    "PromptCreated": [
+      "pub prompt_id: u64",
+      "pub creator: Address",
+      "pub price_stroops: i128",
+      "pub asset: Address"
+    ],
+    "PromptPriceUpdated": [
+      "pub prompt_id: u64",
+      "pub price_stroops: i128"
+    ],
+    "PromptPurchased": [
+      "pub prompt_id: u64",
+      "pub buyer: Address",
+      "pub creator: Address",
+      "pub price_stroops: i128",
+      "pub referrer: Option<Address>"
+    ],
+    "PromptSaleStatusUpdated": [
+      "pub prompt_id: u64",
+      "pub active: bool"
+    ],
+    "PromptTipped": [
+      "pub prompt_id: u64",
+      "pub buyer: Address",
+      "pub amount_tipped: i128"
+    ],
+    "SplitsUpdated": [
+      "pub prompt_id: u64"
+    ],
+    "VoucherAdded": [
+      "pub prompt_id: u64",
+      "pub hashed_code: soroban_sdk::BytesN<32>",
+      "pub discount_bps: u32"
+    ],
+    "VoucherRemoved": [
+      "pub prompt_id: u64",
+      "pub hashed_code: soroban_sdk::BytesN<32>"
+    ]
+  },
+  "functions": {
+    "__constructor": "fn __constructor( env: Env, admin: Address, fee_wallet: Address, xlm_sac: Address, ) -> Result<(), Error>",
+    "add_voucher": "fn add_voucher( env: Env, creator: Address, prompt_id: u64, hashed_code: BytesN<32>, discount_bps: u32, ) -> Result<(), Error>",
+    "admin_set_prompt_sale_status": "fn admin_set_prompt_sale_status( env: Env, admin: Address, prompt_id: u128, active: bool, ) -> Result<(), Error>",
+    "buy_access_pass": "fn buy_access_pass( env: Env, buyer: Address, pass_id: u128, payment_amount_stroops: i128, ) -> Result<(), Error>",
+    "buy_bundle": "fn buy_bundle( env: Env, buyer: Address, bundle_id: u128, payment_amount_stroops: i128, ) -> Result<(), Error>",
+    "buy_prompt": "fn buy_prompt( env: Env, buyer: Address, prompt_id: u64, referrer: Option<Address>, payment_amount_stroops: i128, voucher: Option<Bytes>, ) -> Result<(), Error>",
+    "buy_prompts_bulk": "fn buy_prompts_bulk( env: Env, buyer: Address, prompt_ids: Vec<u64>, payment_amounts: Vec<i128>, referrer: Option<Address>, ) -> Result<(), Error>",
+    "create_access_pass": "fn create_access_pass( env: Env, creator: Address, title: String, duration_secs: u64, price_stroops: i128, asset: Address, ) -> Result<u128, Error>",
+    "create_bundle": "fn create_bundle( env: Env, creator: Address, title: String, prompt_ids: Vec<u128>, price_stroops: i128, asset: Address, expires_at: u64, ) -> Result<u128, Error>",
+    "create_prompt": "fn create_prompt( env: Env, creator: Address, image_url: String, title: String, category: String, preview_text: String, encrypted_prompt: String, encryption_iv: String, wrapped_key: String, content_hash: BytesN<32>, listing: ListingConfig, ) -> Result<u64, Error>",
+    "extend_all_ttl": "fn extend_all_ttl(env: Env) -> Result<(), Error>",
+    "extend_listing": "fn extend_listing( env: Env, creator: Address, prompt_id: u64, new_expires_at: u64, ) -> Result<(), Error>",
+    "extend_ttl": "fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>",
+    "get_access_pass": "fn get_access_pass(env: Env, pass_id: u128) -> Result<AccessPass, Error>",
+    "get_access_passes_by_creator": "fn get_access_passes_by_creator(env: Env, creator: Address) -> Result<Vec<AccessPass>, Error>",
+    "get_all_prompts": "fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>",
+    "get_bundle": "fn get_bundle(env: Env, bundle_id: u128) -> Result<Bundle, Error>",
+    "get_bundles_by_creator": "fn get_bundles_by_creator(env: Env, creator: Address) -> Result<Vec<Bundle>, Error>",
+    "get_dispute": "fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error>",
+    "get_fee_percentage": "fn get_fee_percentage(env: Env) -> u32",
+    "get_fee_wallet": "fn get_fee_wallet(env: Env) -> Option<Address>",
+    "get_listing_revision": "fn get_listing_revision( env: Env, prompt_id: u64, revision: u32, ) -> Result<ListingRevisionRecord, Error>",
+    "get_platform_fee": "fn get_platform_fee(env: Env) -> u32",
+    "get_prompt": "fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error>",
+    "get_prompts_by_buyer": "fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>",
+    "get_prompts_by_category": "fn get_prompts_by_category(env: Env, category: String) -> Result<Vec<Prompt>, Error>",
+    "get_prompts_by_creator": "fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>",
+    "get_prompts_by_ids": "fn get_prompts_by_ids(env: Env, prompt_ids: Vec<u64>) -> Result<Vec<Prompt>, Error>",
+    "get_prompts_by_tag": "fn get_prompts_by_tag(env: Env, tag: String) -> Result<Vec<Prompt>, Error>",
+    "get_referral_percentage": "fn get_referral_percentage(env: Env) -> u32",
+    "get_xlm_sac": "fn get_xlm_sac(env: Env) -> Option<Address>",
+    "has_access": "fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error>",
+    "is_paused": "fn is_paused(env: Env) -> bool",
+    "lease_prompt": "fn lease_prompt( env: Env, buyer: Address, prompt_id: u64, lease_duration_secs: u64, ) -> Result<(), Error>",
+    "open_dispute": "fn open_dispute( env: Env, buyer: Address, prompt_id: u64, reason: DisputeReason, ) -> Result<(), Error>",
+    "remove_voucher": "fn remove_voucher( env: Env, creator: Address, prompt_id: u64, hashed_code: BytesN<32>, ) -> Result<(), Error>",
+    "resolve_dispute": "fn resolve_dispute( env: Env, admin: Address, prompt_id: u64, buyer: Address, refund: bool, ) -> Result<(), Error>",
+    "revise_listing": "fn revise_listing( env: Env, creator: Address, prompt_id: u64, title: String, category: String, preview_text: String, image_url: String, price_stroops: i128, ) -> Result<u32, Error>",
+    "set_fee_percentage": "fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>",
+    "set_fee_wallet": "fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>",
+    "set_pause_status": "fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>",
+    "set_prompt_max_supply": "fn set_prompt_max_supply( env: Env, creator: Address, prompt_id: u64, max_supply: u64, ) -> Result<(), Error>",
+    "set_prompt_sale_status": "fn set_prompt_sale_status( env: Env, creator: Address, prompt_id: u64, active: bool, ) -> Result<(), Error>",
+    "set_referral_percentage": "fn set_referral_percentage(env: Env, new_referral_percentage: u32) -> Result<(), Error>",
+    "transfer_license": "fn transfer_license( env: Env, seller: Address, prompt_id: u64, new_buyer: Address, resale_price: i128, ) -> Result<(), Error>",
+    "update_platform_fee": "fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error>",
+    "update_prompt_price": "fn update_prompt_price( env: Env, creator: Address, prompt_id: u64, price_stroops: i128, ) -> Result<(), Error>",
+    "update_splits": "fn update_splits( env: Env, creator: Address, prompt_id: u64, new_splits: Vec<Split>, ) -> Result<(), Error>",
+    "upgrade": "fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>"
+  }
+}

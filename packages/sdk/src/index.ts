@@ -7,3 +7,11 @@
 
 export { PromptHashClient } from "./client.js";
 export type { PromptInfo, PurchaseResult, ClientConfig } from "./types.js";
+export { verifyReceipt, canonicalizeReceipt } from "./receipts.js";
+export type {
+  PurchaseReceipt,
+  SignedPurchaseReceipt,
+  ReceiptCurrentEntitlement,
+  ReceiptVerificationResult,
+} from "./types.js";
+export type { VerifyReceiptOptions } from "./receipts.js";

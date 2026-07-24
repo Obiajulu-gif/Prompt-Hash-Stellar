@@ -236,6 +236,42 @@ Issues a short-lived challenge token for wallet verification.
 
 Verifies the wallet signature and on-chain entitlement before returning decrypted content.
 
+## Purchase Receipts (#436)
+
+### Get a purchase receipt
+
+`GET /api/prompts/receipt?promptId=&buyerWallet=&txHash=`
+
+`txHash` is optional — when omitted, the most recent matching `Purchase`
+record is used only to look up the hash. Every other field is re-derived
+from the confirmed transaction and its contract event on Stellar RPC, never
+from the (mutable) database row. Responds with:
+
+```json
+{
+  "receipt": { "version": 1, "network": { ... }, "contract": { ... }, "prompt": { ... }, "buyer": "G...", "amount": { "stroops": "..." }, "transaction": { ... }, "event": { ... } },
+  "signature": "base64 Ed25519 signature over the canonicalized receipt",
+  "signerPublicKey": "base64 Ed25519 public key"
+}
+```
+
+Verify a receipt independently — against Stellar RPC only, no PromptHash API
+or database access required — with `@prompthash/sdk`:
+
+```ts
+import { verifyReceipt } from "@prompthash/sdk";
+
+const result = await verifyReceipt(receipt, signature, signerPublicKey);
+// result.valid, result.checks.{signatureValid,networkMatches,transactionFound,transactionSucceeded,eventMatches}
+// result.currentEntitlement — best-effort live has_access/dispute signal, never affects `valid`
+```
+
+`result.valid` is `true` only when the signature checks out **and** the
+referenced transaction is found, succeeded, on the claimed network, and its
+decoded event matches every receipt field exactly — so a receipt with any
+tampered field, a wrong-network mismatch, or an orphaned/failed transaction
+fails verification.
+
 ## Notes For Frontend Contributors
 
 - Listing metadata is normalized server-side before persistence.

@@ -55,3 +55,6 @@ jobs:
 
       - name: Build release Wasm artifacts
         run: cargo build --workspace --release --target wasm32v1-none --locked
+
+      - name: Upgrade preflight self-check (#435)
+        run: python3 scripts/preflight_upgrade.py check --self-check
