@@ -2528,6 +2528,108 @@ fn test_buy_prompts_bulk_with_referrer() {
     assert!(client.has_access(&buyer, &prompt_b));
 }
 
+// ─── Issue #438: Bulk purchase bounds and duplicate-id rejection ────────────
+
+#[test]
+fn test_buy_prompts_bulk_rejects_batch_over_max_size() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price: i128 = 1_000;
+
+    // MAX_BULK_PURCHASE_SIZE is 20 — build a batch of 21 distinct, otherwise-valid ids.
+    let mut ids = Vec::new(&env);
+    let mut amounts = Vec::new(&env);
+    for i in 0..21 {
+        let title = if i % 2 == 0 {
+            "Over Max A"
+        } else {
+            "Over Max B"
+        };
+        let prompt_id = create_prompt(&env, &client, &creator, title, price, &context.xlm);
+        ids.push_back(prompt_id);
+        amounts.push_back(price);
+    }
+    fund_buyer(&xlm_client, &buyer, &context.contract, price * 21);
+
+    let result = client.try_buy_prompts_bulk(&buyer, &ids, &amounts, &None::<Address>);
+    match result {
+        Err(Ok(Error::BulkPurchaseTooLarge)) => {}
+        other => panic!(
+            "expected BulkPurchaseTooLarge for a 21-item batch, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_buy_prompts_bulk_allows_exactly_max_size() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price: i128 = 1_000;
+
+    // Exactly MAX_BULK_PURCHASE_SIZE (20) distinct ids must be accepted.
+    let mut ids = Vec::new(&env);
+    let mut amounts = Vec::new(&env);
+    for i in 0..20 {
+        let title = if i % 2 == 0 { "At Max A" } else { "At Max B" };
+        let prompt_id = create_prompt(&env, &client, &creator, title, price, &context.xlm);
+        ids.push_back(prompt_id);
+        amounts.push_back(price);
+    }
+    fund_buyer(&xlm_client, &buyer, &context.contract, price * 20);
+
+    client.buy_prompts_bulk(&buyer, &ids, &amounts, &None::<Address>);
+
+    for i in 0..ids.len() {
+        assert!(client.has_access(&buyer, &ids.get(i).unwrap()));
+    }
+}
+
+#[test]
+fn test_buy_prompts_bulk_rejects_duplicate_prompt_ids() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price: i128 = 5_000;
+    let prompt_a = create_prompt(&env, &client, &creator, "Dup Target", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price * 2);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt_a);
+    ids.push_back(prompt_a); // duplicate
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+    amounts.push_back(price);
+
+    let result = client.try_buy_prompts_bulk(&buyer, &ids, &amounts, &None::<Address>);
+    match result {
+        Err(Ok(Error::DuplicatePromptId)) => {}
+        other => panic!(
+            "expected DuplicatePromptId for a repeated id, got {:?}",
+            other
+        ),
+    }
+
+    // No partial purchase should have gone through.
+    assert!(!client.has_access(&buyer, &prompt_a));
+}
+
 // ─── Issue #226: Listing revision tests ─────────────────────────────────────
 
 #[test]
@@ -2596,8 +2698,7 @@ fn test_access_pass_grants_time_bound_catalog_access() {
     client.buy_access_pass(&buyer, &pass_id, &pass_price);
     assert!(client.has_access(&buyer, &prompt_id));
 
-    let future_prompt =
-        create_prompt(&env, &client, &creator, "Catalog B", 9_000, &context.xlm);
+    let future_prompt = create_prompt(&env, &client, &creator, "Catalog B", 9_000, &context.xlm);
     assert!(client.has_access(&buyer, &future_prompt));
 
     env.ledger().with_mut(|ledger| {

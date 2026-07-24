@@ -1,6 +1,6 @@
 use super::types::{
-    AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, ListingRevisionRecord, Prompt,
-    Purchase, PurchaseDispute,
+    AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
+    ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
 };
 use soroban_sdk::{token, Address, BytesN, Env, Vec};
 

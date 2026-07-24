@@ -26,6 +26,10 @@ const MAX_TAGS: u32 = 8;
 const MAX_TAG_LEN: u32 = 32;
 const MAX_BUNDLE_PROMPTS: u32 = 20;
 const MAX_PASS_DURATION_SECS: u64 = 31_536_000;
+// Bounds buy_prompts_bulk's per-call resource footprint (CPU/memory/read-write
+// budget) so a caller cannot force an unbounded-cost simulation or transaction
+// just by passing an oversized vector (issue #438).
+const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 
 #[contract]
 pub struct PromptHashContract;
@@ -142,7 +146,7 @@ impl PromptHashTrait for PromptHashContract {
     fn admin_set_prompt_sale_status(
         env: Env,
         admin: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         active: bool,
     ) -> Result<(), Error> {
         admin.require_auth();
@@ -308,6 +312,11 @@ impl PromptHashTrait for PromptHashContract {
             prompt_ids.len() == payment_amounts.len(),
             Error::InvalidPrice,
         )?;
+        ensure(
+            !prompt_ids.is_empty() && prompt_ids.len() <= MAX_BULK_PURCHASE_SIZE,
+            Error::BulkPurchaseTooLarge,
+        )?;
+        validate_no_duplicate_prompt_ids(&prompt_ids)?;
 
         for i in 0..prompt_ids.len() {
             let prompt_id = prompt_ids.get(i).unwrap();
@@ -321,16 +330,16 @@ impl PromptHashTrait for PromptHashContract {
         env: Env,
         creator: Address,
         title: String,
-        prompt_ids: Vec<u128>,
+        prompt_ids: Vec<u64>,
         price_stroops: i128,
         asset: Address,
         expires_at: u64,
     ) -> Result<u128, Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         validate_len(&title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
         ensure(price_stroops > 0, Error::InvalidPrice)?;
-        ensure(prompt_ids.len() > 0, Error::InvalidBundle)?;
+        ensure(!prompt_ids.is_empty(), Error::InvalidBundle)?;
         ensure(prompt_ids.len() <= MAX_BUNDLE_PROMPTS, Error::InvalidBundle)?;
         token::Client::new(&env, &asset).decimals();
 
@@ -381,7 +390,7 @@ impl PromptHashTrait for PromptHashContract {
         payment_amount_stroops: i128,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let now = env.ledger().timestamp();
         let mut bundle = Storage::require_bundle(&env, bundle_id)?;
 
@@ -407,7 +416,10 @@ impl PromptHashTrait for PromptHashContract {
             }
             if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
                 if prompt.max_supply > 0 {
-                    ensure(prompt.sales_count < prompt.max_supply, Error::MaxSupplyReached)?;
+                    ensure(
+                        prompt.sales_count < prompt.max_supply,
+                        Error::MaxSupplyReached,
+                    )?;
                 }
                 needs_access = true;
                 prompt.sales_count = prompt
@@ -419,7 +431,7 @@ impl PromptHashTrait for PromptHashContract {
         }
         ensure(needs_access, Error::AlreadyPurchased)?;
 
-        Storage::set_reentrancy_guard(&env)?;
+        InstanceStorage::set_reentrancy_guard(&env)?;
         route_creator_payment(
             &env,
             &buyer,
@@ -447,7 +459,7 @@ impl PromptHashTrait for PromptHashContract {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_bundle(&env, &bundle);
-        Storage::clear_reentrancy_guard(&env);
+        InstanceStorage::clear_reentrancy_guard(&env);
 
         Events::emit_bundle_purchased(
             &env,
@@ -476,7 +488,7 @@ impl PromptHashTrait for PromptHashContract {
         asset: Address,
     ) -> Result<u128, Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         validate_len(&title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
         ensure(price_stroops > 0, Error::InvalidPrice)?;
         ensure(
@@ -510,7 +522,7 @@ impl PromptHashTrait for PromptHashContract {
         payment_amount_stroops: i128,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut access_pass = Storage::require_access_pass(&env, pass_id)?;
         let now = env.ledger().timestamp();
 
@@ -525,7 +537,7 @@ impl PromptHashTrait for PromptHashContract {
             Error::AlreadyPurchased,
         )?;
 
-        Storage::set_reentrancy_guard(&env)?;
+        InstanceStorage::set_reentrancy_guard(&env)?;
         route_creator_payment(
             &env,
             &buyer,
@@ -549,7 +561,7 @@ impl PromptHashTrait for PromptHashContract {
             .checked_add(1)
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_access_pass(&env, &access_pass);
-        Storage::clear_reentrancy_guard(&env);
+        InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_access_pass_purchased(&env, pass_id, buyer, access_pass.creator, expires_at);
         Ok(())
     }
@@ -1138,8 +1150,8 @@ fn route_creator_payment(
 ) -> Result<(), Error> {
     ensure(payment_amount_stroops > 0, Error::InvalidPaymentAmount)?;
 
-    let fee_wallet = Storage::get_fee_wallet(env).ok_or(Error::FeeWalletNotSet)?;
-    let fee_percentage = Storage::get_fee_percentage(env);
+    let fee_wallet = InstanceStorage::get_fee_wallet(env).ok_or(Error::FeeWalletNotSet)?;
+    let fee_percentage = InstanceStorage::get_fee_percentage(env);
     ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
     let fee_amount = payment_amount_stroops
@@ -1226,6 +1238,18 @@ fn validate_no_duplicate_recipients(splits: &Vec<Split>) -> Result<(), Error> {
             let a = splits.get(i).unwrap();
             let b = splits.get(j).unwrap();
             ensure(a.recipient != b.recipient, Error::DuplicateSplitRecipient)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_no_duplicate_prompt_ids(prompt_ids: &Vec<u64>) -> Result<(), Error> {
+    for i in 0..prompt_ids.len() {
+        for j in (i + 1)..prompt_ids.len() {
+            ensure(
+                prompt_ids.get(i).unwrap() != prompt_ids.get(j).unwrap(),
+                Error::DuplicatePromptId,
+            )?;
         }
     }
     Ok(())
