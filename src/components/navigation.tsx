@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
 import { ThemeToggle } from "./ThemeToggle";
 import { SellerNotificationCenter } from "./SellerNotificationCenter";
+import { BuyerNotificationCenter } from "./BuyerNotificationCenter";
 
 const navItems = [
   { to: "/browse", label: "Browse", icon: Search },
@@ -66,6 +67,7 @@ export const Navigation = memo(function Navigation() {
 
         <div className="hidden items-center gap-2 md:flex md:gap-4">
           <ThemeToggle />
+          <BuyerNotificationCenter />
           <SellerNotificationCenter />
           <span data-tour="connect-wallet">
             <DisplayWallet />
@@ -92,6 +94,7 @@ export const Navigation = memo(function Navigation() {
               ))}
               <div className="flex items-center gap-2 border-t border-white/10 pt-4">
                 <ThemeToggle />
+                <BuyerNotificationCenter />
                 <SellerNotificationCenter />
                 <DisplayWallet />
               </div>

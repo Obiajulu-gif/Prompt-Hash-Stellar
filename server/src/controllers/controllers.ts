@@ -9,6 +9,8 @@ import {
   validateListingMetadata,
 } from "../services/listingValidation";
 import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CACHE_KEYS } from "../services/cacheService";
+import { notifyPromptReported } from "../services/emailNotifications";
+import { announceNewPrompt } from "../services/discordNotifications";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -126,6 +128,19 @@ export const CreatePrompt = async (
 
     // Bust every listing cache variant since a new prompt was created
     await cacheDelPattern("prompts:list:*");
+
+    // Announce new prompt to Discord (non-blocking)
+    announceNewPrompt({
+      title: newPrompt.title,
+      price: newPrompt.price,
+      promptId: newPrompt._id.toString(),
+      category: newPrompt.category,
+      description: newPrompt.content,
+      imageUrl: newPrompt.image,
+      creator: walletAddress,
+    }).catch((err) => {
+      console.error("[discord] Failed to announce new prompt:", err);
+    });
 
     // Populate the owner details in the response
     const populatedPrompt = await newPrompt.populate(
@@ -360,6 +375,15 @@ export const SubmitPromptReport = async (
     });
 
     await newReport.save();
+
+    // Send notification to moderation team
+    await notifyPromptReported({
+      reporterWallet: reporterAddress,
+      promptTitle: prompt.title,
+      promptId: prompt._id.toString(),
+      reason,
+      description: description || "",
+    });
 
     return res.status(201).json({
       success: true,
