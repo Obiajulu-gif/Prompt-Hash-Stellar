@@ -12,6 +12,7 @@ import { governanceRouter } from "./routes/governanceRoutes"; // Issue #113
 import searchRouter from "./routes/searchRoutes";
 import { fulfillmentRouter } from "./routes/fulfillmentRoutes";
 import { reviewRouter } from "./routes/reviewRoutes";
+import { notificationRouter } from "./routes/notificationRoutes";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
@@ -56,6 +57,7 @@ app.use("/api/governance", authLimiter, governanceRouter); // Issue #113
 app.use("/api/search", searchRouter);
 app.use("/api/fulfillment", strictLimiter, fulfillmentRouter);
 app.use("/api/reviews", reviewRouter);
+app.use("/api/notifications", authLimiter, notificationRouter);
 
 app.post("/api/test-prompt", strictLimiter, TestPromptProxy);
 
