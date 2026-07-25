@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import Purchase from "../models/Purchase";
 import Prompt from "../models/Prompt";
+import User from "../models/User";
 
 interface PromptLite {
   _id: unknown;
@@ -9,6 +10,10 @@ interface PromptLite {
   title?: string;
   image?: string;
   price?: number;
+}
+
+interface CreatorPromptLite extends PromptLite {
+  salesCount?: number;
 }
 
 /**
@@ -75,6 +80,104 @@ export const GetPurchaseTransactions = async (
     console.error("Get purchase transactions error:", err);
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch purchase transactions",
+    });
+  }
+};
+
+/**
+ * Returns creator sales analytics for the trailing 30-day window.
+ *
+ * The dashboard uses this to render a real sales/revenue trend instead of
+ * synthetic placeholder data. Prompt ownership is resolved from the connected
+ * wallet through the indexed User/Prompt collections, while purchases are
+ * grouped by day from the off-chain Purchase mirror.
+ */
+export const GetCreatorSalesAnalytics = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: "walletAddress is required." });
+    }
+
+    const user = await User.findOne({
+      walletAddress: walletAddress.toLowerCase(),
+    }).select("_id");
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const prompts = (await Prompt.find({ owner: user._id })
+      .select("_id onChainId title price salesCount")
+      .lean()) as unknown as CreatorPromptLite[];
+
+    const now = new Date();
+    const start = new Date(now);
+    start.setUTCHours(0, 0, 0, 0);
+    start.setUTCDate(start.getUTCDate() - 29);
+
+    const dailyEntries = new Map<
+      string,
+      { date: string; unitsSold: number; revenueXlm: number }
+    >();
+
+    for (let index = 0; index < 30; index += 1) {
+      const day = new Date(start);
+      day.setUTCDate(start.getUTCDate() + index);
+      const date = day.toISOString().slice(0, 10);
+      dailyEntries.set(date, {
+        date,
+        unitsSold: 0,
+        revenueXlm: 0,
+      });
+    }
+
+    if (prompts.length === 0) {
+      return res.json({
+        dailySales: [...dailyEntries.values()],
+      });
+    }
+
+    const promptByKey = new Map<string, CreatorPromptLite>();
+    for (const prompt of prompts) {
+      promptByKey.set(String(prompt._id), prompt);
+      if (prompt.onChainId) {
+        promptByKey.set(String(prompt.onChainId), prompt);
+      }
+    }
+
+    const promptIds = [...promptByKey.keys()];
+    const purchases = await Purchase.find({
+      promptId: { $in: promptIds },
+      createdAt: { $gte: start },
+    })
+      .select("promptId createdAt")
+      .lean();
+
+    for (const purchase of purchases) {
+      const prompt = promptByKey.get(String(purchase.promptId));
+      const createdAt = new Date(purchase.createdAt);
+      const date = createdAt.toISOString().slice(0, 10);
+      const bucket = dailyEntries.get(date);
+
+      if (!prompt || !bucket) continue;
+
+      bucket.unitsSold += 1;
+      bucket.revenueXlm += typeof prompt.price === "number" ? prompt.price : 0;
+    }
+
+    return res.json({
+      dailySales: [...dailyEntries.values()],
+    });
+  } catch (err) {
+    console.error("Get creator sales analytics error:", err);
+    return res.status(500).json({
+      error: (err as Error).message || "Failed to fetch creator sales analytics",
     });
   }
 };
