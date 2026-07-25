@@ -3,6 +3,7 @@ import {
   buildChallengeMessage,
   verifyChallengeSignature,
   verifyChallengeToken,
+  globalNonceLedger,
 } from "../../src/lib/auth/challenge";
 import {
   decryptPromptCiphertext,
@@ -226,6 +227,26 @@ async function handler(
         reason: "invalid_signature",
       });
       res.status(401).json(apiError(ErrorCode.INVALID_SIGNATURE, "Invalid wallet signature."));
+      return;
+    }
+
+    // Nonce-based replay protection: ensure this nonce is consumed only once
+    const nonceConsumed = globalNonceLedger.consume(payload.nonce, payload.expiresAt);
+    if (!nonceConsumed) {
+      req.logger.warn({ address, promptId, nonce: payload.nonce }, "Replay attack detected (nonce already consumed)");
+      metrics.trackUnlockFailure(String(address), String(promptId), "replay_detected");
+      void recordAuditEvent({
+        action: "unlock_replay_detected",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "replay_attack",
+      });
+      res.status(400).json(
+        apiError(ErrorCode.TEMPORARY_FAILURE, "This unlock request has already been processed."),
+      );
       return;
     }
 

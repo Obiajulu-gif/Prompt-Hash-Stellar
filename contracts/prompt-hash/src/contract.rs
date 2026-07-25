@@ -2,7 +2,8 @@ use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
     AccessPass, Bundle, CatalogPassPurchase, DataKey, DisputeReason, DisputeStatus, Error,
-    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PurchaseDispute, Split,
+    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PurchaseDispute, PurchaseEscrow,
+    SettlementStatus, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
@@ -1113,6 +1114,19 @@ fn execute_buy(
         payment_amount_stroops,
         MAX_ACCESS_EXPIRY,
     );
+
+    // Track settlement for atomic refunds (#420)
+    let now = env.ledger().timestamp();
+    let escrow = PurchaseEscrow {
+        prompt_id,
+        buyer: buyer.clone(),
+        amount: payment_amount_stroops,
+        status: SettlementStatus::Settled,
+        created_at: now,
+        settled_at: now,
+    };
+    Storage::save_purchase_escrow(env, &escrow);
+
     InstanceStorage::clear_reentrancy_guard(env);
 
     Events::emit_prompt_purchased(

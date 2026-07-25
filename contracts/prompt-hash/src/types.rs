@@ -73,6 +73,7 @@ pub enum DataKey {
     CreatorPrompts(Address),
     BuyerPrompts(Address),
     Purchase(u64, Address),
+    PurchaseEscrow(u64, Address), // Settlement tracking for refunds (#420)
     VoucherKey(u64, BytesN<32>),
     /// Snapshot of a listing taken before a revision (#226).
     /// Key: (prompt_id, revision_number_before_change)
@@ -101,6 +102,25 @@ pub enum DisputeReason {
     InvalidEncryptedPayload,
     MissingMetadata,
     FailedIntegrityVerification,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettlementStatus {
+    Pending,   // Purchase received, awaiting settlement
+    Settled,   // Payment distributed successfully
+    Refunded,  // Purchase refunded atomically
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseEscrow {
+    pub prompt_id: u64,
+    pub buyer: Address,
+    pub amount: i128,
+    pub status: SettlementStatus,
+    pub created_at: u64,
+    pub settled_at: u64, // 0 if not yet settled
 }
 
 #[contracttype]
