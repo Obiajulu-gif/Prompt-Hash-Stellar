@@ -1,6 +1,6 @@
 use super::types::{
     AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
-    ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
+    ListingRevisionRecord, Prompt, Purchase, PurchaseDispute, PurchaseEscrow,
 };
 use soroban_sdk::{token, Address, BytesN, Env, Vec};
 
@@ -327,6 +327,29 @@ impl Storage {
         env.storage().persistent().set(&key, &purchase);
         Self::extend_key_ttl(env, &key);
         Self::add_prompt_to_buyer(env, buyer, prompt.id);
+    }
+
+    // ─── Purchase Escrow (Settlement Tracking) ──────────────────────────────────
+    // Tracks purchase state for atomic refunds and dispute resolution (#420)
+
+    pub fn save_purchase_escrow(env: &Env, escrow: &PurchaseEscrow) {
+        let key = DataKey::PurchaseEscrow(escrow.prompt_id, escrow.buyer.clone());
+        env.storage().persistent().set(&key, escrow);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) -> Option<PurchaseEscrow> {
+        let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
+        let escrow = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        escrow
+    }
+
+    pub fn remove_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) {
+        let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
+        env.storage().persistent().remove(&key);
     }
 
     pub fn save_bundle(env: &Env, bundle: &Bundle) -> Result<(), Error> {

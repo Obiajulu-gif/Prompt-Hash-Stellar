@@ -81,12 +81,24 @@ export async function startIndexer(): Promise<void> {
         filters: [{ type: "contract", contractIds: [contractId] }],
       });
 
+      let lastFinalizedLedger = state.lastFinalizedLedger || 0;
+
       for (const event of response.events) {
+        // Skip provisional events — only process finalized transactions
+        if (event.inSuccessfulContractInvocation === false) {
+          console.log(`[indexer] Skipping provisional event from ledger ${event.ledger}`);
+          continue;
+        }
         await processEvent(event);
+        lastFinalizedLedger = Math.max(lastFinalizedLedger, event.ledger || 0);
       }
 
-      // Update the cursor to the last processed ledger.
+      // Update cursors: track both indexed and finalized ledgers separately
+      // for fork recovery and ensuring only finalized events are processed
       state.lastIndexedLedger = latestLedger.sequence;
+      if (lastFinalizedLedger > 0) {
+        state.lastFinalizedLedger = lastFinalizedLedger;
+      }
       await state.save();
     } catch (err) {
       console.error("Indexer Error:", err);

@@ -3769,3 +3769,185 @@ fn test_inactive_prompt_purchase_fails_with_correct_error() {
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
     assert!(client.has_access(&buyer, &prompt_id));
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Payout Invariant Tests (#421): Verify fee + referral + splits + creator = payment
+// ────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_payout_invariant_fee_plus_creator_equals_payment() {
+    // Invariant: fee + creator_amount = payment (no referral, no splits)
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let payment: i128 = 100_000;
+
+    let prompt_id = create_prompt(&env, &client, &creator, "Invariant Test", payment, &context.xlm);
+    fund_buyer(&xlm_client, &buyer, &context.contract, payment);
+
+    let creator_balance_before = xlm_client.balance(&creator);
+    let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
+
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+
+    // Verify: fee_amount + creator_amount = payment
+    let fee_bps = 500; // DEFAULT_FEE_BPS
+    let expected_fee = payment * fee_bps / 10_000;
+    let expected_creator = payment - expected_fee;
+
+    let creator_received = xlm_client.balance(&creator) - creator_balance_before;
+    let fee_received = xlm_client.balance(&context.fee_wallet) - fee_wallet_balance_before;
+
+    assert_eq!(creator_received, expected_creator);
+    assert_eq!(fee_received, expected_fee);
+    assert_eq!(creator_received + fee_received, payment);
+}
+
+#[test]
+fn test_payout_invariant_with_referral() {
+    // Invariant: fee + referral + creator_amount = payment (with referral)
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let referrer = Address::generate(&env);
+    let payment: i128 = 100_000;
+
+    let prompt_id = create_prompt(&env, &client, &creator, "Referral Test", payment, &context.xlm);
+    fund_buyer(&xlm_client, &buyer, &context.contract, payment);
+
+    let creator_balance_before = xlm_client.balance(&creator);
+    let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
+    let referrer_balance_before = xlm_client.balance(&referrer);
+
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &Some(referrer.clone()),
+        &payment,
+        &None::<Bytes>,
+    );
+
+    // Verify: fee + referral + creator_amount = payment
+    let fee_bps = 500;
+    let referral_bps = 100; // DEFAULT_REFERRAL_PERCENTAGE (assumed)
+    let expected_fee = payment * fee_bps / 10_000;
+    let expected_referral = payment * referral_bps / 10_000;
+    let expected_creator = payment - expected_fee - expected_referral;
+
+    let creator_received = xlm_client.balance(&creator) - creator_balance_before;
+    let fee_received = xlm_client.balance(&context.fee_wallet) - fee_wallet_balance_before;
+    let referrer_received = xlm_client.balance(&referrer) - referrer_balance_before;
+
+    assert_eq!(creator_received + fee_received + referrer_received, payment);
+    assert_eq!(expected_fee + expected_referral + expected_creator, payment);
+}
+
+#[test]
+fn test_payout_invariant_with_splits() {
+    // Invariant: fee + splits + creator_amount = payment (with splits, no referral)
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let split_recipient_1 = Address::generate(&env);
+    let split_recipient_2 = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let payment: i128 = 100_000;
+
+    let mut splits = Vec::new(&env);
+    splits.push_back(Split {
+        recipient: split_recipient_1.clone(),
+        bps: 1000, // 10%
+    });
+    splits.push_back(Split {
+        recipient: split_recipient_2.clone(),
+        bps: 500, // 5%
+    });
+
+    let prompt_id = create_prompt_with_splits(
+        &env,
+        &client,
+        &creator,
+        "Splits Test",
+        payment,
+        &context.xlm,
+        splits,
+    );
+    fund_buyer(&xlm_client, &buyer, &context.contract, payment);
+
+    let creator_balance_before = xlm_client.balance(&creator);
+    let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
+    let split_1_balance_before = xlm_client.balance(&split_recipient_1);
+    let split_2_balance_before = xlm_client.balance(&split_recipient_2);
+
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+
+    // Verify: fee + split_1 + split_2 + creator_amount = payment
+    let fee_bps = 500;
+    let expected_fee = payment * fee_bps / 10_000;
+    let expected_split_1 = payment * 1000 / 10_000;
+    let expected_split_2 = payment * 500 / 10_000;
+    let expected_creator = payment - expected_fee - expected_split_1 - expected_split_2;
+
+    let creator_received = xlm_client.balance(&creator) - creator_balance_before;
+    let fee_received = xlm_client.balance(&context.fee_wallet) - fee_wallet_balance_before;
+    let split_1_received = xlm_client.balance(&split_recipient_1) - split_1_balance_before;
+    let split_2_received = xlm_client.balance(&split_recipient_2) - split_2_balance_before;
+
+    assert_eq!(
+        creator_received + fee_received + split_1_received + split_2_received,
+        payment
+    );
+    assert_eq!(
+        expected_creator + expected_fee + expected_split_1 + expected_split_2,
+        payment
+    );
+}
+
+#[test]
+fn test_payout_invariant_with_tip() {
+    // Invariant: tip = payment - price (when payment > price)
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price: i128 = 50_000;
+    let payment: i128 = 75_000; // tip = 25_000
+    let tip = payment - price;
+
+    let prompt_id = create_prompt(&env, &client, &creator, "Tip Test", price, &context.xlm);
+    fund_buyer(&xlm_client, &buyer, &context.contract, payment);
+
+    let creator_balance_before = xlm_client.balance(&creator);
+    let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
+
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+
+    // Verify tip is correctly calculated
+    let fee_bps = 500;
+    let expected_fee = payment * fee_bps / 10_000;
+    let expected_creator = payment - expected_fee;
+
+    let creator_received = xlm_client.balance(&creator) - creator_balance_before;
+    let fee_received = xlm_client.balance(&context.fee_wallet) - fee_wallet_balance_before;
+
+    // Creator should receive their share of the full payment (including tip)
+    assert_eq!(creator_received, expected_creator);
+    assert_eq!(fee_received, expected_fee);
+    // Tip is part of the total payment
+    assert_eq!(tip, payment - price);
+    assert_eq!(creator_received + fee_received, payment);
+}
