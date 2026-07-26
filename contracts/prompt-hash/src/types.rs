@@ -121,6 +121,11 @@ pub struct PurchaseEscrow {
     pub status: SettlementStatus,
     pub created_at: u64,
     pub settled_at: u64, // 0 if not yet settled
+    pub asset: Address,
+    pub referrer: Option<Address>,
+    pub creator_amount: i128,
+    pub fee_amount: i128,
+    pub referral_amount: i128,
 }
 
 #[contracttype]
@@ -454,6 +459,17 @@ pub trait PromptHashTrait {
         refund: bool,
     ) -> Result<(), Error>;
     fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error>;
+    fn settle_purchase(
+        env: Env,
+        caller: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error>;
+    fn get_purchase_escrow(
+        env: Env,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Option<PurchaseEscrow>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;

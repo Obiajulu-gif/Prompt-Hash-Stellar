@@ -275,6 +275,20 @@ impl PromptHashTrait for PromptHashContract {
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, &prompt, &buyer, lease_price, expires_at);
+        let escrow = PurchaseEscrow {
+            prompt_id,
+            buyer: buyer.clone(),
+            amount: lease_price,
+            asset: prompt.asset.clone(),
+            referrer: None,
+            status: SettlementStatus::Settled,
+            created_at: now,
+            settled_at: now,
+            creator_amount: seller_amount,
+            fee_amount,
+            referral_amount: 0,
+        };
+        Storage::save_purchase_escrow(&env, &escrow);
         InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, lease_price, None);
         Ok(())
@@ -441,15 +455,40 @@ impl PromptHashTrait for PromptHashContract {
             payment_amount_stroops,
         )?;
 
+        let purchased_count = prompts.len() as u128;
+        let per_prompt_price = if purchased_count > 0 {
+            payment_amount_stroops
+                .checked_div(purchased_count as i128)
+                .ok_or(Error::InvalidPaymentAmount)?
+        } else {
+            0i128
+        };
+
         for index in 0..prompts.len() {
             let prompt = prompts.get(index).unwrap();
             if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
+                for split_idx in 0..prompt.splits.len() {
+                    let split = prompt.splits.get(split_idx).unwrap();
+                    let split_amount = per_prompt_price
+                        .checked_mul(split.bps as i128)
+                        .ok_or(Error::ArithmeticOverflow)?
+                        / MAX_BPS as i128;
+                    if split_amount > 0 {
+                        let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
+                        asset_client.transfer_from(
+                            &env.current_contract_address(),
+                            &buyer,
+                            &split.recipient,
+                            &split_amount,
+                        );
+                    }
+                }
                 Storage::update_prompt(&env, &prompt);
                 Storage::grant_purchase(
                     &env,
                     &prompt,
                     &buyer,
-                    payment_amount_stroops,
+                    per_prompt_price,
                     MAX_ACCESS_EXPIRY,
                 );
             }
@@ -802,14 +841,27 @@ impl PromptHashTrait for PromptHashContract {
         dispute.resolved_at = env.ledger().timestamp();
         if refund {
             let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
+            // Refund from the contract's escrowed balance (#454).  The
+            // funds were routed to the contract during purchase so that
+            // a refund is always possible without additional auth.
             asset_client.transfer(
                 &env.current_contract_address(),
                 &buyer,
                 &purchase.original_price,
             );
+
+            // Mark the purchase as revoked so the buyer can no longer claim access.
             Storage::remove_purchase(&env, prompt_id, &buyer);
             Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
             dispute.status = DisputeStatus::Refunded;
+
+            // Update the escrow record so the settlement admin knows
+            // the funds were already returned to the buyer.
+            if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                escrow.status = SettlementStatus::Refunded;
+                escrow.settled_at = env.ledger().timestamp();
+                Storage::save_purchase_escrow(&env, &escrow);
+            }
         } else {
             dispute.status = DisputeStatus::Rejected;
         }
@@ -818,8 +870,86 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    /// Release escrowed funds after the dispute window closes (#454).
+    /// The contract owner (admin) or the prompt creator can settle.
+    /// This distributes the held payment to the fee wallet, referrer,
+    /// split recipients, and creator.
+    fn settle_purchase(
+        env: Env,
+        caller: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(
+            caller == owner || caller == prompt.creator,
+            Error::Unauthorized,
+        )?;
+
+        let mut escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
+        ensure(escrow.status == SettlementStatus::Pending, Error::DisputeResolved)?;
+
+        let now = env.ledger().timestamp();
+        let this_contract = env.current_contract_address();
+        let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
+        let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+
+        // Distribute fee
+        if escrow.fee_amount > 0 {
+            asset_client.transfer(&this_contract, &fee_wallet, &escrow.fee_amount);
+        }
+
+        // Distribute referral
+        if let Some(ref r) = escrow.referrer {
+            if escrow.referral_amount > 0 {
+                asset_client.transfer(&this_contract, r, &escrow.referral_amount);
+            }
+        }
+
+        // Distribute splits (recalculated from current prompt splits)
+        for i in 0..prompt.splits.len() {
+            let split = prompt.splits.get(i).unwrap();
+            let split_amount = escrow
+                .amount
+                .checked_mul(split.bps as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            if split_amount > 0 {
+                asset_client.transfer(&this_contract, &split.recipient, &split_amount);
+            }
+        }
+
+        // Transfer the creator's escrowed share
+        if escrow.creator_amount > 0 {
+            asset_client.transfer(&this_contract, &prompt.creator, &escrow.creator_amount);
+        }
+
+        escrow.status = SettlementStatus::Settled;
+        escrow.settled_at = now;
+        Storage::save_purchase_escrow(&env, &escrow);
+        Events::emit_prompt_purchased(
+            &env,
+            prompt_id,
+            buyer,
+            prompt.creator,
+            escrow.amount,
+            escrow.referrer,
+        );
+        Ok(())
+    }
+
     fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error> {
         Storage::require_dispute(&env, prompt_id, &buyer)
+    }
+
+    fn get_purchase_escrow(
+        env: Env,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Option<PurchaseEscrow> {
+        Storage::get_purchase_escrow(&env, prompt_id, &buyer)
     }
 
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
@@ -1030,7 +1160,6 @@ fn execute_buy(
 
     InstanceStorage::set_reentrancy_guard(env)?;
 
-    let fee_wallet = InstanceStorage::get_fee_wallet(env).ok_or(Error::FeeWalletNotSet)?;
     let this_contract = env.current_contract_address();
 
     let fee_percentage = InstanceStorage::get_fee_percentage(env);
@@ -1078,31 +1207,20 @@ fn execute_buy(
 
     let asset_client = token::StellarAssetClient::new(env, &prompt.asset);
 
-    if creator_amount > 0 {
-        asset_client.transfer_from(&this_contract, buyer, &prompt.creator, &creator_amount);
-    }
+    // Route the full payment through the contract so it holds
+    // escrow for dispute refunds (#454).  The buyer must have
+    // approved the contract for at least `payment_amount_stroops`.
+    asset_client.transfer_from(
+        &this_contract,
+        buyer,
+        &this_contract,
+        &payment_amount_stroops,
+    );
 
-    if fee_amount > 0 {
-        asset_client.transfer_from(&this_contract, buyer, &fee_wallet, &fee_amount);
-    }
-
-    if let Some(ref r) = referrer {
-        if referral_amount > 0 {
-            asset_client.transfer_from(&this_contract, buyer, r, &referral_amount);
-        }
-    }
-
-    for i in 0..prompt.splits.len() {
-        let split = prompt.splits.get(i).unwrap();
-        let split_amount = payment_amount_stroops
-            .checked_mul(split.bps as i128)
-            .ok_or(Error::ArithmeticOverflow)?
-            / MAX_BPS as i128;
-        if split_amount > 0 {
-            asset_client.transfer_from(&this_contract, buyer, &split.recipient, &split_amount);
-        }
-    }
-
+    // All funds are held in the contract.  No distribution occurs
+    // here — `settle_purchase` (admin) releases them to the creator,
+    // fee wallet, referrer, and split recipients, or a dispute
+    // refund returns them to the buyer.
     prompt.sales_count = prompt
         .sales_count
         .checked_add(1)
@@ -1116,15 +1234,21 @@ fn execute_buy(
         MAX_ACCESS_EXPIRY,
     );
 
-    // Track settlement for atomic refunds (#420)
+    // Escrow is created as Pending — the creator's share is held in
+    // the contract until `settle_purchase` is called (#454).
     let now = env.ledger().timestamp();
     let escrow = PurchaseEscrow {
         prompt_id,
         buyer: buyer.clone(),
         amount: payment_amount_stroops,
-        status: SettlementStatus::Settled,
+        asset: prompt.asset.clone(),
+        referrer: referrer.clone(),
+        status: SettlementStatus::Pending,
         created_at: now,
-        settled_at: now,
+        settled_at: 0,
+        creator_amount,
+        fee_amount,
+        referral_amount,
     };
     Storage::save_purchase_escrow(env, &escrow);
 
