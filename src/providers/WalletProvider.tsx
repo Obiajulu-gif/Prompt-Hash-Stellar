@@ -12,6 +12,8 @@ import { stellarWalletNetwork } from "../lib/env";
 import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { classifyWalletError } from "../lib/wallet/walletErrors";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearWalletCache } from "../hooks/useWalletAccountChange";
 
 export type WalletStatus = 
   | "idle" 
@@ -66,6 +68,8 @@ export const WalletContext = createContext<WalletContextType | undefined>(undefi
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
   const isConnectingRef = useRef(false);
+  const queryClient = useQueryClient();
+  const previousAddressRef = useRef<string | undefined>(state.address);
 
   const { execute: executeDisconnect } = useAsyncTransaction(
     async () => {
@@ -87,6 +91,15 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const disconnect = useCallback(async () => {
     await executeDisconnect().catch(console.error);
   }, [executeDisconnect]);
+
+  // Clear wallet-scoped cache when account changes
+  useEffect(() => {
+    if (state.address && previousAddressRef.current && state.address !== previousAddressRef.current) {
+      // Account has switched - clear all wallet-scoped cache
+      clearWalletCache(queryClient);
+    }
+    previousAddressRef.current = state.address;
+  }, [state.address, queryClient]);
 
   // Helper to safely get network info (handles Albedo's lack of getNetwork support)
   const getSafeNetworkInfo = useCallback(async (walletId: string) => {
