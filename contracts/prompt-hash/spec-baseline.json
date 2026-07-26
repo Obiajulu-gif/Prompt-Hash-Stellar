@@ -191,7 +191,8 @@
       "pub bundle_id: u128",
       "pub buyer: Address",
       "pub creator: Address",
-      "pub price_stroops: i128"
+      "pub price_stroops: i128",
+      "pub prompt_ids: soroban_sdk::Vec<u64>"
     ],
     "ContractPausedStateChanged": [
       "pub is_paused: bool"
@@ -233,7 +234,7 @@
       "pub admin: Address"
     ],
     "PromptAdminModerated": [
-      "pub prompt_id: u128",
+      "pub prompt_id: u64",
       "pub admin: Address",
       "pub active: bool"
     ],

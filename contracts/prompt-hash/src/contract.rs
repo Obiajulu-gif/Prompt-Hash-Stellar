@@ -468,6 +468,7 @@ impl PromptHashTrait for PromptHashContract {
             buyer,
             bundle.creator,
             payment_amount_stroops,
+            bundle.prompt_ids,
         );
         Ok(())
     }

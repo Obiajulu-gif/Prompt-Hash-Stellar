@@ -151,6 +151,12 @@ struct BundlePurchased {
     pub buyer: Address,
     pub creator: Address,
     pub price_stroops: i128,
+    /// Snapshot of the prompt IDs this purchase actually granted access to,
+    /// as of purchase time (issue #425). The bundle's `prompt_ids` field
+    /// could differ later, so consumers should rely on this event field —
+    /// not a live read of the bundle — to reconstruct what a given
+    /// purchase covered.
+    pub prompt_ids: soroban_sdk::Vec<u64>,
 }
 
 #[contractevent]
@@ -349,12 +355,14 @@ impl Events {
         buyer: Address,
         creator: Address,
         price_stroops: i128,
+        prompt_ids: soroban_sdk::Vec<u64>,
     ) {
         BundlePurchased {
             bundle_id,
             buyer,
             creator,
             price_stroops,
+            prompt_ids,
         }
         .publish(env);
     }
