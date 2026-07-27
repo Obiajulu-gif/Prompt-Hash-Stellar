@@ -14,6 +14,7 @@ import {
 import {
   GetCreatorSalesAnalytics,
   GetPurchaseTransactions,
+  GetCreatorPayoutStatement,
 } from "../controllers/purchaseControllers";
 
 export const promptRouter = express.Router();
@@ -44,6 +45,7 @@ promptRouter.get("/buyer/:walletAddress/owned", GetOwnedPrompts);
 promptRouter.get("/buyer/:walletAddress/saved", GetSavedPrompts);
 promptRouter.get("/buyer/:walletAddress/transactions", GetPurchaseTransactions);
 promptRouter.get("/creator/:walletAddress/analytics", GetCreatorSalesAnalytics);
+promptRouter.get("/creator/:walletAddress/payout-statement", GetCreatorPayoutStatement);
 promptRouter.post("/buyer/save", SavePrompt);
 promptRouter.post("/buyer/unsave", UnsavePrompt);
 promptRouter.get("/creator/:walletAddress/drafts", GetDraftPrompts);

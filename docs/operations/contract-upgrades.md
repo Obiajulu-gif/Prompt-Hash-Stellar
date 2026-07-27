@@ -100,3 +100,13 @@ python3 scripts/preflight_upgrade.py generate-baseline
   preflight gate re-validates the new version before it ships.
 - Exercise both paths on `testnet` first; `scripts/verify.sh` confirms the
   contract is responsive and correctly configured after either action.
+
+## Contract Event Versioning & Indexer Compatibility (#461)
+
+When upgrading smart contract logic that alters event payload shapes or emits new events:
+
+1. **Schema Versioning**: Every indexed contract event has a documented schema version (`v1`, `v2`) in `packages/sdk/src/events/schema.ts`.
+2. **Version Detection**: Upgraded contract events include an explicit `version` field (e.g. `version: u32`). The SDK `decodeEvent` function automatically inspects the event's `version` field (or defaults to `1` for legacy events) to select the correct field decoder.
+3. **Indexer Safety**: The indexer service (`server/src/services/indexer.ts`) routes all events through `decodeEvent`. Unrecognized event types or unsupported version payloads log an unrecognized warning and safely skip execution without crashing the indexing loop.
+4. **Testing Requirements**: Any contract upgrade introducing new or version-bumped events must include golden fixtures in `packages/sdk/src/events/fixtures.ts` and pass mixed-version stream tests in `decode.test.ts`.
+

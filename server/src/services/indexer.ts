@@ -5,6 +5,7 @@ import Purchase from "../models/Purchase";
 import { IndexerState } from "../models/IndexerState";
 import { scanForSimilarity } from "./similarityDetection";
 import { dispatchEvent } from "./webhookDispatcher";
+import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -112,11 +113,20 @@ export async function startIndexer(): Promise<void> {
  */
 async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
   // Decode the topic and value from XDR to native JS types.
-  const topic = scValToNative(event.topic[0]);
-  const data = scValToNative(event.value);
+  const rawTopic = scValToNative(event.topic[0]);
+  const rawData = scValToNative(event.value);
   const txHash = event.txHash;
 
-  console.log(`Processing Event: ${topic}`, data);
+  const decoded = decodeEvent(String(rawTopic), rawData);
+  if (!decoded.recognized) {
+    console.log(`[indexer] Unrecognized event: ${rawTopic} (reason: ${decoded.reason})`, rawData);
+    return;
+  }
+
+  const topic = decoded.type;
+  const data = decoded.data as Record<string, any>;
+
+  console.log(`Processing Event: ${topic} (v${decoded.version})`, data);
 
   switch (topic) {
     case "PromptCreated": {
