@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
+import "./i18n"; // initialise i18n catalogue before rendering
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 

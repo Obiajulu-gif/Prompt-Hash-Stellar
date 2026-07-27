@@ -5,24 +5,20 @@ import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
 import { ThemeToggle } from "./ThemeToggle";
 import { SellerNotificationCenter } from "./SellerNotificationCenter";
-
-const navItems = [
-  { to: "/browse", label: "Browse", icon: Search },
-  { to: "/sell", label: "Sell", icon: ShoppingBag },
-  { to: "/chat", label: "Chat", icon: MessageCircle },
-  { to: "/profile", label: "Profile", icon: User },
-  { to: "/status", label: "Status", icon: Activity },
-];
-
-const linkClasses = ({ isActive }: { isActive: boolean }) =>
-  [
-    "flex items-center gap-2 rounded-full px-3 py-2 text-sm transition-colors",
-    isActive
-      ? "bg-white/10 text-white"
-      : "text-slate-300 hover:bg-white/5 hover:text-white",
-  ].join(" ");
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useTranslation } from 'react-i18next';
 
 export function Navigation() {
+  const { t } = useTranslation();
+
+  const navItems = [
+    { to: "/browse", label: t('nav.browse'), icon: Search },
+    { to: "/sell", label: t('nav.sell'), icon: ShoppingBag },
+    { to: "/chat", label: t('nav.chat'), icon: MessageCircle },
+    { to: "/profile", label: t('nav.profile'), icon: User },
+    { to: "/status", label: t('nav.status'), icon: Activity },
+  ];
+
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -55,6 +51,7 @@ export function Navigation() {
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
+          <LanguageSwitcher />
           <ThemeToggle />
           <SellerNotificationCenter />
           <DisplayWallet />
