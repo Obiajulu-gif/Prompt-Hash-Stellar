@@ -10632,12 +10632,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lucide-react@npm:^1.8.0":
-  version: 1.21.0
-  resolution: "lucide-react@npm:1.21.0"
+"lucide-react@npm:^1.27.0":
+  version: 1.27.0
+  resolution: "lucide-react@npm:1.27.0"
   peerDependencies:
     react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/55f914e3bc06425064efb4d4d77031c2565294910c362ffd1f5b2eaabd8ee31d682b5749dde5e1d3071ecbf625bbce0d810d1a271a27ecc60b50e908a4f6133d
+  checksum: 10c0/18b078fed81124ee3535350c8aa1718945c94fe87d7f76c815cb49bdf39ed49f6fa53fb9b3aa56653dc8ca3523ea91c76cf3040dfb8b3497b1e6356b29f3e5c9
   languageName: node
   linkType: hard
 
@@ -12360,7 +12360,7 @@ __metadata:
     jsdom: "npm:^29.0.2"
     libsodium-wrappers: "npm:^0.8.4"
     lint-staged: "npm:^16.4.0"
-    lucide-react: "npm:^1.8.0"
+    lucide-react: "npm:^1.27.0"
     mongoose: "npm:^9.7.3"
     node-mock-http: "npm:^1.0.4"
     postcss: "npm:^8.5.10"
