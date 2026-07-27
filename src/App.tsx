@@ -19,8 +19,11 @@ const PromptDetailPage = lazy(
 );
 const AdminReportsPage = lazy(() => import("./pages/admin/Reports.tsx"));
 
+import { OfflineBanner } from "./components/OfflineBanner";
+
 const AppLayout = () => (
-  <main className="min-h-screen bg-background text-foreground">
+  <main className="min-h-screen bg-slate-950 text-white">
+    <OfflineBanner />
     <Outlet />
   </main>
 );
