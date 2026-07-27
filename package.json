@@ -23,7 +23,8 @@
     "lint": "eslint .",
     "format": "prettier . --write",
     "prepare": "husky",
-    "check:setup": "node scripts/check-local-setup.mjs"
+    "check:setup": "node scripts/check-local-setup.mjs",
+    "seed:preview": "node server/scripts/seedPreview.mjs"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
