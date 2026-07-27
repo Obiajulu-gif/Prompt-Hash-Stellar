@@ -20,6 +20,27 @@ const promptSchema = new mongoose.Schema(
       trim: true,
       minLength: 10,
     },
+    // Off-chain rich metadata (#333)
+    description: {
+      type: String,
+      trim: true,
+      maxLength: 4000,
+      default: "",
+    },
+    tags: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (v) => v.length <= 10,
+        message: "A prompt may have at most 10 tags",
+      },
+    },
+    // References the on-chain listing so the two data stores stay in sync
+    onChainReference: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     rating: {
       type: Number,
       default: 1,
@@ -101,6 +122,21 @@ const promptSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+    previewCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    currentRevision: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    revisionNotes: {
+      type: String,
+      default: "",
+      trim: true,
     },
   },
   {

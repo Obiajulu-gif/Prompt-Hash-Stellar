@@ -3,7 +3,7 @@ use soroban_sdk::{contractevent, Address, Env};
 #[contractevent]
 struct PromptCreated {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub creator: Address,
     pub price_stroops: i128,
     pub asset: Address,
@@ -12,21 +12,29 @@ struct PromptCreated {
 #[contractevent]
 struct PromptSaleStatusUpdated {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
+    pub active: bool,
+}
+
+#[contractevent]
+struct PromptAdminModerated {
+    #[topic]
+    pub prompt_id: u64,
+    pub admin: Address,
     pub active: bool,
 }
 
 #[contractevent]
 struct PromptPriceUpdated {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub price_stroops: i128,
 }
 
 #[contractevent]
 struct PromptPurchased {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub buyer: Address,
     pub creator: Address,
     pub price_stroops: i128,
@@ -36,7 +44,7 @@ struct PromptPurchased {
 #[contractevent]
 struct LicenseTransferred {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub seller: Address,
     pub buyer: Address,
     pub creator: Address,
@@ -47,7 +55,7 @@ struct LicenseTransferred {
 #[contractevent]
 struct PromptTipped {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub buyer: Address,
     pub amount_tipped: i128,
 }
@@ -55,7 +63,7 @@ struct PromptTipped {
 #[contractevent]
 struct VoucherAdded {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub hashed_code: soroban_sdk::BytesN<32>,
     pub discount_bps: u32,
 }
@@ -63,7 +71,7 @@ struct VoucherAdded {
 #[contractevent]
 struct VoucherRemoved {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub hashed_code: soroban_sdk::BytesN<32>,
 }
 
@@ -94,7 +102,7 @@ struct PlatformFeeUpdated {
 #[contractevent]
 struct ListingExtended {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub new_expires_at: u64,
 }
 
@@ -102,7 +110,7 @@ struct ListingExtended {
 #[contractevent]
 struct ListingRevised {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub new_revision: u32,
 }
 
@@ -110,22 +118,63 @@ struct ListingRevised {
 #[contractevent]
 struct SplitsUpdated {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
 }
 
 #[contractevent]
 struct DisputeOpened {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub buyer: Address,
 }
 
 #[contractevent]
 struct DisputeResolved {
     #[topic]
-    pub prompt_id: u128,
+    pub prompt_id: u64,
     pub buyer: Address,
     pub refunded: bool,
+}
+
+#[contractevent]
+struct BundleCreated {
+    #[topic]
+    pub bundle_id: u128,
+    pub creator: Address,
+    pub price_stroops: i128,
+}
+
+#[contractevent]
+struct BundlePurchased {
+    #[topic]
+    pub bundle_id: u128,
+    pub buyer: Address,
+    pub creator: Address,
+    pub price_stroops: i128,
+    /// Snapshot of the prompt IDs this purchase actually granted access to,
+    /// as of purchase time (issue #425). The bundle's `prompt_ids` field
+    /// could differ later, so consumers should rely on this event field —
+    /// not a live read of the bundle — to reconstruct what a given
+    /// purchase covered.
+    pub prompt_ids: soroban_sdk::Vec<u64>,
+}
+
+#[contractevent]
+struct AccessPassCreated {
+    #[topic]
+    pub pass_id: u128,
+    pub creator: Address,
+    pub duration_secs: u64,
+    pub price_stroops: i128,
+}
+
+#[contractevent]
+struct AccessPassPurchased {
+    #[topic]
+    pub pass_id: u128,
+    pub buyer: Address,
+    pub creator: Address,
+    pub expires_at: u64,
 }
 
 pub struct Events;
@@ -133,7 +182,7 @@ pub struct Events;
 impl Events {
     pub fn emit_prompt_created(
         env: &Env,
-        prompt_id: u128,
+        prompt_id: u64,
         creator: Address,
         price_stroops: i128,
         asset: Address,
@@ -147,11 +196,20 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u128, active: bool) {
+    pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u64, active: bool) {
         PromptSaleStatusUpdated { prompt_id, active }.publish(env);
     }
 
-    pub fn emit_prompt_price_updated(env: &Env, prompt_id: u128, price_stroops: i128) {
+    pub fn emit_prompt_admin_moderated(env: &Env, prompt_id: u64, admin: Address, active: bool) {
+        PromptAdminModerated {
+            prompt_id,
+            admin,
+            active,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_prompt_price_updated(env: &Env, prompt_id: u64, price_stroops: i128) {
         PromptPriceUpdated {
             prompt_id,
             price_stroops,
@@ -161,7 +219,7 @@ impl Events {
 
     pub fn emit_prompt_purchased(
         env: &Env,
-        prompt_id: u128,
+        prompt_id: u64,
         buyer: Address,
         creator: Address,
         price_stroops: i128,
@@ -179,7 +237,7 @@ impl Events {
 
     pub fn emit_license_transferred(
         env: &Env,
-        prompt_id: u128,
+        prompt_id: u64,
         seller: Address,
         buyer: Address,
         creator: Address,
@@ -197,7 +255,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_prompt_tipped(env: &Env, prompt_id: u128, buyer: Address, amount_tipped: i128) {
+    pub fn emit_prompt_tipped(env: &Env, prompt_id: u64, buyer: Address, amount_tipped: i128) {
         PromptTipped {
             prompt_id,
             buyer,
@@ -208,7 +266,7 @@ impl Events {
 
     pub fn emit_voucher_added(
         env: &Env,
-        prompt_id: u128,
+        prompt_id: u64,
         hashed_code: soroban_sdk::BytesN<32>,
         discount_bps: u32,
     ) {
@@ -220,7 +278,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_voucher_removed(env: &Env, prompt_id: u128, hashed_code: soroban_sdk::BytesN<32>) {
+    pub fn emit_voucher_removed(env: &Env, prompt_id: u64, hashed_code: soroban_sdk::BytesN<32>) {
         VoucherRemoved {
             prompt_id,
             hashed_code,
@@ -249,7 +307,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_listing_extended(env: &Env, prompt_id: u128, new_expires_at: u64) {
+    pub fn emit_listing_extended(env: &Env, prompt_id: u64, new_expires_at: u64) {
         ListingExtended {
             prompt_id,
             new_expires_at,
@@ -257,7 +315,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_listing_revised(env: &Env, prompt_id: u128, new_revision: u32) {
+    pub fn emit_listing_revised(env: &Env, prompt_id: u64, new_revision: u32) {
         ListingRevised {
             prompt_id,
             new_revision,
@@ -265,19 +323,78 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_splits_updated(env: &Env, prompt_id: u128) {
+    pub fn emit_splits_updated(env: &Env, prompt_id: u64) {
         SplitsUpdated { prompt_id }.publish(env);
     }
 
-    pub fn emit_dispute_opened(env: &Env, prompt_id: u128, buyer: Address) {
+    pub fn emit_dispute_opened(env: &Env, prompt_id: u64, buyer: Address) {
         DisputeOpened { prompt_id, buyer }.publish(env);
     }
 
-    pub fn emit_dispute_resolved(env: &Env, prompt_id: u128, buyer: Address, refunded: bool) {
+    pub fn emit_dispute_resolved(env: &Env, prompt_id: u64, buyer: Address, refunded: bool) {
         DisputeResolved {
             prompt_id,
             buyer,
             refunded,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_bundle_created(env: &Env, bundle_id: u128, creator: Address, price_stroops: i128) {
+        BundleCreated {
+            bundle_id,
+            creator,
+            price_stroops,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_bundle_purchased(
+        env: &Env,
+        bundle_id: u128,
+        buyer: Address,
+        creator: Address,
+        price_stroops: i128,
+        prompt_ids: soroban_sdk::Vec<u64>,
+    ) {
+        BundlePurchased {
+            bundle_id,
+            buyer,
+            creator,
+            price_stroops,
+            prompt_ids,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_access_pass_created(
+        env: &Env,
+        pass_id: u128,
+        creator: Address,
+        duration_secs: u64,
+        price_stroops: i128,
+    ) {
+        AccessPassCreated {
+            pass_id,
+            creator,
+            duration_secs,
+            price_stroops,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_access_pass_purchased(
+        env: &Env,
+        pass_id: u128,
+        buyer: Address,
+        creator: Address,
+        expires_at: u64,
+    ) {
+        AccessPassPurchased {
+            pass_id,
+            buyer,
+            creator,
+            expires_at,
         }
         .publish(env);
     }

@@ -18,6 +18,7 @@ const defaultWallet: WalletContextType = {
   networkPassphrase: undefined,
   status: "idle",
   error: undefined,
+  networkCompatibility: { compatible: true } as any, 
   connect: vi.fn(),
   disconnect: vi.fn(),
   signMessage: vi.fn(),

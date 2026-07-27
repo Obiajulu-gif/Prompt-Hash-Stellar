@@ -1,0 +1,68 @@
+# Local development stack for Prompt Hash Stellar.
+#
+#   docker compose up                 # web + api + mongo (fast, default)
+#   docker compose --profile stellar up   # also run a local Stellar/Soroban network
+#
+# Source directories are bind-mounted for hot reloading; node_modules live in
+# named/anonymous volumes so the host and container never overwrite each other.
+
+services:
+  web:
+    build:
+      context: .
+      target: dev
+    ports:
+      - "5173:5173"
+    environment:
+      # Proxy /api calls to the api service instead of localhost (see vite.config.ts).
+      API_PROXY_TARGET: http://api:5000
+      # Enable file-watch polling so edits on any host OS reach the container.
+      VITE_DEV_POLLING: "true"
+      # Sensible testnet defaults; override via a .env file if needed.
+      PUBLIC_STELLAR_NETWORK: ${PUBLIC_STELLAR_NETWORK:-TESTNET}
+      PUBLIC_STELLAR_RPC_URL: ${PUBLIC_STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      PUBLIC_STELLAR_HORIZON_URL: ${PUBLIC_STELLAR_HORIZON_URL:-https://horizon-testnet.stellar.org}
+    volumes:
+      - .:/app
+      # Anonymous volume keeps the image's node_modules from being shadowed by
+      # the bind mount above.
+      - /app/node_modules
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ./server
+      target: dev
+    ports:
+      - "5000:5000"
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/prompt-hash-stellar}
+      NODE_ENV: development
+    volumes:
+      - ./server:/app/server
+      - /app/server/node_modules
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  # Optional local Stellar + Soroban RPC network (Stellar Quickstart).
+  # Enable with: docker compose --profile stellar up
+  stellar:
+    image: stellar/quickstart:testing
+    profiles: ["stellar"]
+    command: ["--local", "--enable-soroban-rpc"]
+    ports:
+      - "8000:8000" # Horizon, Soroban RPC and Friendbot
+    volumes:
+      - stellar-data:/opt/stellar
+
+volumes:
+  mongo-data:
+  stellar-data:
