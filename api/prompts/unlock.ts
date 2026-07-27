@@ -197,6 +197,8 @@ async function handler(
     return;
   }
 
+  const unlockStartMs = Date.now();
+
   try {
     // Support multiple active secrets during rotation grace period
     const activeSecrets = getActiveSecrets(challengeSecret);
@@ -333,6 +335,7 @@ async function handler(
     }
 
     metrics.trackUnlockSuccess(String(address), String(promptId));
+    metrics.trackUnlockLatency(Date.now() - unlockStartMs);
     req.logger.info({ address, promptId }, "Prompt unlocked successfully");
     void recordAuditEvent({
       action: "unlock_success",
@@ -364,6 +367,7 @@ async function handler(
     const message = error instanceof Error ? error.message : "Failed to unlock prompt.";
     req.logger.error({ address, promptId, error: message }, "Unlock attempt failed");
     metrics.trackUnlockFailure(String(address), String(promptId), "error");
+    metrics.trackUnlockLatency(Date.now() - unlockStartMs);
 
     // Distinguish expired-challenge errors for finer-grained audit reasons and error codes.
     const isExpired = message.toLowerCase().includes("expired");
