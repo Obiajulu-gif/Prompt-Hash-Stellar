@@ -37,6 +37,8 @@ import {
   createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { PromptCard } from "@/pages/browse/PromptCard";
+import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 
 const limits = {
   ...LISTING_LIMITS,
@@ -80,6 +82,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [isFirstListing] = useState(true);
   const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
+  const [showBuyerPreview, setShowBuyerPreview] = useState(false);
 
   const {
     register,
@@ -131,6 +134,27 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   );
 
   const checklistHasFailures = checklistItems.some((i) => i.status === "fail");
+
+  const buyerPreviewPrompt = useMemo<PromptRecord>(() => {
+    const price = Number(watchAllFields.priceXlm || 0);
+    const safePrice = Number.isFinite(price) && price > 0 ? watchAllFields.priceXlm : "0";
+
+    return {
+      id: 0n,
+      creator: address || "GCREATORPREVIEW000000000000000000000000000000000000000000000000",
+      priceStroops: xlmToStroops(String(safePrice)),
+      title: watchAllFields.title || "Untitled prompt listing",
+      category: watchAllFields.category || "Uncategorized",
+      previewText: watchAllFields.previewText || "Add public preview text to show buyers what outcomes they can expect.",
+      description: watchAllFields.description || "No description has been added yet.",
+      tags: watchAllFields.tags || [],
+      imageUrl: watchAllFields.imageUrl || "",
+      salesCount: 0,
+      active: true,
+      contentHash: "preview-content-hash",
+    };
+  }, [address, watchAllFields]);
+
   
   const coCreatorsList = watchAllFields.coCreators || [];
   const totalRevenueSharePercent = useMemo(
@@ -444,6 +468,61 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               <AlertCircle className="h-3.5 w-3.5" />
               {errors.fullPrompt.message?.toString()}
             </p>
+          )}
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-100">Buyer-view listing preview</h3>
+              <p className="text-xs text-slate-400">Preview uses the marketplace card and buyer detail structure with unsaved public metadata only.</p>
+            </div>
+            <Button type="button" variant="outline" className="gap-2" onClick={() => setShowBuyerPreview((value) => !value)}>
+              <Eye className="h-4 w-4" /> {showBuyerPreview ? "Hide buyer preview" : "Open buyer preview"}
+            </Button>
+          </div>
+
+          {showBuyerPreview && (
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(280px,420px)_1fr]">
+              <PromptCard
+                prompt={buyerPreviewPrompt}
+                hasAccess={false}
+                openModal={() => undefined}
+                isSaved={false}
+                isSaving={false}
+                onToggleSave={() => undefined}
+              />
+              <section className="rounded-[24px] border border-white/10 bg-slate-950/80 p-5 shadow-2xl">
+                <div className="mb-4 aspect-[16/9] overflow-hidden rounded-2xl bg-slate-900">
+                  {buyerPreviewPrompt.imageUrl ? (
+                    <img src={buyerPreviewPrompt.imageUrl} alt={buyerPreviewPrompt.title} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">Fallback image state: no cover image supplied.</div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">{buyerPreviewPrompt.category}</p>
+                    <h4 className="mt-1 text-2xl font-black text-white">{buyerPreviewPrompt.title}</h4>
+                    <p className="mt-1 text-xs text-slate-500">Creator: {buyerPreviewPrompt.creator}</p>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-right">
+                    <p className="text-lg font-black text-emerald-300">{watchAllFields.priceXlm || "0"} XLM</p>
+                    <p className="text-[10px] uppercase text-slate-500">single licence</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-300">{buyerPreviewPrompt.previewText}</p>
+                <div className="mt-5 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+                  Secret prompt content is hidden in buyer preview. Only synthetic encrypted payload metadata is represented before publication.
+                </div>
+                <div className="mt-5">
+                  <h5 className="text-sm font-semibold text-slate-100">Description</h5>
+                  <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-sm text-slate-300">
+                    {buyerPreviewPrompt.description ? <MarkdownContent>{buyerPreviewPrompt.description}</MarkdownContent> : "Missing metadata fallback: no description yet."}
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
         </div>
 

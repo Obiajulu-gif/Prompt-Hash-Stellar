@@ -16,7 +16,8 @@
     "start": "node build/server.js",
     "backup": "ts-node scripts/runBackup.ts",
     "reindex": "ts-node scripts/reIndexFromLedger.ts",
-    "reindex:dry-run": "ts-node scripts/reIndexFromLedger.ts --dry-run"
+    "reindex:dry-run": "ts-node scripts/reIndexFromLedger.ts --dry-run",
+    "seed:preview": "node scripts/seedPreview.mjs"
   },
   "files": [
     "build"

@@ -1,29 +1,20 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { useReducedMotion } from "@/hooks/useReducedMotion";
-import {
-  ArrowUpRight,
-  Bookmark,
-  BookmarkCheck,
-  LockKeyhole,
-  ShieldCheck,
-  TrendingUp,
-  Check,
-  Plus,
-} from "lucide-react";
+import { ArrowUpRight, Bookmark, BookmarkCheck, Check, LockKeyhole, Plus, ShieldCheck, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatPriceLabel } from "@/lib/stellar/format";
-import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 import { StarRating } from "@/components/prompts/StarRating";
-import { useQuery } from "@tanstack/react-query";
+import { CreatorReputationSummary, CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { ReviewClient } from "@/lib/reviews/reviewClient";
 import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
-import {
-  CreatorReputationSummary,
-  CreatorVerifiedBadge,
-} from "@/components/reputation/CreatorReputationBadge";
+import { formatPriceLabel } from "@/lib/stellar/format";
+import type { PromptRecord } from "@/lib/stellar/promptHashClient";
+import { useQuery } from "@tanstack/react-query";
+
+const shortenAddress = (address: string) =>
+  address.length > 14 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
 
 export const PromptCard = ({
   prompt,
@@ -44,28 +35,23 @@ export const PromptCard = ({
   isCompared?: boolean;
   onToggleCompare?: (_prompt: PromptRecord) => void;
 }) => {
+  const shouldReduceMotion = useReducedMotion();
   const isBestSeller = prompt.salesCount >= 10;
   const reputation = buildCreatorReputation(prompt.creator, [prompt]);
+  const hoverProps = shouldReduceMotion
+    ? {}
+    : { whileHover: { y: -6 }, transition: { duration: 0.2 } };
 
-  // Fetch review stats for this prompt
   const { data: reviewStats } = useQuery({
     queryKey: ["review-stats", prompt.id.toString()],
     queryFn: () => ReviewClient.getReviewStats(prompt.id.toString()),
-    staleTime: 60_000, // Cache for 1 minute
+    staleTime: 60_000,
   });
-
-  const { data: creatorProfile } = useQuery({
-    queryKey: ["creator-profile", prompt.creator],
-    queryFn: () => getCreatorProfile(prompt.creator),
-    staleTime: 5 * 60_000,
-  });
-
-  const creatorName = getCreatorDisplayName(prompt.creator, creatorProfile);
 
   return (
     <motion.div {...hoverProps}>
       <Card
-        className={`group relative flex flex-col cursor-pointer overflow-hidden rounded-[24px] ${
+        className={`group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[24px] ${
           isCompared
             ? "border-emerald-500 bg-emerald-950/5 ring-1 ring-emerald-500/30"
             : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
@@ -81,44 +67,35 @@ export const PromptCard = ({
         }}
         aria-label={`Open ${prompt.title}`}
       >
-        {/* Visual Header */}
-        <div className="relative aspect-[16/10] overflow-hidden">
-          <img
-            src={prompt.imageUrl || "/images/codeguru.png"}
-            alt={prompt.title}
-            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-          />
+        <div className="relative aspect-[16/10] overflow-hidden bg-slate-900">
+          {prompt.imageUrl ? (
+            <img
+              src={prompt.imageUrl}
+              alt={prompt.title}
+              className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 text-center text-sm text-slate-400">
+              <span className="rounded-full border border-white/10 px-3 py-1">Image preview unavailable</span>
+            </div>
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-transparent to-transparent opacity-60" />
-
-          <div className="absolute top-4 left-4 flex gap-2">
-            <Badge className="bg-slate-950/80 backdrop-blur-md border-white/10 text-slate-200 hover:bg-slate-900">
-              {prompt.category}
+          <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+            <Badge className="border-white/10 bg-slate-950/80 text-slate-200 backdrop-blur-md hover:bg-slate-900">
+              {prompt.category || "Uncategorized"}
             </Badge>
-          )}
-          {reputation.verified && (
-            <Badge className="bg-cyan-300 text-slate-950 border-none font-bold">
-              <ShieldCheck className="h-3 w-3 mr-1" /> Verified Creator
-            </Badge>
-          )}
-        </div>
-        <div className="absolute top-4 right-4 flex flex-col gap-2 items-end z-10">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 rounded-full border border-white/10 bg-slate-950/75 px-3 text-xs text-white shadow-lg backdrop-blur-md hover:bg-slate-900"
-            disabled={isSaving}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleSave(prompt);
-            }}
-          >
-            {isSaved ? (
-              <BookmarkCheck className="mr-1.5 h-3.5 w-3.5 text-emerald-300" />
-            ) : (
-              <Bookmark className="mr-1.5 h-3.5 w-3.5" />
+            {isBestSeller && (
+              <Badge className="border-none bg-amber-300 text-slate-950 font-bold">
+                <TrendingUp className="mr-1 h-3 w-3" /> Best seller
+              </Badge>
+            )}
+            {reputation.verified && (
+              <Badge className="border-none bg-cyan-300 text-slate-950 font-bold">
+                <ShieldCheck className="mr-1 h-3 w-3" /> Verified Creator
+              </Badge>
             )}
           </div>
-          <div className="absolute top-4 right-4 flex flex-col gap-2 items-end z-10">
+          <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
             <Button
               size="sm"
               variant="secondary"
@@ -129,32 +106,22 @@ export const PromptCard = ({
                 onToggleSave(prompt);
               }}
             >
-              {isSaved ? (
-                <BookmarkCheck className="mr-1.5 h-3.5 w-3.5 text-emerald-300" />
-              ) : (
-                <Bookmark className="mr-1.5 h-3.5 w-3.5" />
-              )}
+              {isSaved ? <BookmarkCheck className="mr-1.5 h-3.5 w-3.5 text-emerald-300" /> : <Bookmark className="mr-1.5 h-3.5 w-3.5" />}
               {isSaved ? "Saved" : "Save"}
             </Button>
             {onToggleCompare && (
               <Button
                 size="sm"
                 variant="secondary"
-                className={`h-8 rounded-full border shadow-lg backdrop-blur-md transition-all px-3 text-xs ${
-                  isCompared
-                    ? "bg-emerald-500 text-slate-950 border-emerald-400 font-bold hover:bg-emerald-600"
-                    : "bg-slate-950/75 text-white border-white/10 hover:bg-slate-900"
+                className={`h-8 rounded-full border px-3 text-xs shadow-lg backdrop-blur-md ${
+                  isCompared ? "border-emerald-400 bg-emerald-500 font-bold text-slate-950" : "border-white/10 bg-slate-950/75 text-white"
                 }`}
                 onClick={(event) => {
                   event.stopPropagation();
                   onToggleCompare(prompt);
                 }}
               >
-                {isCompared ? (
-                  <Check className="mr-1.5 h-3.5 w-3.5 text-slate-950" />
-                ) : (
-                  <Plus className="mr-1.5 h-3.5 w-3.5" />
-                )}
+                {isCompared ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Plus className="mr-1.5 h-3.5 w-3.5" />}
                 {isCompared ? "Compared" : "Compare"}
               </Button>
             )}
@@ -162,123 +129,54 @@ export const PromptCard = ({
         </div>
 
         <CardContent className="flex flex-1 flex-col p-4 pt-4 sm:p-6 sm:pt-5">
-          {/* Modern Stateful Badges Row */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {/* Active/Inactive Badge */}
-            {prompt.active ? (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                data-testid="badge-active"
-                title="This prompt is currently available for purchase"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Active
-              </span>
-            ) : (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20"
-                data-testid="badge-inactive"
-                title="This prompt is not currently available for purchase"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                Inactive
-              </span>
-            )}
-
-            {/* Purchased/Unlockable Badge */}
-            {hasAccess ? (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                data-testid="badge-purchased"
-                title="You have purchased a license for this prompt"
-              >
-                Purchased
-              </span>
-            ) : (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
-                data-testid="badge-unlockable"
-                title="Purchase a license to unlock this prompt"
-              >
-                Unlockable
-              </span>
-            )}
-
-            {/* Verification Badge */}
+          <div className="mb-3 flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> {prompt.active ? "Active" : "Preview"}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-0.5 text-xs font-semibold text-indigo-400">
+              {hasAccess ? "Purchased" : "Unlockable"}
+            </span>
             {prompt.contentHash && (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                data-testid="badge-verified"
-                title="Content integrity verified on the Stellar blockchain"
-              >
-                <ShieldCheck className="h-3 w-3 text-amber-400" />
-                Verified
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
+                <ShieldCheck className="h-3 w-3" /> Verified
               </span>
             )}
           </div>
 
           <div className="flex-1 space-y-3">
-            <div className="flex items-start justify-between gap-3 sm:gap-4">
-              <h3 className="text-base font-bold leading-tight transition-colors group-hover:text-emerald-400 sm:text-lg">
-                {prompt.title}
-              </h3>
-              <div className="text-right shrink-0">
-                <p
-                  className="text-lg font-black text-emerald-400 sm:text-xl font-mono tracking-tight"
-                  aria-label={`Price: ${formatPriceLabel(prompt.priceStroops)}`}
-                  data-testid="price-label"
-                >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-base font-bold leading-tight transition-colors group-hover:text-emerald-400 sm:text-lg">{prompt.title || "Untitled listing"}</h3>
+              <div className="shrink-0 text-right">
+                <p className="font-mono text-lg font-black tracking-tight text-emerald-400 sm:text-xl" aria-label={`Price: ${formatPriceLabel(prompt.priceStroops)}`} data-testid="price-label">
                   {formatPriceLabel(prompt.priceStroops)}
                 </p>
-                <p className="text-[10px] text-slate-500 uppercase tracking-tighter">
-                  per license
-                </p>
+                <p className="text-[10px] uppercase tracking-tighter text-slate-500">per license</p>
               </div>
-            ) : (
-              <span className="text-[11px] text-slate-500 italic">
-                No ratings yet
-              </span>
-            )}
+            </div>
+            <p className="line-clamp-3 text-sm leading-relaxed text-slate-400">{prompt.previewText || "No public preview text provided yet."}</p>
+            {reviewStats?.averageRating ? <StarRating rating={reviewStats.averageRating} count={reviewStats.totalReviews} size="sm" /> : <span className="text-[11px] italic text-slate-500">No ratings yet</span>}
           </div>
-        </div>
 
-        {/* Purchase Info Row */}
-        <div className="mt-5 space-y-3 border-t border-white/5 pt-4 sm:mt-6 sm:pt-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="h-6 w-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-              </div>
-              <Link
-                to={`/sellers/${encodeURIComponent(prompt.creator)}`}
-                className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300"
-                onClick={(event) => event.stopPropagation()}
-                aria-label={`View seller ${prompt.creator}`}
-              >
+          <div className="mt-5 space-y-3 border-t border-white/5 pt-4 sm:mt-6 sm:pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <Link to={`/sellers/${encodeURIComponent(prompt.creator)}`} className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300" onClick={(event) => event.stopPropagation()}>
                 {shortenAddress(prompt.creator)}
               </Link>
+              {hasAccess ? (
+                <Button size="sm" variant="ghost" className="font-bold text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300">
+                  Owned <ArrowUpRight className="ml-1.5 h-4 w-4" />
+                </Button>
+              ) : (
+                <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <LockKeyhole className="h-3 w-3" /> Get Access
+                </div>
+              )}
             </div>
-
-            {hasAccess ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 font-bold"
-              >
-                Owned <ArrowUpRight className="ml-1.5 h-4 w-4" />
-              </Button>
-            ) : (
-              <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                <LockKeyhole className="h-3 w-3" /> Get Access
-              </div>
-            )}
-          </div>
-          <div className="space-y-2">
             <CreatorVerifiedBadge reputation={reputation} compact />
             <CreatorReputationSummary reputation={reputation} />
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 };
