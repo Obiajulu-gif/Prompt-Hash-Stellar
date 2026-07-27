@@ -62,11 +62,7 @@ import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
-import {
-  getCreatorThumbRating,
-  saveCreatorThumbRating,
-  type ThumbRating,
-} from "../../lib/reputation/creatorReputation";
+import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 
 export type BuyerStatus =
   | "IDLE"
@@ -276,6 +272,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
+  const { isOnline } = useNetworkStatus();
 
   // Fetch prompt details (used by receipt view and metadata section)
   const { data: promptDetail } = useQuery({
@@ -524,11 +522,12 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     onClick={() => runPurchase().catch(() => {})}
                     disabled={
                       isPurchasing || 
+                      !isOnline ||
                       detectNetworkMismatch(!!wallet?.address, wallet?.network, wallet?.status).type !== "correct"
                     }
                     className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Confirm & Purchase <Wallet className="w-4 h-4" />
+                    {!isOnline ? "Offline" : "Confirm & Purchase"} <Wallet className="w-4 h-4" />
                   </button>
                 </div>
               )}
@@ -604,10 +603,10 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
                   <button
                     onClick={() => runUnlock(txHash || "existing").catch(() => {})}
-                    disabled={isUnlocking}
-                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)]"
+                    disabled={isUnlocking || !isOnline}
+                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isUnlocking ? "Unlocking..." : "Decrypt Content"}
+                    {!isOnline ? "Offline" : isUnlocking ? "Unlocking..." : (txHash && unlockError?.message?.includes('ACCESS_NOT_PURCHASED') ? "Retry Unlock (Wait for Indexing)" : "Decrypt Content")}
                   </button>
                 </div>
               )}
