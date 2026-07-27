@@ -5,6 +5,7 @@ import {
   Activity,
   BarChart3,
   Coins,
+  Eye,
   PackageCheck,
   ShoppingBag,
   TrendingUp,
@@ -24,7 +25,6 @@ import {
   Title,
   Tooltip,
   Legend,
-  type ChartData,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 
@@ -39,6 +39,16 @@ ChartJS.register(
 );
 
 const PLATFORM_FEE_RATE = 0.05;
+const chartLabelFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+
+interface DailySalesPoint {
+  date: string;
+  unitsSold: number;
+  revenueXlm: number;
+}
 
 interface MetricCardProps {
   title: string;
@@ -91,40 +101,17 @@ function MetricCard({ title, value, icon, accent = "emerald", description, isLoa
 }
 
 interface SalesChartProps {
-  prompts: PromptRecord[];
+  dailySales: DailySalesPoint[];
+  isLoading?: boolean;
 }
 
-function SalesChart({ prompts }: SalesChartProps) {
+function SalesChart({ dailySales, isLoading = false }: SalesChartProps) {
   const chartData = useMemo(() => {
-    // Generate mock daily sales data for the last 30 days
-    const days = 30;
-    const labels: string[] = [];
-    const salesData: number[] = [];
-    const revenueData: number[] = [];
-
-    const now = new Date();
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-      
-      // Generate mock sales based on prompt data
-      const daySales = prompts.reduce((sum, prompt) => {
-        const randomSales = Math.floor(Math.random() * (prompt.salesCount / days + 1));
-        return sum + randomSales;
-      }, 0);
-      
-      salesData.push(daySales);
-      
-      const dayRevenue = prompts.reduce((sum, prompt) => {
-        const xlm = Number(stroopsToXlmString(prompt.priceStroops));
-        const randomSales = Math.floor(Math.random() * (prompt.salesCount / days + 1));
-        return sum + (xlm * randomSales * (1 - PLATFORM_FEE_RATE));
-      }, 0);
-      
-      revenueData.push(dayRevenue);
-    }
+    const labels = dailySales.map((entry) =>
+      chartLabelFormatter.format(new Date(`${entry.date}T00:00:00.000Z`)),
+    );
+    const salesData = dailySales.map((entry) => entry.unitsSold);
+    const revenueData = dailySales.map((entry) => entry.revenueXlm);
 
     return {
       labels,
@@ -149,7 +136,7 @@ function SalesChart({ prompts }: SalesChartProps) {
         },
       ],
     };
-  }, [prompts]);
+  }, [dailySales]);
 
   const options = {
     responsive: true,
@@ -217,9 +204,13 @@ function SalesChart({ prompts }: SalesChartProps) {
       <h3 className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-4">
         Sales Trend (30 Days)
       </h3>
-      <div className="h-64">
-        <Line data={chartData} options={options} />
-      </div>
+      {isLoading ? (
+        <div className="h-64 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+      ) : (
+        <div className="h-64">
+          <Line data={chartData} options={options} />
+        </div>
+      )}
     </div>
   );
 }
@@ -267,6 +258,34 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
   const { data: allPrompts = [], isLoading, isError } = useQuery({
     queryKey: ["creator-dashboard", walletAddress],
     queryFn: () => getAllPrompts(browserStellarConfig),
+    staleTime: 30_000,
+    enabled: Boolean(walletAddress),
+  });
+
+  const { data: previewStats } = useQuery({
+    queryKey: ["preview-stats", walletAddress],
+    queryFn: async () => {
+      const res = await fetch(`/api/prompts/preview/stats?walletAddress=${encodeURIComponent(walletAddress)}`);
+      if (!res.ok) return null;
+      return res.json() as Promise<{ totalPreviews: number }>;
+    },
+    staleTime: 30_000,
+    enabled: Boolean(walletAddress),
+  });
+
+  const { data: salesAnalytics, isLoading: isSalesAnalyticsLoading } = useQuery({
+    queryKey: ["creator-sales-analytics", walletAddress],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/prompts/creator/${encodeURIComponent(walletAddress)}/analytics`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to load creator sales analytics.");
+      }
+
+      return response.json() as Promise<{ dailySales: DailySalesPoint[] }>;
+    },
     staleTime: 30_000,
     enabled: Boolean(walletAddress),
   });
@@ -348,7 +367,7 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
   return (
     <div className="space-y-6">
       {/* Metric cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <MetricCard
           title="Active listings"
           value={metrics.active}
@@ -377,10 +396,20 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
           accent="purple"
           description={`gross ${metrics.grossRevenue.toFixed(2)} XLM`}
         />
+        <MetricCard
+          title="Preview opens"
+          value={previewStats?.totalPreviews ?? 0}
+          icon={<Eye className="h-4 w-4" />}
+          accent="cyan"
+          description="total preview views"
+        />
       </div>
 
       {/* Sales trend chart */}
-      <SalesChart prompts={prompts} />
+      <SalesChart
+        dailySales={salesAnalytics?.dailySales ?? []}
+        isLoading={isSalesAnalyticsLoading}
+      />
 
       {/* Top-performing prompts */}
       {metrics.topPrompts.length > 0 && (

@@ -4,13 +4,11 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Loader2, Send } from "lucide-react";
 
-/* eslint-disable no-unused-vars */
 interface ReviewFormProps {
   promptId: string;
   onSubmit: (_review: { rating: number; text: string }) => Promise<void>;
   onCancel?: () => void;
 }
-/* eslint-enable no-unused-vars */
 
 export const ReviewForm = ({ promptId, onSubmit, onCancel }: ReviewFormProps) => {
   const [rating, setRating] = useState(0);

@@ -1,4 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("@/lib/env", () => ({
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+}));
+
 import { detectNetworkMismatch, mapTechnicalError } from "@/lib/wallet/networkDetection";
 
 describe("Network Detection", () => {
@@ -19,13 +24,13 @@ describe("Network Detection", () => {
     });
 
     it("returns correct when networks match", () => {
-      const result = detectNetworkMismatch(true, "TESTNET", "connected");
+      const result = detectNetworkMismatch(true, "Test SDF Network ; September 2015", "connected");
       
       expect(result.type).toBe("correct");
     });
 
     it("returns wrong-network when networks don't match", () => {
-      const result = detectNetworkMismatch(true, "PUBLIC", "connected");
+      const result = detectNetworkMismatch(true, "Public Global Stellar Network ; September 2015", "connected");
       
       expect(result.type).toBe("wrong-network");
       expect(result.message).toContain("Wrong network");
@@ -40,7 +45,7 @@ describe("Network Detection", () => {
     });
 
     it("returns disconnected when wallet status is error", () => {
-      const result = detectNetworkMismatch(true, "TESTNET", "error");
+      const result = detectNetworkMismatch(true, "Test SDF Network ; September 2015", "error");
       
       expect(result.type).toBe("disconnected");
     });

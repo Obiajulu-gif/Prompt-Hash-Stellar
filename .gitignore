@@ -62,3 +62,6 @@ packages/*
 !packages/.gitkeep
 !src/contracts/util.ts
 .omx/
+
+# Signed upgrade-preflight manifests (#435) — generated per run, not committed.
+deploy-manifests/

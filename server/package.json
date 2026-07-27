@@ -8,7 +8,8 @@
   "main": "server.js",
   "scripts": {
     "test": "jest --passWithNoTests",
-    "lint": "eslint .",
+    "test:api": "jest --passWithNoTests",
+    "lint": "tsc --noEmit",
     "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
@@ -32,6 +33,7 @@
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
+    "@sentry/node": "^10.62.0",
     "@stellar/stellar-sdk": "^14.6.1",
     "@typescript-eslint/parser": "^8.59.0",
     "ai": "^6.0.168",
@@ -40,6 +42,8 @@
     "express-async-handler": "^1.2.0",
     "mongoose": "^9.5.0",
     "nodemon": "^3.1.14",
+    "prompt-hash-stellar": "file:..",
+    "redis": "^6.0.1",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
