@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -23,6 +24,9 @@ import { formatPriceLabel } from "@/lib/stellar/format";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
 import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import { useWallet } from "@/hooks/useWallet";
+import { copyToClipboard } from "@/lib/clipboard/secureClipboard";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -47,6 +51,20 @@ export default function PromptDetailPage() {
     queryFn: () => getPrompt(browserStellarConfig, BigInt(id)),
     enabled: isValidId,
   });
+
+  const { recordView } = useRecentlyViewed();
+
+  // Record the view when the prompt loads
+  useEffect(() => {
+    if (prompt) {
+      recordView({
+        id: prompt.id.toString(),
+        title: prompt.title,
+        category: prompt.category,
+        imageUrl: prompt.imageUrl,
+      });
+    }
+  }, [prompt, recordView]);
 
   // Drive the share preview (Open Graph / Twitter card) from the prompt details
   // so links shared to social platforms show the title, summary and cover image.

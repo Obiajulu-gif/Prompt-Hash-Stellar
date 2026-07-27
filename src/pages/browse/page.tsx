@@ -19,6 +19,8 @@ import {
   updateUrlWithSearchState,
   DEFAULT_SEARCH_STATE,
 } from "@/lib/search/urlState";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import { RecentlyViewedSection } from "@/components/RecentlyViewedSection";
 
 const categories = Array.from(
   new Set(featuredPromptTemplates.map((prompt) => prompt.category)),
@@ -68,6 +70,9 @@ export default function BrowsePage() {
 
   const { selected, addToComparison, removeFromComparison, clearComparison } =
     usePromptComparison();
+
+  const { items: recentlyViewed, remove: removeRecent, clear: clearRecent } =
+    useRecentlyViewed();
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -126,6 +131,13 @@ export default function BrowsePage() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-24 sm:px-6">
+        {/* Recently Viewed */}
+        <RecentlyViewedSection
+          items={recentlyViewed}
+          onRemove={removeRecent}
+          onClear={clearRecent}
+        />
+
         {/* Curated Section */}
         <div className="mb-16">
           <FeaturedPrompts limit={4} title="Editor's Choice" />
