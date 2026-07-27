@@ -1,20 +1,17 @@
 [package]
 name = "prompt-hash"
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-publish = false
-version.workspace = true
+version = "0.1.0"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
-doctest = false
 
 [dependencies]
-soroban-sdk = { workspace = true }
-stellar-tokens = { workspace = true }
-stellar-macros = { workspace = true }
-stellar-access = { workspace = true }
+soroban-sdk = "22.0.0"
 
 [dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }
+soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]
+
