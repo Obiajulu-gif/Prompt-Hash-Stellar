@@ -68,3 +68,38 @@ export async function uploadCiphertextToIpfs(
 
   return { cid: data.IpfsHash, uri: toIpfsUri(data.IpfsHash) };
 }
+
+/**
+ * Uploads a standard image file to IPFS via Pinata.
+ * Useful for user avatars and other static assets.
+ */
+export async function uploadImageToIpfs(file: File): Promise<IpfsUploadResult> {
+  const jwt = readPinataJwt();
+  if (!jwt) {
+    throw new Error("IPFS upload is not configured. Set PUBLIC_PINATA_JWT.");
+  }
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("pinataMetadata", JSON.stringify({ name: file.name }));
+
+  const response = await fetch(PINATA_PIN_FILE_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}` },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Pinata upload failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}.`);
+  }
+
+  const data = (await response.json()) as { IpfsHash?: string };
+  if (!data.IpfsHash) {
+    throw new Error("Pinata upload succeeded but did not return an IPFS hash.");
+  }
+
+  // We want the gateway URL for images, not just ipfs://
+  // But we can return both and let the caller construct the gateway URL if needed.
+  return { cid: data.IpfsHash, uri: toIpfsUri(data.IpfsHash) };
+}

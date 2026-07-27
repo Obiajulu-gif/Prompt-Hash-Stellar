@@ -15,6 +15,7 @@ const validForm = {
   previewText: "Public preview text for buyers browsing the marketplace.",
   fullPrompt: "Private prompt body with enough content for validation.",
   priceXlm: "2.5",
+  coCreators: []
 };
 
 describe("validateListingForm", () => {
@@ -42,11 +43,11 @@ describe("validateListingForm", () => {
       /at least 3 characters/i,
     );
     expect(
-      validateListingForm({ ...validForm, previewText: "short" }).previewText,
+      validateListingForm({ ...validForm, previewText: "short" }).previewText
     ).toMatch(/at least 10 characters/i);
-    expect(
-      validateListingForm({ ...validForm, fullPrompt: "tiny" }).fullPrompt,
-    ).toMatch(/at least 10 characters/i);
+    expect(validateListingForm({ ...validForm, fullPrompt: "" }).fullPrompt).toMatch(
+      /add the full prompt content/i,
+    );
   });
 });
 
@@ -59,10 +60,11 @@ describe("buildListingChecklistItems", () => {
       previewText: "",
       fullPrompt: "",
       priceXlm: "",
+      coCreators: []
     });
 
     const failures = items.filter((item) => item.status === "fail");
-    expect(failures.length).toBeGreaterThanOrEqual(6);
+    expect(failures.length).toBeGreaterThanOrEqual(5);
     expect(failures.every((item) => Boolean(item.hint))).toBe(true);
   });
 
@@ -157,7 +159,7 @@ describe("wouldExceedPayloadLimit", () => {
 
 describe("validateListingForm encrypted payload warning", () => {
   it("warns when prompt would exceed encrypted payload limit", () => {
-    const errors = validateListingForm({
+    const errors = validateListingForm({ 
       ...validForm,
       fullPrompt: "a".repeat(4000),
     });

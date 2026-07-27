@@ -1,13 +1,16 @@
-import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  BadgeCheck,
   Check,
+  Clock,
   Copy,
   Loader2,
+  ShieldCheck,
   ShoppingBag,
   Sparkles,
+  ThumbsUp,
   User,
 } from "lucide-react";
 import { Navigation } from "@/components/navigation";
@@ -17,8 +20,9 @@ import { Button } from "@/components/ui/button";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { formatPriceLabel } from "@/lib/stellar/format";
-import { copyToClipboard } from "@/lib/clipboard/secureClipboard";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
+import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
+import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -30,7 +34,9 @@ function summarise(text: string, max = 160): string {
 export default function PromptDetailPage() {
   const { id = "" } = useParams();
   const isValidId = /^\d+$/.test(id);
+  const { address } = useWallet();
   const [copied, setCopied] = useState(false);
+  const [showReportDialog, setShowReportDialog] = useState(false);
 
   const {
     data: prompt,
@@ -54,6 +60,26 @@ export default function PromptDetailPage() {
     type: "article",
   });
 
+  const jsonLd = prompt ? {
+    "@context": "https://schema.org/",
+    "@type": "Product",
+    name: prompt.title,
+    description: prompt.previewText,
+    image: prompt.imageUrl || `${window.location.origin}${FALLBACK_IMAGE}`,
+    offers: {
+      "@type": "Offer",
+      price: (Number(prompt.priceStroops) / 10000000).toFixed(2),
+      priceCurrency: "XLM",
+      availability: prompt.active ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+    },
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: "5.0",
+      reviewCount: Math.max(1, prompt.salesCount)
+    }
+  } : null;
+
+
   const handleCopyLink = async () => {
     const link =
       typeof window !== "undefined" ? window.location.href : `/prompts/${id}`;
@@ -63,8 +89,10 @@ export default function PromptDetailPage() {
       window.setTimeout(() => setCopied(false), 1800);
     }
   };
-
   const notFound = !isValidId || isError || (!isLoading && !prompt);
+  const reputation = prompt
+    ? buildCreatorReputation(prompt.creator, [prompt])
+    : null;
 
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-cyan-500/30">
@@ -109,6 +137,12 @@ export default function PromptDetailPage() {
           </div>
         ) : (
           <article className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f1419]">
+            {jsonLd && (
+              <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+              />
+            )}
             <div className="aspect-[1200/630] w-full overflow-hidden bg-slate-900">
               <img
                 src={prompt.imageUrl || FALLBACK_IMAGE}
@@ -126,11 +160,21 @@ export default function PromptDetailPage() {
                   <Sparkles className="mr-1 h-3 w-3" />
                   {prompt.category}
                 </Badge>
+                {reputation ? (
+                  <CreatorVerifiedBadge reputation={reputation} compact />
+                ) : null}
                 {!prompt.active && (
                   <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
                     Unavailable
                   </Badge>
                 )}
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                  title={`${prompt.salesCount} license${prompt.salesCount !== 1 ? "s" : ""} sold`}
+                >
+                  <ShoppingBag className="h-3 w-3" />
+                  {prompt.salesCount} sold
+                </span>
               </div>
 
               <div>
@@ -140,11 +184,16 @@ export default function PromptDetailPage() {
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   {prompt.previewText}
                 </p>
+                {prompt.description && (
+                  <div className="mt-4">
+                    <MarkdownContent>{prompt.description}</MarkdownContent>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-400">
-                <span className="inline-flex items-center gap-1.5">
-                  <User className="h-3.5 w-3.5" />
+                <span className="inline-flex items-center gap-2">
+                  <UserAvatar address={prompt.creator} size={20} />
                   <span className="font-mono text-slate-300">
                     {prompt.creator.length > 12
                       ? `${prompt.creator.slice(0, 6)}…${prompt.creator.slice(-4)}`
@@ -155,15 +204,39 @@ export default function PromptDetailPage() {
                   <ShoppingBag className="h-3.5 w-3.5" />
                   {prompt.salesCount} sold
                 </span>
+                {reputation ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5">
+                      <ThumbsUp className="h-3.5 w-3.5 text-emerald-300" />
+                      {reputation.positiveRatings} positive
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-cyan-300" />
+                      {reputation.timeOnPlatformLabel} on platform
+                    </span>
+                    {reputation.verified ? (
+                      <span className="inline-flex items-center gap-1.5 text-emerald-300">
+                        <BadgeCheck className="h-3.5 w-3.5" />
+                        {reputation.verificationLabel}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
                 <span className="font-semibold text-white">
                   {formatPriceLabel(prompt.priceStroops)}
                 </span>
+                {"revision" in prompt && prompt.revision !== undefined && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <History className="h-3.5 w-3.5" />
+                    v{String((prompt as any).revision)}
+                  </span>
+                )}
               </div>
 
-              <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row">
+              <div className="flex flex-col gap-4 border-t border-white/10 pt-5">
                 <Button
                   asChild
-                  className="h-10 flex-1 bg-cyan-200 text-slate-950 hover:bg-cyan-100"
+                  className="h-10 w-full bg-cyan-200 text-slate-950 hover:bg-cyan-100"
                 >
                   <Link to="/browse">
                     <ShoppingBag className="h-4 w-4" />
@@ -187,12 +260,26 @@ export default function PromptDetailPage() {
                     </>
                   )}
                 </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowReportDialog(true)}
+                  className="h-10 flex-1 border border-rose-400/20 text-rose-200 hover:bg-rose-400/10"
+                >
+                  <Flag className="h-4 w-4" />
+                  Report listing
+                </Button>
               </div>
             </div>
           </article>
         )}
       </main>
 
+      <ReportDialog
+        promptId={id}
+        isOpen={showReportDialog}
+        onClose={() => setShowReportDialog(false)}
+        userAddress={address}
+      />
       <Footer />
     </div>
   );

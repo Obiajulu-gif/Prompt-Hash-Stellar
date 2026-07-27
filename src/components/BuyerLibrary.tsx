@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { RefundRequestModal } from "./RefundRequestModal";
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpenCheck,
@@ -133,15 +134,19 @@ function PromptLibraryCard({
   unlockState,
   isBusy,
   onUnlock,
+  buyerWallet,
 }: {
   prompt: PromptRecord;
   plaintext?: string;
   unlockState: UnlockState;
   isBusy: boolean;
   onUnlock: () => void;
+  buyerWallet?: string;
 }) {
   const isUnlocked = Boolean(plaintext);
   const showExplainer = unlockState !== "idle" && unlockState !== "success";
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const canRequestRefund = unlockState === "failed" && buyerWallet;
 
   return (
     <article className="overflow-hidden rounded-xl border border-white/10 bg-[#0f1419] transition-colors hover:border-white/[0.18]">
@@ -217,29 +222,49 @@ function PromptLibraryCard({
         )}
 
         {/* Action button */}
-        <Button
-          className="h-9 bg-cyan-200 text-slate-950 hover:bg-cyan-100 disabled:opacity-50 text-xs font-bold"
-          onClick={onUnlock}
-          disabled={isBusy || unlockState === "signing" || unlockState === "verifying"}
-        >
-          {isBusy ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Unlocking…
-            </>
-          ) : isUnlocked ? (
-            <>
-              <Eye className="h-3.5 w-3.5" />
-              Re-open prompt
-            </>
-          ) : (
-            <>
-              <LockKeyhole className="h-3.5 w-3.5" />
-              Unlock full prompt
-            </>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            className="h-9 bg-cyan-200 text-slate-950 hover:bg-cyan-100 disabled:opacity-50 text-xs font-bold"
+            onClick={onUnlock}
+            disabled={isBusy || unlockState === "signing" || unlockState === "verifying"}
+          >
+            {isBusy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Unlocking…
+              </>
+            ) : isUnlocked ? (
+              <>
+                <Eye className="h-3.5 w-3.5" />
+                Re-open prompt
+              </>
+            ) : (
+              <>
+                <LockKeyhole className="h-3.5 w-3.5" />
+                Unlock full prompt
+              </>
+            )}
+          </Button>
+          {canRequestRefund && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 border-amber-400/30 text-amber-300 hover:bg-amber-400/10 text-xs font-bold"
+              onClick={() => setShowRefundModal(true)}
+            >
+              Request Refund
+            </Button>
           )}
-        </Button>
+        </div>
       </div>
+      {canRequestRefund && (
+        <RefundRequestModal
+          isOpen={showRefundModal}
+          onClose={() => setShowRefundModal(false)}
+          promptId={prompt.id.toString()}
+          buyerWallet={buyerWallet!}
+        />
+      )}
     </article>
   );
 }
@@ -522,6 +547,7 @@ export function BuyerLibrary() {
                 unlockState={unlockStates[id] ?? "idle"}
                 isBusy={busyId === id}
                 onUnlock={() => void handleUnlock(prompt)}
+                buyerWallet={address ?? undefined}
               />
             );
           })}

@@ -55,3 +55,33 @@ jobs:
 
       - name: Build release Wasm artifacts
         run: cargo build --workspace --release --target wasm32v1-none --locked
+
+      - name: Upgrade preflight self-check (#435)
+        run: python3 scripts/preflight_upgrade.py check --self-check
+
+      - name: Set up Node.js for ABI conformance tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies for ABI conformance tests
+        run: npm ci
+        working-directory: ./
+
+      - name: Generate ABI fixtures from contract spec
+        run: node tests/abi-conformance/scripts/generate-fixtures.ts
+
+      - name: Run ABI conformance tests
+        run: npm test -- tests/abi-conformance/validators/
+
+      - name: Generate compatibility report
+        run: node tests/abi-conformance/scripts/compatibility-report.ts
+
+      - name: Check for uncommitted fixture changes
+        run: |
+          if [ -n "$(git diff --name-only tests/abi-conformance/fixtures/)" ]; then
+            echo "❌ ABI fixtures have changed. Please regenerate and commit the updated fixtures."
+            echo "Run: node tests/abi-conformance/scripts/generate-fixtures.ts"
+            git diff tests/abi-conformance/fixtures/
+            exit 1
+          fi

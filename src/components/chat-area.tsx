@@ -29,7 +29,6 @@ import type { AIModel } from "@/lib/api";
 import { Typewriter } from "@/components/typewriter";
 import ReactMarkdown from "react-markdown";
 
-/* eslint-disable no-unused-vars */
 interface ChatAreaProps {
   conversation: Message[];
   isTyping: boolean;
@@ -46,7 +45,7 @@ interface ChatAreaProps {
   setSelectedModel: (_model: AIModel) => void;
   onToggleDetails: () => void;
 }
-/* eslint-enable no-unused-vars */
+ 
 
 export function ChatArea({
   conversation,

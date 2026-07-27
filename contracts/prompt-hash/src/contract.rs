@@ -1,8 +1,9 @@
 use super::events::Events;
-use super::storage::Storage;
+use super::storage::{InstanceStorage, Storage};
 use super::types::{
-    DataKey, DisputeReason, DisputeStatus, Error, ListingConfig, ListingRevisionRecord, Prompt,
-    PromptHashTrait, PurchaseDispute, Split,
+    AccessPass, Bundle, CatalogPassPurchase, DataKey, DisputeReason, DisputeStatus, Error,
+    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PurchaseDispute, PurchaseEscrow,
+    SettlementStatus, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
@@ -11,8 +12,7 @@ use stellar_macros::{default_impl, only_owner};
 const DEFAULT_FEE_BPS: u32 = 500;
 const ROYALTY_BPS: u32 = 500;
 const MAX_BPS: u32 = 10_000;
-// Maximum allowed platform fee (basis points). Prevents admin from setting abusive fees.
-const MAX_PLATFORM_FEE: u32 = 1_000; // 10%
+const MAX_PLATFORM_FEE: u32 = 1_000;
 const MAX_TITLE_LEN: u32 = 120;
 const MAX_CATEGORY_LEN: u32 = 40;
 const MAX_PREVIEW_LEN: u32 = 280;
@@ -25,6 +25,12 @@ const MAX_ACCESS_EXPIRY: u64 = u64::MAX;
 const MAX_SPLITS: u32 = 10;
 const MAX_TAGS: u32 = 8;
 const MAX_TAG_LEN: u32 = 32;
+const MAX_BUNDLE_PROMPTS: u32 = 20;
+const MAX_PASS_DURATION_SECS: u64 = 31_536_000;
+// Bounds buy_prompts_bulk's per-call resource footprint (CPU/memory/read-write
+// budget) so a caller cannot force an unbounded-cost simulation or transaction
+// just by passing an oversized vector (issue #438).
+const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 
 #[contract]
 pub struct PromptHashContract;
@@ -38,10 +44,10 @@ impl PromptHashTrait for PromptHashContract {
         xlm_sac: Address,
     ) -> Result<(), Error> {
         ownable::set_owner(&env, &admin);
-        Storage::set_fee_wallet(&env, &fee_wallet);
-        Storage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
-        Storage::set_xlm_address(&env, &xlm_sac);
-        Storage::set_pause_status(&env, false);
+        InstanceStorage::set_fee_wallet(&env, &fee_wallet);
+        InstanceStorage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
+        InstanceStorage::set_xlm_address(&env, &xlm_sac);
+        InstanceStorage::set_pause_status(&env, false);
         env.storage().instance().extend_ttl(
             super::storage::PERSISTENT_LIFETIME_THRESHOLD,
             super::storage::PERSISTENT_BUMP_AMOUNT,
@@ -62,9 +68,9 @@ impl PromptHashTrait for PromptHashContract {
         wrapped_key: String,
         content_hash: BytesN<32>,
         listing: ListingConfig,
-    ) -> Result<u128, Error> {
+    ) -> Result<u64, Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         validate_prompt_fields(
             &image_url,
             &title,
@@ -76,10 +82,8 @@ impl PromptHashTrait for PromptHashContract {
             listing.price,
         )?;
 
-        // Validate that the asset address implements the token interface
         token::Client::new(&env, &listing.asset).decimals();
 
-        // #49: optional listing expiry must be in the future when provided
         if listing.expires_at != 0 {
             ensure(
                 listing.expires_at > env.ledger().timestamp(),
@@ -87,13 +91,13 @@ impl PromptHashTrait for PromptHashContract {
             )?;
         }
 
-        // #50 / #217: validate revenue splits
         validate_splits(&env, &listing.splits)?;
         validate_no_duplicate_recipients(&listing.splits)?;
         ensure(listing.splits.len() <= MAX_SPLITS, Error::TooManySplits)?;
         validate_tags(&listing.tags)?;
 
-        let prompt_id = Storage::get_prompt_counter(&env);
+        let prompt_id = InstanceStorage::get_prompt_counter(&env);
+        InstanceStorage::save_prompt_counter(&env, prompt_id + 1);
         let prompt = Prompt {
             id: prompt_id,
             creator: creator.clone(),
@@ -109,7 +113,7 @@ impl PromptHashTrait for PromptHashContract {
             asset: listing.asset.clone(),
             active: true,
             sales_count: 0,
-            max_supply: 0,
+            max_supply: listing.max_supply,
             expires_at: listing.expires_at,
             splits: listing.splits,
             revision: 0,
@@ -125,11 +129,11 @@ impl PromptHashTrait for PromptHashContract {
     fn set_prompt_sale_status(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         active: bool,
     ) -> Result<(), Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
@@ -139,14 +143,32 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    #[only_owner]
+    fn admin_set_prompt_sale_status(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        active: bool,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+        prompt.active = active;
+        Storage::update_prompt(&env, &prompt);
+        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, active);
+        Ok(())
+    }
+
     fn set_prompt_max_supply(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         max_supply: u64,
     ) -> Result<(), Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
         prompt.max_supply = max_supply;
@@ -157,11 +179,11 @@ impl PromptHashTrait for PromptHashContract {
     fn update_prompt_price(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         price_stroops: i128,
     ) -> Result<(), Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         ensure(price_stroops > 0, Error::InvalidPrice)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
@@ -176,13 +198,13 @@ impl PromptHashTrait for PromptHashContract {
     fn buy_prompt(
         env: Env,
         buyer: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         referrer: Option<Address>,
         payment_amount_stroops: i128,
         voucher: Option<Bytes>,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         execute_buy(
             &env,
             &buyer,
@@ -196,11 +218,11 @@ impl PromptHashTrait for PromptHashContract {
     fn lease_prompt(
         env: Env,
         buyer: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         lease_duration_secs: u64,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
 
@@ -212,16 +234,15 @@ impl PromptHashTrait for PromptHashContract {
             Error::AlreadyPurchased,
         )?;
 
-        // #49: block purchase on expired listing
         if prompt.expires_at != 0 {
             ensure(prompt.expires_at >= now, Error::ListingExpired)?;
         }
 
-        Storage::set_reentrancy_guard(&env)?;
+        InstanceStorage::set_reentrancy_guard(&env)?;
 
-        let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+        let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
         let this_contract = env.current_contract_address();
-        let fee_percentage = Storage::get_fee_percentage(&env);
+        let fee_percentage = InstanceStorage::get_fee_percentage(&env);
         ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
         let lease_price = prompt
@@ -254,21 +275,33 @@ impl PromptHashTrait for PromptHashContract {
             .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_prompt(&env, &prompt);
         Storage::grant_purchase(&env, &prompt, &buyer, lease_price, expires_at);
-        Storage::clear_reentrancy_guard(&env);
+        let escrow = PurchaseEscrow {
+            prompt_id,
+            buyer: buyer.clone(),
+            amount: lease_price,
+            asset: prompt.asset.clone(),
+            referrer: None,
+            status: SettlementStatus::Settled,
+            created_at: now,
+            settled_at: now,
+            creator_amount: seller_amount,
+            fee_amount,
+            referral_amount: 0,
+        };
+        Storage::save_purchase_escrow(&env, &escrow);
+        InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_prompt_purchased(&env, prompt_id, buyer, prompt.creator, lease_price, None);
         Ok(())
     }
 
-    // ─── Issue #49: Time-Bound Listing Expiry ────────────────────────────────
-
     fn extend_listing(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         new_expires_at: u64,
     ) -> Result<(), Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
@@ -281,21 +314,24 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    // ─── Issue #51: Bulk Purchase ────────────────────────────────────────────
-
     fn buy_prompts_bulk(
         env: Env,
         buyer: Address,
-        prompt_ids: Vec<u128>,
+        prompt_ids: Vec<u64>,
         payment_amounts: Vec<i128>,
         referrer: Option<Address>,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         ensure(
             prompt_ids.len() == payment_amounts.len(),
             Error::InvalidPrice,
         )?;
+        ensure(
+            !prompt_ids.is_empty() && prompt_ids.len() <= MAX_BULK_PURCHASE_SIZE,
+            Error::BulkPurchaseTooLarge,
+        )?;
+        validate_no_duplicate_prompt_ids(&prompt_ids)?;
 
         for i in 0..prompt_ids.len() {
             let prompt_id = prompt_ids.get(i).unwrap();
@@ -305,15 +341,289 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    fn create_bundle(
+        env: Env,
+        creator: Address,
+        title: String,
+        prompt_ids: Vec<u64>,
+        price_stroops: i128,
+        asset: Address,
+        expires_at: u64,
+    ) -> Result<u128, Error> {
+        creator.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        validate_len(&title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
+        ensure(price_stroops > 0, Error::InvalidPrice)?;
+        ensure(!prompt_ids.is_empty(), Error::InvalidBundle)?;
+        ensure(prompt_ids.len() <= MAX_BUNDLE_PROMPTS, Error::InvalidBundle)?;
+        token::Client::new(&env, &asset).decimals();
+
+        let now = env.ledger().timestamp();
+        if expires_at != 0 {
+            ensure(expires_at > now, Error::ListingExpired)?;
+        }
+
+        for index in 0..prompt_ids.len() {
+            let prompt = Storage::require_prompt(&env, prompt_ids.get(index).unwrap())?;
+            ensure(prompt.creator == creator, Error::Unauthorized)?;
+            ensure(prompt.active, Error::PromptInactive)?;
+            ensure(prompt.asset == asset, Error::InvalidAsset)?;
+            if prompt.expires_at != 0 {
+                ensure(prompt.expires_at >= now, Error::ListingExpired)?;
+            }
+            for duplicate_index in (index + 1)..prompt_ids.len() {
+                ensure(
+                    prompt_ids.get(index).unwrap() != prompt_ids.get(duplicate_index).unwrap(),
+                    Error::InvalidBundle,
+                )?;
+            }
+        }
+
+        let bundle_id = Storage::get_bundle_counter(&env);
+        let bundle = Bundle {
+            id: bundle_id,
+            creator: creator.clone(),
+            title,
+            prompt_ids,
+            price_stroops,
+            asset,
+            active: true,
+            sales_count: 0,
+            expires_at,
+        };
+
+        Storage::save_bundle(&env, &bundle)?;
+        Storage::add_bundle_to_creator(&env, &creator, bundle_id);
+        Events::emit_bundle_created(&env, bundle_id, creator, price_stroops);
+        Ok(bundle_id)
+    }
+
+    fn buy_bundle(
+        env: Env,
+        buyer: Address,
+        bundle_id: u128,
+        payment_amount_stroops: i128,
+    ) -> Result<(), Error> {
+        buyer.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        let now = env.ledger().timestamp();
+        let mut bundle = Storage::require_bundle(&env, bundle_id)?;
+
+        ensure(bundle.active, Error::PromptInactive)?;
+        ensure(bundle.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure(
+            payment_amount_stroops >= bundle.price_stroops,
+            Error::InvalidPaymentAmount,
+        )?;
+        if bundle.expires_at != 0 {
+            ensure(bundle.expires_at >= now, Error::ListingExpired)?;
+        }
+
+        let mut prompts = Vec::new(&env);
+        let mut needs_access = false;
+        for index in 0..bundle.prompt_ids.len() {
+            let mut prompt = Storage::require_prompt(&env, bundle.prompt_ids.get(index).unwrap())?;
+            ensure(prompt.creator == bundle.creator, Error::Unauthorized)?;
+            ensure(prompt.active, Error::PromptInactive)?;
+            ensure(prompt.asset == bundle.asset, Error::InvalidAsset)?;
+            if prompt.expires_at != 0 {
+                ensure(prompt.expires_at >= now, Error::ListingExpired)?;
+            }
+            if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
+                if prompt.max_supply > 0 {
+                    ensure(
+                        prompt.sales_count < prompt.max_supply,
+                        Error::MaxSupplyReached,
+                    )?;
+                }
+                needs_access = true;
+                prompt.sales_count = prompt
+                    .sales_count
+                    .checked_add(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+            }
+            prompts.push_back(prompt);
+        }
+        ensure(needs_access, Error::AlreadyPurchased)?;
+
+        InstanceStorage::set_reentrancy_guard(&env)?;
+        route_creator_payment(
+            &env,
+            &buyer,
+            &bundle.creator,
+            &bundle.asset,
+            payment_amount_stroops,
+        )?;
+
+        let purchased_count = prompts.len() as u128;
+        let per_prompt_price = if purchased_count > 0 {
+            payment_amount_stroops
+                .checked_div(purchased_count as i128)
+                .ok_or(Error::InvalidPaymentAmount)?
+        } else {
+            0i128
+        };
+
+        for index in 0..prompts.len() {
+            let prompt = prompts.get(index).unwrap();
+            if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
+                for split_idx in 0..prompt.splits.len() {
+                    let split = prompt.splits.get(split_idx).unwrap();
+                    let split_amount = per_prompt_price
+                        .checked_mul(split.bps as i128)
+                        .ok_or(Error::ArithmeticOverflow)?
+                        / MAX_BPS as i128;
+                    if split_amount > 0 {
+                        let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
+                        asset_client.transfer_from(
+                            &env.current_contract_address(),
+                            &buyer,
+                            &split.recipient,
+                            &split_amount,
+                        );
+                    }
+                }
+                Storage::update_prompt(&env, &prompt);
+                Storage::grant_purchase(
+                    &env,
+                    &prompt,
+                    &buyer,
+                    per_prompt_price,
+                    MAX_ACCESS_EXPIRY,
+                );
+            }
+        }
+
+        bundle.sales_count = bundle
+            .sales_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Storage::update_bundle(&env, &bundle);
+        InstanceStorage::clear_reentrancy_guard(&env);
+
+        Events::emit_bundle_purchased(
+            &env,
+            bundle_id,
+            buyer,
+            bundle.creator,
+            payment_amount_stroops,
+            bundle.prompt_ids,
+        );
+        Ok(())
+    }
+
+    fn get_bundle(env: Env, bundle_id: u128) -> Result<Bundle, Error> {
+        Storage::require_bundle(&env, bundle_id)
+    }
+
+    fn get_bundles_by_creator(env: Env, creator: Address) -> Result<Vec<Bundle>, Error> {
+        Ok(Storage::get_bundles_by_creator(&env, &creator))
+    }
+
+    fn create_access_pass(
+        env: Env,
+        creator: Address,
+        title: String,
+        duration_secs: u64,
+        price_stroops: i128,
+        asset: Address,
+    ) -> Result<u128, Error> {
+        creator.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        validate_len(&title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
+        ensure(price_stroops > 0, Error::InvalidPrice)?;
+        ensure(
+            duration_secs > 0 && duration_secs <= MAX_PASS_DURATION_SECS,
+            Error::InvalidAccessDuration,
+        )?;
+        token::Client::new(&env, &asset).decimals();
+
+        let pass_id = Storage::get_access_pass_counter(&env);
+        let access_pass = AccessPass {
+            id: pass_id,
+            creator: creator.clone(),
+            title,
+            duration_secs,
+            price_stroops,
+            asset,
+            active: true,
+            sales_count: 0,
+        };
+
+        Storage::save_access_pass(&env, &access_pass)?;
+        Storage::add_access_pass_to_creator(&env, &creator, pass_id);
+        Events::emit_access_pass_created(&env, pass_id, creator, duration_secs, price_stroops);
+        Ok(pass_id)
+    }
+
+    fn buy_access_pass(
+        env: Env,
+        buyer: Address,
+        pass_id: u128,
+        payment_amount_stroops: i128,
+    ) -> Result<(), Error> {
+        buyer.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        let mut access_pass = Storage::require_access_pass(&env, pass_id)?;
+        let now = env.ledger().timestamp();
+
+        ensure(access_pass.active, Error::PromptInactive)?;
+        ensure(access_pass.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure(
+            payment_amount_stroops >= access_pass.price_stroops,
+            Error::InvalidPaymentAmount,
+        )?;
+        ensure(
+            !Storage::has_active_creator_pass(&env, &access_pass.creator, &buyer, now),
+            Error::AlreadyPurchased,
+        )?;
+
+        InstanceStorage::set_reentrancy_guard(&env)?;
+        route_creator_payment(
+            &env,
+            &buyer,
+            &access_pass.creator,
+            &access_pass.asset,
+            payment_amount_stroops,
+        )?;
+
+        let expires_at = now
+            .checked_add(access_pass.duration_secs)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let catalog_pass = CatalogPassPurchase {
+            creator: access_pass.creator.clone(),
+            buyer: buyer.clone(),
+            pass_id,
+            expires_at,
+        };
+        Storage::save_catalog_pass_purchase(&env, &catalog_pass);
+        access_pass.sales_count = access_pass
+            .sales_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Storage::update_access_pass(&env, &access_pass);
+        InstanceStorage::clear_reentrancy_guard(&env);
+        Events::emit_access_pass_purchased(&env, pass_id, buyer, access_pass.creator, expires_at);
+        Ok(())
+    }
+
+    fn get_access_pass(env: Env, pass_id: u128) -> Result<AccessPass, Error> {
+        Storage::require_access_pass(&env, pass_id)
+    }
+
+    fn get_access_passes_by_creator(env: Env, creator: Address) -> Result<Vec<AccessPass>, Error> {
+        Ok(Storage::get_access_passes_by_creator(&env, &creator))
+    }
+
     fn transfer_license(
         env: Env,
         seller: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         new_buyer: Address,
         resale_price: i128,
     ) -> Result<(), Error> {
         seller.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         ensure(resale_price > 0, Error::InvalidPaymentAmount)?;
         ensure(seller != new_buyer, Error::InvalidLicenseTransfer)?;
         new_buyer.require_auth();
@@ -328,7 +638,7 @@ impl PromptHashTrait for PromptHashContract {
             Error::AlreadyPurchased,
         )?;
 
-        Storage::set_reentrancy_guard(&env)?;
+        InstanceStorage::set_reentrancy_guard(&env)?;
 
         let this_contract = env.current_contract_address();
         let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
@@ -363,7 +673,7 @@ impl PromptHashTrait for PromptHashContract {
         purchase.last_transferred_at = now;
         Storage::save_purchase(&env, &purchase);
         Storage::add_prompt_to_buyer(&env, &new_buyer, prompt_id);
-        Storage::clear_reentrancy_guard(&env);
+        InstanceStorage::clear_reentrancy_guard(&env);
 
         Events::emit_license_transferred(
             &env,
@@ -377,13 +687,11 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    // ─── Issue #226: Listing revision support ────────────────────────────────
-
     #[allow(clippy::too_many_arguments)]
     fn revise_listing(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         title: String,
         category: String,
         preview_text: String,
@@ -391,20 +699,16 @@ impl PromptHashTrait for PromptHashContract {
         price_stroops: i128,
     ) -> Result<u32, Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
-        // Validate incoming field lengths and price
         ensure(price_stroops > 0, Error::InvalidPrice)?;
         validate_len(&image_url, MAX_IMAGE_URL_LEN, Error::InvalidImageUrlLength)?;
         validate_len(&title, MAX_TITLE_LEN, Error::InvalidTitleLength)?;
         validate_len(&category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
         validate_len(&preview_text, MAX_PREVIEW_LEN, Error::InvalidPreviewLength)?;
 
-        // Snapshot the current (about-to-be-replaced) metadata before overwriting.
-        // Buyers can call get_listing_revision(prompt_id, old_revision) to verify
-        // what was advertised at the time of their purchase.
         let snapshot = ListingRevisionRecord {
             prompt_id,
             revision: prompt.revision,
@@ -417,7 +721,6 @@ impl PromptHashTrait for PromptHashContract {
         };
         Storage::save_listing_revision(&env, &snapshot);
 
-        // Apply updates
         prompt.title = title;
         prompt.category = category;
         prompt.preview_text = preview_text;
@@ -435,10 +738,9 @@ impl PromptHashTrait for PromptHashContract {
 
     fn get_listing_revision(
         env: Env,
-        prompt_id: u128,
+        prompt_id: u64,
         revision: u32,
     ) -> Result<ListingRevisionRecord, Error> {
-        // Verify the listing exists before looking up the revision.
         Storage::require_prompt(&env, prompt_id)?;
         Storage::get_listing_revision(&env, prompt_id, revision).ok_or(Error::PromptNotFound)
     }
@@ -446,11 +748,11 @@ impl PromptHashTrait for PromptHashContract {
     fn update_splits(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         new_splits: Vec<Split>,
     ) -> Result<(), Error> {
         creator.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
@@ -464,13 +766,15 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    fn has_access(env: Env, user: Address, prompt_id: u128) -> Result<bool, Error> {
+    fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error> {
         let prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
-        Ok(prompt.creator == user || Storage::has_active_purchase(&env, prompt_id, &user, now))
+        Ok(prompt.creator == user
+            || Storage::has_active_purchase(&env, prompt_id, &user, now)
+            || Storage::has_active_creator_pass(&env, &prompt.creator, &user, now))
     }
 
-    fn get_prompt(env: Env, prompt_id: u128) -> Result<Prompt, Error> {
+    fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error> {
         Storage::require_prompt(&env, prompt_id)
     }
 
@@ -491,11 +795,11 @@ impl PromptHashTrait for PromptHashContract {
     fn open_dispute(
         env: Env,
         buyer: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         reason: DisputeReason,
     ) -> Result<(), Error> {
         buyer.require_auth();
-        ensure(!Storage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let now = env.ledger().timestamp();
         Storage::require_purchase(&env, prompt_id, &buyer)?;
         if let Some(dispute) = Storage::get_dispute(&env, prompt_id, &buyer) {
@@ -520,7 +824,7 @@ impl PromptHashTrait for PromptHashContract {
     fn resolve_dispute(
         env: Env,
         admin: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         buyer: Address,
         refund: bool,
     ) -> Result<(), Error> {
@@ -537,14 +841,27 @@ impl PromptHashTrait for PromptHashContract {
         dispute.resolved_at = env.ledger().timestamp();
         if refund {
             let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
+            // Refund from the contract's escrowed balance (#454).  The
+            // funds were routed to the contract during purchase so that
+            // a refund is always possible without additional auth.
             asset_client.transfer(
                 &env.current_contract_address(),
                 &buyer,
                 &purchase.original_price,
             );
+
+            // Mark the purchase as revoked so the buyer can no longer claim access.
             Storage::remove_purchase(&env, prompt_id, &buyer);
             Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
             dispute.status = DisputeStatus::Refunded;
+
+            // Update the escrow record so the settlement admin knows
+            // the funds were already returned to the buyer.
+            if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                escrow.status = SettlementStatus::Refunded;
+                escrow.settled_at = env.ledger().timestamp();
+                Storage::save_purchase_escrow(&env, &escrow);
+            }
         } else {
             dispute.status = DisputeStatus::Rejected;
         }
@@ -553,8 +870,86 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    fn get_dispute(env: Env, prompt_id: u128, buyer: Address) -> Result<PurchaseDispute, Error> {
+    /// Release escrowed funds after the dispute window closes (#454).
+    /// The contract owner (admin) or the prompt creator can settle.
+    /// This distributes the held payment to the fee wallet, referrer,
+    /// split recipients, and creator.
+    fn settle_purchase(
+        env: Env,
+        caller: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(
+            caller == owner || caller == prompt.creator,
+            Error::Unauthorized,
+        )?;
+
+        let mut escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
+        ensure(escrow.status == SettlementStatus::Pending, Error::DisputeResolved)?;
+
+        let now = env.ledger().timestamp();
+        let this_contract = env.current_contract_address();
+        let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
+        let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+
+        // Distribute fee
+        if escrow.fee_amount > 0 {
+            asset_client.transfer(&this_contract, &fee_wallet, &escrow.fee_amount);
+        }
+
+        // Distribute referral
+        if let Some(ref r) = escrow.referrer {
+            if escrow.referral_amount > 0 {
+                asset_client.transfer(&this_contract, r, &escrow.referral_amount);
+            }
+        }
+
+        // Distribute splits (recalculated from current prompt splits)
+        for i in 0..prompt.splits.len() {
+            let split = prompt.splits.get(i).unwrap();
+            let split_amount = escrow
+                .amount
+                .checked_mul(split.bps as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            if split_amount > 0 {
+                asset_client.transfer(&this_contract, &split.recipient, &split_amount);
+            }
+        }
+
+        // Transfer the creator's escrowed share
+        if escrow.creator_amount > 0 {
+            asset_client.transfer(&this_contract, &prompt.creator, &escrow.creator_amount);
+        }
+
+        escrow.status = SettlementStatus::Settled;
+        escrow.settled_at = now;
+        Storage::save_purchase_escrow(&env, &escrow);
+        Events::emit_prompt_purchased(
+            &env,
+            prompt_id,
+            buyer,
+            prompt.creator,
+            escrow.amount,
+            escrow.referrer,
+        );
+        Ok(())
+    }
+
+    fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error> {
         Storage::require_dispute(&env, prompt_id, &buyer)
+    }
+
+    fn get_purchase_escrow(
+        env: Env,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Option<PurchaseEscrow> {
+        Storage::get_purchase_escrow(&env, prompt_id, &buyer)
     }
 
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
@@ -568,27 +963,26 @@ impl PromptHashTrait for PromptHashContract {
     #[only_owner]
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error> {
         ensure(new_fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
-        Storage::set_fee_percentage(&env, &new_fee_percentage);
+        InstanceStorage::set_fee_percentage(&env, &new_fee_percentage);
         Events::emit_fee_updated(&env, new_fee_percentage);
         Ok(())
     }
 
     #[only_owner]
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error> {
-        Storage::set_fee_wallet(&env, &new_fee_wallet);
+        InstanceStorage::set_fee_wallet(&env, &new_fee_wallet);
         Events::emit_fee_wallet_updated(&env, new_fee_wallet);
         Ok(())
     }
 
     fn get_fee_percentage(env: Env) -> u32 {
-        Storage::get_fee_percentage(&env)
+        InstanceStorage::get_fee_percentage(&env)
     }
 
     fn get_fee_wallet(env: Env) -> Option<Address> {
-        Storage::get_fee_wallet(&env)
+        InstanceStorage::get_fee_wallet(&env)
     }
 
-    // New governance API: secure, bounded platform fee updates with cryptographic event logging.
     #[only_owner]
     fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error> {
         admin.require_auth();
@@ -596,30 +990,40 @@ impl PromptHashTrait for PromptHashContract {
         ensure(owner == admin, Error::Unauthorized)?;
         ensure(new_fee <= MAX_PLATFORM_FEE, Error::FeeExceedsMaximum)?;
 
-        let old_fee = Storage::get_fee_percentage(&env);
-        Storage::set_fee_percentage(&env, &new_fee);
-        // Emit event with the authenticated admin for auditability
+        let old_fee = InstanceStorage::get_fee_percentage(&env);
+        InstanceStorage::set_fee_percentage(&env, &new_fee);
         Events::emit_platform_fee_updated(&env, old_fee, new_fee, admin);
         Ok(())
     }
 
     fn get_platform_fee(env: Env) -> u32 {
-        Storage::get_fee_percentage(&env)
+        InstanceStorage::get_fee_percentage(&env)
     }
 
     fn get_xlm_sac(env: Env) -> Option<Address> {
-        Storage::get_xlm_address(&env)
+        InstanceStorage::get_xlm_address(&env)
+    }
+
+    fn get_prompts_by_ids(env: Env, prompt_ids: Vec<u64>) -> Result<Vec<Prompt>, Error> {
+        let mut prompts = Vec::new(&env);
+        for i in 0..prompt_ids.len() {
+            let id = prompt_ids.get(i).unwrap();
+            if let Ok(prompt) = Storage::require_prompt(&env, id) {
+                prompts.push_back(prompt);
+            }
+        }
+        Ok(prompts)
     }
 
     #[only_owner]
     fn set_pause_status(env: Env, paused: bool) -> Result<(), Error> {
-        Storage::set_pause_status(&env, paused);
+        InstanceStorage::set_pause_status(&env, paused);
         Events::emit_contract_paused_state_changed(&env, paused);
         Ok(())
     }
 
     fn is_paused(env: Env) -> bool {
-        Storage::is_paused(&env)
+        InstanceStorage::is_paused(&env)
     }
 
     #[only_owner]
@@ -628,18 +1032,18 @@ impl PromptHashTrait for PromptHashContract {
             new_referral_percentage <= MAX_BPS,
             Error::InvalidReferralPercentage,
         )?;
-        Storage::set_referral_percentage(&env, new_referral_percentage);
+        InstanceStorage::set_referral_percentage(&env, new_referral_percentage);
         Ok(())
     }
 
     fn get_referral_percentage(env: Env) -> u32 {
-        Storage::get_referral_percentage(&env)
+        InstanceStorage::get_referral_percentage(&env)
     }
 
     fn add_voucher(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         hashed_code: BytesN<32>,
         discount_bps: u32,
     ) -> Result<(), Error> {
@@ -656,7 +1060,7 @@ impl PromptHashTrait for PromptHashContract {
     fn remove_voucher(
         env: Env,
         creator: Address,
-        prompt_id: u128,
+        prompt_id: u64,
         hashed_code: BytesN<32>,
     ) -> Result<(), Error> {
         creator.require_auth();
@@ -675,11 +1079,18 @@ impl PromptHashTrait for PromptHashContract {
             super::storage::PERSISTENT_LIFETIME_THRESHOLD,
             super::storage::PERSISTENT_BUMP_AMOUNT,
         );
+        Storage::extend_all_ttl(&env);
         Ok(())
     }
 
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error> {
         Storage::extend_key_ttl(&env, &key);
+        Ok(())
+    }
+
+    #[only_owner]
+    fn extend_all_ttl(env: Env) -> Result<(), Error> {
+        Storage::extend_all_ttl(&env);
         Ok(())
     }
 }
@@ -688,12 +1099,10 @@ impl PromptHashTrait for PromptHashContract {
 #[contractimpl]
 impl Ownable for PromptHashContract {}
 
-// ─── Core buy logic (shared by buy_prompt and buy_prompts_bulk) ──────────────
-
 fn execute_buy(
     env: &Env,
     buyer: &Address,
-    prompt_id: u128,
+    prompt_id: u64,
     referrer: &Option<Address>,
     payment_amount_stroops: i128,
     voucher: Option<Bytes>,
@@ -708,12 +1117,10 @@ fn execute_buy(
         Error::AlreadyPurchased,
     )?;
 
-    // #49: block purchase on an expired listing
     if prompt.expires_at != 0 {
         ensure(prompt.expires_at >= now, Error::ListingExpired)?;
     }
 
-    // Enforce max supply (0 = unlimited)
     if prompt.max_supply > 0 {
         ensure(
             prompt.sales_count < prompt.max_supply,
@@ -721,7 +1128,6 @@ fn execute_buy(
         )?;
     }
 
-    // Apply voucher discount if provided
     let mut required_price = prompt.price_stroops;
     if let Some(code) = voucher {
         let hashed_raw = env.crypto().sha256(&code);
@@ -752,12 +1158,11 @@ fn execute_buy(
         )?;
     }
 
-    Storage::set_reentrancy_guard(env)?;
+    InstanceStorage::set_reentrancy_guard(env)?;
 
-    let fee_wallet = Storage::get_fee_wallet(env).ok_or(Error::FeeWalletNotSet)?;
     let this_contract = env.current_contract_address();
 
-    let fee_percentage = Storage::get_fee_percentage(env);
+    let fee_percentage = InstanceStorage::get_fee_percentage(env);
     ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
     let fee_amount = payment_amount_stroops
@@ -765,7 +1170,7 @@ fn execute_buy(
         .ok_or(Error::ArithmeticOverflow)?
         / MAX_BPS as i128;
 
-    let referral_percentage = Storage::get_referral_percentage(env);
+    let referral_percentage = InstanceStorage::get_referral_percentage(env);
     let referral_amount = if referrer.is_some() {
         payment_amount_stroops
             .checked_mul(referral_percentage as i128)
@@ -779,7 +1184,6 @@ fn execute_buy(
         .checked_add(referral_amount)
         .ok_or(Error::ArithmeticOverflow)?;
 
-    // #50: accumulate split amounts (each split is a share of the full payment)
     let mut split_total: i128 = 0;
     for i in 0..prompt.splits.len() {
         let split = prompt.splits.get(i).unwrap();
@@ -799,37 +1203,24 @@ fn execute_buy(
         .checked_sub(total_deductions)
         .ok_or(Error::ArithmeticOverflow)?;
 
-    // Guard against misconfigured splits (e.g. fee raised after creation)
     ensure(creator_amount >= 0, Error::InvalidSplits)?;
 
     let asset_client = token::StellarAssetClient::new(env, &prompt.asset);
 
-    if creator_amount > 0 {
-        asset_client.transfer_from(&this_contract, buyer, &prompt.creator, &creator_amount);
-    }
+    // Route the full payment through the contract so it holds
+    // escrow for dispute refunds (#454).  The buyer must have
+    // approved the contract for at least `payment_amount_stroops`.
+    asset_client.transfer_from(
+        &this_contract,
+        buyer,
+        &this_contract,
+        &payment_amount_stroops,
+    );
 
-    if fee_amount > 0 {
-        asset_client.transfer_from(&this_contract, buyer, &fee_wallet, &fee_amount);
-    }
-
-    if let Some(ref r) = referrer {
-        if referral_amount > 0 {
-            asset_client.transfer_from(&this_contract, buyer, r, &referral_amount);
-        }
-    }
-
-    // #50: distribute co-creator splits
-    for i in 0..prompt.splits.len() {
-        let split = prompt.splits.get(i).unwrap();
-        let split_amount = payment_amount_stroops
-            .checked_mul(split.bps as i128)
-            .ok_or(Error::ArithmeticOverflow)?
-            / MAX_BPS as i128;
-        if split_amount > 0 {
-            asset_client.transfer_from(&this_contract, buyer, &split.recipient, &split_amount);
-        }
-    }
-
+    // All funds are held in the contract.  No distribution occurs
+    // here — `settle_purchase` (admin) releases them to the creator,
+    // fee wallet, referrer, and split recipients, or a dispute
+    // refund returns them to the buyer.
     prompt.sales_count = prompt
         .sales_count
         .checked_add(1)
@@ -842,7 +1233,26 @@ fn execute_buy(
         payment_amount_stroops,
         MAX_ACCESS_EXPIRY,
     );
-    Storage::clear_reentrancy_guard(env);
+
+    // Escrow is created as Pending — the creator's share is held in
+    // the contract until `settle_purchase` is called (#454).
+    let now = env.ledger().timestamp();
+    let escrow = PurchaseEscrow {
+        prompt_id,
+        buyer: buyer.clone(),
+        amount: payment_amount_stroops,
+        asset: prompt.asset.clone(),
+        referrer: referrer.clone(),
+        status: SettlementStatus::Pending,
+        created_at: now,
+        settled_at: 0,
+        creator_amount,
+        fee_amount,
+        referral_amount,
+    };
+    Storage::save_purchase_escrow(env, &escrow);
+
+    InstanceStorage::clear_reentrancy_guard(env);
 
     Events::emit_prompt_purchased(
         env,
@@ -870,8 +1280,40 @@ fn execute_buy(
 /// Validate that the sum of all split basis-points does not exceed
 /// MAX_BPS minus the current platform fee, ensuring the creator always
 /// receives a non-negative payout.
+fn route_creator_payment(
+    env: &Env,
+    payer: &Address,
+    creator: &Address,
+    asset: &Address,
+    payment_amount_stroops: i128,
+) -> Result<(), Error> {
+    ensure(payment_amount_stroops > 0, Error::InvalidPaymentAmount)?;
+
+    let fee_wallet = InstanceStorage::get_fee_wallet(env).ok_or(Error::FeeWalletNotSet)?;
+    let fee_percentage = InstanceStorage::get_fee_percentage(env);
+    ensure(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
+
+    let fee_amount = payment_amount_stroops
+        .checked_mul(fee_percentage as i128)
+        .ok_or(Error::ArithmeticOverflow)?
+        / MAX_BPS as i128;
+    let creator_amount = payment_amount_stroops
+        .checked_sub(fee_amount)
+        .ok_or(Error::ArithmeticOverflow)?;
+
+    let this_contract = env.current_contract_address();
+    let asset_client = token::StellarAssetClient::new(env, asset);
+    if creator_amount > 0 {
+        asset_client.transfer_from(&this_contract, payer, creator, &creator_amount);
+    }
+    if fee_amount > 0 {
+        asset_client.transfer_from(&this_contract, payer, &fee_wallet, &fee_amount);
+    }
+    Ok(())
+}
+
 fn validate_splits(env: &Env, splits: &Vec<Split>) -> Result<(), Error> {
-    let fee_percentage = Storage::get_fee_percentage(env);
+    let fee_percentage = InstanceStorage::get_fee_percentage(env);
     let mut total_bps: u32 = 0;
     for i in 0..splits.len() {
         let split = splits.get(i).unwrap();
@@ -880,7 +1322,6 @@ fn validate_splits(env: &Env, splits: &Vec<Split>) -> Result<(), Error> {
             .checked_add(split.bps)
             .ok_or(Error::ArithmeticOverflow)?;
     }
-    // total_bps + fee must not exceed MAX_BPS so creator always gets ≥ 0
     let total = total_bps
         .checked_add(fee_percentage)
         .ok_or(Error::ArithmeticOverflow)?;
@@ -936,6 +1377,18 @@ fn validate_no_duplicate_recipients(splits: &Vec<Split>) -> Result<(), Error> {
             let a = splits.get(i).unwrap();
             let b = splits.get(j).unwrap();
             ensure(a.recipient != b.recipient, Error::DuplicateSplitRecipient)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_no_duplicate_prompt_ids(prompt_ids: &Vec<u64>) -> Result<(), Error> {
+    for i in 0..prompt_ids.len() {
+        for j in (i + 1)..prompt_ids.len() {
+            ensure(
+                prompt_ids.get(i).unwrap() != prompt_ids.get(j).unwrap(),
+                Error::DuplicatePromptId,
+            )?;
         }
     }
     Ok(())

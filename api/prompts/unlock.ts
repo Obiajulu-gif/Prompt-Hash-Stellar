@@ -1,7 +1,9 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   buildChallengeMessage,
   verifyChallengeSignature,
   verifyChallengeToken,
+  globalNonceLedger,
 } from "../../src/lib/auth/challenge";
 import {
   decryptPromptCiphertext,
@@ -24,6 +26,20 @@ import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
+
+export interface UnlockRequest {
+  token: string;
+  promptId: string;
+  address: string;
+  signedMessage: string;
+}
+
+export interface UnlockSuccessResponse {
+  promptId: string;
+  title: string;
+  contentHash: string;
+  plaintext: string;
+}
 
 // Fail-fast module load validation
 try {
@@ -84,11 +100,14 @@ function getServerConfig(): PromptHashConfig {
   };
 }
 
-async function handler(req: any, res: any) {
+async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<void> {
   try {
     validateUnlockSecrets();
   } catch (err: any) {
-    req.logger.error("Configuration validation failed", { error: err.message });
+    console.error("Configuration validation failed", { error: err.message });
     res.status(500).json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
     return;
   }
@@ -98,8 +117,10 @@ async function handler(req: any, res: any) {
     return;
   }
 
-  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string;
-  const { token, promptId, address, signedMessage } = req.body ?? {};
+  const clientIp = String(
+    req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
+  );
+  const { token, promptId, address, signedMessage }: Partial<UnlockRequest> = req.body ?? {};
 
   // Authenticated bucket: wallet address is present.
   const isAuthenticated = Boolean(address);
@@ -209,6 +230,26 @@ async function handler(req: any, res: any) {
       return;
     }
 
+    // Nonce-based replay protection: ensure this nonce is consumed only once
+    const nonceConsumed = globalNonceLedger.consume(payload.nonce, payload.expiresAt);
+    if (!nonceConsumed) {
+      req.logger.warn({ address, promptId, nonce: payload.nonce }, "Replay attack detected (nonce already consumed)");
+      metrics.trackUnlockFailure(String(address), String(promptId), "replay_detected");
+      void recordAuditEvent({
+        action: "unlock_replay_detected",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "replay_attack",
+      });
+      res.status(400).json(
+        apiError(ErrorCode.TEMPORARY_FAILURE, "This unlock request has already been processed."),
+      );
+      return;
+    }
+
     const replayCheck = await checkReplayProtection(
       String(token),
       String(signedMessage),
@@ -312,12 +353,13 @@ async function handler(req: any, res: any) {
       }),
     ).catch(() => {});
 
-    res.status(200).json({
+    const successResponse: UnlockSuccessResponse = {
       promptId: prompt.id.toString(),
       title: prompt.title,
       contentHash,
       plaintext,
-    });
+    };
+    res.status(200).json(successResponse);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to unlock prompt.";
     req.logger.error({ address, promptId, error: message }, "Unlock attempt failed");
