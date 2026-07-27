@@ -37,6 +37,7 @@ import {
   createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
 
 const limits = {
   ...LISTING_LIMITS,
@@ -104,6 +105,13 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   });
 
   const watchAllFields = watch();
+
+  const { isActive: hasUnsavedChanges, resetBlocker } = useUnsavedChangesWarning({
+    isDirty: Object.values(watchAllFields).some(
+      (v) => v !== "" && v !== undefined && v !== null && v !== "2" && !(Array.isArray(v) && v.length === 0)
+    ),
+    disabled: !!successMessage,
+  });
 
   const isConfigured = useMemo(
     () => Boolean(address && browserStellarConfig.promptHashContractId && unlockPublicKey),
@@ -178,6 +186,8 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     setSuccessMessage(null);
     console.log("Form submitted successfully:", data);
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    setSuccessMessage("Prompt listing created successfully!");
+    resetBlocker();
   };
 
   return (
