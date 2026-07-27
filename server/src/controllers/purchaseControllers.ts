@@ -181,3 +181,198 @@ export const GetCreatorSalesAnalytics = async (
     });
   }
 };
+
+/**
+ * Generates a creator's payout statement for prompt sales.
+ *
+ * Includes sale date, prompt, buyer address, gross amount, platform fee, and
+ * creator net amount. Supports optional `startDate` and `endDate` query filters
+ * and outputs CSV format when requested.
+ */
+export const GetCreatorPayoutStatement = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { walletAddress } = req.params;
+    const { startDate, endDate, format } = req.query;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: "walletAddress is required." });
+    }
+
+    const user = await User.findOne({
+      walletAddress: walletAddress.toLowerCase(),
+    }).select("_id");
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const prompts = (await Prompt.find({ owner: user._id })
+      .select("_id onChainId title price")
+      .lean()) as unknown as PromptLite[];
+
+    if (prompts.length === 0) {
+      if (format === "csv" || req.headers.accept?.includes("text/csv")) {
+        const csvHeader = `"Sale Date","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Transaction Hash"\n`;
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="payout-statement-${walletAddress.slice(0, 8)}.csv"`,
+        );
+        return res.status(200).send(csvHeader);
+      }
+      return res.json({ statement: [] });
+    }
+
+    const promptByKey = new Map<string, PromptLite>();
+    for (const prompt of prompts) {
+      promptByKey.set(String(prompt._id), prompt);
+      if (prompt.onChainId) {
+        promptByKey.set(String(prompt.onChainId), prompt);
+      }
+    }
+
+    const promptIds = [...promptByKey.keys()];
+
+    const query: Record<string, unknown> = {
+      promptId: { $in: promptIds },
+    };
+
+    if (startDate || endDate) {
+      const dateFilter: Record<string, Date> = {};
+      if (startDate) {
+        const start = new Date(startDate as string);
+        if (!isNaN(start.getTime())) {
+          dateFilter.$gte = start;
+        }
+      }
+      if (endDate) {
+        const end = new Date(endDate as string);
+        if (!isNaN(end.getTime())) {
+          if (typeof endDate === "string" && endDate.length === 10) {
+            end.setUTCHours(23, 59, 59, 999);
+          }
+          dateFilter.$lte = end;
+        }
+      }
+      if (Object.keys(dateFilter).length > 0) {
+        query.createdAt = dateFilter;
+      }
+    }
+
+    const purchases = await Purchase.find(query)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const PLATFORM_FEE_RATE = 0.05;
+
+    const statement = purchases.map((purchase) => {
+      const prompt = promptByKey.get(String(purchase.promptId));
+      const grossAmount = typeof prompt?.price === "number" ? prompt.price : 0;
+      const platformFee = Number((grossAmount * PLATFORM_FEE_RATE).toFixed(4));
+      const creatorAmount = Number((grossAmount - platformFee).toFixed(4));
+
+      return {
+        id: String(purchase._id),
+        saleDate: purchase.createdAt
+          ? new Date(purchase.createdAt).toISOString()
+          : new Date().toISOString(),
+        promptTitle: prompt?.title ?? "Prompt",
+        promptId: prompt?.onChainId ?? String(purchase.promptId),
+        buyerAddress: purchase.buyerWallet,
+        grossAmount,
+        platformFee,
+        creatorAmount,
+        txHash: purchase.txHash ?? "",
+      };
+    });
+
+    if (format === "csv" || req.headers.accept?.includes("text/csv")) {
+      const csvHeader = `"Sale Date","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Transaction Hash"\n`;
+      const csvRows = statement
+        .map((row) =>
+          [
+            `"${row.saleDate}"`,
+            `"${row.promptTitle.replace(/"/g, '""')}"`,
+            `"${row.promptId}"`,
+            `"${row.buyerAddress}"`,
+            row.grossAmount,
+            row.platformFee,
+            row.creatorAmount,
+            `"${row.txHash}"`,
+          ].join(","),
+        )
+        .join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="payout-statement-${walletAddress.slice(0, 8)}.csv"`,
+      );
+      return res.status(200).send(csvHeader + csvRows);
+    }
+
+    return res.json({ statement });
+  } catch (err) {
+    console.error("Get creator payout statement error:", err);
+    return res.status(500).json({
+      error: (err as Error).message || "Failed to fetch creator payout statement",
+    });
+  }
+};
+
+/**
+ * Returns summary metrics of content integrity rechecks across all prompt listings.
+ */
+export const GetIntegrityReport = async (
+  _req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { runContentIntegrityCheckAll } = await import(
+      "../services/contentIntegrity"
+    );
+    const report = await runContentIntegrityCheckAll();
+    return res.json(report);
+  } catch (err) {
+    console.error("Get integrity report error:", err);
+    return res.status(500).json({
+      error: (err as Error).message || "Failed to generate integrity report",
+    });
+  }
+};
+
+/**
+ * Triggers a manual or scheduled content integrity check for a specific prompt
+ * or batch audit sweep.
+ */
+export const TriggerIntegrityCheck = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { verifyPromptIntegrity, runContentIntegrityCheckAll } = await import(
+      "../services/contentIntegrity"
+    );
+    const { promptId } = req.body || {};
+
+    if (promptId) {
+      const result = await verifyPromptIntegrity(String(promptId));
+      return res.json({ result });
+    }
+
+    const report = await runContentIntegrityCheckAll();
+    return res.json({ report });
+  } catch (err) {
+    console.error("Trigger integrity check error:", err);
+    return res.status(500).json({
+      error: (err as Error).message || "Failed to trigger integrity check",
+    });
+  }
+};
+

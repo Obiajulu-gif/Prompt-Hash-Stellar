@@ -1,6 +1,10 @@
 {
   "nav": {
     "browse": "Browse",
+    "sell": "Sell",
+    "chat": "Chat",
+    "profile": "Profile",
+    "status": "Status",
     "create": "Create",
     "dashboard": "Dashboard",
     "connect": "Connect Wallet",
@@ -12,6 +16,23 @@
     "browse_prompts": "Browse Prompts",
     "create_prompt": "Create Prompt"
   },
+  "marketplace": {
+    "title": "Marketplace",
+    "subtitle": "Browse and unlock AI prompts. Purchases are settled on the Stellar network.",
+    "listings_count_one": "{{count}} listing",
+    "listings_count_other": "{{count}} listings",
+    "load_error": "Failed to load marketplace listings.",
+    "load_error_hint": "Check your connection and refresh the page.",
+    "empty_title": "No prompts listed yet",
+    "empty_body": "Be the first to list a prompt! Head to the Sell page to publish your AI prompt and start earning XLM.",
+    "sell_link": "Sell",
+    "owned": "Owned",
+    "buy": "Buy",
+    "purchasing": "Purchasing…",
+    "network_wait": "Waiting for Stellar network confirmation…",
+    "pending_message": "Processing purchase on the Stellar network…",
+    "success_message": "Purchase complete! Item unlocked."
+  },
   "prompt": {
     "buy": "Buy Prompt",
     "lease": "Lease Prompt",
@@ -19,10 +40,59 @@
     "creator": "Creator",
     "category": "Category",
     "sales": "Sales",
+    "content_hash": "Content Hash",
+    "quality_score": "Quality Score",
+    "preview": "Preview",
+    "no_ratings": "No ratings yet — be the first to review.",
     "purchase_success": "Prompt purchased successfully!",
     "lease_success": "Prompt leased successfully!",
     "already_owned": "You already own this prompt.",
-    "max_supply_reached": "Maximum supply reached for this prompt."
+    "max_supply_reached": "Maximum supply reached for this prompt.",
+    "acquire_license": "Acquire License",
+    "acquire_license_subtitle": "Unlock high-quality prompt content via Stellar smart contract.",
+    "secure_purchase": "Secure Purchase",
+    "secure_purchase_body": "Funds are held by the contract until access rights are minted. Platform fee is included in the price.",
+    "confirm_purchase": "Confirm & Purchase",
+    "offline": "Offline",
+    "license_verified": "License Verified",
+    "license_verified_body": "Ownership detected on-chain. Sign the unlock request to decrypt.",
+    "decrypt": "Decrypt Content",
+    "unlocking": "Unlocking…",
+    "copy_content": "Copy content",
+    "copied": "Copied",
+    "store_securely": "Store this prompt securely. Do not share it publicly or with unauthorised users.",
+    "go_to_library": "Go to my library",
+    "back_to_marketplace": "Back to marketplace",
+    "share_link": "Copy share link",
+    "share_link_copied": "Share link copied",
+    "report": "Report prompt",
+    "write_review": "Write a Review",
+    "share_experience": "Share Your Experience"
+  },
+  "receipt": {
+    "title": "Purchase Receipt",
+    "pending_indexing": "Pending Indexing…",
+    "pending_indexing_body": "Your transaction was successful on the Stellar network, but our system is still indexing the update. You will be able to unlock the prompt shortly.",
+    "prompt_label": "Prompt",
+    "creator_label": "Creator",
+    "amount_label": "Amount",
+    "fee_label": "Network Fee",
+    "tx_hash_label": "Transaction hash",
+    "prompt_id_label": "Prompt ID",
+    "content_hash_label": "Content hash",
+    "details_heading": "Transaction details",
+    "buyer_status": "Buyer status",
+    "buyer_label": "Buyer",
+    "licensed": "Licensed"
+  },
+  "sell": {
+    "title": "List a New Prompt",
+    "name_label": "Prompt Name",
+    "price_label": "Price (XLM)",
+    "description_label": "Description",
+    "submit": "List Asset",
+    "submitting": "Processing Listing…",
+    "offline": "Offline"
   },
   "create": {
     "title": "Create a Prompt",
@@ -37,9 +107,19 @@
   "errors": {
     "not_found": "Prompt not found.",
     "unauthorized": "You are not authorized.",
-    "paused": "The marketplace is currently paused."
+    "paused": "The marketplace is currently paused.",
+    "load_failed": "Failed to load data.",
+    "network_error": "A network error occurred. Please try again."
+  },
+  "offline": {
+    "banner": "You are currently offline. Viewing cached public listings. Wallet actions and purchases are disabled.",
+    "last_refreshed": "Data last refreshed: {{time}}",
+    "reconnect": "Reconnect"
   },
   "language": {
     "select": "Language"
+  },
+  "format": {
+    "xlm_amount": "{{amount}} XLM"
   }
 }

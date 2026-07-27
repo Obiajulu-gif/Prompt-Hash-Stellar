@@ -188,6 +188,7 @@ When opening a PR:
 - Update docs (if new behavior or env vars).
 - In PR description: explain what you changed, why, and how to test manually.
 - Tag reviewers and add an issue reference if applicable.
+- For automated dependency update review expectations and rollback procedures, see [Dependency Updates Guide](docs/operations/dependency-updates.md).
 
 ---
 
