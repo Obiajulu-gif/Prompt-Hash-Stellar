@@ -14,6 +14,9 @@ import {
 import {
   GetCreatorSalesAnalytics,
   GetPurchaseTransactions,
+  GetCreatorPayoutStatement,
+  GetIntegrityReport,
+  TriggerIntegrityCheck,
 } from "../controllers/purchaseControllers";
 
 export const promptRouter = express.Router();
@@ -44,6 +47,7 @@ promptRouter.get("/buyer/:walletAddress/owned", GetOwnedPrompts);
 promptRouter.get("/buyer/:walletAddress/saved", GetSavedPrompts);
 promptRouter.get("/buyer/:walletAddress/transactions", GetPurchaseTransactions);
 promptRouter.get("/creator/:walletAddress/analytics", GetCreatorSalesAnalytics);
+promptRouter.get("/creator/:walletAddress/payout-statement", GetCreatorPayoutStatement);
 promptRouter.post("/buyer/save", SavePrompt);
 promptRouter.post("/buyer/unsave", UnsavePrompt);
 promptRouter.get("/creator/:walletAddress/drafts", GetDraftPrompts);
@@ -55,3 +59,7 @@ promptRouter.get("/preview/stats", GetPreviewStats);
 // Report endpoints — off-chain moderation data, does not affect access control
 promptRouter.post("/reports", SubmitPromptReport);
 promptRouter.get("/reports", GetPromptReports);
+
+// Content integrity rechecks (#460)
+promptRouter.get("/admin/integrity-report", GetIntegrityReport);
+promptRouter.post("/admin/integrity-check", TriggerIntegrityCheck);

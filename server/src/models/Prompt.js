@@ -138,6 +138,29 @@ const promptSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    // Content integrity recheck fields (#460)
+    encryptedPrompt: {
+      type: String,
+      default: null,
+    },
+    contentHash: {
+      type: String,
+      default: null,
+    },
+    integrityStatus: {
+      type: String,
+      enum: ["pending", "ok", "corrupted", "missing", "unreachable"],
+      default: "pending",
+      index: true,
+    },
+    integrityCheckedAt: {
+      type: Date,
+      default: null,
+    },
+    integrityError: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

@@ -13,22 +13,19 @@ document is specifically about **events** and the runtime decoding path.
 - **`contracts/prompt-hash/spec-baseline.json`** — the existing checked-in
   ABI specification (see `tests/abi-conformance/`), including every
   event's field list in Rust syntax.
-- **`packages/sdk/src/events/schema.ts`** — a canonical TypeScript
-  specification (`EVENT_SCHEMAS`) covering every event currently in
-  `events.rs`, kept field-for-field consistent with `spec-baseline.json`.
+- **`packages/sdk/src/events/schema.ts`** — canonical, multi-version TypeScript
+  specifications (`EVENT_SCHEMAS`, `EVENT_SCHEMAS_V2`, `ALL_EVENT_SCHEMAS`, `getEventSchema`)
+  covering all v1 and v2 events emitted across contract upgrades.
 - **`packages/sdk/src/events/decode.ts`** — `decodeEvent(type, raw, version)`,
-  derived at runtime from `EVENT_SCHEMAS` rather than hand-written per
-  event. An unknown event type, or a known type at a version this build
-  doesn't have a schema for, returns `{ recognized: false, reason, raw }`
-  instead of throwing or silently mis-decoding.
-- **`packages/sdk/src/events/fixtures.ts`** — one golden fixture per event,
-  asserted (in `decode.test.ts`) to decode identically via `decodeEvent`.
+  derived at runtime from versioned schemas. Automatically detects explicit `version` fields
+  or envelope version arguments. Unrecognized events or unsupported versions return
+  `{ recognized: false, reason, raw }` without throwing.
+- **`packages/sdk/src/events/fixtures.ts`** — golden fixtures for all supported
+  event versions (v1 and v2), verified in `decode.test.ts`.
+- **`server/src/services/indexer.ts`** — fully integrated with `decodeEvent` to
+  process versioned event streams safely and distinguish old vs new payload shapes.
 - **`packages/sdk/src/events/spec-drift.test.ts`** — cross-checks
-  `EVENT_SCHEMAS` against `spec-baseline.json` field-by-field. This already
-  caught and fixed a real drift: `PromptAdminModerated.prompt_id` was typed
-  `u128` in both `spec-baseline.json` and its derived
-  `tests/abi-conformance/fixtures/contract-spec.json`, but is `u64` in the
-  actual `events.rs` source — neither was previously checked automatically.
+  `EVENT_SCHEMAS` against `spec-baseline.json` field-by-field.
 
 ## What's explicitly NOT done yet
 
