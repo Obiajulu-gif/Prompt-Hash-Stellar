@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -6,8 +7,9 @@ import {
   Check,
   Clock,
   Copy,
+  Flag,
+  History,
   Loader2,
-  ShieldCheck,
   ShoppingBag,
   Sparkles,
   ThumbsUp,
@@ -23,6 +25,12 @@ import { formatPriceLabel } from "@/lib/stellar/format";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
 import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
+import { useWallet } from "@/hooks/useWallet";
+import { useClipboardAutoClear } from "@/hooks/useClipboardAutoClear";
+import { ClipboardAutoClearBanner } from "@/components/ClipboardAutoClearBanner";
+import { MarkdownContent } from "@/components/MarkdownContent";
+import { UserAvatar } from "@/components/UserAvatar";
+import { ReportDialog } from "@/components/prompts/ReportDialog";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -37,6 +45,14 @@ export default function PromptDetailPage() {
   const { address } = useWallet();
   const [copied, setCopied] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  const {
+    enabled: autoClearEnabled,
+    toggle: toggleAutoClear,
+    copy,
+    cancel: cancelAutoClear,
+    remaining,
+    isCountingDown,
+  } = useClipboardAutoClear();
 
   const {
     data: prompt,
@@ -83,8 +99,8 @@ export default function PromptDetailPage() {
   const handleCopyLink = async () => {
     const link =
       typeof window !== "undefined" ? window.location.href : `/prompts/${id}`;
-    const result = await copyToClipboard(link);
-    if (result.success) {
+    const ok = await copy(link);
+    if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     }
@@ -260,6 +276,12 @@ export default function PromptDetailPage() {
                     </>
                   )}
                 </Button>
+                <ClipboardAutoClearBanner
+                  remaining={remaining}
+                  enabled={autoClearEnabled}
+                  onToggle={toggleAutoClear}
+                  onCancel={cancelAutoClear}
+                />
                 <Button
                   variant="ghost"
                   onClick={() => setShowReportDialog(true)}
