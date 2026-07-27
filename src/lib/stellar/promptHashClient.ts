@@ -4,6 +4,8 @@
  * This should NOT reach production.
  * TODO: Restore real Soroban contract integration before release.
  */
+import { Server } from "@stellar/stellar-sdk/rpc";
+
 let hasWarnedMock = false;
 const warnMockUse = () => {
   if (hasWarnedMock) return;
@@ -30,34 +32,103 @@ export interface PromptRecord {
   title: string;
   category: string;
   previewText: string;
+  description?: string;
+  tags?: string[];
   imageUrl: string;
   salesCount: number;
   active: boolean;
+  contentHash: string;
+  encryptedPrompt?: string;
+  encryptionIv?: string;
+  wrappedKey?: string;
 }
 
-export type CreatePromptInput = unknown;
+export interface RevenueSplitInput {
+  recipient: string;
+  bps: number;
+}
+
+export interface CreatePromptInput {
+  imageUrl: string;
+  title: string;
+  category: string;
+  previewText: string;
+  encryptedPrompt: string;
+  encryptionIv: string;
+  wrappedKey: string;
+  contentHash: string;
+  priceStroops: bigint;
+  splits?: RevenueSplitInput[];
+}
+
+export interface BundleRecord {
+  id: bigint;
+  creator: string;
+  title: string;
+  promptIds: bigint[];
+  priceStroops: bigint;
+  active: boolean;
+  salesCount: number;
+  expiresAt?: number;
+}
+
+export interface AccessPassRecord {
+  id: bigint;
+  creator: string;
+  title: string;
+  durationSecs: number;
+  priceStroops: bigint;
+  active: boolean;
+  salesCount: number;
+}
+
+export interface CreateBundleInput {
+  title: string;
+  promptIds: Array<string | bigint>;
+  priceStroops: bigint;
+  expiresAt?: number;
+}
+
+export interface CreateAccessPassInput {
+  title: string;
+  durationSecs: number;
+  priceStroops: bigint;
+}
 
 export class PromptHashClient {
   /**
    * Checks if the user already has access to the prompt.
    */
   static async checkAccess(
-    config: PromptHashConfig | string, // Accept config or itemId for compatibility
-    address: string,
-    itemId?: string,
+    _config: PromptHashConfig | string,
+    _address: string,
+    _itemId?: string | bigint,
   ): Promise<boolean> {
     warnMockUse();
     return new Promise((resolve) => {
-      setTimeout(() => resolve(false), 1000); // Mock: Assume false initially
+      setTimeout(() => resolve(false), 1000);
     });
+  }
+
+  static async getPrompt(
+    _config: PromptHashConfig,
+    promptId: bigint,
+  ): Promise<PromptRecord> {
+    warnMockUse();
+    const prompts = await PromptHashClient.getAllPrompts(_config);
+    const match = prompts.find((p) => p.id === promptId);
+    if (!match) {
+      throw new Error(`Prompt #${promptId.toString()} not found.`);
+    }
+    return match;
   }
 
   /**
    * Invokes the Soroban contract to purchase a prompt.
    */
   static async purchasePrompt(
-    itemId: string,
-    userAddress: string,
+    _itemId: string,
+    _userAddress: string,
     options?: { forceFailure?: string; delay?: number },
   ): Promise<{ txHash: string; success: boolean }> {
     warnMockUse();
@@ -75,8 +146,50 @@ export class PromptHashClient {
     });
   }
 
+  static async purchaseBundle(
+    _bundleId: string,
+    _userAddress: string,
+    options?: { forceFailure?: string; delay?: number },
+  ): Promise<{ txHash: string; success: boolean }> {
+    warnMockUse();
+    return new Promise((resolve, reject) => {
+      const delay = options?.delay ?? 2000;
+      setTimeout(() => {
+        if (options?.forceFailure) {
+          return reject(new Error(options.forceFailure));
+        }
+
+        resolve({
+          txHash: "tx_bundle_" + Math.random().toString(16).slice(2, 14),
+          success: true,
+        });
+      }, delay);
+    });
+  }
+
+  static async purchaseAccessPass(
+    _passId: string,
+    _userAddress: string,
+    options?: { forceFailure?: string; delay?: number },
+  ): Promise<{ txHash: string; success: boolean }> {
+    warnMockUse();
+    return new Promise((resolve, reject) => {
+      const delay = options?.delay ?? 2000;
+      setTimeout(() => {
+        if (options?.forceFailure) {
+          return reject(new Error(options.forceFailure));
+        }
+
+        resolve({
+          txHash: "tx_pass_" + Math.random().toString(16).slice(2, 14),
+          success: true,
+        });
+      }, delay);
+    });
+  }
+
   static async getAllPrompts(
-    config: PromptHashConfig,
+    _config: PromptHashConfig,
   ): Promise<PromptRecord[]> {
     warnMockUse();
     // Returning mock data so the Browse page isn't empty
@@ -89,9 +202,13 @@ export class PromptHashClient {
         category: "Development",
         previewText:
           "A high-performance prompt for generating system design documents...",
+        description:
+          "A full prompt designed to help architects craft scalable system blueprints and integration plans.",
+        tags: ["AI", "Architecture"],
         imageUrl: "",
         salesCount: 12,
         active: true,
+        contentHash: "mock_hash_000000000001",
       },
       {
         id: 2n,
@@ -101,53 +218,156 @@ export class PromptHashClient {
         category: "Creative",
         previewText:
           "Unlock deep narrative structures and character development...",
+        description:
+          "A storytelling prompt built to help craft plot outlines, characters, and emotional arcs for long-form fiction.",
+        tags: ["Storytelling", "Creative"],
         imageUrl: "",
         salesCount: 45,
         active: true,
+        contentHash: "mock_hash_000000000002",
       },
     ];
   }
 
-  static async getPromptsByBuyer(config: PromptHashConfig, address: string) {
+  static async getPromptsByBuyer(
+    _config: PromptHashConfig,
+    _address: string,
+  ): Promise<PromptRecord[]> {
     warnMockUse();
     return [];
   }
 
-  static async getPromptsByCreator(config: PromptHashConfig, address: string) {
+  static async getPromptsByCreator(
+    _config: PromptHashConfig,
+    _address: string,
+  ): Promise<PromptRecord[]> {
+    warnMockUse();
+    return [];
+  }
+
+  static async getBundlesByCreator(
+    _config: PromptHashConfig,
+    _address: string,
+  ): Promise<BundleRecord[]> {
+    warnMockUse();
+    return [];
+  }
+
+  static async getAccessPassesByCreator(
+    _config: PromptHashConfig,
+    _address: string,
+  ): Promise<AccessPassRecord[]> {
     warnMockUse();
     return [];
   }
 
   static async createPrompt(
-    config: PromptHashConfig,
-    walletSignerLike: any,
-    address: string,
-    data: CreatePromptInput,
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _data: CreatePromptInput,
   ) {
     warnMockUse();
-    return { success: true, txHash: "tx_mock" };
+    return { success: true, txHash: "tx_mock", promptId: "123" };
+  }
+
+  static async createBundle(
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _data: CreateBundleInput,
+  ) {
+    warnMockUse();
+    return { success: true, txHash: "tx_bundle_mock", bundleId: "1" };
+  }
+
+  static async createAccessPass(
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _data: CreateAccessPassInput,
+  ) {
+    warnMockUse();
+    return { success: true, txHash: "tx_pass_mock", passId: "1" };
   }
 
   static async setPromptSaleStatus(
-    config: PromptHashConfig,
-    walletSignerLike: any,
-    address: string,
-    promptId: string,
-    isForSale: boolean,
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _promptId: string,
+    _isForSale: boolean,
+  ) {
+    warnMockUse();
+    return { success: true };
+  }
+
+  static async adminSetPromptSaleStatus(
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _adminAddress: string,
+    _promptId: string,
+    _isForSale: boolean,
   ) {
     warnMockUse();
     return { success: true };
   }
 
   static async updatePromptPrice(
-    config: PromptHashConfig,
-    walletSignerLike: any,
-    address: string,
-    promptId: string,
-    newPrice: string,
+    _config: PromptHashConfig,
+    _walletSignerLike: any,
+    _address: string,
+    _promptId: string,
+    _newPrice: string,
   ) {
     warnMockUse();
     return { success: true };
+  }
+
+  static async getRecentPurchases(
+    config: PromptHashConfig,
+    limit: number = 10
+  ) {
+    try {
+      const server = new Server(config.rpcUrl, {
+        allowHttp: config.allowHttp,
+      });
+
+      // Get current ledger to limit our search
+      const latestLedgerResponse = await server.getLatestLedger();
+      const latestLedger = latestLedgerResponse.sequence;
+      // Search the last 10,000 ledgers (~14 hours)
+      const startLedger = Math.max(1, latestLedger - 10000);
+
+      const events = await server.getEvents({
+        startLedger,
+        filters: [
+          {
+            type: "contract",
+            contractIds: [config.promptHashContractId],
+            // Topics could be strictly typed to the PromptPurchased event topic if known
+          }
+        ],
+        limit,
+      });
+
+      // Here we would normally parse `events.events` and decode the XDR.
+      // Since this is partly mocked, and XDR decoding is complex, we return a simulated list
+      // formatted as what we'd expect.
+      return events.events.map((e, i) => ({
+        id: e.id || `rpc-event-${i}`,
+        type: "sale",
+        title: `Prompt #${e.topic?.[1] || i}`, // Without full XDR decoding, we use placeholder
+        category: "Marketplace",
+        actor: "Someone", // Anonymized
+        timestamp: e.ledgerClosedAt,
+        priceXlm: undefined, 
+      }));
+    } catch (e) {
+      console.error("Failed to fetch events from Soroban RPC:", e);
+      // Fallback for mocked environment
+      return [];
+    }
   }
 }
 
@@ -155,8 +375,15 @@ export class PromptHashClient {
 export const hasAccess = async (
   config: PromptHashConfig,
   address: string,
-  itemId: string,
-) => PromptHashClient.checkAccess(config, address, itemId);
+  itemId: string | bigint,
+) =>
+  PromptHashClient.checkAccess(
+    config,
+    address,
+    typeof itemId === "bigint" ? itemId.toString() : itemId,
+  );
+export const getPrompt = async (config: PromptHashConfig, promptId: bigint) =>
+  PromptHashClient.getPrompt(config, promptId);
 export const getAllPrompts = async (config: PromptHashConfig) =>
   PromptHashClient.getAllPrompts(config);
 export const getPromptsByBuyer = async (
@@ -173,6 +400,30 @@ export const createPrompt = async (
   address: string,
   data: CreatePromptInput,
 ) => PromptHashClient.createPrompt(config, walletSignerLike, address, data);
+export const createBundle = async (
+  config: PromptHashConfig,
+  walletSignerLike: any,
+  address: string,
+  data: CreateBundleInput,
+) => PromptHashClient.createBundle(config, walletSignerLike, address, data);
+export const createAccessPass = async (
+  config: PromptHashConfig,
+  walletSignerLike: any,
+  address: string,
+  data: CreateAccessPassInput,
+) => PromptHashClient.createAccessPass(config, walletSignerLike, address, data);
+export const getBundlesByCreator = async (
+  config: PromptHashConfig,
+  address: string,
+) => PromptHashClient.getBundlesByCreator(config, address);
+export const getAccessPassesByCreator = async (
+  config: PromptHashConfig,
+  address: string,
+) => PromptHashClient.getAccessPassesByCreator(config, address);
+export const purchaseBundle = async (bundleId: string, address: string) =>
+  PromptHashClient.purchaseBundle(bundleId, address);
+export const purchaseAccessPass = async (passId: string, address: string) =>
+  PromptHashClient.purchaseAccessPass(passId, address);
 export const setPromptSaleStatus = async (
   config: PromptHashConfig,
   walletSignerLike: any,
@@ -184,6 +435,20 @@ export const setPromptSaleStatus = async (
     config,
     walletSignerLike,
     address,
+    promptId,
+    isForSale,
+  );
+export const adminSetPromptSaleStatus = async (
+  config: PromptHashConfig,
+  walletSignerLike: any,
+  adminAddress: string,
+  promptId: string,
+  isForSale: boolean,
+) =>
+  PromptHashClient.adminSetPromptSaleStatus(
+    config,
+    walletSignerLike,
+    adminAddress,
     promptId,
     isForSale,
   );
@@ -201,3 +466,9 @@ export const updatePromptPrice = async (
     promptId,
     newPrice,
   );
+
+export const getRecentPurchases = async (
+  config: PromptHashConfig,
+  limit?: number
+) => PromptHashClient.getRecentPurchases(config, limit);
+

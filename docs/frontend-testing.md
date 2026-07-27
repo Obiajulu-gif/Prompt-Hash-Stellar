@@ -29,11 +29,13 @@ Prefer real user journeys at the component or page-flow level:
 
 1. Render the real flow component with [`src/test/render.tsx`](../src/test/render.tsx).
 2. Reuse realistic prompt fixtures from [`src/test/fixtures/prompts.ts`](../src/test/fixtures/prompts.ts).
-3. Mock wallet, Soroban client, encryption, and unlock modules at the boundary:
+3. Mock wallet, Soroban client, encryption, unlock, and buyer-library API boundaries at the edge:
    - `@/util/wallet`
    - `@/lib/stellar/promptHashClient`
    - `@/lib/crypto/promptCrypto`
    - `@/lib/prompts/unlock`
+   - `@/lib/prompts/library` (saved/owned collection `fetch` calls)
+   - draft lifecycle routes (`/api/prompts/creator/:wallet/drafts`, `/:id/publish`)
 4. Update mocked in-memory state after mutations, then assert the UI refreshes after React Query invalidation.
 5. Assert both happy-path and failure or recovery behavior.
 

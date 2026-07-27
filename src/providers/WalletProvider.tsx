@@ -11,6 +11,9 @@ import storage from "../util/storage";
 import { stellarWalletNetwork } from "../lib/env";
 import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
+import { classifyWalletError } from "../lib/wallet/walletErrors";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearWalletCache } from "../hooks/useWalletAccountChange";
 
 export type WalletStatus = 
   | "idle" 
@@ -19,16 +22,33 @@ export type WalletStatus =
   | "reconnecting" 
   | "error";
 
+export type NetworkCompatibility =
+  | "correct"
+  | "wrong-network"
+  | "unchecked";
+
 export interface WalletContextType {
   address?: string;
   network?: string;
   networkPassphrase?: string;
   status: WalletStatus;
   error?: string;
-  connect: (id: string) => Promise<void>;
+  networkCompatibility: NetworkCompatibility;
+  connect: (_id: string) => Promise<void>;
   disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
+}
+ 
+
+function computeNetworkCompatibility(
+  network: string | undefined,
+  status: WalletStatus,
+): NetworkCompatibility {
+  if (status !== "connected" || !network) return "unchecked";
+  const expected = stellarWalletNetwork.toUpperCase();
+  const actual = network.toUpperCase();
+  return actual === expected ? "correct" : "wrong-network";
 }
 
 const initialState = {
@@ -37,6 +57,7 @@ const initialState = {
   networkPassphrase: undefined,
   status: "idle" as WalletStatus,
   error: undefined,
+  networkCompatibility: "unchecked" as NetworkCompatibility,
 };
 
 const boundSignTransaction = wallet.signTransaction.bind(wallet);
@@ -47,6 +68,8 @@ export const WalletContext = createContext<WalletContextType | undefined>(undefi
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
   const isConnectingRef = useRef(false);
+  const queryClient = useQueryClient();
+  const previousAddressRef = useRef<string | undefined>(state.address);
 
   const { execute: executeDisconnect } = useAsyncTransaction(
     async () => {
@@ -69,6 +92,15 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     await executeDisconnect().catch(console.error);
   }, [executeDisconnect]);
 
+  // Clear wallet-scoped cache when account changes
+  useEffect(() => {
+    if (state.address && previousAddressRef.current && state.address !== previousAddressRef.current) {
+      // Account has switched - clear all wallet-scoped cache
+      clearWalletCache(queryClient);
+    }
+    previousAddressRef.current = state.address;
+  }, [state.address, queryClient]);
+
   // Helper to safely get network info (handles Albedo's lack of getNetwork support)
   const getSafeNetworkInfo = useCallback(async (walletId: string) => {
     // Albedo and some other web wallets don't support getNetwork
@@ -77,7 +109,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     }
     try {
       return await wallet.getNetwork();
-    } catch (e) {
+    } catch {
       console.warn(`Wallet ${walletId} does not support getNetwork, using env default.`);
       return { network: stellarWalletNetwork, networkPassphrase: undefined };
     }
@@ -116,15 +148,19 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           networkPassphrase: data.networkPassphrase,
           status: "connected",
           error: undefined,
+          networkCompatibility: computeNetworkCompatibility(data.network, "connected"),
         });
       },
       onError: (e) => {
         console.error("Connection error:", e);
-        const message = e instanceof Error ? e.message : "Failed to connect wallet";
-        setState(prev => ({ 
-          ...prev, 
-          status: "error", 
-          error: message 
+        const classified = classifyWalletError(e);
+        const message = classified.recoveryAction
+          ? `${classified.message} ${classified.recoveryAction}`
+          : classified.message;
+        setState(prev => ({
+          ...prev,
+          status: "error",
+          error: message
         }));
       }
     }
@@ -202,12 +238,13 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
             networkPassphrase: n.networkPassphrase,
             status: "connected",
             error: undefined,
+            networkCompatibility: computeNetworkCompatibility(n.network, "connected"),
           });
         } else {
           if (aborted) return;
           disconnect();
         }
-      } catch (e) {
+    } catch {
         if (aborted) return;
         console.warn("Session rehydration failed, clearing stale data.");
         disconnect();
@@ -228,6 +265,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       disconnect,
       signTransaction: boundSignTransaction,
       signMessage: boundSignMessage,
+      networkCompatibility: state.networkCompatibility,
     }),
     [state, connect, disconnect]
   );

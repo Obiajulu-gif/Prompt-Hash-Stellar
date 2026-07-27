@@ -1,10 +1,14 @@
 import React, { useState, useContext, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import { WalletContext } from "../../providers/WalletProvider";
 import { useAsyncTransaction } from "../../components/useAsyncTransaction";
 import { PromptHashClient } from "../../lib/stellar/promptHashClient";
 import { unlockPrompt } from "../../lib/prompts/unlock";
 import { Skeleton } from "../../components/Skeleton";
 import { StatusBanner } from "../../components/StatusBanner";
+import { UnlockExplainer } from "../../components/UnlockExplainer";
+import { copyToClipboard } from "../../lib/clipboard/secureClipboard";
+import { ReportDialog } from "../../components/prompts/ReportDialog";
 import {
   CheckCircle,
   Loader2,
@@ -14,12 +18,55 @@ import {
   ShieldCheck,
   Wallet,
   MessageSquare,
+  Copy,
+  Check,
+  User,
+  DollarSign,
+  ShoppingBag,
+  Hash,
+  Share2,
+  Flag,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
+
+// Small inline copy button used in the receipt reference details
+const CopyField: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // silent
+    }
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title={`Copy ${label}`}
+      className="shrink-0 rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+};
 import { ReviewForm } from "../../components/prompts/ReviewForm";
 import { ReviewList } from "../../components/prompts/ReviewList";
 import { StarRating } from "../../components/prompts/StarRating";
+import { UnlockErrorBanner } from "../../components/UnlockErrorBanner";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { browserStellarConfig } from "../../lib/stellar/browserConfig";
+import { stroopsToXlmString } from "../../lib/stellar/format";
+import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
+import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
+import {
+  getCreatorThumbRating,
+  saveCreatorThumbRating,
+  type ThumbRating,
+} from "../../lib/reputation/creatorReputation";
 
 export type BuyerStatus =
   | "IDLE"
@@ -37,6 +84,172 @@ interface PromptModalProps {
   onRefresh?: () => void;
 }
 
+// Compact "copy share link" control that points at the public prompt page so
+// shared links render rich preview cards (Open Graph / Twitter).
+const ShareLinkButton: React.FC<{ itemId: string }> = ({ itemId }) => {
+  const [copied, setCopied] = React.useState(false);
+  const handleShare = async () => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const result = await copyToClipboard(`${origin}/prompts/${itemId}`);
+    if (result.success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  };
+  return (
+    <button
+      onClick={handleShare}
+      className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3.5 w-3.5 text-emerald-400" />
+          Share link copied
+        </>
+      ) : (
+        <>
+          <Share2 className="h-3.5 w-3.5" />
+          Copy share link
+        </>
+      )}
+    </button>
+  );
+};
+
+// Metadata display component
+const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onReportClick?: () => void }> = ({ itemId, status, onReportClick }) => {
+  const { data: prompt, isLoading } = useQuery({
+    queryKey: ["prompt-detail", itemId],
+    queryFn: async () => {
+      return await PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId));
+    },
+    enabled: !!itemId,
+  });
+
+  const { data: reviewStats, isLoading: reviewStatsLoading } = useQuery({
+    queryKey: ["review-stats", itemId],
+    queryFn: () => ReviewClient.getReviewStats(itemId),
+    enabled: !!itemId,
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mb-6 space-y-3">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>
+    );
+  }
+
+  if (!prompt) return null;
+
+  const isPurchased = status === "PURCHASED_LOCKED" || status === "SUCCESS";
+  const priceXlm = stroopsToXlmString(prompt.priceStroops);
+
+  return (
+    <div className="mb-6 space-y-4">
+      {/* Preview Content */}
+      <div className="p-4 rounded-xl bg-white/5 border border-white/5">
+        <p className="text-xs uppercase tracking-wider text-slate-400 mb-2">Preview</p>
+        <p className="text-sm text-slate-300 leading-relaxed">{prompt.previewText}</p>
+      </div>
+
+      {/* Quality Score */}
+      <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-400 uppercase tracking-wider">Quality Score</p>
+          {!reviewStatsLoading && reviewStats && reviewStats.total > 0 && (
+            <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400">
+              {reviewStats.averageRating.toFixed(1)} / 5
+            </span>
+          )}
+        </div>
+        {reviewStatsLoading ? (
+          <Skeleton className="mt-2 h-4 w-32" />
+        ) : reviewStats && reviewStats.total > 0 ? (
+          <div className="mt-2 flex items-center gap-3">
+            <StarRating rating={reviewStats.averageRating} readonly size="sm" />
+            <span className="text-xs text-slate-400">
+              {reviewStats.total} {reviewStats.total === 1 ? "review" : "reviews"}
+            </span>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs italic text-slate-500">No ratings yet — be the first to review.</p>
+        )}
+      </div>
+
+      {/* Metadata Grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <User className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Creator</p>
+          </div>
+          <p className="text-xs font-mono text-white truncate" title={prompt.creator}>
+            {prompt.creator.slice(0, 8)}...{prompt.creator.slice(-4)}
+          </p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <DollarSign className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Price</p>
+          </div>
+          <p className="text-sm font-bold text-white">{priceXlm} XLM</p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <ShoppingBag className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Sales</p>
+          </div>
+          <p className="text-sm font-bold text-white">{prompt.salesCount}</p>
+        </div>
+
+        <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <Hash className="h-3 w-3 text-slate-400" />
+            <p className="text-xs text-slate-400">Content Hash</p>
+          </div>
+          <p className="text-xs font-mono text-white truncate" title={prompt.contentHash}>
+            {prompt.contentHash.slice(0, 8)}...
+          </p>
+        </div>
+      </div>
+
+      {/* Share link — points at the public prompt page with rich preview meta */}
+      <ShareLinkButton itemId={itemId} />
+
+      {/* Report Button */}
+      {onReportClick && (
+        <button
+          onClick={onReportClick}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10 hover:border-red-500/40"
+        >
+          <Flag className="h-3.5 w-3.5" />
+          Report prompt
+        </button>
+      )}
+
+      {/* Purchase State Indicator */}
+      {isPurchased && (
+        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-emerald-400" />
+          <p className="text-xs text-emerald-300 font-semibold">You own this prompt license</p>
+        </div>
+      )}
+
+      {!prompt.active && (
+        <div className="p-3 rounded-lg bg-slate-500/10 border border-slate-500/20 flex items-center gap-2">
+          <X className="h-4 w-4 text-slate-400" />
+          <p className="text-xs text-slate-400 font-semibold">This prompt is currently unavailable</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PromptModal: React.FC<PromptModalProps> = ({
   itemId,
   isOpen,
@@ -51,8 +264,25 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const [secretContent, setSecretContent] = useState<string>("");
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [creatorThumbRating, setCreatorThumbRating] = useState<ThumbRating | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{
+    visible: boolean;
+    success: boolean;
+    message: string;
+  }>({ visible: false, success: false, message: "" });
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
+  // Fetch prompt details (used by receipt view and metadata section)
+  const { data: promptDetail } = useQuery({
+    queryKey: ["prompt-detail", itemId],
+    queryFn: async () => PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId)),
+    enabled: isOpen && !!itemId,
+  });
 
   // Fetch reviews for this prompt
   const { data: reviewData, isLoading: reviewsLoading } = useQuery({
@@ -63,12 +293,48 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      lastActiveElementRef.current = document.activeElement as HTMLElement;
       setTimeout(() => closeButtonRef.current?.focus(), 0);
+
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Escape") onClose();
+        if (e.key === "Escape") {
+          onClose();
+          return;
+        }
+
+        if (e.key === "Tab") {
+          if (!modalRef.current) return;
+          const focusableElements = modalRef.current.querySelectorAll(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          if (focusableElements.length === 0) return;
+
+          const firstElement = focusableElements[0] as HTMLElement;
+          const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+          if (e.shiftKey) {
+            // Shift + Tab
+            if (document.activeElement === firstElement) {
+              lastElement.focus();
+              e.preventDefault();
+            }
+          } else {
+            // Tab
+            if (document.activeElement === lastElement) {
+              firstElement.focus();
+              e.preventDefault();
+            }
+          }
+        }
       };
+
       document.addEventListener("keydown", handleKeyDown);
-      return () => document.removeEventListener("keydown", handleKeyDown);
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+        if (lastActiveElementRef.current) {
+          lastActiveElementRef.current.focus();
+        }
+      };
     }
   }, [isOpen, onClose]);
 
@@ -82,14 +348,27 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     }
   }, [isOpen, itemId, wallet?.address]);
 
+  useEffect(() => {
+    if (isOpen && wallet?.address) {
+      setCreatorThumbRating(getCreatorThumbRating(itemId, wallet.address));
+    }
+  }, [isOpen, itemId, wallet?.address]);
+
+  const handleCreatorThumbRating = (rating: ThumbRating) => {
+    if (!wallet?.address || !promptDetail?.creator) return;
+    saveCreatorThumbRating(itemId, wallet.address, promptDetail.creator, rating);
+    setCreatorThumbRating(rating);
+    queryClient.invalidateQueries({ queryKey: ["seller-prompts"] });
+  };
+
   const {
     execute: runUnlock,
     isLoading: isUnlocking,
     error: unlockError,
   } = useAsyncTransaction(
     async (hash: string) => {
-      if (!wallet?.signMessage) throw new Error("Wallet not connected");
-      return await unlockPrompt(itemId, hash, wallet.signMessage);
+      if (!wallet?.signMessage || !wallet.address) throw new Error("Wallet not connected");
+      return await unlockPrompt(itemId, hash, wallet.signMessage, wallet.address);
     },
     {
       onOptimistic: () => setStatus("UNLOCKING"),
@@ -108,6 +387,22 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   } = useAsyncTransaction(
     async () => {
       if (!wallet?.address) throw new Error("Wallet connection required.");
+      
+      // Check network state before purchase
+      const networkState = detectNetworkMismatch(
+        !!wallet.address,
+        wallet.network,
+        wallet.status
+      );
+      
+      if (networkState.type === "wrong-network") {
+        throw new Error(networkState.message || "Wrong network connected");
+      }
+      
+      if (networkState.type === "disconnected") {
+        throw new Error("Please connect your wallet first");
+      }
+      
       setStatus("AWAITING_APPROVAL");
       const mockHash = "tx_" + Math.random().toString(16).slice(2, 14);
       setTxHash(mockHash);
@@ -124,13 +419,37 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     },
   );
 
+  const handleCopyContent = async () => {
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current);
+    }
+
+    const result = await copyToClipboard(secretContent);
+
+    setCopyFeedback({
+      visible: true,
+      success: result.success,
+      message: result.success
+        ? "Copied to clipboard"
+        : result.error || "Failed to copy",
+    });
+
+    copyTimeoutRef.current = setTimeout(() => {
+      setCopyFeedback((prev) => ({ ...prev, visible: false }));
+    }, 3000);
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-md sm:p-4">
       <div
-        className="bg-slate-900 border border-white/10 rounded-[32px] w-full max-w-lg shadow-2xl relative overflow-hidden"
+        ref={modalRef}
+        className="relative max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-[28px] border border-white/10 bg-slate-900 shadow-2xl sm:rounded-[32px]"
         role="dialog"
+        aria-modal="true"
+        aria-labelledby="prompt-modal-title"
+        aria-describedby="prompt-modal-description"
       >
         {/* Header Decor */}
         <div className="h-2 w-full bg-gradient-to-r from-emerald-500 to-blue-500" />
@@ -139,19 +458,23 @@ export const PromptModal: React.FC<PromptModalProps> = ({
           ref={closeButtonRef}
           onClick={onClose}
           className="absolute top-6 right-6 p-2 rounded-full bg-white/5 text-slate-400 hover:text-white transition-all z-10"
+          aria-label="Close prompt modal"
         >
           <X className="w-4 h-4" />
         </button>
 
-        <div className="p-8">
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-white mb-2">
+        <div className="p-5 sm:p-8">
+          <div className="mb-6 sm:mb-8">
+            <h2 id="prompt-modal-title" className="mb-2 text-2xl font-bold text-white">
               Acquire License
             </h2>
-            <p className="text-sm text-slate-400">
+            <p id="prompt-modal-description" className="text-sm text-slate-400">
               Unlock high-quality prompt content via Stellar smart contract.
             </p>
           </div>
+
+          {/* Prompt Metadata Section */}
+          <PromptMetadataSection itemId={itemId} status={status} onReportClick={() => setShowReportDialog(true)} />
 
           {isCheckingAccess ? (
             <div className="space-y-4 py-4">
@@ -161,6 +484,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             </div>
           ) : (
             <div className="space-y-6">
+              {/* Network Mismatch Warning */}
+              <NetworkMismatchBanner />
+
               {/* TRANSACTION STAGES */}
               {(status === "IDLE" || status === "ERROR") && (
                 <div className="space-y-6">
@@ -177,17 +503,30 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </div>
                   </div>
 
-                  {status === "ERROR" && purchaseError && (
-                    <StatusBanner
-                      status="error"
-                      message={purchaseError.message}
-                    />
-                  )}
+                  {status === "ERROR" && purchaseError && (() => {
+                    const mapped: MappedWalletError = mapWalletError(purchaseError);
+                    return (
+                      <div className="space-y-3">
+                        <StatusBanner
+                          status="error"
+                          message={mapped.userMessage}
+                        />
+                        {mapped.recoveryHint && (
+                          <p className="text-xs text-slate-400 px-1">
+                            {mapped.recoveryHint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <button
-                    onClick={() => runPurchase()}
-                    disabled={isPurchasing}
-                    className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2"
+                    onClick={() => runPurchase().catch(() => {})}
+                    disabled={
+                      isPurchasing || 
+                      detectNetworkMismatch(!!wallet?.address, wallet?.network, wallet?.status).type !== "correct"
+                    }
+                    className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Confirm & Purchase <Wallet className="w-4 h-4" />
                   </button>
@@ -195,9 +534,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
               )}
 
               {status === "AWAITING_APPROVAL" && (
-                <div className="flex flex-col items-center justify-center py-12 space-y-6 text-center">
+                <div className="flex flex-col items-center justify-center py-12 space-y-6 text-center" role="status" aria-live="polite">
                   <div className="relative">
-                    <Loader2 className="w-12 h-12 text-emerald-500 animate-spin" />
+                    <Loader2 className="w-12 h-12 text-emerald-500 animate-spin" aria-hidden="true" />
                     <div className="absolute inset-0 blur-xl bg-emerald-500/20" />
                   </div>
                   <p className="text-slate-200 font-bold text-lg italic tracking-tight">
@@ -207,7 +546,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
               )}
 
               {status === "CONFIRMING" && (
-                <div className="py-6 text-center">
+                <div className="py-6 text-center" role="status" aria-live="polite">
                   <StatusBanner
                     status="pending"
                     message="Broadcasting to Stellar..."
@@ -226,8 +565,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
               )}
 
               {status === "PURCHASED_LOCKED" && (
-                <div className="space-y-6 text-center">
-                  <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center">
+                <div className="space-y-6">
+                  <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center text-center">
                     <LockKeyhole className="w-8 h-8 text-emerald-400 mb-3" />
                     <h4 className="font-bold text-white">License Verified</h4>
                     <p className="text-xs text-slate-400 mt-2">
@@ -236,15 +575,35 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </p>
                   </div>
 
-                  {unlockError && (
-                    <StatusBanner
-                      status="error"
-                      message={unlockError.message}
-                    />
-                  )}
+                  {/* Explain what the signature does — always visible before and during signing */}
+                  <UnlockExplainer
+                    state="signing"
+                    onRetry={
+                      unlockError
+                        ? () => runUnlock(txHash || "existing")
+                        : undefined
+                    }
+                  />
+
+                  {unlockError && (() => {
+                    const mapped: MappedWalletError = mapWalletError(unlockError);
+                    return (
+                      <div className="space-y-3">
+                        <UnlockErrorBanner
+                          message={mapped.userMessage}
+                          onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
+                        />
+                        {mapped.recoveryHint && (
+                          <p className="text-xs text-slate-400 px-1">
+                            {mapped.recoveryHint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <button
-                    onClick={() => runUnlock(txHash || "existing")}
+                    onClick={() => runUnlock(txHash || "existing").catch(() => {})}
                     disabled={isUnlocking}
                     className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)]"
                   >
@@ -254,22 +613,154 @@ export const PromptModal: React.FC<PromptModalProps> = ({
               )}
 
               {status === "SUCCESS" && (
-                <div className="animate-in fade-in zoom-in duration-300">
-                  <div className="flex items-center gap-2 text-emerald-400 font-bold mb-4">
-                    <CheckCircle className="h-5 w-5" /> Access Granted
+                <div className="animate-in fade-in zoom-in duration-300 space-y-4">
+                  {/* Receipt header */}
+                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold mb-3">
+                      <CheckCircle className="h-5 w-5" /> Purchase Receipt
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <p className="text-slate-400 uppercase tracking-wider mb-1">Prompt</p>
+                        <p className="font-semibold text-white truncate">
+                          {promptDetail?.title ?? `#${itemId}`}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 uppercase tracking-wider mb-1">Price paid</p>
+                        <p className="font-semibold text-emerald-300">
+                          {promptDetail ? `${stroopsToXlmString(promptDetail.priceStroops)} XLM` : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 uppercase tracking-wider mb-1">Buyer status</p>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-400">
+                          Licensed
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 uppercase tracking-wider mb-1">Buyer</p>
+                        <p className="font-mono text-white truncate">
+                          {wallet?.address
+                            ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Reference details — copyable */}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Reference details</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-slate-500">Prompt ID</p>
+                        <p className="font-mono text-xs text-slate-300">#{itemId}</p>
+                      </div>
+                      <CopyField value={itemId} label="prompt ID" />
+                    </div>
+                    {txHash && (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-slate-500">Transaction ref</p>
+                          <p className="font-mono text-xs text-slate-300 truncate">{txHash}</p>
+                        </div>
+                        <CopyField value={txHash} label="tx ref" />
+                      </div>
+                    )}
+                    {promptDetail?.contentHash && (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-slate-500">Content hash</p>
+                          <p className="font-mono text-xs text-slate-300 truncate">
+                            {promptDetail.contentHash.slice(0, 16)}…
+                          </p>
+                        </div>
+                        <CopyField value={promptDetail.contentHash} label="content hash" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Unlocked content */}
                   <div className="relative group">
                     <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-2xl blur opacity-20 group-hover:opacity-30 transition" />
-                    <div className="relative bg-black border border-white/5 rounded-xl p-6 max-h-[300px] overflow-y-auto">
+                    <div className="relative bg-black border border-white/5 rounded-xl p-6 max-h-[240px] overflow-y-auto">
                       <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
                         {secretContent}
                       </pre>
                     </div>
                   </div>
 
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleCopyContent}
+                      className="flex-1 flex items-center justify-center gap-2 h-12 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 font-semibold rounded-xl transition-all border border-emerald-500/30"
+                      title="Copy prompt content to clipboard"
+                    >
+                      {copyFeedback.visible && copyFeedback.success ? (
+                        <>
+                          <Check className="h-4 w-4" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4" />
+                          Copy content
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {copyFeedback.visible && !copyFeedback.success && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
+                      {copyFeedback.message}
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                    <p className="text-xs text-blue-300 leading-relaxed">
+                      Store this prompt securely. Do not share it publicly or with unauthorised users.
+                    </p>
+                  </div>
+
+                  {wallet?.address && promptDetail?.creator && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm font-bold text-white">Rate this creator</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Help future buyers understand whether this creator delivered a trustworthy unlock.
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("up")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "up"
+                              ? "border-emerald-300/60 bg-emerald-300/20 text-emerald-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsUp className="h-4 w-4" />
+                          Positive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("down")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "down"
+                              ? "border-rose-300/60 bg-rose-300/20 text-rose-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsDown className="h-4 w-4" />
+                          Needs work
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Review Section */}
                   {wallet?.address && (
-                    <div className="mt-6 pt-6 border-t border-white/10">
+                    <div className="pt-4 border-t border-white/10">
                       {!showReviewForm ? (
                         <button
                           onClick={() => setShowReviewForm(true)}
@@ -301,12 +792,22 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </div>
                   )}
 
-                  <button
-                    onClick={onClose}
-                    className="w-full mt-6 h-12 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl transition-all"
-                  >
-                    Back to Marketplace
-                  </button>
+                  <div className="flex gap-3 pt-2">
+                    <Link
+                      to="/purchases"
+                      className="flex-1 flex items-center justify-center gap-2 h-12 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition-all"
+                      onClick={onClose}
+                    >
+                      <ShoppingBag className="h-4 w-4" />
+                      Go to my library
+                    </Link>
+                    <button
+                      onClick={onClose}
+                      className="flex-1 h-12 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl transition-all"
+                    >
+                      Back to marketplace
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -315,7 +816,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
         {/* Reviews Tab */}
         {reviewData && (
-          <div className="p-8 border-t border-white/10">
+          <div className="border-t border-white/10 p-5 sm:p-8">
             <div className="mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold text-white">Reviews</h3>
@@ -336,6 +837,14 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             <ReviewList reviews={reviewData.reviews} isLoading={reviewsLoading} />
           </div>
         )}
+
+        {/* Report Dialog */}
+        <ReportDialog
+          promptId={itemId}
+          isOpen={showReportDialog}
+          onClose={() => setShowReportDialog(false)}
+          userAddress={wallet?.address}
+        />
       </div>
     </div>
   );

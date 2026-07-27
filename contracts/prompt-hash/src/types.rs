@@ -1,9 +1,199 @@
 use soroban_sdk::{contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, Bytes, BytesN, Env, String, Vec};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    Unauthorized = 1,
+    PromptNotFound = 2,
+    CreatorCannotBuy = 3,
+    PromptInactive = 4,
+    AlreadyPurchased = 5,
+    InvalidPrice = 6,
+    InvalidFeePercentage = 7,
+    InvalidTitleLength = 8,
+    InvalidCategoryLength = 9,
+    InvalidPreviewLength = 10,
+    InvalidEncryptedPromptLength = 11,
+    InvalidWrappedKeyLength = 12,
+    InvalidImageUrlLength = 13,
+    InvalidIvLength = 14,
+    FeeWalletNotSet = 15,
+    XlmAddressNotSet = 16,
+    ArithmeticOverflow = 17,
+    ReentrancyGuard = 18,
+    ContractIsPaused = 19,
+    ReferrerCannotBeBuyerOrCreator = 20,
+    InvalidPaymentAmount = 21,
+    InvalidVoucher = 22,
+    InvalidReferralPercentage = 23,
+    InvalidDiscountPercentage = 24,
+    MaxSupplyReached = 25,
+    InvalidAsset = 26,
+    InvalidSplits = 27,
+    ListingExpired = 28,
+    LicenseNotFound = 29,
+    InvalidLicenseTransfer = 30,
+    RevisionFieldsUnchanged = 31,
+    DuplicateSplitRecipient = 32,
+    TooManySplits = 33,
+    FeeExceedsMaximum = 34,
+    DisputeAlreadyOpen = 35,
+    DisputeNotFound = 36,
+    DisputeResolved = 37,
+    InvalidBundle = 38,
+    BundleNotFound = 39,
+    AccessPassNotFound = 40,
+    InvalidAccessDuration = 41,
+    BulkPurchaseTooLarge = 42,
+    DuplicatePromptId = 43,
+}
+
+/// Instance storage keys — contract-level configuration stored in
+/// `env.storage().instance()`. These have no TTL and survive upgrades.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InstanceDataKey {
+    PromptCounter,
+    FeePercentage,
+    FeeWallet,
+    XlmAddress,
+    Reentrancy,
+    ReferralPercentage,
+    IsPaused,
+}
+
+/// Persistent storage keys — per-item records stored in
+/// `env.storage().persistent()`. These carry a TTL managed via
+/// `Storage::extend_key_ttl`/`extend_all_ttl`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataKey {
+    Prompt(u64),
+    CreatorPrompts(Address),
+    BuyerPrompts(Address),
+    Purchase(u64, Address),
+    PurchaseEscrow(u64, Address), // Settlement tracking for refunds (#420)
+    VoucherKey(u64, BytesN<32>),
+    /// Snapshot of a listing taken before a revision (#226).
+    /// Key: (prompt_id, revision_number_before_change)
+    ListingRevision(u64, u32),
+    PurchaseDispute(u64, Address),
+    Bundle(u128),
+    BundleCounter,
+    CreatorBundles(Address),
+    AccessPass(u128),
+    AccessPassCounter,
+    CreatorAccessPasses(Address),
+    CatalogPass(Address, Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeStatus {
+    Open,
+    Refunded,
+    Rejected,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeReason {
+    InvalidEncryptedPayload,
+    MissingMetadata,
+    FailedIntegrityVerification,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettlementStatus {
+    Pending,   // Purchase received, awaiting settlement
+    Settled,   // Payment distributed successfully
+    Refunded,  // Purchase refunded atomically
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseEscrow {
+    pub prompt_id: u64,
+    pub buyer: Address,
+    pub amount: i128,
+    pub status: SettlementStatus,
+    pub created_at: u64,
+    pub settled_at: u64, // 0 if not yet settled
+    pub asset: Address,
+    pub referrer: Option<Address>,
+    pub creator_amount: i128,
+    pub fee_amount: i128,
+    pub referral_amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseDispute {
+    pub prompt_id: u64,
+    pub buyer: Address,
+    pub reason: DisputeReason,
+    pub opened_at: u64,
+    pub resolved_at: u64,
+    pub status: DisputeStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Purchase {
+    pub prompt_id: u64,
+    pub original_creator: Address,
+    pub owner: Address,
+    pub original_price: i128,
+    pub last_transfer_price: i128,
+    pub transfer_count: u32,
+    pub last_transferred_at: u64,
+    pub expires_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PricingConfig {
+    pub price: i128,
+    pub asset: Address,
+}
+
+/// A single revenue-split entry stored inside a prompt.
+/// `bps` is the share of the full payment (in basis points) paid to `recipient`
+/// before the creator receives the remainder.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Split {
+    pub recipient: Address,
+    pub bps: u32,
+}
+
+/// Full listing configuration passed to create_prompt.
+/// Bundles pricing, optional expiry, and optional revenue splits into a single
+/// parameter so the function stays within Soroban's 10-parameter limit.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListingConfig {
+    pub price: i128,
+    pub asset: Address,
+    /// Unix timestamp after which the listing can no longer be purchased.
+    /// `0` means the listing never expires.
+    pub expires_at: u64,
+    /// Optional co-creator revenue splits (empty Vec = no splits).
+    pub splits: Vec<Split>,
+    /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
+    pub tags: Vec<String>,
+    /// Maximum number of licenses that can be sold (0 = unlimited).
+    pub max_supply: u64,
+}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
     pub id: u32,
+    pub id: u64,
     pub creator: Address,
     pub image_url: String,
     pub title: String,
@@ -14,6 +204,50 @@ pub struct Prompt {
     pub wrapped_aes_key: String,
     pub content_hash: String,
     pub price: i128,
+    pub wrapped_key: String,
+    pub content_hash: BytesN<32>,
+    pub price_stroops: i128,
+    pub asset: Address,
+    pub active: bool,
+    pub sales_count: u64,
+    pub max_supply: u64,
+    /// Unix timestamp after which the listing can no longer be purchased.
+    /// `0` means the listing never expires.
+    pub expires_at: u64,
+    /// Optional co-creator revenue splits applied against the full payment.
+    pub splits: Vec<Split>,
+    /// Monotonically increasing revision counter. Starts at 0 on creation and
+    /// increments by 1 on each successful `revise_listing` call (#226).
+    pub revision: u32,
+    /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
+    pub tags: Vec<String>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Bundle {
+    pub id: u128,
+    pub creator: Address,
+    pub title: String,
+    pub prompt_ids: Vec<u64>,
+    pub price_stroops: i128,
+    pub asset: Address,
+    pub active: bool,
+    pub sales_count: u64,
+    /// Unix timestamp after which the bundle can no longer be purchased.
+    /// `0` means the bundle never expires.
+    pub expires_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccessPass {
+    pub id: u128,
+    pub creator: Address,
+    pub title: String,
+    pub duration_secs: u64,
+    pub price_stroops: i128,
+    pub asset: Address,
     pub active: bool,
     pub sales_count: u32,
     pub max_supply: u32,
@@ -41,5 +275,262 @@ pub enum Error {
     MaxSupplyReached = 6,
     PaymentFailed = 7,
     NotActive = 8,
+pub struct CatalogPassPurchase {
+    pub creator: Address,
+    pub buyer: Address,
+    pub pass_id: u128,
+    pub expires_at: u64,
 }
 
+/// Snapshot of the mutable listing fields captured before a revision (#226).
+/// Stored under `DataKey::ListingRevision(prompt_id, old_revision)` so
+/// buyers can verify what metadata was in effect when they purchased.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListingRevisionRecord {
+    pub prompt_id: u64,
+    pub revision: u32,
+    pub title: String,
+    pub category: String,
+    pub preview_text: String,
+    pub image_url: String,
+    pub price_stroops: i128,
+    pub revised_at: u64,
+}
+
+pub trait PromptHashTrait {
+    fn __constructor(
+        env: Env,
+        admin: Address,
+        fee_wallet: Address,
+        xlm_sac: Address,
+    ) -> Result<(), Error>;
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_prompt(
+        env: Env,
+        creator: Address,
+        image_url: String,
+        title: String,
+        category: String,
+        preview_text: String,
+        encrypted_prompt: String,
+        encryption_iv: String,
+        wrapped_key: String,
+        content_hash: BytesN<32>,
+        listing: ListingConfig,
+    ) -> Result<u64, Error>;
+
+    fn set_prompt_sale_status(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        active: bool,
+    ) -> Result<(), Error>;
+
+    fn admin_set_prompt_sale_status(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        active: bool,
+    ) -> Result<(), Error>;
+
+    fn set_prompt_max_supply(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        max_supply: u64,
+    ) -> Result<(), Error>;
+
+    fn update_prompt_price(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        price_stroops: i128,
+    ) -> Result<(), Error>;
+
+    fn buy_prompt(
+        env: Env,
+        buyer: Address,
+        prompt_id: u64,
+        referrer: Option<Address>,
+        payment_amount_stroops: i128,
+        voucher: Option<Bytes>,
+    ) -> Result<(), Error>;
+
+    fn lease_prompt(
+        env: Env,
+        buyer: Address,
+        prompt_id: u64,
+        lease_duration_secs: u64,
+    ) -> Result<(), Error>;
+
+    /// Push the expiry date of a listing forward. `new_expires_at` must be
+    /// strictly greater than the current ledger timestamp.
+    fn extend_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        new_expires_at: u64,
+    ) -> Result<(), Error>;
+
+    /// Purchase multiple prompts atomically in a single transaction.
+    /// `prompt_ids` and `payment_amounts` must have equal length.
+    /// An optional `referrer` applies to every prompt in the batch.
+    /// If any individual purchase fails the entire transaction reverts.
+    fn buy_prompts_bulk(
+        env: Env,
+        buyer: Address,
+        prompt_ids: Vec<u64>,
+        payment_amounts: Vec<i128>,
+        referrer: Option<Address>,
+    ) -> Result<(), Error>;
+
+    fn create_bundle(
+        env: Env,
+        creator: Address,
+        title: String,
+        prompt_ids: Vec<u64>,
+        price_stroops: i128,
+        asset: Address,
+        expires_at: u64,
+    ) -> Result<u128, Error>;
+
+    fn buy_bundle(
+        env: Env,
+        buyer: Address,
+        bundle_id: u128,
+        payment_amount_stroops: i128,
+    ) -> Result<(), Error>;
+
+    fn get_bundle(env: Env, bundle_id: u128) -> Result<Bundle, Error>;
+
+    fn get_bundles_by_creator(env: Env, creator: Address) -> Result<Vec<Bundle>, Error>;
+
+    fn create_access_pass(
+        env: Env,
+        creator: Address,
+        title: String,
+        duration_secs: u64,
+        price_stroops: i128,
+        asset: Address,
+    ) -> Result<u128, Error>;
+
+    fn buy_access_pass(
+        env: Env,
+        buyer: Address,
+        pass_id: u128,
+        payment_amount_stroops: i128,
+    ) -> Result<(), Error>;
+
+    fn get_access_pass(env: Env, pass_id: u128) -> Result<AccessPass, Error>;
+
+    fn get_access_passes_by_creator(env: Env, creator: Address) -> Result<Vec<AccessPass>, Error>;
+
+    fn transfer_license(
+        env: Env,
+        seller: Address,
+        prompt_id: u64,
+        new_buyer: Address,
+        resale_price: i128,
+    ) -> Result<(), Error>;
+
+    /// Update the mutable metadata fields of an existing listing.
+    ///
+    /// The old title, category, preview_text, image_url, and price_stroops are
+    /// preserved as a `ListingRevisionRecord` keyed on the pre-change revision
+    /// number. Existing `Purchase` records remain valid — revision does not
+    /// affect access rights (#226).
+    #[allow(clippy::too_many_arguments)]
+    fn revise_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        title: String,
+        category: String,
+        preview_text: String,
+        image_url: String,
+        price_stroops: i128,
+    ) -> Result<u32, Error>;
+
+    fn get_listing_revision(
+        env: Env,
+        prompt_id: u64,
+        revision: u32,
+    ) -> Result<ListingRevisionRecord, Error>;
+
+    fn update_splits(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        new_splits: Vec<Split>,
+    ) -> Result<(), Error>;
+
+    fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error>;
+    fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error>;
+    fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
+    fn get_prompts_by_category(env: Env, category: String) -> Result<Vec<Prompt>, Error>;
+    fn get_prompts_by_tag(env: Env, tag: String) -> Result<Vec<Prompt>, Error>;
+    fn open_dispute(
+        env: Env,
+        buyer: Address,
+        prompt_id: u64,
+        reason: DisputeReason,
+    ) -> Result<(), Error>;
+    fn resolve_dispute(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        buyer: Address,
+        refund: bool,
+    ) -> Result<(), Error>;
+    fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error>;
+    fn settle_purchase(
+        env: Env,
+        caller: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error>;
+    fn get_purchase_escrow(
+        env: Env,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Option<PurchaseEscrow>;
+    fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
+    fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
+    fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
+    fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
+    fn get_fee_percentage(env: Env) -> u32;
+    fn get_fee_wallet(env: Env) -> Option<Address>;
+    fn set_referral_percentage(env: Env, new_referral_percentage: u32) -> Result<(), Error>;
+    fn get_referral_percentage(env: Env) -> u32;
+    // New platform fee governance API
+    fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error>;
+    fn get_platform_fee(env: Env) -> u32;
+    fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>;
+    fn is_paused(env: Env) -> bool;
+    fn add_voucher(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        hashed_code: BytesN<32>,
+        discount_bps: u32,
+    ) -> Result<(), Error>;
+    fn remove_voucher(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        hashed_code: BytesN<32>,
+    ) -> Result<(), Error>;
+    fn get_xlm_sac(env: Env) -> Option<Address>;
+
+    /// Fetch multiple prompts by ID in a single call. Returns only prompts
+    /// that exist — missing IDs are silently skipped.
+    fn get_prompts_by_ids(env: Env, prompt_ids: Vec<u64>) -> Result<Vec<Prompt>, Error>;
+
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
+    fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
+    /// Bulk-extend TTL for all active storage entries. Intended for periodic
+    /// admin maintenance (#26).
+    fn extend_all_ttl(env: Env) -> Result<(), Error>;
+}

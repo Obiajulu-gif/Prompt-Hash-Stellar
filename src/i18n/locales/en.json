@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "browse": "Browse",
+    "create": "Create",
+    "dashboard": "Dashboard",
+    "connect": "Connect Wallet",
+    "disconnect": "Disconnect"
+  },
+  "home": {
+    "hero_title": "Discover & Trade AI Prompts",
+    "hero_subtitle": "Buy, sell, and license premium AI prompts on the Stellar blockchain.",
+    "browse_prompts": "Browse Prompts",
+    "create_prompt": "Create Prompt"
+  },
+  "prompt": {
+    "buy": "Buy Prompt",
+    "lease": "Lease Prompt",
+    "price": "Price",
+    "creator": "Creator",
+    "category": "Category",
+    "sales": "Sales",
+    "purchase_success": "Prompt purchased successfully!",
+    "lease_success": "Prompt leased successfully!",
+    "already_owned": "You already own this prompt.",
+    "max_supply_reached": "Maximum supply reached for this prompt."
+  },
+  "create": {
+    "title": "Create a Prompt",
+    "prompt_title": "Title",
+    "category": "Category",
+    "preview": "Preview Text",
+    "price": "Price (stroops)",
+    "max_supply": "Max Supply (0 = unlimited)",
+    "submit": "List Prompt",
+    "success": "Prompt listed successfully!"
+  },
+  "errors": {
+    "not_found": "Prompt not found.",
+    "unauthorized": "You are not authorized.",
+    "paused": "The marketplace is currently paused."
+  },
+  "language": {
+    "select": "Language"
+  }
+}

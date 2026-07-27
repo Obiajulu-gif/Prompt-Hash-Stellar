@@ -73,6 +73,29 @@ export async function hashPromptPlaintext(plaintext: string) {
   return bytesToHex(new Uint8Array(digest));
 }
 
+/** Normalize on-chain or API content hashes to lowercase hex (64 chars). */
+export function normalizeContentHash(hash: string | Uint8Array): string {
+  if (hash instanceof Uint8Array) {
+    return bytesToHex(hash);
+  }
+
+  const trimmed = hash.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  try {
+    const bytes = base64ToBytes(trimmed);
+    if (bytes.length === 32) {
+      return bytesToHex(bytes);
+    }
+  } catch {
+    // fall through
+  }
+
+  return trimmed.toLowerCase();
+}
+
 export async function encryptPromptPlaintext(
   plaintext: string,
   rawKey?: Uint8Array,

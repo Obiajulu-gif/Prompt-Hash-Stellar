@@ -18,15 +18,16 @@ const EXPECTED_KEYS = [
   ["marketplace-prompts"],
   ["created-prompts"],
   ["purchased-prompts"],
+  ["saved-prompts"],
   ["prompt-access"],
 ];
 
 describe("invalidateAllPromptQueries", () => {
-  it("invalidates all four prompt-related query keys", async () => {
+  it("invalidates all prompt-related query keys", async () => {
     const queryClient = mockQueryClient();
     await invalidateAllPromptQueries(queryClient);
 
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(4);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(5);
     for (const queryKey of EXPECTED_KEYS) {
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey });
     }
@@ -59,6 +60,15 @@ describe("invalidateAllPromptQueries", () => {
     });
   });
 
+  it("includes saved-prompts so buyer saved listings refresh after mutations", async () => {
+    const queryClient = mockQueryClient();
+    await invalidateAllPromptQueries(queryClient);
+
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["saved-prompts"],
+    });
+  });
+
   it("includes prompt-access so access checks refresh after a purchase", async () => {
     const queryClient = mockQueryClient();
     await invalidateAllPromptQueries(queryClient);
@@ -84,10 +94,11 @@ describe("invalidateAllPromptQueries", () => {
 
     await invalidateAllPromptQueries(queryClient);
 
-    expect(settled).toHaveLength(4);
+    expect(settled).toHaveLength(5);
     expect(settled).toContain("marketplace-prompts");
     expect(settled).toContain("created-prompts");
     expect(settled).toContain("purchased-prompts");
+    expect(settled).toContain("saved-prompts");
     expect(settled).toContain("prompt-access");
   });
 
@@ -96,6 +107,6 @@ describe("invalidateAllPromptQueries", () => {
     await invalidateAllPromptQueries(queryClient);
     await invalidateAllPromptQueries(queryClient);
 
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(8);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(10);
   });
 });

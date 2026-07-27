@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   BadgeCheck,
   BookOpenCheck,
+  Bookmark,
   Boxes,
   CheckCircle2,
   CircleOff,
@@ -19,6 +20,8 @@ import {
   PencilLine,
   PlugZap,
   RadioTower,
+  Receipt,
+  Settings2,
   ShieldCheck,
   ShoppingBag,
   Wallet,
@@ -26,7 +29,10 @@ import {
 } from "lucide-react";
 import { Footer } from "@/components/footer";
 import { Navigation } from "@/components/navigation";
+import { TipButton } from "@/components/TipButton";
+import { UnlockExplainer, type UnlockState } from "@/components/UnlockExplainer";
 import { WebhookSettings } from "@/components/WebhookSettings";
+import { CreatorDashboard } from "@/components/analytics/CreatorDashboard";
 import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,9 +55,19 @@ import {
   xlmToStroops,
 } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
+import {
+  fetchSavedPrompts,
+  savePromptListing,
+  unsavePromptListing,
+  type SavedPromptListing,
+} from "@/lib/prompts/library";
 import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
+import { usePageMeta } from "@/lib/seo/usePageMeta";
+import { CreatorProfileSettings } from "@/components/profile/CreatorProfileSettings";
+import { TransactionHistory } from "@/components/profile/TransactionHistory";
+import { UserAvatar } from "@/components/UserAvatar";
 
 const promptImageFallback = "/images/codeguru.png";
 
@@ -63,7 +79,7 @@ const formatNetworkName = (value?: string) => {
 const shortHash = (value: string) =>
   value ? `${value.slice(0, 8)}...${value.slice(-8)}` : "Pending";
 
-// eslint-disable-next-line no-unused-vars
+ 
 type Handler<TArgs extends unknown[]> = (...args: TArgs) => void;
 
 function AlertBanner({
@@ -267,11 +283,8 @@ function WalletIdentityPanel({
         <div className="relative p-6 md:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_100%_0%,rgba(56,189,248,0.1),transparent)]" />
           <div className="relative flex flex-col gap-6 md:flex-row md:items-center">
-            {/* Wallet avatar with connected indicator */}
             <div className="relative shrink-0">
-              <div className="flex h-24 w-24 items-center justify-center rounded-2xl border border-cyan-200/20 bg-gradient-to-br from-cyan-200/15 to-sky-400/10 text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
-                <Wallet className="h-11 w-11" />
-              </div>
+              <UserAvatar address={address} size={96} className="border border-cyan-200/20 bg-gradient-to-br from-cyan-200/15 to-sky-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]" />
               <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#0d1117] bg-emerald-400">
                 <CheckCircle2 className="h-3 w-3 text-slate-950" />
               </div>
@@ -303,7 +316,10 @@ function WalletIdentityPanel({
                 <span className="min-w-0 truncate font-mono text-xs text-slate-300">
                   {address}
                 </span>
-                <span className="ml-auto shrink-0 text-xs text-slate-500">
+                <span
+                  className="ml-auto shrink-0 text-xs text-slate-500"
+                  aria-live="polite"
+                >
                   {copied ? "Copied!" : "Copy"}
                 </span>
               </button>
@@ -343,14 +359,17 @@ function PurchasedPromptCard({
   prompt,
   isBusy,
   plaintext,
+  unlockState,
   onUnlock,
 }: {
   prompt: PromptRecord;
   isBusy: boolean;
   plaintext?: string;
+  unlockState: UnlockState;
   onUnlock: Handler<[bigint]>;
 }) {
   const isUnlocked = Boolean(plaintext);
+  const showExplainer = unlockState !== "idle" && unlockState !== "success";
 
   return (
     <article className="overflow-hidden rounded-xl border border-white/10 bg-[#0f1419] transition-colors hover:border-white/[0.18]">
@@ -362,7 +381,6 @@ function PurchasedPromptCard({
             alt={prompt.title}
             className="h-full w-full object-cover"
           />
-          {/* Mobile-only access state pill */}
           <div className="absolute bottom-3 left-3 md:hidden">
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium backdrop-blur-sm ${
@@ -423,11 +441,27 @@ function PurchasedPromptCard({
             </div>
           </div>
 
+          {/* Unlock explainer for active / error states */}
+          {showExplainer && (
+            <div className="mt-4">
+              <UnlockExplainer
+                state={unlockState}
+                onRetry={
+                  unlockState === "rejected" ||
+                  unlockState === "expired" ||
+                  unlockState === "failed"
+                    ? () => onUnlock(prompt.id)
+                    : undefined
+                }
+              />
+            </div>
+          )}
+
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Button
               className="h-10 bg-cyan-200 text-slate-950 hover:bg-cyan-100 disabled:opacity-50"
               onClick={() => onUnlock(prompt.id)}
-              disabled={isBusy}
+              disabled={isBusy || unlockState === "signing" || unlockState === "verifying"}
             >
               {isBusy ? (
                 <>
@@ -595,17 +629,117 @@ function CreatedPromptCard({
   );
 }
 
+function SavedPromptCard({
+  savedPrompt,
+  isBusy,
+  onToggleSaved,
+}: {
+  savedPrompt: SavedPromptListing;
+  isBusy: boolean;
+  onToggleSaved: Handler<[string, boolean]>;
+}) {
+  const { prompt } = savedPrompt;
+  const isActive = prompt.isActive ?? true;
+
+  return (
+    <article className="overflow-hidden rounded-xl border border-white/10 bg-[#0f1419] transition-colors hover:border-white/[0.18]">
+      <div className="grid lg:grid-cols-[10rem_1fr]">
+        <img
+          src={prompt.image || promptImageFallback}
+          alt={prompt.title}
+          className="h-48 w-full object-cover lg:h-full"
+        />
+        <div className="min-w-0 p-5 md:p-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              className={
+                isActive
+                  ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+                  : "border-amber-300/30 bg-amber-300/10 text-amber-100"
+              }
+            >
+              <Bookmark className="mr-1 h-3.5 w-3.5" />
+              {isActive ? "Saved listing" : "Paused listing"}
+            </Badge>
+            <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
+              {prompt.category}
+            </Badge>
+            <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
+              {new Date(savedPrompt.savedAt).toLocaleDateString()}
+            </Badge>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_auto]">
+            <div className="min-w-0">
+              <h3 className="text-xl font-semibold text-white">{prompt.title}</h3>
+              <p className="mt-2 line-clamp-2 text-sm leading-7 text-slate-400">
+                {prompt.content}
+              </p>
+            </div>
+            <div className="flex gap-3 text-sm xl:w-60">
+              <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Price
+                </p>
+                <p className="mt-1.5 text-xl font-semibold text-white">
+                  {prompt.price.toLocaleString()} XLM
+                </p>
+              </div>
+              <div className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                  Owner
+                </p>
+                <p className="mt-1.5 text-xl font-semibold text-white">
+                  {prompt.owner?.username ?? "Creator"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              className="h-10 shrink-0 border-white/15 bg-white/[0.03] text-white hover:bg-white/10 disabled:opacity-50"
+              onClick={() => onToggleSaved(savedPrompt.promptId, true)}
+              disabled={isBusy}
+            >
+              {isBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Bookmark className="h-4 w-4" />
+              )}
+              Remove from saved
+            </Button>
+            <p className="font-mono text-xs text-slate-600">
+              {shortHash(savedPrompt.promptId)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function ProfilePage() {
+  usePageMeta({
+    title: "My Profile",
+    description: "Manage your purchased prompts, listings, and wallet settings on Prompt Hash Stellar.",
+  });
+
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const viewAddress = searchParams.get("address");
   const { address, network, signMessage, signTransaction } = useWallet();
   const { xlm, isLoading: isBalanceLoading } = useWalletBalance();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [unlockedPrompts, setUnlockedPrompts] = useState<Record<string, string>>(
-    {},
-  );
+  const [unlockedPrompts, setUnlockedPrompts] = useState<Record<string, string>>({});
+  const [unlockStates, setUnlockStates] = useState<Record<string, UnlockState>>({});
+
+  const isPublicView = Boolean(viewAddress) && viewAddress !== address;
+  const profileAddress = viewAddress ?? address;
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -621,8 +755,15 @@ export default function ProfilePage() {
     enabled: Boolean(address),
   });
 
+  const savedQuery = useQuery({
+    queryKey: ["saved-prompts", address],
+    queryFn: async () => (address ? fetchSavedPrompts(address) : []),
+    enabled: Boolean(address),
+  });
+
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
+  const savedPrompts = savedQuery.data ?? [];
   const activeListingCount = createdPrompts.filter((p) => p.active).length;
 
   const mergedDrafts = useMemo(() => {
@@ -658,7 +799,7 @@ export default function ProfilePage() {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
+        promptId.toString(),
         !active,
       );
       updateStatus(!active ? "Prompt listing reactivated." : "Prompt listing paused.");
@@ -684,8 +825,8 @@ export default function ProfilePage() {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
-        nextPrice,
+        promptId.toString(),
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
@@ -698,23 +839,57 @@ export default function ProfilePage() {
     }
   };
 
+  const handleToggleSaved = async (promptId: string, saved: boolean) => {
+    if (!address) {
+      updateError("Connect a wallet before saving listings.");
+      return;
+    }
+
+    setBusyPromptId(promptId);
+    try {
+      if (saved) {
+        await unsavePromptListing(address, promptId);
+      } else {
+        await savePromptListing(address, promptId);
+      }
+      updateStatus(saved ? "Listing removed from saved items." : "Listing saved.");
+      await queryClient.invalidateQueries({ queryKey: ["saved-prompts"] });
+    } catch (error) {
+      updateError(error instanceof Error ? error.message : "Failed to update saved listings.");
+    } finally {
+      setBusyPromptId(null);
+    }
+  };
+
+  const setUnlockState = (id: string, state: UnlockState) =>
+    setUnlockStates((current) => ({ ...current, [id]: state }));
+
   const handleUnlock = async (promptId: bigint) => {
     if (!address || !signMessage) {
       updateError("Connect a wallet with SEP-43 message signing to unlock prompts.");
       return;
     }
-    setBusyPromptId(promptId.toString());
+    const id = promptId.toString();
+    setBusyPromptId(id);
+    setUnlockState(id, "signing");
     try {
       const response = await unlockPromptContent(address, promptId, signMessage);
       setUnlockedPrompts((current) => ({
         ...current,
-        [promptId.toString()]: response.plaintext,
+        [id]: response.plaintext,
       }));
+      setUnlockState(id, "success");
       updateStatus("Prompt unlocked. You can re-open it from this library.");
     } catch (error) {
-      updateError(
-        error instanceof Error ? error.message : "Failed to unlock prompt.",
-      );
+      const msg = error instanceof Error ? error.message : "";
+      if (msg.toLowerCase().includes("declined") || msg.toLowerCase().includes("rejected")) {
+        setUnlockState(id, "rejected");
+      } else if (msg.toLowerCase().includes("expired")) {
+        setUnlockState(id, "expired");
+      } else {
+        setUnlockState(id, "failed");
+      }
+      updateError(msg || "Failed to unlock prompt.");
     } finally {
       setBusyPromptId(null);
     }
@@ -723,142 +898,302 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_60%_40%_at_0%_0%,rgba(34,211,238,0.1),transparent),radial-gradient(ellipse_50%_30%_at_100%_5%,rgba(251,191,36,0.07),transparent),linear-gradient(180deg,#080b0f_0%,#0d1117_50%,#080b0f_100%)] text-white">
       <Navigation />
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-10">
-        {!address ? (
-          <DisconnectedProfile />
-        ) : (
-          <>
-            <WalletIdentityPanel
-              address={address}
-              network={network}
-              balanceLabel={xlm}
-              isBalanceLoading={isBalanceLoading}
-              purchasedCount={purchasedPrompts.length}
-              createdCount={createdPrompts.length}
-              activeCount={activeListingCount}
-            />
+      <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 sm:py-10">
+        {/* Page header */}
+        <section className="flex flex-col justify-between gap-6 rounded-[2rem] border border-white/10 bg-slate-950/60 p-5 shadow-[0_32px_120px_-64px_rgba(16,185,129,0.45)] md:flex-row md:items-center md:p-8">
+          <div className="space-y-4">
+            <p className="text-sm uppercase tracking-[0.35em] text-emerald-300">
+              {isPublicView ? "Creator profile" : "Wallet profile"}
+            </p>
+            <h1 className="text-3xl font-semibold sm:text-4xl">
+              {isPublicView ? "Prompt creator" : "My prompt licenses"}
+            </h1>
+            <p className="max-w-xl text-sm leading-7 text-slate-300">
+              {isPublicView
+                ? "View this creator's public prompt listings and send a tip to support their work."
+                : "Manage listings you created and reopen prompts you purchased. This page reads directly from the Stellar contract and uses the unlock API only when you request the decrypted plaintext."}
+            </p>
+          </div>
 
-            <div className="space-y-3">
-              {statusMessage ? (
-                <AlertBanner tone="success" message={statusMessage} />
-              ) : null}
-              {errorMessage ? (
-                <AlertBanner tone="error" message={errorMessage} />
-              ) : null}
-            </div>
-
-            <section className="mt-10">
-              <Tabs defaultValue="purchased" className="space-y-0">
-                <div className="mb-6">
-                  <p className="text-xs uppercase tracking-[0.24em] text-cyan-200">
-                    Prompt access
+          {address && !isPublicView && (
+            <div className="flex flex-col gap-4 rounded-3xl border border-white/5 bg-white/5 p-5 backdrop-blur-sm md:min-w-[300px] md:p-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                  <Wallet size={20} />
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                    Active Wallet
                   </p>
-                  <h2 className="mt-2 text-3xl font-semibold text-white">
-                    Library &amp; Inventory
-                  </h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                    Licensed prompts are optimized for re-entry and unlock. Created
-                    prompts stay focused on listing control.
+                  <p className="font-mono text-sm text-slate-200">
+                    {address.slice(0, 6)}...{address.slice(-6)}
                   </p>
                 </div>
+              </div>
+              <div className="h-px bg-white/10" />
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Balance
+                </p>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-white">
+                    {isBalanceLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      xlm
+                    )}
+                  </span>
+                  <span className="text-sm font-medium text-emerald-400">XLM</span>
+                </div>
+              </div>
+            </div>
+          )}
 
-                <TabsList className="mb-6 grid h-auto w-full grid-cols-2 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[34rem]">
-                  <TabsTrigger
-                    value="purchased"
-                    className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
-                  >
-                    <LibraryBig className="h-4 w-4" />
-                    My Library
-                    <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
-                      {purchasedPrompts.length}
-                    </span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="created"
-                    className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-amber-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
-                  >
-                    <Boxes className="h-4 w-4" />
-                    My Inventory
-                    <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
-                      {createdPrompts.length}
-                    </span>
-                  </TabsTrigger>
-                </TabsList>
+          {/* Tip jar for public profile views */}
+          {isPublicView && profileAddress && (
+            <div className="md:min-w-[280px]">
+              <TipButton creatorAddress={profileAddress} />
+            </div>
+          )}
+        </section>
 
-                <TabsContent value="purchased" className="mt-0 space-y-4">
-                  {purchasedQuery.isLoading ? (
-                    <LoadingState label="Loading your licensed prompts..." />
-                  ) : purchasedPrompts.length === 0 ? (
-                    <EmptyState
-                      icon={LibraryBig}
-                      title="Your library is empty"
-                      body="When this wallet buys access, prompts appear here with a direct unlock path back to the protected content."
-                      action={{
-                        label: "Browse marketplace",
-                        to: "/browse",
-                        icon: ShoppingBag,
-                      }}
-                      accent="cyan"
-                    />
-                  ) : (
-                    <div className="space-y-4">
-                      {purchasedPrompts.map((prompt) => (
-                        <PurchasedPromptCard
-                          key={prompt.id.toString()}
-                          prompt={prompt}
-                          isBusy={busyPromptId === prompt.id.toString()}
-                          plaintext={unlockedPrompts[prompt.id.toString()]}
-                          onUnlock={(promptId) => void handleUnlock(promptId)}
-                        />
-                      ))}
-                    </div>
+        <div>
+          {!address ? (
+            <DisconnectedProfile />
+          ) : (
+            <>
+              <WalletIdentityPanel
+                address={address}
+                network={network}
+                balanceLabel={xlm}
+                isBalanceLoading={isBalanceLoading}
+                purchasedCount={purchasedPrompts.length}
+                createdCount={createdPrompts.length}
+                activeCount={activeListingCount}
+              />
+
+              <div className="space-y-3 mt-4">
+                {statusMessage ? (
+                  <AlertBanner tone="success" message={statusMessage} />
+                ) : null}
+                {errorMessage ? (
+                  <AlertBanner tone="error" message={errorMessage} />
+                ) : null}
+              </div>
+
+              <section className="mt-10">
+                <Tabs defaultValue="purchased" className="space-y-0">
+                  <div className="mb-6">
+                    <p className="text-xs uppercase tracking-[0.24em] text-cyan-200">
+                      Prompt access
+                    </p>
+                    <h2 className="mt-2 text-3xl font-semibold text-white">
+                      Library &amp; Inventory
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                      Licensed prompts are optimized for re-entry and unlock. Created
+                      prompts stay focused on listing control.
+                    </p>
+                  </div>
+
+                  <TabsList className="mb-6 grid h-auto w-full grid-cols-5 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[64rem]">
+                    <TabsTrigger
+                      value="purchased"
+                      aria-label="Open my library tab"
+                      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                    >
+                      <LibraryBig className="h-4 w-4" />
+                      My Library
+                      <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
+                        {purchasedPrompts.length}
+                      </span>
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="created"
+                      aria-label="Open my inventory tab"
+                      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-amber-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                    >
+                      <Boxes className="h-4 w-4" />
+                      My Inventory
+                      <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
+                        {createdPrompts.length}
+                      </span>
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="saved"
+                      aria-label="Open saved listings tab"
+                      className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-emerald-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                    >
+                      <Bookmark className="h-4 w-4" />
+                      Saved
+                      <span className="ml-1 rounded-full bg-slate-950/10 px-1.5 py-0.5 text-xs">
+                        {savedPrompts.length}
+                      </span>
+                    </TabsTrigger>
+                    {!isPublicView && (
+                      <TabsTrigger
+                        value="transactions"
+                        aria-label="Open transaction history tab"
+                        className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-sky-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                      >
+                        <Receipt className="h-4 w-4" />
+                        Transactions
+                      </TabsTrigger>
+                    )}
+                    {!isPublicView && (
+                      <TabsTrigger
+                        value="settings"
+                        aria-label="Open profile settings tab"
+                        className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-slate-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                      >
+                        <Settings2 className="h-4 w-4" />
+                        Settings
+                      </TabsTrigger>
+                    )}
+                  </TabsList>
+
+                  <TabsContent value="purchased" className="mt-0 space-y-4">
+                    {purchasedQuery.isLoading ? (
+                      <LoadingState label="Loading your licensed prompts..." />
+                    ) : purchasedPrompts.length === 0 ? (
+                      <EmptyState
+                        icon={LibraryBig}
+                        title="Your library is empty"
+                        body="When this wallet buys access, prompts appear here with a direct unlock path back to the protected content."
+                        action={{
+                          label: "Browse marketplace",
+                          to: "/browse",
+                          icon: ShoppingBag,
+                        }}
+                        accent="cyan"
+                      />
+                    ) : (
+                      <div className="space-y-4">
+                        {purchasedPrompts.map((prompt) => (
+                          <PurchasedPromptCard
+                            key={prompt.id.toString()}
+                            prompt={prompt}
+                            isBusy={busyPromptId === prompt.id.toString()}
+                            plaintext={unlockedPrompts[prompt.id.toString()]}
+                            unlockState={unlockStates[prompt.id.toString()] ?? "idle"}
+                            onUnlock={(promptId) => void handleUnlock(promptId)}
+                          />
+                        ))}
+                        <div className="pt-2 text-center">
+                          <Link
+                            to="/purchases"
+                            className="text-xs text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors"
+                          >
+                            Open full purchases page →
+                          </Link>
+                        </div>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="created" className="mt-0 space-y-6">
+                    {/* Creator activity dashboard — metrics, revenue, top performers (#213) */}
+                    {!isPublicView && address && (
+                      <CreatorDashboard walletAddress={address} />
+                    )}
+
+                    {createdQuery.isLoading ? (
+                      <LoadingState label="Loading your creator inventory..." />
+                    ) : createdPrompts.length === 0 ? (
+                      <EmptyState
+                        icon={Boxes}
+                        title="No creator inventory"
+                        body="Create your first encrypted prompt listing to see pricing controls, sales counts, and listing states here."
+                        action={{
+                          label: "Create listing",
+                          to: "/sell",
+                          icon: ArrowUpRight,
+                        }}
+                        accent="amber"
+                      />
+                    ) : (
+                      <div className="space-y-4">
+                        {createdPrompts.map((prompt) => (
+                          <CreatedPromptCard
+                            key={prompt.id.toString()}
+                            prompt={prompt}
+                            isBusy={busyPromptId === prompt.id.toString()}
+                            priceDraft={mergedDrafts[prompt.id.toString()]}
+                            walletAddress={address}
+                            onDraftChange={(value) =>
+                              setPriceDrafts((current) => ({
+                                ...current,
+                                [prompt.id.toString()]: value,
+                              }))
+                            }
+                            onUpdatePrice={(promptId) => void handleUpdatePrice(promptId)}
+                            onToggleStatus={(promptId, active) =>
+                              void handleToggleSaleStatus(promptId, active)
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <WebhookSettings walletAddress={address} />
+                  </TabsContent>
+
+                  {!isPublicView && address && (
+                    <TabsContent value="transactions" className="mt-0">
+                      <div className="mb-4">
+                        <h3 className="text-lg font-semibold text-white">
+                          Transaction history
+                        </h3>
+                        <p className="mt-1 text-sm leading-6 text-slate-400">
+                          Prompts you have purchased or licensed, with the amount
+                          paid in XLM and a link to verify each payment on the
+                          Stellar block explorer.
+                        </p>
+                      </div>
+                      <TransactionHistory walletAddress={address} />
+                    </TabsContent>
                   )}
-                </TabsContent>
 
-                <TabsContent value="created" className="mt-0 space-y-4">
-                  {createdQuery.isLoading ? (
-                    <LoadingState label="Loading your creator inventory..." />
-                  ) : createdPrompts.length === 0 ? (
-                    <EmptyState
-                      icon={Boxes}
-                      title="No creator inventory"
-                      body="Create your first encrypted prompt listing to see pricing controls, sales counts, and listing states here."
-                      action={{
-                        label: "Create listing",
-                        to: "/sell",
-                        icon: ArrowUpRight,
-                      }}
-                      accent="amber"
-                    />
-                  ) : (
-                    <div className="space-y-4">
-                      {createdPrompts.map((prompt) => (
-                        <CreatedPromptCard
-                          key={prompt.id.toString()}
-                          prompt={prompt}
-                          isBusy={busyPromptId === prompt.id.toString()}
-                          priceDraft={mergedDrafts[prompt.id.toString()]}
-                          walletAddress={address}
-                          onDraftChange={(value) =>
-                            setPriceDrafts((current) => ({
-                              ...current,
-                              [prompt.id.toString()]: value,
-                            }))
-                          }
-                          onUpdatePrice={(promptId) => void handleUpdatePrice(promptId)}
-                          onToggleStatus={(promptId, active) =>
-                            void handleToggleSaleStatus(promptId, active)
-                          }
-                        />
-                      ))}
-                    </div>
+                  {!isPublicView && address && (
+                    <TabsContent value="settings" className="mt-0">
+                      <CreatorProfileSettings walletAddress={address} />
+                    </TabsContent>
                   )}
-                  <WebhookSettings walletAddress={address} />
-                </TabsContent>
-              </Tabs>
-            </section>
-          </>
-        )}
+
+                  <TabsContent value="saved" className="mt-0 space-y-4">
+                    {savedQuery.isLoading ? (
+                      <LoadingState label="Loading your saved listings..." />
+                    ) : savedPrompts.length === 0 ? (
+                      <EmptyState
+                        icon={Bookmark}
+                        title="No saved listings yet"
+                        body="Save marketplace prompts while browsing to keep a short list of listings you want to revisit or compare later."
+                        action={{
+                          label: "Browse marketplace",
+                          to: "/browse",
+                          icon: ShoppingBag,
+                        }}
+                        accent="cyan"
+                      />
+                    ) : (
+                      <div className="space-y-4">
+                        {savedPrompts.map((savedPrompt) => (
+                          <SavedPromptCard
+                            key={savedPrompt.promptId}
+                            savedPrompt={savedPrompt}
+                            isBusy={busyPromptId === savedPrompt.promptId}
+                            onToggleSaved={(promptId, saved) =>
+                              void handleToggleSaved(promptId, saved)
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </section>
+            </>
+          )}
+        </div>
       </main>
       <Footer />
     </div>

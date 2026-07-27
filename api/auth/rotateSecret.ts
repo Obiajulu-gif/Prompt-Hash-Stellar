@@ -7,6 +7,7 @@
  */
 
 import { randomBytes } from "crypto";
+import { isPlaceholder } from "../../src/lib/validation/envValidator";
 
 interface SecretRotationConfig {
   currentSecret: string;
@@ -46,8 +47,8 @@ export function getActiveSecrets(): string[] {
  */
 export function rotateSecret(): SecretRotationConfig {
   const currentSecret = process.env.CHALLENGE_TOKEN_SECRET;
-  if (!currentSecret) {
-    throw new Error("CHALLENGE_TOKEN_SECRET not configured");
+  if (!currentSecret || isPlaceholder(currentSecret) || currentSecret.length < 16) {
+    throw new Error("CHALLENGE_TOKEN_SECRET not configured correctly");
   }
 
   const newSecret = generateNewSecret();

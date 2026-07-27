@@ -1,0 +1,66 @@
+{
+  "_metadata": {
+    "generated_at": "2024-01-01T00:00:00Z",
+    "report_version": "1.0.0",
+    "description": "Contract version compatibility matrix for clients"
+  },
+  "contract_versions": {
+    "0.0.1": {
+      "status": "current",
+      "released_at": "2024-01-01T00:00:00Z",
+      "breaking_changes": [],
+      "additions": [
+        "Initial contract deployment",
+        "Core prompt marketplace functionality",
+        "Bundle and access pass features",
+        "Dispute resolution system"
+      ],
+      "deprecations": [],
+      "sdk_minimum_version": "0.0.1",
+      "frontend_minimum_version": "0.0.1",
+      "api_minimum_version": "0.0.1"
+    }
+  },
+  "versioning_policy": {
+    "major": "Breaking changes that require client updates",
+    "minor": "Backward-compatible additions",
+    "patch": "Bug fixes and internal improvements",
+    "compatibility_matrix": {
+      "contract": {
+        "major": "Requires SDK major bump, API version bump, breaking frontend changes",
+        "minor": "SDK minor bump, optional API features, frontend feature detection",
+        "patch": "No client changes required"
+      },
+      "sdk": {
+        "major": "Breaking API changes, may require frontend updates",
+        "minor": "New features with backward compatibility",
+        "patch": "Bug fixes only"
+      }
+    },
+    "migration_guide": {
+      "breaking_changes": [
+        "Update SDK to latest major version",
+        "Review API compatibility layer",
+        "Test frontend with new contract",
+        "Update type definitions",
+        "Migrate deprecated methods"
+      ],
+      "additions": [
+        "Optional: Update SDK for new features",
+        "Optional: Add feature detection in frontend",
+        "Optional: Update API to support new fields"
+      ]
+    }
+  },
+  "known_issues": [],
+  "upgrade_paths": {
+    "from_0_0_0_to_0_0_1": {
+      "breaking": false,
+      "required_actions": [
+        "Deploy new contract",
+        "Update SDK to 0.0.1",
+        "Test integration"
+      ]
+    }
+  }
+}

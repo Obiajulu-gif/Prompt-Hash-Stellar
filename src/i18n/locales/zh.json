@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "browse": "浏览",
+    "create": "创建",
+    "dashboard": "仪表盘",
+    "connect": "连接钱包",
+    "disconnect": "断开连接"
+  },
+  "home": {
+    "hero_title": "发现并交易AI提示词",
+    "hero_subtitle": "在Stellar区块链上购买、出售和授权高质量AI提示词。",
+    "browse_prompts": "浏览提示词",
+    "create_prompt": "创建提示词"
+  },
+  "prompt": {
+    "buy": "购买提示词",
+    "lease": "租用提示词",
+    "price": "价格",
+    "creator": "创作者",
+    "category": "分类",
+    "sales": "销售数量",
+    "purchase_success": "提示词购买成功！",
+    "lease_success": "提示词租用成功！",
+    "already_owned": "您已拥有此提示词。",
+    "max_supply_reached": "此提示词已达到最大供应量。"
+  },
+  "create": {
+    "title": "创建提示词",
+    "prompt_title": "标题",
+    "category": "分类",
+    "preview": "预览文本",
+    "price": "价格（stroops）",
+    "max_supply": "最大供应量（0 = 无限制）",
+    "submit": "上架提示词",
+    "success": "提示词上架成功！"
+  },
+  "errors": {
+    "not_found": "未找到提示词。",
+    "unauthorized": "您无权执行此操作。",
+    "paused": "市场目前已暂停。"
+  },
+  "language": {
+    "select": "语言"
+  }
+}

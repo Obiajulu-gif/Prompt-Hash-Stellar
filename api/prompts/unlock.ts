@@ -1,11 +1,14 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   buildChallengeMessage,
   verifyChallengeSignature,
   verifyChallengeToken,
+  globalNonceLedger,
 } from "../../src/lib/auth/challenge";
 import {
   decryptPromptCiphertext,
   hashPromptPlaintext,
+  normalizeContentHash,
   unwrapPromptKey,
 } from "../../src/lib/crypto/promptCrypto";
 import {
@@ -13,10 +16,38 @@ import {
   hasAccess,
   type PromptHashConfig,
 } from "../../src/lib/stellar/promptHashClient";
+import { fetchCiphertextFromIpfs } from "../../src/lib/ipfs/gateway";
+import { isIpfsReference } from "../../src/lib/ipfs/reference";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
+import { checkReplayProtection } from "../../src/lib/observability/replayProtection";
 import { metrics } from "../../src/lib/observability/metrics";
 import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
+import { recordAuditEvent } from "../../server/src/services/auditTrail";
+import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
+import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
+
+export interface UnlockRequest {
+  token: string;
+  promptId: string;
+  address: string;
+  signedMessage: string;
+}
+
+export interface UnlockSuccessResponse {
+  promptId: string;
+  title: string;
+  contentHash: string;
+  plaintext: string;
+}
+
+// Fail-fast module load validation
+try {
+  validateUnlockSecrets();
+} catch (err: any) {
+  console.error(err.message);
+}
+
 
 /**
  * Get active secrets for token verification
@@ -69,14 +100,27 @@ function getServerConfig(): PromptHashConfig {
   };
 }
 
-async function handler(req: any, res: any) {
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed." });
+async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<void> {
+  try {
+    validateUnlockSecrets();
+  } catch (err: any) {
+    console.error("Configuration validation failed", { error: err.message });
+    res.status(500).json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
     return;
   }
 
-  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string;
-  const { token, promptId, address, signedMessage } = req.body ?? {};
+  if (req.method !== "POST") {
+    res.status(405).json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
+    return;
+  }
+
+  const clientIp = String(
+    req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
+  );
+  const { token, promptId, address, signedMessage }: Partial<UnlockRequest> = req.body ?? {};
 
   // Authenticated bucket: wallet address is present.
   const isAuthenticated = Boolean(address);
@@ -86,10 +130,23 @@ async function handler(req: any, res: any) {
   if (!ipRateLimit.success) {
     req.logger.warn({ clientIp }, "Rate limit exceeded for unlock (IP)");
     metrics.trackRateLimitHit("unlock_ip", clientIp);
+    void recordAuditEvent({
+      action: "unlock_rate_limited",
+      result: "blocked",
+      promptId: promptId ? String(promptId) : null,
+      walletAddress: address ? String(address) : null,
+      requestId: req.requestId ?? null,
+      clientIp,
+      reason: "ip_rate_limit_exceeded",
+    });
     res.setHeader("X-RateLimit-Limit", ipRateLimit.limit);
     res.setHeader("X-RateLimit-Remaining", 0);
     res.setHeader("X-RateLimit-Reset", ipRateLimit.reset);
-    res.status(429).json({ error: "Too many requests. Please try again later." });
+    res.status(429).json(
+      apiError(ErrorCode.RATE_LIMIT_IP, "Too many requests. Please try again later.", {
+        reset: ipRateLimit.reset,
+      }),
+    );
     return;
   }
 
@@ -99,10 +156,23 @@ async function handler(req: any, res: any) {
     if (!walletRateLimit.success) {
       req.logger.warn({ address }, "Rate limit exceeded for unlock (Wallet)");
       metrics.trackRateLimitHit("unlock_wallet", String(address));
+      void recordAuditEvent({
+        action: "unlock_rate_limited",
+        result: "blocked",
+        promptId: promptId ? String(promptId) : null,
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "wallet_rate_limit_exceeded",
+      });
       res.setHeader("X-RateLimit-Limit", walletRateLimit.limit);
       res.setHeader("X-RateLimit-Remaining", 0);
       res.setHeader("X-RateLimit-Reset", walletRateLimit.reset);
-      res.status(429).json({ error: "Too many unlock attempts for this wallet." });
+      res.status(429).json(
+        apiError(ErrorCode.RATE_LIMIT_WALLET, "Too many unlock attempts for this wallet.", {
+          reset: walletRateLimit.reset,
+        }),
+      );
       return;
     }
   }
@@ -113,14 +183,17 @@ async function handler(req: any, res: any) {
 
   if (!challengeSecret || !unlockPublicKey || !unlockPrivateKey) {
     req.logger.error("Unlock service is missing configuration secrets.");
-    res.status(500).json({ error: "Configuration error." });
+    res.status(500).json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
     return;
   }
 
   if (!token || !promptId || !address || !signedMessage) {
-    res.status(400).json({
-      error: "token, promptId, address, and signedMessage are required.",
-    });
+    res.status(400).json(
+      apiError(
+        ErrorCode.MISSING_FIELDS,
+        "token, promptId, address, and signedMessage are required.",
+      ),
+    );
     return;
   }
 
@@ -144,7 +217,58 @@ async function handler(req: any, res: any) {
     if (!validSignature) {
       req.logger.warn({ address, promptId }, "Invalid wallet signature");
       metrics.trackUnlockFailure(String(address), String(promptId), "invalid_signature");
-      res.status(401).json({ error: "Invalid wallet signature." });
+      void recordAuditEvent({
+        action: "unlock_invalid_signature",
+        result: "failure",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "invalid_signature",
+      });
+      res.status(401).json(apiError(ErrorCode.INVALID_SIGNATURE, "Invalid wallet signature."));
+      return;
+    }
+
+    // Nonce-based replay protection: ensure this nonce is consumed only once
+    const nonceConsumed = globalNonceLedger.consume(payload.nonce, payload.expiresAt);
+    if (!nonceConsumed) {
+      req.logger.warn({ address, promptId, nonce: payload.nonce }, "Replay attack detected (nonce already consumed)");
+      metrics.trackUnlockFailure(String(address), String(promptId), "replay_detected");
+      void recordAuditEvent({
+        action: "unlock_replay_detected",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "replay_attack",
+      });
+      res.status(400).json(
+        apiError(ErrorCode.TEMPORARY_FAILURE, "This unlock request has already been processed."),
+      );
+      return;
+    }
+
+    const replayCheck = await checkReplayProtection(
+      String(token),
+      String(signedMessage),
+    );
+    if (!replayCheck.valid) {
+      req.logger.warn({ address, promptId }, "Replay attack detected");
+      metrics.trackUnlockFailure(String(address), String(promptId), "replay_detected");
+      void recordAuditEvent({
+        action: "unlock_replay_detected",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "replay_attack",
+      });
+      res.status(400).json(
+        apiError(ErrorCode.TEMPORARY_FAILURE, "This unlock request has already been processed."),
+      );
       return;
     }
 
@@ -154,7 +278,18 @@ async function handler(req: any, res: any) {
     if (!access) {
       req.logger.warn({ address, promptId }, "Prompt access denied");
       metrics.trackUnlockFailure(String(address), String(promptId), "no_access");
-      res.status(403).json({ error: "Prompt access has not been purchased." });
+      void recordAuditEvent({
+        action: "unlock_no_access",
+        result: "failure",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "no_access",
+      });
+      res.status(403).json(
+        apiError(ErrorCode.ACCESS_NOT_PURCHASED, "Prompt access has not been purchased."),
+      );
       return;
     }
 
@@ -164,40 +299,93 @@ async function handler(req: any, res: any) {
       unlockPublicKey,
       unlockPrivateKey,
     );
+
+    // Large payloads are stored on IPFS with only an `ipfs://<cid>` reference
+    // kept on-chain — fetch the ciphertext back before decrypting. Inline
+    // payloads (legacy listings) are decrypted directly.
+    const ciphertext = isIpfsReference(prompt.encryptedPrompt)
+      ? await fetchCiphertextFromIpfs(prompt.encryptedPrompt)
+      : prompt.encryptedPrompt;
+
     const plaintext = await decryptPromptCiphertext(
-      prompt.encryptedPrompt,
+      ciphertext,
       prompt.encryptionIv,
       keyBytes,
     );
     const contentHash = await hashPromptPlaintext(plaintext);
-    if (contentHash !== prompt.contentHash) {
+    const storedHash = normalizeContentHash(prompt.contentHash);
+    if (contentHash !== storedHash) {
       req.logger.error({ address, promptId }, "Prompt integrity check failed");
       metrics.trackUnlockFailure(String(address), String(promptId), "integrity_failure");
-      res.status(500).json({ error: "Prompt integrity check failed." });
+      void recordAuditEvent({
+        action: "unlock_integrity_failure",
+        result: "failure",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "integrity_failure",
+      });
+      res.status(500).json(
+        apiError(ErrorCode.INTEGRITY_FAILURE, "Prompt integrity check failed."),
+      );
       return;
     }
 
     metrics.trackUnlockSuccess(String(address), String(promptId));
     req.logger.info({ address, promptId }, "Prompt unlocked successfully");
+    void recordAuditEvent({
+      action: "unlock_success",
+      result: "success",
+      promptId: String(promptId),
+      walletAddress: String(address),
+      requestId: req.requestId ?? null,
+      clientIp,
+      reason: null,
+    });
 
     // Fire-and-forget webhook dispatch so the creator is notified of the sale.
-    void dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
-      promptId: prompt.id.toString(),
-      buyer: String(address),
-      title: prompt.title,
-    }).catch(() => {});
+    void Promise.resolve(
+      dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
+        promptId: prompt.id.toString(),
+        buyer: String(address),
+        title: prompt.title,
+      }),
+    ).catch(() => {});
 
-    res.status(200).json({
+    const successResponse: UnlockSuccessResponse = {
       promptId: prompt.id.toString(),
       title: prompt.title,
       contentHash,
       plaintext,
-    });
+    };
+    res.status(200).json(successResponse);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to unlock prompt.";
     req.logger.error({ address, promptId, error: message }, "Unlock attempt failed");
     metrics.trackUnlockFailure(String(address), String(promptId), "error");
-    res.status(400).json({ error: message });
+
+    // Distinguish expired-challenge errors for finer-grained audit reasons and error codes.
+    const isExpired = message.toLowerCase().includes("expired");
+    void recordAuditEvent({
+      action: isExpired ? "unlock_expired_challenge" : "unlock_error",
+      result: "failure",
+      promptId: promptId ? String(promptId) : null,
+      walletAddress: address ? String(address) : null,
+      requestId: req.requestId ?? null,
+      clientIp,
+      reason: isExpired ? "expired_challenge" : "error",
+    });
+
+    if (isExpired) {
+      res.status(400).json(
+        apiError(ErrorCode.CHALLENGE_EXPIRED, "The challenge token has expired. Please request a new one."),
+      );
+    } else {
+      res.status(400).json(
+        apiError(ErrorCode.TEMPORARY_FAILURE, "Failed to unlock prompt. Please try again."),
+      );
+    }
   }
 }
 

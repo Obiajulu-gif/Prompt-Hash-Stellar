@@ -42,6 +42,14 @@ echo "🌐 Network: $NETWORK"
 echo "📄 Contract ID: $CONTRACT_ID"
 echo "🔑 Admin Alias: $ADMIN_ALIAS"
 
+# Preflight: fail fast on breaking interface/storage changes or a bad
+# deployment environment before touching the network (#435).
+echo ""
+echo "🛫 Running upgrade preflight checks..."
+NETWORK="$NETWORK" CONTRACT_ID="$CONTRACT_ID" ADMIN_ALIAS="$ADMIN_ALIAS" RPC_URL="$RPC_URL" \
+    python3 "$(dirname "$0")/preflight_upgrade.py" check
+echo "✅ Preflight checks passed."
+
 # Build and Optimize
 echo ""
 echo "📦 Building and optimizing new contract version..."

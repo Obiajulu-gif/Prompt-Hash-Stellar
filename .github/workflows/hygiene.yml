@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Search for conflict markers
         run: |
-          if grep -rE "<<<<<<<|=======|>>>>>>>" . --exclude-dir=.git --exclude=hygiene.yml; then
+          if grep -rnE "^<<<<<<<|^=======|^>>>>>>>" . --exclude-dir=.git --exclude=hygiene.yml; then
             echo "Merge conflict markers found in the codebase. Please resolve them."
             exit 1
           else

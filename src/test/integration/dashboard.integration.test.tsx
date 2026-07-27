@@ -68,7 +68,7 @@ describe("creator dashboard refresh integration coverage", () => {
     expect(await screen.findByText("Revenue memo builder")).toBeInTheDocument();
     expect(screen.getByText("2 XLM")).toBeInTheDocument();
 
-    const priceInput = screen.getByLabelText("Price for Revenue memo builder");
+    const priceInput = screen.getByLabelText("Price in XLM for Revenue memo builder");
     await userEvent.clear(priceInput);
     await userEvent.type(priceInput, "3.5");
     await userEvent.click(screen.getByRole("button", { name: /update price/i }));
@@ -80,8 +80,8 @@ describe("creator dashboard refresh integration coverage", () => {
         expect.anything(),
         { signTransaction },
         "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
-        21n,
-        3_5000000n,
+        "21",
+        "35000000",
       );
       expect(getPromptsByCreatorMock).toHaveBeenCalledTimes(2);
     });

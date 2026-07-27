@@ -1,14 +1,5 @@
 import { logger } from "./logger";
 
-type MetricType = "counter" | "histogram";
-
-interface Metric {
-  name: string;
-  type: MetricType;
-  value: number;
-  labels: Record<string, string | number>;
-}
-
 export const metrics = {
   emit(name: string, value: number = 1, labels: Record<string, string | number> = {}) {
     // In a real production app, this might go to Prometheus or CloudWatch

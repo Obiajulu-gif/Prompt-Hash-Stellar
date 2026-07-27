@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { Skeleton } from "../components/Skeleton";
 
 // Assuming a Stellar contract call or SDK usage
-const purchasePrompt = async (itemId: string) => {
+const purchasePrompt = async (_itemId: string) => {
+  void _itemId;
   // Simulating a network call for the marketplace purchase
   return new Promise((resolve) => setTimeout(resolve, 2000));
 };

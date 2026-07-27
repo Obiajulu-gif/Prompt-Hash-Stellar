@@ -3,12 +3,13 @@ import { useState } from "react";
 
 interface StarRatingProps {
   rating: number;
-  onRatingChange?: (rating: number) => void;
+  onRatingChange?: (_rating: number) => void;
   readonly?: boolean;
   size?: "sm" | "md" | "lg";
   showCount?: boolean;
   reviewCount?: number;
 }
+ 
 
 const sizeClasses = {
   sm: "h-3 w-3",
@@ -34,7 +35,15 @@ export const StarRating = ({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div
+      className="flex items-center gap-2"
+      role={readonly ? "img" : "radiogroup"}
+      aria-label={
+        readonly
+          ? `Rating: ${rating.toFixed(1)} out of 5 stars`
+          : "Rate this prompt"
+      }
+    >
       <div className="flex items-center gap-0.5">
         {[1, 2, 3, 4, 5].map((value) => {
           const isFilled = value <= displayRating;
@@ -46,6 +55,11 @@ export const StarRating = ({
               key={value}
               type="button"
               disabled={readonly}
+              tabIndex={readonly ? -1 : 0}
+              aria-hidden={readonly ? "true" : undefined}
+              role={readonly ? undefined : "radio"}
+              aria-checked={readonly ? undefined : rating === value}
+              aria-label={readonly ? undefined : `Rate ${value} star${value === 1 ? "" : "s"}`}
               onClick={() => handleClick(value)}
               onMouseEnter={() => !readonly && setHoverRating(value)}
               onMouseLeave={() => !readonly && setHoverRating(0)}
@@ -68,13 +82,13 @@ export const StarRating = ({
       </div>
       
       {showCount && reviewCount > 0 && (
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-slate-400" aria-hidden="true">
           ({reviewCount} {reviewCount === 1 ? "review" : "reviews"})
         </span>
       )}
       
       {!showCount && rating > 0 && (
-        <span className="text-xs text-slate-400 font-medium">
+        <span className="text-xs text-slate-400 font-medium" aria-hidden="true">
           {rating.toFixed(1)}
         </span>
       )}

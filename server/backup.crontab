@@ -1,0 +1,30 @@
+# PromptHash Indexer DB — Backup Cron Configuration (Issue #135)
+#
+# Install on the server running the Node backend:
+#   crontab backup.crontab
+#
+# Or append to existing crontab:
+#   crontab -l | cat - backup.crontab | crontab -
+#
+# Required environment variables must be exported in the shell that runs the
+# cron process, or set in /etc/environment / ~/.profile.
+#
+# Variables:
+#   MONGODB_URI            - MongoDB connection string
+#   BACKUP_S3_BUCKET       - S3 bucket name
+#   BACKUP_S3_PREFIX       - Key prefix (default: "backups")
+#   BACKUP_S3_REGION       - AWS region (default: "us-east-1")
+#   AWS_ACCESS_KEY_ID      - AWS credentials
+#   AWS_SECRET_ACCESS_KEY  - AWS credentials
+#   BACKUP_ALERT_WEBHOOK   - Slack/webhook URL for failure alerts (optional)
+#
+# ---------------------------------------------------------------------------
+# Daily backup at 02:00 UTC
+# ---------------------------------------------------------------------------
+0 2 * * * cd /app && ts-node server/scripts/runBackup.ts >> /var/log/prompthash-backup.log 2>&1
+
+# ---------------------------------------------------------------------------
+# Weekly full backup with retention cleanup (keep last 30 daily backups on S3)
+# Requires AWS CLI installed on the host. Adjust prefix to match BACKUP_S3_PREFIX.
+# ---------------------------------------------------------------------------
+# 30 2 * * 0 aws s3 ls s3://${BACKUP_S3_BUCKET}/backups/ | sort | head -n -30 | awk '{print $4}' | xargs -I{} aws s3 rm s3://${BACKUP_S3_BUCKET}/{}

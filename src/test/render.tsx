@@ -5,18 +5,24 @@ import {
   type RenderOptions,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { vi } from "vitest";
 import {
   WalletContext,
   type WalletContextType,
 } from "@/providers/WalletProvider";
+import { TransactionProvider } from "@/components/TransactionProvider";
 
 const defaultWallet: WalletContextType = {
   address: undefined,
   network: undefined,
   networkPassphrase: undefined,
-  isPending: false,
-  signMessage: undefined,
-  signTransaction: undefined,
+  status: "idle",
+  error: undefined,
+  networkCompatibility: { compatible: true } as any, 
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+  signMessage: vi.fn(),
+  signTransaction: vi.fn(),
 };
 
 export function createTestQueryClient() {
@@ -56,7 +62,9 @@ export function renderWithProviders(
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <WalletContext value={walletValue}>
-        <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+        <TransactionProvider>
+          <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+        </TransactionProvider>
       </WalletContext>
     </QueryClientProvider>
   );

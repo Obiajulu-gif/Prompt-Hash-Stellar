@@ -1,15 +1,16 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from "react";
 
 export type TransactionStatus = "idle" | "pending" | "success" | "error";
 
 interface TransactionFeedbackContextType {
   status: TransactionStatus;
   error: string | null;
-  setStatus: (status: TransactionStatus) => void;
-  setError: (error: string | null) => void;
+  setStatus: (_status: TransactionStatus) => void;
+  setError: (_error: string | null) => void;
   clear: () => void;
   retry?: () => void;
 }
+ 
 
 const TransactionFeedbackContext = createContext<TransactionFeedbackContextType | undefined>(undefined);
 

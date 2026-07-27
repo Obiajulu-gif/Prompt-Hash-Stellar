@@ -51,7 +51,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { promptId, userAddress, rating, text, signature }: ReviewSubmission = req.body;
+  const { promptId, userAddress, rating, text }: ReviewSubmission = req.body;
 
   // Validation
   if (!promptId || !userAddress || !rating || !text) {

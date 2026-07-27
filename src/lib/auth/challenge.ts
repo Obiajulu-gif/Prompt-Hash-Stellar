@@ -8,6 +8,7 @@ export interface ChallengePayload {
   address: string;
   promptId: string;
   nonce: string;
+  issuedAt: number;
   expiresAt: number;
 }
 
@@ -30,7 +31,7 @@ function signPayload(secret: string, body: string) {
 }
 
 export function buildChallengeMessage(payload: ChallengePayload) {
-  return `prompt-hash unlock:${payload.address}:${payload.promptId}:${payload.nonce}:${payload.expiresAt}`;
+  return `prompt-hash unlock:${payload.address}:${payload.promptId}:${payload.nonce}:${payload.issuedAt}:${payload.expiresAt}`;
 }
 
 export function createChallengeToken(
@@ -44,6 +45,7 @@ export function createChallengeToken(
     address,
     promptId,
     nonce: randomUUID(),
+    issuedAt: now,
     expiresAt: now + ttlMs,
   };
 
@@ -53,6 +55,7 @@ export function createChallengeToken(
   return {
     token: `${encodedPayload}.${signature}`,
     challenge: buildChallengeMessage(payload),
+    issuedAt: payload.issuedAt,
     expiresAt: payload.expiresAt,
     nonce: payload.nonce,
   };
@@ -78,7 +81,7 @@ export function verifyChallengeToken(
     const expectedSignature = signPayload(sec, encodedPayload);
     const received = Buffer.from(signature, "utf8");
     const expected = Buffer.from(expectedSignature, "utf8");
-    
+
     if (received.length === expected.length && timingSafeEqual(received, expected)) {
       validSignature = true;
       break;
@@ -101,57 +104,56 @@ export function verifyChallengeToken(
   return payload;
 }
 
-function decodeSignature(signature: string) {
-  const candidates = [
-    () => Buffer.from(signature, "base64"),
-    () => Buffer.from(signature, "hex"),
-    () => Buffer.from(signature, "utf8"),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      const value = candidate();
-      if (value.length > 0) {
-        return value;
-      }
-    } catch {
-      // Try the next encoding.
-    }
-  }
-
-  throw new Error("Invalid signed message encoding.");
-}
-
 export function verifyChallengeSignature(
   address: string,
   message: string,
-  signedMessage: string,
-) {
-  return Keypair.fromPublicKey(address).verify(
-    Buffer.from(message, "utf8"),
-    decodeSignature(signedMessage),
-  );
+  signatureBase64: string,
+): boolean {
+  try {
+    const keypair = Keypair.fromPublicKey(address);
+    return keypair.verify(Buffer.from(message, "utf8"), Buffer.from(signatureBase64, "base64"));
+  } catch {
+    return false;
+  }
 }
 
-export function verifyUnlock(
-  secret: string | string[],
-  token: string,
-  address: string,
-  promptId: string,
-  signedMessage: string,
-  now = Date.now()
-) {
-  // 1. Verify the token payload (checks expiry, promptId, address, and server signature)
-  const payload = verifyChallengeToken(secret, token, address, promptId, now);
+/**
+ * In-process nonce ledger for tracking consumed challenge nonces.
+ * One nonce corresponds to exactly one unlock request; consuming it a second
+ * time indicates a replay attack. Entries are evicted once their TTL expires
+ * (matching the challenge expiry) so memory stays bounded.
+ *
+ * Production deployments running multiple server instances should back this
+ * with a shared store (Redis); for single-instance deploys and tests the
+ * in-memory ledger is sufficient.
+ */
+export class NonceLedger {
+  private readonly used = new Map<string, number>();
 
-  // 2. Reconstruct the challenge message that the user was required to sign
-  const message = buildChallengeMessage(payload);
+  /**
+   * Attempt to consume a nonce. Returns `true` the first time a given nonce
+   * is seen, `false` on any subsequent call with the same nonce (replay).
+   * Expired entries are pruned before each check to keep memory bounded.
+   */
+  consume(nonce: string, expiresAt: number): boolean {
+    const now = Date.now();
+    this.prune(now);
 
-  // 3. Verify the wallet's cryptographic signature over the message
-  const isValid = verifyChallengeSignature(address, message, signedMessage);
-  if (!isValid) {
-    throw new Error("Invalid wallet signature for the unlock challenge.");
+    if (this.used.has(nonce)) {
+      return false;
+    }
+
+    this.used.set(nonce, expiresAt);
+    return true;
   }
 
-  return payload;
+  private prune(now: number): void {
+    for (const [nonce, expiresAt] of this.used) {
+      if (expiresAt < now) {
+        this.used.delete(nonce);
+      }
+    }
+  }
 }
+
+export const globalNonceLedger = new NonceLedger();
