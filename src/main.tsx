@@ -4,7 +4,9 @@ import "./index.css";
 import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 
 import { BrowserRouter } from "react-router-dom";
 
@@ -19,14 +21,38 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       retry: false,
+      gcTime: 1000 * 60 * 60 * 24, // 24 hours caching
+      staleTime: 1000 * 60 * 5, // 5 minutes fresh
     },
   },
+});
+
+queryClient.getQueryCache().subscribe((event) => {
+  if (event.type === 'updated' && event.action.type === 'success') {
+    localStorage.setItem('lastCacheRefresh', Date.now().toString());
+  }
+});
+
+const persister = createSyncStoragePersister({
+  storage: window.localStorage,
 });
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <NotificationProvider>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider 
+        client={queryClient} 
+        persistOptions={{ 
+          persister,
+          dehydrateOptions: {
+            shouldDehydrateQuery: (query) => {
+              // Cache safe public listing metadata only
+              const key = query.queryKey[0];
+              return typeof key === 'string' && (key.startsWith('prompts') || key === 'prompt-detail');
+            }
+          }
+        }}
+      >
         <ContractSyncProvider>
           <TransactionProvider>
             <WalletProvider>
@@ -36,7 +62,7 @@ createRoot(document.getElementById("root") as HTMLElement).render(
             </WalletProvider>
           </TransactionProvider>
         </ContractSyncProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </NotificationProvider>
   </StrictMode>,
 );
