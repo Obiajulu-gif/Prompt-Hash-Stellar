@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -66,19 +66,13 @@ interface CreatePromptFormProps {
   onCreated?: () => void;
 }
 
-const DRAFT_STORAGE_PREFIX = "prompt-hash:create-draft:";
-
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
   const { address, signTransaction } = useWallet();
-  const draftStorageKey = address ? `${DRAFT_STORAGE_PREFIX}${address}` : null;
-  const draftLoadRef = useRef<string | null>(null);
   
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showChecklist, setShowChecklist] = useState(true);
-  const [draftRestored, setDraftRestored] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [isFirstListing] = useState(true);
   const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
@@ -106,6 +100,16 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   });
 
   const watchAllFields = watch();
+
+  const {
+    draftRestored,
+    lastSavedAt,
+    discardDraft,
+  } = useDraftAutoSave({
+    address,
+    values: watchAllFields,
+    setValue,
+  });
 
   const isConfigured = useMemo(
     () => Boolean(address && browserStellarConfig.promptHashContractId && unlockPublicKey),
@@ -218,6 +222,11 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             )}
             <button
               type="button"
+              onClick={() => {
+                if (window.confirm("Discard this draft? All unsaved listing fields will be reset.")) {
+                  discardDraft();
+                }
+              }}
               className="ml-auto text-xs text-cyan-200 underline underline-offset-2 hover:text-cyan-50"
             >
               Discard

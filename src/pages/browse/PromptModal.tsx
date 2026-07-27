@@ -31,6 +31,7 @@ import {
   ThumbsUp,
 } from "lucide-react";
 
+import { PurchaseReceipt } from "../../components/prompts/PurchaseReceipt";
 // Small inline copy button used in the receipt reference details
 const CopyField: React.FC<{ value: string; label: string }> = ({ value, label }) => {
   const [copied, setCopied] = React.useState(false);
@@ -572,14 +573,24 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
               {status === "PURCHASED_LOCKED" && (
                 <div className="space-y-6">
-                  <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center text-center">
-                    <LockKeyhole className="w-8 h-8 text-emerald-400 mb-3" />
-                    <h4 className="font-bold text-white">License Verified</h4>
-                    <p className="text-xs text-slate-400 mt-2">
-                      Ownership detected on-chain. Sign the unlock request to
-                      decrypt.
-                    </p>
-                  </div>
+                  {txHash ? (
+                    <PurchaseReceipt
+                      promptDetail={promptDetail}
+                      itemId={itemId}
+                      walletAddress={wallet?.address || ""}
+                      txHash={txHash}
+                      isPendingIndexing={!!unlockError?.message?.includes('ACCESS_NOT_PURCHASED')}
+                    />
+                  ) : (
+                    <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center text-center">
+                      <LockKeyhole className="w-8 h-8 text-emerald-400 mb-3" />
+                      <h4 className="font-bold text-white">License Verified</h4>
+                      <p className="text-xs text-slate-400 mt-2">
+                        Ownership detected on-chain. Sign the unlock request to
+                        decrypt.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Explain what the signature does — always visible before and during signing */}
                   <UnlockExplainer
@@ -591,101 +602,32 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     }
                   />
 
-                  {unlockError && (() => {
-                    const mapped: MappedWalletError = mapWalletError(unlockError);
-                    return (
-                      <div className="space-y-3">
-                        <UnlockErrorBanner
-                          message={mapped.userMessage}
-                          onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
-                        />
-                        {mapped.recoveryHint && (
-                          <p className="text-xs text-slate-400 px-1">
-                            {mapped.recoveryHint}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  {unlockError && !unlockError?.message?.includes('ACCESS_NOT_PURCHASED') && (
+                    <UnlockErrorBanner
+                      message={unlockError.message}
+                      onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
+                    />
+                  )}
 
                   <button
                     onClick={() => runUnlock(txHash || "existing").catch(() => {})}
                     disabled={isUnlocking || !isOnline}
                     className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {!isOnline ? "Offline" : isUnlocking ? "Unlocking..." : (txHash && unlockError?.message?.includes('ACCESS_NOT_PURCHASED') ? "Retry Unlock (Wait for Indexing)" : "Decrypt Content")}
+                    {isUnlocking ? "Unlocking..." : (txHash && unlockError?.message?.includes('ACCESS_NOT_PURCHASED') ? "Retry Unlock (Wait for Indexing)" : "Decrypt Content")}
                   </button>
                 </div>
               )}
 
               {status === "SUCCESS" && (
                 <div className="animate-in fade-in zoom-in duration-300 space-y-4">
-                  {/* Receipt header */}
-                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold mb-3">
-                      <CheckCircle className="h-5 w-5" /> Purchase Receipt
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Prompt</p>
-                        <p className="font-semibold text-white truncate">
-                          {promptDetail?.title ?? `#${itemId}`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Price paid</p>
-                        <p className="font-semibold text-emerald-300">
-                          {promptDetail ? `${stroopsToXlmString(promptDetail.priceStroops)} XLM` : "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Buyer status</p>
-                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-400">
-                          Licensed
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Buyer</p>
-                        <p className="font-mono text-white truncate">
-                          {wallet?.address
-                            ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
-                            : "—"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reference details — copyable */}
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
-                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Reference details</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] text-slate-500">Prompt ID</p>
-                        <p className="font-mono text-xs text-slate-300">#{itemId}</p>
-                      </div>
-                      <CopyField value={itemId} label="prompt ID" />
-                    </div>
-                    {txHash && (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] text-slate-500">Transaction ref</p>
-                          <p className="font-mono text-xs text-slate-300 truncate">{txHash}</p>
-                        </div>
-                        <CopyField value={txHash} label="tx ref" />
-                      </div>
-                    )}
-                    {promptDetail?.contentHash && (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] text-slate-500">Content hash</p>
-                          <p className="font-mono text-xs text-slate-300 truncate">
-                            {promptDetail.contentHash.slice(0, 16)}…
-                          </p>
-                        </div>
-                        <CopyField value={promptDetail.contentHash} label="content hash" />
-                      </div>
-                    )}
-                  </div>
+                  <PurchaseReceipt
+                    promptDetail={promptDetail}
+                    itemId={itemId}
+                    walletAddress={wallet?.address || ""}
+                    txHash={txHash}
+                    isPendingIndexing={false}
+                  />
 
                   {/* Unlocked content */}
                   <div className="relative group">
