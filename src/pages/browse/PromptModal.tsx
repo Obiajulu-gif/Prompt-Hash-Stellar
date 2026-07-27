@@ -7,6 +7,7 @@ import { unlockPrompt } from "../../lib/prompts/unlock";
 import { Skeleton } from "../../components/Skeleton";
 import { StatusBanner } from "../../components/StatusBanner";
 import { UnlockExplainer } from "../../components/UnlockExplainer";
+import { CheckoutFeeBreakdown } from "../../components/checkout/CheckoutFeeBreakdown";
 import { copyToClipboard } from "../../lib/clipboard/secureClipboard";
 import { ReportDialog } from "../../components/prompts/ReportDialog";
 import {
@@ -500,6 +501,12 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       </p>
                     </div>
                   </div>
+
+                  {/* Fee & Payment Breakdown before wallet signing (#455) */}
+                  <CheckoutFeeBreakdown
+                    promptTitle={prompt.title}
+                    priceXlm={(prompt.priceStroops / 10000000).toString()}
+                  />
 
                   {status === "ERROR" && purchaseError && (() => {
                     const mapped: MappedWalletError = mapWalletError(purchaseError);

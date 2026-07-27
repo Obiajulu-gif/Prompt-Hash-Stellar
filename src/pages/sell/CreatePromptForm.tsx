@@ -37,6 +37,8 @@ import {
   createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloadSizeEstimator";
+import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
 
 const limits = {
   ...LISTING_LIMITS,
@@ -140,6 +142,11 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
         0,
       ),
     [coCreatorsList],
+  );
+
+  const payloadEstimate = useMemo(
+    () => estimateEncryptedPayloadSize(watchAllFields.fullPrompt || ""),
+    [watchAllFields.fullPrompt]
   );
 
   useEffect(() => {
@@ -445,14 +452,24 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               {errors.fullPrompt.message?.toString()}
             </p>
           )}
+
+          {/* Encrypted payload size estimator (#458) */}
+          <EncryptedPayloadSizeEstimator
+            fullPromptText={watchAllFields.fullPrompt || ""}
+            className="mt-3"
+          />
         </div>
 
         {showChecklist && <ListingQualityChecklist items={checklistItems} />}
 
         <Button
           type="submit"
-          className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300 mt-4"
-          disabled={isSubmitting || (showChecklist && checklistHasFailures)}
+          className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={
+            isSubmitting ||
+            (showChecklist && checklistHasFailures) ||
+            payloadEstimate.isOverLimit
+          }
         >
           {isSubmitting ? (
             <>
