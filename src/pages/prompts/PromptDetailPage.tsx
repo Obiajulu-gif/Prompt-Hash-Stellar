@@ -23,6 +23,7 @@ import { formatPriceLabel } from "@/lib/stellar/format";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
 import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
+import { PriceHistoryCard } from "@/components/PriceHistoryCard";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -272,6 +273,15 @@ export default function PromptDetailPage() {
             </div>
           </article>
         )}
+
+          {prompt && (
+            <div className="mt-8">
+              <PriceHistoryCard
+                onChainId={id}
+                currentPriceStroops={prompt.priceStroops}
+              />
+            </div>
+          )}
       </main>
 
       <ReportDialog

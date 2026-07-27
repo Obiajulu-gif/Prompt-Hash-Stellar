@@ -10,6 +10,7 @@ import {
   GetPreviewStats,
   SavePrompt,
   UnsavePrompt,
+  GetPriceHistory,
 } from "../controllers/controllers";
 import {
   GetCreatorSalesAnalytics,
@@ -55,3 +56,6 @@ promptRouter.get("/preview/stats", GetPreviewStats);
 // Report endpoints — off-chain moderation data, does not affect access control
 promptRouter.post("/reports", SubmitPromptReport);
 promptRouter.get("/reports", GetPromptReports);
+
+// Price history — derived from indexed PromptPriceUpdated events
+promptRouter.get("/:onChainId/price-history", GetPriceHistory);

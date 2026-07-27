@@ -2,6 +2,7 @@ import { rpc as StellarRpc, scValToNative } from "@stellar/stellar-sdk";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
 import Purchase from "../models/Purchase";
+import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
 import { scanForSimilarity } from "./similarityDetection";
 import { dispatchEvent } from "./webhookDispatcher";
@@ -121,28 +122,45 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
   switch (topic) {
     case "PromptCreated": {
       const { prompt_id, creator, price_stroops } = data;
+      const promptId = prompt_id.toString();
+      const initialPrice = Number(price_stroops) / 10_000_000;
 
       const user = await ensureUser(creator);
 
       // handles discovery of prompts created off-platform
       const upserted = await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
+        { onChainId: promptId },
         {
           $set: {
-            onChainId: prompt_id.toString(),
+            onChainId: promptId,
             owner: user._id,
-            price: Number(price_stroops) / 10_000_000,
+            price: initialPrice,
             isActive: true,
           },
         },
         { upsert: true, new: true },
       );
 
+      // Record the initial price as the first entry in the price history.
+      await PriceChange.findOneAndUpdate(
+        { promptId, ledgerSeq: 0 },
+        {
+          $set: {
+            promptId,
+            previousPrice: null,
+            newPrice: initialPrice,
+            asset: "XLM",
+            ledgerSeq: 0,
+          },
+        },
+        { upsert: true },
+      );
+
       // Run similarity scan asynchronously — never block the indexer loop.
       if (upserted?.content) {
         const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
-        scanForSimilarity(prompt_id.toString(), combinedText).catch((err) =>
-          console.error("[similarity] Scan error for prompt", prompt_id.toString(), err),
+        scanForSimilarity(promptId, combinedText).catch((err) =>
+          console.error("[similarity] Scan error for prompt", promptId, err),
         );
       }
       break;
@@ -218,10 +236,27 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
 
     case "PromptPriceUpdated": {
       const { prompt_id, price_stroops } = data;
-      await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
-        { $set: { price: Number(price_stroops) / 10_000_000 } },
-      );
+      const promptId = prompt_id.toString();
+      const newPrice = Number(price_stroops) / 10_000_000;
+
+      // Read the current price before updating so we can record the delta.
+      const current = await Prompt.findOne({ onChainId: promptId });
+      const previousPrice = current?.price ?? null;
+
+      await Promise.all([
+        Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { price: newPrice } },
+        ),
+        PriceChange.create({
+          promptId,
+          previousPrice,
+          newPrice,
+          asset: "XLM",
+          ledgerSeq: event.ledger ?? null,
+          txHash: txHash ?? "",
+        }),
+      ]);
       break;
     }
 
