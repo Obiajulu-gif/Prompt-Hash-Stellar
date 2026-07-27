@@ -1,6 +1,13 @@
 import { createHash } from "crypto";
 import { AuditLog, AuditAction, AuditResult } from "../models/AuditLog";
-import { logger } from "../../../src/lib/observability/logger";
+
+// Simple fallback logger object to handle logging without cross-boundary imports
+// Simple fallback logger object to handle logging without cross-boundary imports
+const logger = {
+  info: (logFields: any, msg: string) => console.log(msg, logFields),
+  warn: (logFields: any, msg: string) => console.warn(msg, logFields),
+  error: (logFields: any, msg: string) => console.error(msg, logFields)
+};
 
 /**
  * One-way SHA-256 hash of a Stellar wallet address.
@@ -68,7 +75,7 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
     reason: params.reason ?? undefined,
   };
 
-  if (params.result === "failure" || params.result === "denied") {
+  if ((params.result as string) === "failure" || (params.result as string) === "denied") {
     logger.warn(logFields, `audit: ${params.action} → ${params.result}`);
   } else {
     logger.info(logFields, `audit: ${params.action} → ${params.result}`);

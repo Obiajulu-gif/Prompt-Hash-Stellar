@@ -134,45 +134,44 @@ PromptHash Stellar can serve as a reusable reference implementation for:
 
 ## Technical Architecture
 
-PromptHash Stellar currently uses a three-part architecture:
+PromptHash Stellar uses a three-part architecture where the Soroban smart contract is the **absolute, single source of truth** for prompt ownership, purchase records, and access rights.
 
-### 1. Soroban smart contract
+> For an end-to-end visual guide with diagrams covering the listing, purchase, and unlock flows, the encryption model, wallet verification, and every environment variable, see [docs/architecture-overview.md](docs/architecture-overview.md).
+
+### 1. Soroban smart contract (authoritative source of truth)
 
 Located in `contracts/prompt-hash`.
 
-Responsibilities:
+The contract governs **all** stateful operations. Off-chain systems must never override or duplicate these responsibilities:
 
-- prompt creation
-- price updates
-- listing activation/deactivation
-- purchase tracking
-- creator and buyer prompt indexing
-- fee wallet configuration
-- contract upgrade path
+| Operation | On-chain method | Off-chain role |
+|-----------|----------------|----------------|
+| Prompt creation | `create_prompt` | Index & cache (read-only) |
+| Price updates | `update_prompt_price` | None |
+| Listing state | `set_prompt_sale_status` | Index & cache (read-only) |
+| Purchase & access | `buy_prompt` / `has_access` | Verify via RPC simulation |
+| Fee config | `set_fee_percentage` / `set_fee_wallet` | None |
+| License transfer | `transfer_license` | Index & cache (read-only) |
+| Disputes | `open_dispute` / `resolve_dispute` | Off-chain moderation data only |
 
-Key methods implemented today:
-
-- `create_prompt`
-- `buy_prompt`
-- `has_access`
-- `get_prompt`
-- `get_all_prompts`
-- `get_prompts_by_creator`
-- `get_prompts_by_buyer`
-- `update_prompt_price`
-- `set_prompt_sale_status`
+**Key invariant**: No off-chain route may grant, revoke, or modify access rights. The `api/prompts/unlock.ts` endpoint calls `has_access` via Soroban RPC simulation — it trusts the contract, not the database.
 
 ### 2. Frontend application
 
 Located in `src`.
 
-The frontend handles wallet connection, client-side encryption before listing, marketplace browsing, contract-backed purchases, creator dashboard actions, and buyer unlock requests.
+The frontend handles wallet connection, client-side encryption before listing, marketplace browsing, contract-backed purchases, creator dashboard actions, and buyer unlock requests. All state-affirming operations (create, purchase, transfer) go through the smart contract; the frontend never writes directly to the off-chain index.
 
 ### 3. Unlock and API layer
 
-Implemented through `api/auth/challenge.ts` and `api/prompts/unlock.ts`, with an additional Express workspace under `server/`.
+Two authoritative serverless endpoints:
 
-The serverless unlock flow handles challenge token issuance, signature verification, on-chain access verification, key unwrap, prompt decryption, and plaintext integrity validation.
+| Endpoint | Responsibility |
+|----------|---------------|
+| `api/auth/challenge.ts` | Issue HMAC-signed, time-bound challenge tokens |
+| `api/prompts/unlock.ts` | Verify signature + on-chain `has_access` → decrypt → integrity check |
+
+A secondary Express workspace (`server/`) provides **read-only indexing**, preview analytics, review storage, and webhook dispatch. It is explicitly forbidden from originating prompt state changes. Write routes that duplicated `create_prompt`/`set_prompt_sale_status` have been removed — see `server/src/routes/promptRoutes.ts` for the deprecation ledger.
 
 #### Observability & Production Hardening
 
@@ -230,6 +229,52 @@ The current contract data model includes:
 yarn install
 cd server && npm install && cd ..
 ```
+
+## Run with Docker (fastest onboarding)
+
+If you have Docker installed, you can start the full local stack — frontend,
+auxiliary API server, and MongoDB — without installing Node, Yarn, or Mongo on
+your host:
+
+```bash
+docker compose up
+```
+
+- Frontend (Vite): http://localhost:5173
+- API server: http://localhost:5000
+- MongoDB: mongodb://localhost:27017
+
+The frontend and API source directories are bind-mounted, so **edits on your
+host hot-reload inside the containers** automatically (file-watch polling is
+enabled so this works on Windows, macOS, and Linux).
+
+Need a local Stellar network with Soroban RPC (via
+[Stellar Quickstart](https://github.com/stellar/quickstart))? Start it with the
+optional `stellar` profile:
+
+```bash
+docker compose --profile stellar up
+```
+
+This exposes Horizon, Soroban RPC, and Friendbot on http://localhost:8000.
+
+Default environment values target Stellar testnet. To override them, create a
+`.env` file (see `.env.example`); `docker compose` picks it up automatically.
+
+### Dev Containers (VS Code)
+
+A [`.devcontainer`](./.devcontainer) configuration is included. Opening the repo
+in VS Code with the Dev Containers extension (or in GitHub Codespaces) gives you
+a ready-to-use environment with **Node 22, the Rust toolchain, and the Stellar
+CLI (Soroban)** already installed, plus the MongoDB and Stellar Quickstart
+services from the compose stack.
+
+#### Why the image builds quickly
+
+The Dockerfiles install dependencies in a dedicated, cached layer (manifest and
+lockfile are copied before the source). Rebuilds only re-run `yarn install` /
+`npm ci` when a lockfile changes, and BuildKit cache mounts keep the package
+caches warm between builds.
 
 ## Local Development Setup
 
@@ -401,6 +446,103 @@ This repository is licensed under the Apache License 2.0. See `LICENSE`.
 
 Maintained by the PromptHash Stellar team for Drip Wave submission and ongoing open-source development.
 
+## Project Structure
+
+```
+├── api/                    # Vercel serverless functions
+│   ├── auth/               # Challenge token issuance & secret rotation
+│   ├── prompts/            # Unlock, versioning, and listing endpoints
+│   ├── reviews/            # Review submission endpoints
+│   ├── webhooks/           # Webhook integration endpoints
+│   ├── health.ts           # Service health check
+│   └── status.ts           # Multi-service status dashboard
+├── contracts/              # Soroban smart contracts (Rust)
+├── server/                 # Express backend (read-only indexing, analytics)
+│   └── src/
+│       ├── controllers/    # Route handlers
+│       ├── db/             # Database connection
+│       ├── models/         # Mongoose schemas
+│       ├── routes/         # Express route definitions
+│       ├── services/       # Cache, backup, listing validation
+│       └── tests/          # Server integration tests
+├── src/                    # React frontend (Vite + TypeScript)
+│   ├── components/         # Reusable UI components
+│   ├── hooks/              # Custom React hooks (useTheme, wallet, etc.)
+│   ├── lib/                # Core logic (crypto, stellar, auth, validation)
+│   ├── pages/              # Route pages (browse, sell, profile, etc.)
+│   ├── providers/          # React context providers
+│   └── test/               # Frontend test utilities & fixtures
+├── docs/                   # Additional documentation
+├── scripts/                # Build & setup scripts
+├── eslint.config.js        # ESLint configuration
+├── tailwind.config.js      # Tailwind CSS configuration
+└── vite.config.ts          # Vite build configuration
+```
+
+## API Endpoints
+
+### Vercel Serverless Functions (`/api/*`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Service health check with indexer state |
+| GET | `/api/status` | Multi-service status (RPC, Horizon, unlock) |
+| POST | `/api/auth/challenge` | Issue time-bound challenge token for wallet verification |
+| POST | `/api/auth/rotate-secret` | Rotate challenge token secrets with grace period |
+| GET | `/api/prompts` | List published prompts (optional `category` & `walletAddress` filters) |
+| POST | `/api/prompts/unlock` | Verify wallet access and return decrypted prompt |
+| GET | `/api/prompts/version` | Get versioned prompt content for a buyer |
+
+### Express Server (`/api/*` on port 5000)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/prompts` | List published prompts (cached, filtered) |
+| GET | `/api/prompts/buyer/:wallet/owned` | Get prompts owned by wallet |
+| GET | `/api/prompts/buyer/:wallet/saved` | Get prompts saved by wallet |
+| GET | `/api/prompts/creator/:wallet/drafts` | Get creator draft prompts |
+| POST | `/api/prompts/preview` | Record prompt preview |
+| GET | `/api/prompts/preview/stats` | Get preview analytics for creator |
+| POST | `/api/prompts/reports` | Submit prompt report |
+| GET | `/api/prompts/reports` | Get prompt reports (admin) |
+| GET | `/api/search` | Search prompts and users |
+| POST | `/api/webhooks` | Register webhook subscriptions |
+
+## Dark Mode
+
+The application supports light, dark, and system-preference themes:
+
+- **Theme persistence**: Your selection is stored in `localStorage` as `theme-preference`
+- **System-aware**: When set to "System", the UI follows your OS color scheme preference
+- **Toggle**: Use the theme switch icon in the top navigation bar
+- **CSS variables**: Theme colors are defined as CSS custom properties in `src/index.css` with `.dark` class overrides
+- **Tailwind integration**: Dark mode uses Tailwind's `class` strategy — add the `dark:` prefix for theme-specific styles
+
+Toggle between Light, Dark, and System modes from the dropdown in the navigation bar. The setting persists across sessions.
+
+## Linting & Code Quality
+
+The project uses ESLint with TypeScript support for code quality:
+
+```bash
+# Run the linter
+npm run lint
+
+# Auto-fix fixable issues
+npm run lint -- --fix
+```
+
+Key linting rules:
+- Unused variables are flagged as warnings
+- Underscore-prefixed parameters (`_param`) are exempt from unused-variable checks
+- TypeScript strict mode is enabled for type safety
+- Prettier handles code formatting (`npm run format`)
+
+Run both checks before opening a pull request:
+```bash
+npm run lint && npm run typecheck
+```
+
 ## GitHub Preparation
 
 - Recommended repository name: `prompt-hash-stellar`
@@ -413,3 +555,21 @@ Maintained by the PromptHash Stellar team for Drip Wave submission and ongoing o
 - `docs: rewrite repository for Drip Wave submission`
 - `docs: add architecture and ecosystem overview`
 - `chore: align package metadata with PromptHash Stellar`
+
+## Dependency Updates
+
+Dependencies are managed automatically via [Dependabot](https://docs.github.com/en/code-security/dependabot) (see `.github/dependabot.yml`).
+
+Dependabot opens pull requests every Monday for:
+
+- **npm** (`/`) — frontend packages (Vite, React, Tailwind, etc.)
+- **Cargo** (`/contracts/prompt-hash`) — Soroban / Rust crates, grouped into a single PR
+
+### Reviewing and merging updates
+
+1. Check the Dependabot PR description for the changelog and any breaking-change notes.
+2. Run `npm ci && npm run build` locally (or let CI run) to confirm the frontend still compiles.
+3. For Cargo updates, run `cargo test` inside `contracts/prompt-hash/` before merging.
+4. Merge the PR; Dependabot will rebase any remaining open PRs automatically.
+
+If a Dependabot PR introduces a breaking change, close it and pin the old version in `package.json` or `Cargo.toml` until the issue is resolved upstream.

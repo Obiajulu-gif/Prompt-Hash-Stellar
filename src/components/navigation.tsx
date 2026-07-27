@@ -1,5 +1,14 @@
+import { memo } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { Activity, Menu, MessageCircle, Search, ShoppingBag, User } from "lucide-react";
+import {
+  Activity,
+  LibraryBig,
+  Menu,
+  MessageCircle,
+  Search,
+  ShoppingBag,
+  User,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
@@ -53,8 +62,11 @@ export function Navigation() {
         <div className="flex items-center gap-2 md:gap-4">
           <LanguageSwitcher />
           <ThemeToggle />
+          <BuyerNotificationCenter />
           <SellerNotificationCenter />
-          <DisplayWallet />
+          <span data-tour="connect-wallet">
+            <DisplayWallet />
+          </span>
         </div>
 
         <Sheet>
@@ -77,6 +89,7 @@ export function Navigation() {
               ))}
               <div className="flex items-center gap-2 border-t border-white/10 pt-4">
                 <ThemeToggle />
+                <BuyerNotificationCenter />
                 <SellerNotificationCenter />
                 <DisplayWallet />
               </div>
@@ -86,4 +99,6 @@ export function Navigation() {
       </div>
     </header>
   );
-}
+});
+
+Navigation.displayName = "Navigation";

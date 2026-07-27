@@ -2,7 +2,7 @@ import React from "react";
 
 export type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
 
-export const Skeleton: React.FC<SkeletonProps> = ({ className = "", ...props }) => {
+export const Skeleton: React.FC<SkeletonProps> = React.memo(({ className = "", ...props }) => {
   return (
     <div
       aria-hidden="true"
@@ -10,4 +10,6 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className = "", ...props }) 
       {...props}
     />
   );
-};
+});
+
+Skeleton.displayName = "Skeleton";

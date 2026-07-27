@@ -109,7 +109,7 @@ export default function Marketplace() {
   );
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">{t('marketplace.title')}</h1>
@@ -171,13 +171,11 @@ export default function Marketplace() {
                           ) : (
                             t('marketplace.buy')
                           )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-      </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+          </div>
 
       {/* Purchase in-progress global hint */}
       {isPurchasing && (

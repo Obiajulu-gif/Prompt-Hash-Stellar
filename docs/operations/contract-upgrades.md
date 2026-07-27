@@ -52,3 +52,51 @@ Execute the upgrade script from the repository root:
 - **Always test upgrades on `testnet`** before executing them on production.
 - If you're altering data structures (e.g. adding fields to `Prompt`), ensure you test the migration path thoroughly. Soroban strictly enforces data types; reading an old `Prompt` struct as a new `Prompt` struct with different fields will panic if not explicitly handled via enum versioning or backward-compatible storage keys.
 - Monitor fee configurations post-upgrade to ensure no regression occurs.
+
+## Preflight Checks (#435)
+
+`scripts/upgrade.sh` runs `scripts/preflight_upgrade.py check` before it
+builds or touches the network. The gate:
+
+1. **Diffs the contract's public interface** — `PromptHashTrait` functions,
+   `Error` codes, every `#[contracttype]` enum/struct (storage keys and
+   record layouts), and `#[contractevent]` structs — against the checked-in
+   snapshot at `contracts/prompt-hash/spec-baseline.json`. Removing or
+   reshaping any of these is a breaking change; additions are not.
+2. **Fails the upgrade** if a breaking change is found and it hasn't been
+   acknowledged in `contracts/prompt-hash/MIGRATION.md` (see that file for
+   the exact format). CI runs the same diff offline on every PR that touches
+   `contracts/**` via `python3 scripts/preflight_upgrade.py check --self-check`.
+3. **Validates the deployment environment** — `CONTRACT_ID` is set and not a
+   placeholder, the RPC endpoint is reachable, and the `ADMIN_ALIAS` identity
+   is configured in the local `stellar-cli` — before any Wasm is built or
+   installed.
+4. **Writes a deployment manifest** to `deploy-manifests/` recording the
+   network, contract ID, git commit, baseline/spec hashes, and any
+   acknowledged breaking changes. Set `MANIFEST_SIGNING_KEY` to the path of
+   an Ed25519/RSA private key (PEM) to have the manifest signed with
+   `openssl dgst -sha256 -sign`; otherwise it's written unsigned with
+   instructions to sign it retroactively.
+
+After an intentional interface change, regenerate the baseline and commit it:
+
+```bash
+python3 scripts/preflight_upgrade.py generate-baseline
+```
+
+### Rollback / forward-fix
+
+- **Rollback:** every `deploy-manifests/*.json` file records the Wasm hash
+  that was live *before* the upgrade it describes (via `stellar contract
+  install` output kept in your deploy history — installed Wasm blobs remain
+  addressable by hash indefinitely). Re-run the `upgrade` invocation with
+  that previous hash to revert:
+  ```bash
+  stellar contract invoke --id $CONTRACT_ID --source $ADMIN_ALIAS \
+    --network $NETWORK -- upgrade --new_wasm_hash <previous_wasm_hash>
+  ```
+- **Forward-fix:** patch the source, regenerate the baseline if the fix is
+  itself interface-breaking, and run `scripts/upgrade.sh` again — the
+  preflight gate re-validates the new version before it ships.
+- Exercise both paths on `testnet` first; `scripts/verify.sh` confirms the
+  contract is responsive and correctly configured after either action.

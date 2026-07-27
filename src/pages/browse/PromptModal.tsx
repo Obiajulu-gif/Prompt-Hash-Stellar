@@ -26,6 +26,8 @@ import {
   Hash,
   Share2,
   Flag,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
 
 // Small inline copy button used in the receipt reference details
@@ -60,6 +62,7 @@ import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
+import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 
 export type BuyerStatus =
   | "IDLE"
@@ -258,6 +261,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  const [creatorThumbRating, setCreatorThumbRating] = useState<ThumbRating | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<{
     visible: boolean;
     success: boolean;
@@ -268,6 +272,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
+  const { isOnline } = useNetworkStatus();
 
   // Fetch prompt details (used by receipt view and metadata section)
   const { data: promptDetail } = useQuery({
@@ -339,6 +345,19 @@ export const PromptModal: React.FC<PromptModalProps> = ({
         .finally(() => setIsCheckingAccess(false));
     }
   }, [isOpen, itemId, wallet?.address]);
+
+  useEffect(() => {
+    if (isOpen && wallet?.address) {
+      setCreatorThumbRating(getCreatorThumbRating(itemId, wallet.address));
+    }
+  }, [isOpen, itemId, wallet?.address]);
+
+  const handleCreatorThumbRating = (rating: ThumbRating) => {
+    if (!wallet?.address || !promptDetail?.creator) return;
+    saveCreatorThumbRating(itemId, wallet.address, promptDetail.creator, rating);
+    setCreatorThumbRating(rating);
+    queryClient.invalidateQueries({ queryKey: ["seller-prompts"] });
+  };
 
   const {
     execute: runUnlock,
@@ -482,22 +501,33 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </div>
                   </div>
 
-                  {status === "ERROR" && purchaseError && (
-                    <StatusBanner
-                      status="error"
-                      message={purchaseError.message}
-                    />
-                  )}
+                  {status === "ERROR" && purchaseError && (() => {
+                    const mapped: MappedWalletError = mapWalletError(purchaseError);
+                    return (
+                      <div className="space-y-3">
+                        <StatusBanner
+                          status="error"
+                          message={mapped.userMessage}
+                        />
+                        {mapped.recoveryHint && (
+                          <p className="text-xs text-slate-400 px-1">
+                            {mapped.recoveryHint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <button
                     onClick={() => runPurchase().catch(() => {})}
                     disabled={
                       isPurchasing || 
+                      !isOnline ||
                       detectNetworkMismatch(!!wallet?.address, wallet?.network, wallet?.status).type !== "correct"
                     }
                     className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Confirm & Purchase <Wallet className="w-4 h-4" />
+                    {!isOnline ? "Offline" : "Confirm & Purchase"} <Wallet className="w-4 h-4" />
                   </button>
                 </div>
               )}
@@ -554,19 +584,29 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     }
                   />
 
-                  {unlockError && (
-                    <UnlockErrorBanner
-                      message={unlockError.message}
-                      onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
-                    />
-                  )}
+                  {unlockError && (() => {
+                    const mapped: MappedWalletError = mapWalletError(unlockError);
+                    return (
+                      <div className="space-y-3">
+                        <UnlockErrorBanner
+                          message={mapped.userMessage}
+                          onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
+                        />
+                        {mapped.recoveryHint && (
+                          <p className="text-xs text-slate-400 px-1">
+                            {mapped.recoveryHint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <button
                     onClick={() => runUnlock(txHash || "existing").catch(() => {})}
-                    disabled={isUnlocking}
-                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)]"
+                    disabled={isUnlocking || !isOnline}
+                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isUnlocking ? "Unlocking..." : "Decrypt Content"}
+                    {!isOnline ? "Offline" : isUnlocking ? "Unlocking..." : (txHash && unlockError?.message?.includes('ACCESS_NOT_PURCHASED') ? "Retry Unlock (Wait for Indexing)" : "Decrypt Content")}
                   </button>
                 </div>
               )}
@@ -681,6 +721,41 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       Store this prompt securely. Do not share it publicly or with unauthorised users.
                     </p>
                   </div>
+
+                  {wallet?.address && promptDetail?.creator && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm font-bold text-white">Rate this creator</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Help future buyers understand whether this creator delivered a trustworthy unlock.
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("up")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "up"
+                              ? "border-emerald-300/60 bg-emerald-300/20 text-emerald-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsUp className="h-4 w-4" />
+                          Positive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("down")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "down"
+                              ? "border-rose-300/60 bg-rose-300/20 text-rose-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsDown className="h-4 w-4" />
+                          Needs work
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Review Section */}
                   {wallet?.address && (

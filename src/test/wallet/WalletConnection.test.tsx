@@ -2,6 +2,22 @@ import { describe, it, expect, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../render";
+
+vi.mock("@stellar/design-system", () => ({
+  Button: ({
+    children,
+    ...props
+  }: React.PropsWithChildren<Record<string, unknown>>) => (
+    <button {...(props as React.ButtonHTMLAttributes<HTMLButtonElement>)}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@/lib/env", () => ({
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+}));
+
 import { WalletButton } from "@/components/WalletButton";
 import type { WalletContextType } from "@/providers/WalletProvider";
 
@@ -30,11 +46,12 @@ describe("Wallet Connection States", () => {
 
     renderWithProviders(<WalletButton />, { wallet: mockWallet });
 
-    expect(screen.getByText(/connecting/i)).toBeInTheDocument();
+    expect(screen.getByText(/Opening Wallet.../i)).toBeInTheDocument();
   });
 
   it("shows connected wallet address when wallet is connected", () => {
-    const mockAddress = "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const mockAddress =
+      "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
     const mockWallet: Partial<WalletContextType> = {
       address: mockAddress,
       status: "connected",
@@ -61,11 +78,19 @@ describe("Wallet Connection States", () => {
 
     renderWithProviders(<WalletButton />, { wallet: mockWallet });
 
-    const connectButton = screen.getByRole("button");
+    const connectButton = screen.getByRole("button", {
+      name: /connect wallet/i,
+    });
     await user.click(connectButton);
 
+    // The modal is now open, click on a specific wallet provider
+    const freighterButton = await screen.findByRole("button", {
+      name: /Freighter/i,
+    });
+    await user.click(freighterButton);
+
     await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalled();
+      expect(mockConnect).toHaveBeenCalledWith("freighter");
     });
   });
 
@@ -93,6 +118,6 @@ describe("Wallet Connection States", () => {
 
     renderWithProviders(<WalletButton />, { wallet: mockWallet });
 
-    expect(screen.getByText(/reconnecting/i)).toBeInTheDocument();
+    expect(screen.getByText(/Restoring Session.../i)).toBeInTheDocument();
   });
 });
