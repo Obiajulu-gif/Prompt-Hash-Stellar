@@ -347,6 +347,14 @@ impl Storage {
         escrow
     }
 
+    pub fn require_purchase_escrow(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+    ) -> Result<PurchaseEscrow, Error> {
+        Self::get_purchase_escrow(env, prompt_id, buyer).ok_or(Error::LicenseNotFound)
+    }
+
     pub fn remove_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) {
         let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
         env.storage().persistent().remove(&key);

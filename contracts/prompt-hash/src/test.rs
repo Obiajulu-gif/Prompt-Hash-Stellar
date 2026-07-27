@@ -213,6 +213,9 @@ fn test_buy_prompt_grants_access_to_multiple_buyers_and_tracks_exact_fees() {
         &None::<Bytes>,
     );
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer_one);
+    client.settle_purchase(&context.admin, &prompt_id, &buyer_two);
+
     let prompt = client.get_prompt(&prompt_id);
     assert_eq!(prompt.sales_count, 2);
     assert!(client.has_access(&buyer_one, &prompt_id));
@@ -257,6 +260,8 @@ fn test_fee_routing_pays_seller_and_platform_wallet_for_exact_purchase() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     let expected_fee = price * 500 / 10_000;
     let expected_seller_payout = price - expected_fee;
 
@@ -299,6 +304,8 @@ fn test_small_price_fee_rounding_keeps_fractional_fee_with_seller() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     assert_eq!(price * 500 / 10_000, 0);
     assert_eq!(xlm_client.balance(&creator), seller_start + price);
     assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start);
@@ -340,6 +347,8 @@ fn test_seller_payout_split_rounding_uses_integer_stroops() {
     let fee_start = xlm_client.balance(&context.fee_wallet);
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     let expected_fee = price * 500 / 10_000;
     let expected_split = price * 333 / 10_000;
@@ -782,6 +791,8 @@ fn test_buy_prompt_with_zero_fee() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     assert_eq!(xlm_client.balance(&creator), seller_start + price);
     assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start);
 }
@@ -814,6 +825,8 @@ fn test_buy_prompt_with_max_fee() {
     let fee_start = xlm_client.balance(&context.fee_wallet);
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     assert_eq!(xlm_client.balance(&creator), seller_start);
     assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + price);
@@ -906,6 +919,8 @@ fn test_arithmetic_safety_for_massive_prices() {
         &massive_price,
         &None::<Bytes>,
     );
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     let fee_bps = 500i128;
     let expected_fee = massive_price * fee_bps / 10_000;
@@ -1038,6 +1053,8 @@ fn test_buy_prompt_with_referrer_splits_payment_correctly() {
         &None::<Bytes>,
     );
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     // fee = 10_000 * 500 / 10_000 = 500
     // referral = 10_000 * 500 / 10_000 = 500
     // creator = 10_000 - 500 - 500 = 9_000
@@ -1160,6 +1177,8 @@ fn test_buy_without_referrer_no_referral_amount_paid() {
     let fee_start = xlm_client.balance(&context.fee_wallet);
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     // Without referrer: creator gets price - fee only
     let expected_fee = price * 500 / 10_000;
@@ -1446,6 +1465,8 @@ fn test_tip_above_price_succeeds_and_creator_receives_full_tip() {
         &None::<Bytes>,
     );
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     // fee is on total payment: 15_000 * 500 / 10_000 = 750
     let expected_fee = total_payment * 500 / 10_000;
     let expected_creator = total_payment - expected_fee;
@@ -1562,6 +1583,8 @@ fn test_voucher_applies_discount_on_purchase() {
         &discounted_price,
         &Some(voucher_code),
     );
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     let expected_fee = discounted_price * 500 / 10_000;
     let expected_creator = discounted_price - expected_fee;
@@ -1780,6 +1803,8 @@ fn test_voucher_with_referrer_combined() {
         &Some(voucher_code),
     );
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     // fee = 9_000 * 500 / 10_000 = 450
     // referral = 9_000 * 500 / 10_000 = 450
     // creator = 9_000 - 450 - 450 = 8_100
@@ -1827,6 +1852,8 @@ fn test_buy_prompt_with_non_xlm_asset() {
     let fee_start = usdc_client.balance(&context.fee_wallet);
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     let expected_fee = price * 500 / 10_000;
     let expected_creator = price - expected_fee;
@@ -1886,6 +1913,8 @@ fn test_create_and_buy_different_assets() {
         &None::<Bytes>,
     );
 
+    client.settle_purchase(&context.admin, &prompt_xlm, &buyer);
+
     let xlm_fee = xlm_price * 500 / 10_000;
     assert_eq!(
         xlm_client.balance(&creator),
@@ -1902,6 +1931,8 @@ fn test_create_and_buy_different_assets() {
         &usdc_price,
         &None::<Bytes>,
     );
+
+    client.settle_purchase(&context.admin, &prompt_usdc, &buyer);
 
     let usdc_fee = usdc_price * 500 / 10_000;
     assert_eq!(
@@ -2261,6 +2292,8 @@ fn test_buy_prompt_with_splits_distributes_correctly() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     let expected_fee = price * 500 / 10_000; // 500
     let expected_split = price * 2_000 / 10_000; // 2_000
     let expected_creator = price - expected_fee - expected_split; // 7_500
@@ -2376,6 +2409,8 @@ fn test_multiple_splits_distribute_all_recipients() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     assert_eq!(
         xlm_client.balance(&creator),
         creator_start + price * (10_000 - 500 - 1_000 - 1_500) / 10_000
@@ -2414,6 +2449,9 @@ fn test_buy_prompts_bulk_purchases_all_and_grants_access() {
     amounts.push_back(price_b);
 
     client.buy_prompts_bulk(&buyer, &ids, &amounts, &None::<Address>);
+
+    client.settle_purchase(&context.admin, &prompt_a, &buyer);
+    client.settle_purchase(&context.admin, &prompt_b, &buyer);
 
     assert!(client.has_access(&buyer, &prompt_a));
     assert!(client.has_access(&buyer, &prompt_b));
@@ -2517,6 +2555,9 @@ fn test_buy_prompts_bulk_with_referrer() {
 
     let referrer_start = xlm_client.balance(&referrer);
     client.buy_prompts_bulk(&buyer, &ids, &amounts, &Some(referrer.clone()));
+
+    client.settle_purchase(&context.admin, &prompt_a, &buyer);
+    client.settle_purchase(&context.admin, &prompt_b, &buyer);
 
     // referral = 10_000 * 500 / 10_000 = 500 per prompt × 2
     let expected_referral = price * 500 / 10_000 * 2;
@@ -2896,6 +2937,8 @@ fn test_update_splits_replaces_existing_splits() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     let expected_fee = price * 500 / 10_000;
     let expected_co1 = price * 500 / 10_000;
     let expected_co2 = price * 1_500 / 10_000;
@@ -3147,7 +3190,9 @@ fn test_buyer_can_open_and_admin_can_resolve_refund_dispute() {
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
-    xlm_client.mint(&context.contract, &price);
+
+    // Funds are now held in the contract escrow (issue #454), so no
+    // separate mint is needed — the contract already has the balance.
 
     client.open_dispute(
         &buyer,
@@ -3794,6 +3839,8 @@ fn test_payout_invariant_fee_plus_creator_equals_payment() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     // Verify: fee_amount + creator_amount = payment
     let fee_bps = 500; // DEFAULT_FEE_BPS
     let expected_fee = payment * fee_bps / 10_000;
@@ -3834,6 +3881,8 @@ fn test_payout_invariant_with_referral() {
         &payment,
         &None::<Bytes>,
     );
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     // Verify: fee + referral + creator_amount = payment
     let fee_bps = 500;
@@ -3892,6 +3941,8 @@ fn test_payout_invariant_with_splits() {
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
 
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
     // Verify: fee + split_1 + split_2 + creator_amount = payment
     let fee_bps = 500;
     let expected_fee = payment * fee_bps / 10_000;
@@ -3935,6 +3986,8 @@ fn test_payout_invariant_with_tip() {
     let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
 
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     // Verify tip is correctly calculated
     let fee_bps = 500;
