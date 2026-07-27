@@ -111,7 +111,7 @@ jobs:
           path: ./wasm-artifacts
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: ./wasm-artifacts/*.wasm
           tag_name: v${{ github.run_number }}
