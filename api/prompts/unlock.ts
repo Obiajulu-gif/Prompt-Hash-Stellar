@@ -21,6 +21,10 @@ import { isIpfsReference } from "../../src/lib/ipfs/reference";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { checkReplayProtection } from "../../src/lib/observability/replayProtection";
+import {
+  checkIdempotency,
+  storeIdempotencyResult,
+} from "../../src/lib/observability/idempotency";
 import { metrics } from "../../src/lib/observability/metrics";
 import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
@@ -32,6 +36,7 @@ export interface UnlockRequest {
   promptId: string;
   address: string;
   signedMessage: string;
+  idempotencyKey?: string;
 }
 
 export interface UnlockSuccessResponse {
@@ -120,7 +125,7 @@ async function handler(
   const clientIp = String(
     req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
   );
-  const { token, promptId, address, signedMessage }: Partial<UnlockRequest> = req.body ?? {};
+  const { token, promptId, address, signedMessage, idempotencyKey }: Partial<UnlockRequest> = req.body ?? {};
 
   // Authenticated bucket: wallet address is present.
   const isAuthenticated = Boolean(address);
@@ -195,6 +200,34 @@ async function handler(
       ),
     );
     return;
+  }
+
+// ── Idempotency ─────────────────────────────────────────────────────
+  if (idempotencyKey) {
+    const idempCheck = await checkIdempotency(
+      String(idempotencyKey),
+      String(token),
+      String(promptId),
+      String(address),
+      String(signedMessage),
+    );
+
+    if (idempCheck.status === "cached") {
+      req.logger.info({ idempotencyKey }, "Returning cached idempotent unlock response");
+      res.status(idempCheck.statusCode).json(idempCheck.responseData);
+      return;
+    }
+
+    if (idempCheck.status === "conflict") {
+      req.logger.warn({ idempotencyKey }, "Idempotency key reused with conflicting request data");
+      res.status(409).json(
+        apiError(
+          ErrorCode.IDEMPOTENCY_CONFLICT,
+          "This idempotency key was used with a different request. Please use a new key.",
+        ),
+      );
+      return;
+    }
   }
 
   const unlockStartMs = Date.now();
@@ -362,6 +395,17 @@ async function handler(
       contentHash,
       plaintext,
     };
+    if (idempotencyKey) {
+      void storeIdempotencyResult(
+        String(idempotencyKey),
+        String(token),
+        String(promptId),
+        String(address),
+        String(signedMessage),
+        200,
+        successResponse,
+      );
+    }
     res.status(200).json(successResponse);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to unlock prompt.";
@@ -382,13 +426,33 @@ async function handler(
     });
 
     if (isExpired) {
-      res.status(400).json(
-        apiError(ErrorCode.CHALLENGE_EXPIRED, "The challenge token has expired. Please request a new one."),
-      );
+      const body = apiError(ErrorCode.CHALLENGE_EXPIRED, "The challenge token has expired. Please request a new one.");
+      if (idempotencyKey) {
+        void storeIdempotencyResult(
+          String(idempotencyKey),
+          String(token),
+          String(promptId),
+          String(address),
+          String(signedMessage),
+          400,
+          body,
+        );
+      }
+      res.status(400).json(body);
     } else {
-      res.status(400).json(
-        apiError(ErrorCode.TEMPORARY_FAILURE, "Failed to unlock prompt. Please try again."),
-      );
+      const body = apiError(ErrorCode.TEMPORARY_FAILURE, "Failed to unlock prompt. Please try again.");
+      if (idempotencyKey) {
+        void storeIdempotencyResult(
+          String(idempotencyKey),
+          String(token),
+          String(promptId),
+          String(address),
+          String(signedMessage),
+          400,
+          body,
+        );
+      }
+      res.status(400).json(body);
     }
   }
 }

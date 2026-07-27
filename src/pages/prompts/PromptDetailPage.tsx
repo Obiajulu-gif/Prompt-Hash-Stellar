@@ -25,6 +25,7 @@ import { formatPriceLabel } from "@/lib/stellar/format";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
 import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
+import { PriceHistoryCard } from "@/components/PriceHistoryCard";
 import { useWallet } from "@/hooks/useWallet";
 import { useClipboardAutoClear } from "@/hooks/useClipboardAutoClear";
 import { ClipboardAutoClearBanner } from "@/components/ClipboardAutoClearBanner";
@@ -294,6 +295,15 @@ export default function PromptDetailPage() {
             </div>
           </article>
         )}
+
+          {prompt && (
+            <div className="mt-8">
+              <PriceHistoryCard
+                onChainId={id}
+                currentPriceStroops={prompt.priceStroops}
+              />
+            </div>
+          )}
       </main>
 
       <ReportDialog

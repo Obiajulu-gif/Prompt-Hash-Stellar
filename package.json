@@ -22,7 +22,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier . --write",
-    "prepare": "husky",
+    "prepare": "node -e \"try { require('fs').existsSync('.husky/') && process.exit(0) } catch(e) {}\" && husky || true",
     "check:setup": "node scripts/check-local-setup.mjs",
     "verify:smoke": "node scripts/smoke-verification.mjs"
   },

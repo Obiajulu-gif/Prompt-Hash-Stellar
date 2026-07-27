@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import User from "../models/User";
 import Prompt from "../models/Prompt";
+import PriceChange from "../models/PriceChange";
 import Report from "../models/Report";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
@@ -841,6 +842,48 @@ export const ArchivePrompt = async (
     console.error("Archive prompt error:", err);
     return res.status(500).json({
       error: (err as Error).message || "Failed to archive prompt",
+    });
+  }
+};
+
+export const GetPriceHistory = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+
+    const { onChainId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const cursor = req.query.cursor as string;
+
+    const query: any = { promptId: onChainId };
+
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
+    const changes = await PriceChange.find(query)
+      .sort({ _id: -1 })
+      .limit(limit + 1);
+
+    let hasNextPage = false;
+    let nextCursor: string | null = null;
+
+    if (changes.length > limit) {
+      hasNextPage = true;
+      changes.pop();
+      nextCursor = changes[changes.length - 1]._id;
+    }
+
+    return res.json({
+      data: changes,
+      metadata: { hasNextPage, nextCursor },
+    });
+  } catch (error) {
+    console.error("Fetch price history error:", error);
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to fetch price history",
     });
   }
 };
