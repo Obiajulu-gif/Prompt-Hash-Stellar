@@ -167,9 +167,19 @@ export const GetPrompts = async (
   try {
     await connectDb();
 
-    const { searchParams } = new URL(req.url);
-    const category = searchParams.get("category");
-    const walletAddress = searchParams.get("walletAddress");
+    let category = req.query.category as string;
+    let walletAddress = req.query.walletAddress as string;
+
+    // Fallback to URL parsing if not in req.query
+    if (!category && !walletAddress && req.url.includes("?")) {
+      const searchParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      category = searchParams.get("category") || "";
+      walletAddress = searchParams.get("walletAddress") || "";
+    }
+
+    const limitParam = req.query.limit || req.query.pageSize;
+    const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+    const cursor = req.query.cursor as string;
 
     // Build a deterministic cache key from the query params
     const cacheKey = CACHE_KEYS.promptList(`cat=${category ?? ""}&wallet=${walletAddress ?? ""}`);
@@ -191,18 +201,91 @@ export const GetPrompts = async (
       }
     }
 
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
     const prompts = await Prompt.find(query)
       .populate("owner", "username walletAddress")
-      .sort({ createdAt: -1 });
+      .sort({ _id: -1 })
+      .limit(limit + 1);
 
-    await cacheSet(cacheKey, JSON.stringify(prompts), 60);
+    let hasNextPage = false;
+    let nextCursor = null;
 
-    return res.json(prompts);
+    if (prompts.length > limit) {
+      hasNextPage = true;
+      prompts.pop();
+      nextCursor = prompts[prompts.length - 1]._id;
+    } else if (prompts.length > 0) {
+      nextCursor = null;
+    }
+
+    return res.json({
+      data: prompts,
+      metadata: {
+        hasNextPage,
+        nextCursor
+      }
+    });
   } catch (error) {
     console.error("Fetch prompts error:", error);
 
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch prompts",
+    });
+  }
+};
+
+export const GetOwnedPrompts = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+
+    const { walletAddress } = req.params;
+    
+    if (!walletAddress) {
+      return res.status(400).json({ error: "Wallet address is required" });
+    }
+
+    const limitParam = req.query.limit || req.query.pageSize;
+    const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+    const cursor = req.query.cursor as string;
+
+    const query: any = { buyerWallet: walletAddress.toLowerCase() };
+
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
+    // Since we want owned prompts, let's load from Purchase
+    // assuming Purchase model exists as seen earlier
+    const purchases = await mongoose.models.Purchase.find(query)
+      .sort({ _id: -1 })
+      .limit(limit + 1);
+
+    let hasNextPage = false;
+    let nextCursor = null;
+
+    if (purchases.length > limit) {
+      hasNextPage = true;
+      purchases.pop();
+      nextCursor = purchases[purchases.length - 1]._id;
+    }
+
+    return res.json({
+      data: purchases,
+      metadata: {
+        hasNextPage,
+        nextCursor
+      }
+    });
+  } catch (error) {
+    console.error("Fetch owned prompts error:", error);
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to fetch owned prompts",
     });
   }
 };
@@ -267,27 +350,57 @@ export const GetUsers = async (
   try {
     await connectDb();
 
-    // Get wallet address from search params if provided
-    const { searchParams } = new URL(req.url);
-    const walletAddress = searchParams.get("walletAddress");
-
-    let users;
+    let walletAddress = req.query.walletAddress as string;
+    if (!walletAddress && req.url.includes("?")) {
+      const searchParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      walletAddress = searchParams.get("walletAddress") || "";
+    }
 
     if (walletAddress) {
-      users = await User.findOne({
+      const user = await User.findOne({
         walletAddress: walletAddress.toLowerCase(),
       });
 
-      if (!users) {
+      if (!user) {
         return res.status(404).json({
           error: "User not found",
         });
       }
+      return res.json({
+        data: [user],
+        metadata: { hasNextPage: false, nextCursor: null }
+      });
     } else {
-      users = await User.find({});
-    }
+      const limitParam = req.query.limit || req.query.pageSize;
+      const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+      const cursor = req.query.cursor as string;
 
-    return res.json(users);
+      const query: any = {};
+      if (cursor) {
+        query._id = { $lt: cursor };
+      }
+
+      const users = await User.find(query)
+        .sort({ _id: -1 })
+        .limit(limit + 1);
+
+      let hasNextPage = false;
+      let nextCursor = null;
+
+      if (users.length > limit) {
+        hasNextPage = true;
+        users.pop();
+        nextCursor = users[users.length - 1]._id;
+      }
+
+      return res.json({
+        data: users,
+        metadata: {
+          hasNextPage,
+          nextCursor
+        }
+      });
+    }
   } catch (error) {
     console.error("Fetch users error:", error);
     return res.status(500).json({
