@@ -324,3 +324,55 @@ export const GetCreatorPayoutStatement = async (
   }
 };
 
+/**
+ * Returns summary metrics of content integrity rechecks across all prompt listings.
+ */
+export const GetIntegrityReport = async (
+  _req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { runContentIntegrityCheckAll } = await import(
+      "../services/contentIntegrity"
+    );
+    const report = await runContentIntegrityCheckAll();
+    return res.json(report);
+  } catch (err) {
+    console.error("Get integrity report error:", err);
+    return res.status(500).json({
+      error: (err as Error).message || "Failed to generate integrity report",
+    });
+  }
+};
+
+/**
+ * Triggers a manual or scheduled content integrity check for a specific prompt
+ * or batch audit sweep.
+ */
+export const TriggerIntegrityCheck = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { verifyPromptIntegrity, runContentIntegrityCheckAll } = await import(
+      "../services/contentIntegrity"
+    );
+    const { promptId } = req.body || {};
+
+    if (promptId) {
+      const result = await verifyPromptIntegrity(String(promptId));
+      return res.json({ result });
+    }
+
+    const report = await runContentIntegrityCheckAll();
+    return res.json({ report });
+  } catch (err) {
+    console.error("Trigger integrity check error:", err);
+    return res.status(500).json({
+      error: (err as Error).message || "Failed to trigger integrity check",
+    });
+  }
+};
+
