@@ -2,6 +2,8 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Archive,
+  ArchiveRestore,
   CalendarDays,
   Eye,
   Loader2,
@@ -59,6 +61,8 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const [passTitle, setPassTitle] = useState("30-day catalog pass");
   const [passPriceXlm, setPassPriceXlm] = useState("12");
   const [passDurationDays, setPassDurationDays] = useState("30");
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -475,12 +479,22 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
       </section>
 
       <section className="space-y-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-white">Created by me</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Update pricing, pause listings, and track license sales without
-            changing ownership.
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-white">Created by me</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Update pricing, pause listings, and track license sales without changing ownership.
+            </p>
+          </div>
+          {archivedCreatedPrompts.length > 0 && (
+            <button
+              onClick={() => setShowArchived((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
+            </button>
+          )}
         </div>
 
         {createdQuery.isLoading ? (
@@ -491,9 +505,7 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
             <PackagePlus className="h-10 w-10 text-slate-500" />
             <div>
-              <p className="text-base font-semibold text-white">
-                No listings yet
-              </p>
+              <p className="text-base font-semibold text-white">No listings yet</p>
               <p className="mt-1 text-sm text-slate-400">
                 Publish your first prompt to start earning license fees.
               </p>
@@ -508,61 +520,21 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
             )}
           </div>
         ) : (
-          <div className="grid gap-6 xl:grid-cols-2">
-            {createdPrompts.map((prompt) => (
-              <Card
-                key={prompt.id.toString()}
-                className="border-white/10 bg-slate-950/70 text-white"
-              >
-                <div className="aspect-video overflow-hidden rounded-t-xl">
-                  <img
-                    src={prompt.imageUrl || "/images/codeguru.png"}
-                    alt={prompt.title}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <CardContent className="space-y-4 p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
-                        {prompt.category}
-                      </p>
-                      <h3 className="mt-2 text-xl font-semibold">
-                        {prompt.title}
-                      </h3>
-                      <p className="mt-3 text-sm leading-6 text-slate-300">
-                        {prompt.previewText}
-                      </p>
-                    </div>
-                    {/* Status badge */}
-                    {prompt.active ? (
-                      <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
-                        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                        Inactive
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        Sales
-                      </p>
-                      <p className="mt-2 font-medium text-slate-100">
-                        {prompt.salesCount}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        Current price
-                      </p>
-                      <p className="mt-2 font-medium text-slate-100">
-                        {formatPriceLabel(prompt.priceStroops)}
-                      </p>
+          <div className="space-y-6">
+            {/* Active prompts grid */}
+            {activeCreatedPrompts.length > 0 && (
+              <div className="grid gap-6 xl:grid-cols-2">
+                {activeCreatedPrompts.map((prompt) => (
+                  <Card
+                    key={prompt.id.toString()}
+                    className="border-white/10 bg-slate-950/70 text-white"
+                  >
+                    <div className="aspect-video overflow-hidden rounded-t-xl">
+                      <img
+                        src={prompt.imageUrl || "/images/codeguru.png"}
+                        alt={prompt.title}
+                        className="h-full w-full object-cover"
+                      />
                     </div>
                     <CardContent className="space-y-4 p-5">
                       <div className="flex items-start justify-between gap-3">
@@ -688,37 +660,36 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       key={prompt.id.toString()}
                       className="border-white/10 bg-slate-950/40 text-white opacity-60 hover:opacity-80 transition-opacity"
                     >
-                      Update price
-                    </Button>
-                  </div>
-                </CardContent>
-                <CardFooter className="p-5 pt-0">
-                  <Button
-                    variant="outline"
-                    className={`w-full gap-2 border-white/10 text-slate-100 hover:bg-white/10 ${
-                      prompt.active
-                        ? "bg-white/5 hover:border-red-400/30 hover:text-red-300"
-                        : "bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-400/40 text-emerald-400"
-                    }`}
-                    onClick={() =>
-                      void handleToggleSaleStatus(prompt.id, prompt.active)
-                    }
-                    disabled={busyPromptId === prompt.id.toString()}
-                  >
-                    {busyPromptId === prompt.id.toString() ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : prompt.active ? (
-                      <ToggleRight className="h-4 w-4" />
-                    ) : (
-                      <ToggleLeft className="h-4 w-4" />
-                    )}
-                    {prompt.active
-                      ? "Deactivate listing"
-                      : "Reactivate listing"}
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
+                      <CardContent className="space-y-3 p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs uppercase tracking-[0.25em] text-slate-600">
+                              {prompt.category}
+                            </p>
+                            <h3 className="mt-1 text-lg font-semibold text-slate-300">{prompt.title}</h3>
+                          </div>
+                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-400">
+                            <Archive className="h-3 w-3" />
+                            Archived
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-500 leading-relaxed">{prompt.previewText}</p>
+                      </CardContent>
+                      <CardFooter className="p-5 pt-0">
+                        <Button
+                          variant="outline"
+                          className="w-full gap-2 border-amber-400/20 bg-amber-500/5 text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/40"
+                          onClick={() => handleRestore(prompt.id.toString())}
+                        >
+                          <ArchiveRestore className="h-4 w-4" />
+                          Restore listing
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

@@ -1,4 +1,3 @@
-import { memo } from "react";
 import { Link, NavLink } from "react-router-dom";
 import {
   Activity,
@@ -13,9 +12,18 @@ import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
 import { ThemeToggle } from "./ThemeToggle";
+import { BuyerNotificationCenter } from "./BuyerNotificationCenter";
 import { SellerNotificationCenter } from "./SellerNotificationCenter";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useTranslation } from 'react-i18next';
+
+const linkClasses = ({ isActive }: { isActive: boolean }) =>
+  [
+    "flex items-center gap-2 rounded-full px-3 py-2 text-sm transition-colors",
+    isActive
+      ? "bg-white/10 text-white"
+      : "text-slate-300 hover:bg-white/5 hover:text-white",
+  ].join(" ");
 
 export function Navigation() {
   const { t } = useTranslation();
@@ -99,6 +107,4 @@ export function Navigation() {
       </div>
     </header>
   );
-});
-
-Navigation.displayName = "Navigation";
+}
