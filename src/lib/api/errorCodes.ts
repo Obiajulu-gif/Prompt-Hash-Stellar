@@ -66,6 +66,8 @@ export interface ApiErrorResponse {
   code: ErrorCode;
   /** ISO timestamp of when the rate limit resets (only present on 429). */
   reset?: number;
+  /** Optional correlation ID for cross-service request tracking. */
+  correlationId?: string;
 }
 
 /**
