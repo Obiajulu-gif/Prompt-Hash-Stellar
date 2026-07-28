@@ -124,3 +124,55 @@ export function buildSearchQueryString(state: Partial<SearchState>): string {
   const queryString = params.toString();
   return queryString ? `?${queryString}` : "";
 }
+
+/**
+ * "Return to marketplace" memory — Issue #497.
+ *
+ * The marketplace listing pages (`/browse`) already mirror their filters into
+ * the URL (see above), so a hard reload or a shared link on THOSE pages
+ * restores correctly. The gap is navigating away entirely (e.g. to a prompt
+ * detail page at `/prompts/:id`) and back: an in-app "Back to marketplace"
+ * link that hardcodes `/browse` drops whatever filters were active.
+ *
+ * This stores only the last-visited marketplace URL (pathname + safe filter
+ * query params, no wallet/user data) in `sessionStorage` so a detail page can
+ * link back to the filtered view the buyer actually came from, even across a
+ * reload of the detail page itself. It intentionally only remembers listing
+ * routes (`/browse` today) — never arbitrary pages — since those are the only
+ * "safe" filters this feature is scoped to restore.
+ */
+const MARKETPLACE_RETURN_STORAGE_KEY = "prompt-hash:last-marketplace-url";
+const SAFE_MARKETPLACE_PATHS = ["/browse"];
+
+/** Records the current marketplace URL so a detail page can link back to it. */
+export function rememberMarketplaceReturnUrl(
+  pathname: string = typeof window !== "undefined" ? window.location.pathname : "",
+  search: string = typeof window !== "undefined" ? window.location.search : "",
+): void {
+  if (typeof window === "undefined") return;
+  if (!SAFE_MARKETPLACE_PATHS.includes(pathname)) return;
+
+  try {
+    window.sessionStorage.setItem(
+      MARKETPLACE_RETURN_STORAGE_KEY,
+      `${pathname}${search}`,
+    );
+  } catch {
+    // Storage can be unavailable (private browsing, quota) — safe to ignore,
+    // callers fall back to the default marketplace route.
+  }
+}
+
+/** Returns the last-remembered marketplace URL, or null if none is stored. */
+export function getMarketplaceReturnUrl(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const stored = window.sessionStorage.getItem(MARKETPLACE_RETURN_STORAGE_KEY);
+    if (!stored) return null;
+    const pathname = stored.split("?")[0];
+    return SAFE_MARKETPLACE_PATHS.includes(pathname) ? stored : null;
+  } catch {
+    return null;
+  }
+}

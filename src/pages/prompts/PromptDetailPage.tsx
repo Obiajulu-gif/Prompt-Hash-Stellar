@@ -32,6 +32,7 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ReportDialog } from "@/components/prompts/ReportDialog";
 import { PromptDetailSkeleton } from "@/components/skeletons";
+import { getMarketplaceReturnUrl } from "@/lib/search/urlState";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -46,6 +47,11 @@ export default function PromptDetailPage() {
   const { address } = useWallet();
   const [copied, setCopied] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  // Restores the filtered marketplace view the buyer navigated from, instead
+  // of always dropping back to a bare, unfiltered /browse (#497).
+  const [marketplaceBackHref] = useState(
+    () => getMarketplaceReturnUrl() ?? "/browse",
+  );
   const {
     enabled: autoClearEnabled,
     toggle: toggleAutoClear,
@@ -122,7 +128,7 @@ export default function PromptDetailPage() {
           size="sm"
           className="mb-6 -ml-2 text-slate-400 hover:text-white"
         >
-          <Link to="/browse">
+          <Link to={marketplaceBackHref}>
             <ArrowLeft className="mr-1.5 h-4 w-4" />
             Back to marketplace
           </Link>
@@ -143,7 +149,7 @@ export default function PromptDetailPage() {
                 asChild
                 className="mt-5 h-9 bg-cyan-200 px-5 text-slate-950 hover:bg-cyan-100"
               >
-                <Link to="/browse">
+                <Link to={marketplaceBackHref}>
                   <ShoppingBag className="h-4 w-4" />
                   Browse marketplace
                 </Link>

@@ -19,6 +19,7 @@ import {
 import {
   getSearchStateFromUrl,
   updateUrlWithSearchState,
+  rememberMarketplaceReturnUrl,
   DEFAULT_SEARCH_STATE,
 } from "@/lib/search/urlState";
 
@@ -79,7 +80,9 @@ export default function BrowsePage() {
     setSelectedTag(filter.tag || "");
   };
 
-  // Sync state to URL whenever any filter changes
+  // Sync state to URL whenever any filter changes, and remember this filtered
+  // view so a prompt detail page navigated to from here can link back to it
+  // instead of a bare, unfiltered /browse (#497).
   useEffect(() => {
     updateUrlWithSearchState({
       searchQuery,
@@ -88,6 +91,7 @@ export default function BrowsePage() {
       priceRange,
       sortBy,
     });
+    rememberMarketplaceReturnUrl();
   }, [searchQuery, selectedCategory, selectedTag, priceRange, sortBy]);
 
   const { selected, addToComparison, removeFromComparison, clearComparison } =
