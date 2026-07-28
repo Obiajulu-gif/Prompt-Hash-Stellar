@@ -9,7 +9,6 @@ import {
   Copy,
   Flag,
   History,
-  Loader2,
   ShoppingBag,
   Sparkles,
   ThumbsUp,
@@ -32,6 +31,7 @@ import { ClipboardAutoClearBanner } from "@/components/ClipboardAutoClearBanner"
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ReportDialog } from "@/components/prompts/ReportDialog";
+import { PromptDetailSkeleton } from "@/components/skeletons";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -129,9 +129,7 @@ export default function PromptDetailPage() {
         </Button>
 
         {isLoading && isValidId ? (
-          <div className="flex min-h-64 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.02]">
-            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-          </div>
+          <PromptDetailSkeleton />
         ) : notFound || !prompt ? (
           <div className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-8 text-center">
             <div className="max-w-sm">

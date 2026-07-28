@@ -208,7 +208,7 @@ function SalesChart({ dailySales, isLoading = false }: SalesChartProps) {
         Sales Trend (30 Days)
       </h3>
       {isLoading ? (
-        <div className="h-64 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+        <Skeleton className="h-64 w-full rounded-xl bg-white/[0.02]" />
       ) : (
         <div className="h-64">
           <Line data={chartData} options={options} />
@@ -340,7 +340,7 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
         </div>
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+            <Skeleton key={i} className="h-16 w-full rounded-xl bg-white/[0.02]" />
           ))}
         </div>
       </div>

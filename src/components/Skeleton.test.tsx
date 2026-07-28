@@ -53,4 +53,10 @@ describe("Skeleton", () => {
     const skeleton = document.querySelector('[aria-hidden="true"]');
     expect(skeleton).toHaveClass("h-10", "w-10");
   });
+
+  it("disables the pulse animation for reduced-motion users", () => {
+    renderWithProviders(<Skeleton />);
+    const skeleton = document.querySelector('[aria-hidden="true"]');
+    expect(skeleton).toHaveClass("motion-reduce:animate-none");
+  });
 });

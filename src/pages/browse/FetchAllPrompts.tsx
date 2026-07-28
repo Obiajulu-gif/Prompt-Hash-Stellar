@@ -28,6 +28,7 @@ import {
 import { stroopsToXlmString } from "@/lib/stellar/format";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
+import { PromptGridSkeleton } from "@/components/skeletons";
 import { NoResultsSuggestions } from "./NoResultsSuggestions";
 import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { rankPrompts } from "@/lib/search/rankingEngine";
@@ -274,14 +275,10 @@ const FetchAllPrompts = ({
 
   if (promptsQuery.isLoading) {
     return (
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {[...Array(6)].map((_, i) => (
-          <div
-            key={i}
-            className="h-[400px] rounded-3xl border border-white/5 bg-white/[0.02] animate-pulse"
-          />
-        ))}
-      </div>
+      <PromptGridSkeleton
+        count={6}
+        gridClassName="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3"
+      />
     );
   }
 

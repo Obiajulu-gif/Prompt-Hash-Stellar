@@ -1,5 +1,6 @@
 import { DollarSign, Clock, ArrowRight, Loader2, ChevronDown } from "lucide-react";
 import { usePriceHistory, type PriceChangeEntry } from "@/hooks/usePriceHistory";
+import { Skeleton } from "@/components/Skeleton";
 
 interface PriceHistoryCardProps {
   onChainId: string;
@@ -94,12 +95,10 @@ export function PriceHistoryCard({
       </div>
 
       {isLoading && changes.length === 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-3" role="status" aria-live="polite">
+          <span className="sr-only">Loading price history</span>
           {[...Array(3)].map((_, i) => (
-            <div
-              key={i}
-              className="h-16 animate-pulse rounded-lg border border-white/5 bg-white/[0.02]"
-            />
+            <Skeleton key={i} className="h-16 w-full rounded-lg bg-white/[0.02]" />
           ))}
         </div>
       ) : error ? (
