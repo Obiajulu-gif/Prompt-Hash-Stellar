@@ -5,9 +5,14 @@ const DRAFT_PREFIX = "prompt-hash:create-draft:";
 /** Fields that are safe to persist — never include secret prompt content. */
 const SENSITIVE_FIELDS = new Set(["fullPrompt"]);
 
-interface DraftMeta {
+export interface DraftMeta {
   savedAt: string;
   formData: Record<string, unknown>;
+}
+
+/** The localStorage key a wallet's create-listing draft is stored under. */
+export function getDraftStorageKey(address: string): string {
+  return `${DRAFT_PREFIX}${address}`;
 }
 
 function readJson<T>(key: string): T | null {
@@ -65,7 +70,7 @@ export function useDraftAutoSave({
   setValue,
   debounceMs = 1500,
 }: UseDraftAutoSaveOptions): UseDraftAutoSaveResult {
-  const storageKey = address ? `${DRAFT_PREFIX}${address}` : null;
+  const storageKey = address ? getDraftStorageKey(address) : null;
   const [draftRestored, setDraftRestored] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const loadedKeyRef = useRef<string | null>(null);
