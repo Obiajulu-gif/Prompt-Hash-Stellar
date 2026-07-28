@@ -94,6 +94,21 @@ export default function BrowsePage() {
     rememberMarketplaceReturnUrl();
   }, [searchQuery, selectedCategory, selectedTag, priceRange, sortBy]);
 
+  // Listen for back/forward navigation to restore filters
+  useEffect(() => {
+    const handlePopState = () => {
+      const state = getSearchStateFromUrl();
+      setSearchQuery(state.searchQuery || DEFAULT_SEARCH_STATE.searchQuery);
+      setSelectedCategory(state.selectedCategory || DEFAULT_SEARCH_STATE.selectedCategory);
+      setSelectedTag(state.selectedTag || DEFAULT_SEARCH_STATE.selectedTag);
+      setPriceRange(state.priceRange || DEFAULT_SEARCH_STATE.priceRange);
+      setSortBy(state.sortBy || DEFAULT_SEARCH_STATE.sortBy);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   const { selected, addToComparison, removeFromComparison, clearComparison } =
     usePromptComparison();
 
