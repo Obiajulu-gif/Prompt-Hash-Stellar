@@ -8,7 +8,7 @@ use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
     AccessPass, Bundle, CatalogPassPurchase, DataKey, DisputeReason, DisputeStatus, Error,
-    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PurchaseDispute, PurchaseEscrow,
+    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow,
     SettlementStatus, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
@@ -70,33 +70,15 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    pub fn create_prompt(
+    fn create_prompt(
         env: Env,
         creator: Address,
         image_url: String,
         title: String,
         category: String,
         preview_text: String,
-        encrypted_payload: String,
+        encrypted_prompt: String,
         encryption_iv: String,
-        wrapped_aes_key: String,
-        content_hash: String,
-        price: i128,
-        max_supply: u32,
-    ) -> Result<u32, Error> {
-        creator.require_auth();
-
-        if price <= 0 {
-            return Err(Error::InvalidPrice);
-        }
-
-        let count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::PromptCount)
-            .unwrap_or(0);
-        let id = count;
-
         wrapped_key: String,
         content_hash: BytesN<32>,
         listing: ListingConfig,
@@ -131,51 +113,19 @@ impl PromptHashTrait for PromptHashContract {
         let prompt_id = InstanceStorage::get_prompt_counter(&env);
         InstanceStorage::save_prompt_counter(&env, prompt_id + 1);
         let prompt = Prompt {
-            id,
+            id: prompt_id,
             creator: creator.clone(),
             image_url,
             title,
             category,
             preview_text,
-            encrypted_payload,
+            encrypted_payload: encrypted_prompt,
             encryption_iv,
-            wrapped_aes_key,
+            wrapped_key,
             content_hash,
-            price,
-            active: true,
-            sales_count: 0,
-            max_supply,
-        };
-
-        env.storage().instance().set(&DataKey::Prompt(id), &prompt);
-        env.storage()
-            .instance()
-            .set(&DataKey::PromptCount, &(count + 1));
-
-        let mut creator_prompts: Vec<u32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::CreatorPrompts(creator.clone()))
-            .unwrap_or(Vec::new(&env));
-        creator_prompts.push_back(id);
-        env.storage()
-            .instance()
-            .set(&DataKey::CreatorPrompts(creator), &creator_prompts);
-
-        Ok(id)
-    }
-
-    pub fn buy_prompt(env: Env, buyer: Address, prompt_id: u32) -> Result<(), Error> {
-        buyer.require_auth();
-
-        let mut prompt: Prompt = env
-            .storage()
-            .instance()
-            .get(&DataKey::Prompt(prompt_id))
-            .ok_or(Error::NotFound)?;
             price_stroops: listing.price,
             asset: listing.asset.clone(),
-            active: true,
+            status: PromptSaleStatus::Active,
             sales_count: 0,
             max_supply: listing.max_supply,
             expires_at: listing.expires_at,
@@ -194,16 +144,19 @@ impl PromptHashTrait for PromptHashContract {
         env: Env,
         creator: Address,
         prompt_id: u64,
-        active: bool,
+        status: PromptSaleStatus,
     ) -> Result<(), Error> {
         creator.require_auth();
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
-        prompt.active = active;
+        ensure(prompt.status != PromptSaleStatus::Retired, Error::InvalidStatusTransition)?;
+        ensure(prompt.status != status, Error::InvalidStatusTransition)?;
+
+        prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
-        Events::emit_prompt_sale_status_updated(&env, prompt_id, active);
+        Events::emit_prompt_sale_status_updated(&env, prompt_id, status);
         Ok(())
     }
 
@@ -212,16 +165,19 @@ impl PromptHashTrait for PromptHashContract {
         env: Env,
         admin: Address,
         prompt_id: u64,
-        active: bool,
+        status: PromptSaleStatus,
     ) -> Result<(), Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        prompt.active = active;
+        ensure(prompt.status != PromptSaleStatus::Retired, Error::InvalidStatusTransition)?;
+        ensure(prompt.status != status, Error::InvalidStatusTransition)?;
+
+        prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
-        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, active);
+        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, status);
         Ok(())
     }
 
@@ -250,7 +206,7 @@ impl PromptHashTrait for PromptHashContract {
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         ensure(price_stroops > 0, Error::InvalidPrice)?;
 
-        if !prompt.active {
+        if prompt.status != PromptSaleStatus::Active {
             return Err(Error::NotActive);
         }
 
@@ -296,40 +252,6 @@ impl PromptHashTrait for PromptHashContract {
             env.storage()
                 .instance()
                 .set(&DataKey::BuyerPrompts(buyer), &buyer_prompts);
-        }
-
-        Ok(())
-    }
-
-    pub fn has_access(env: Env, buyer: Address, prompt_id: u32) -> bool {
-        let buyer_prompts: Vec<u32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::BuyerPrompts(buyer))
-            .unwrap_or(Vec::new(&env));
-        buyer_prompts.contains(prompt_id)
-    }
-
-    pub fn get_prompt(env: Env, prompt_id: u32) -> Result<Prompt, Error> {
-        env.storage()
-            .instance()
-            .get(&DataKey::Prompt(prompt_id))
-            .ok_or(Error::NotFound)
-    }
-
-    pub fn get_all_prompts(env: Env) -> Vec<Prompt> {
-        let count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::PromptCount)
-            .unwrap_or(0);
-        let mut prompts = Vec::new(&env);
-        for i in 0..count {
-            if let Some(prompt) = env.storage().instance().get(&DataKey::Prompt(i)) {
-                prompts.push_back(prompt);
-            }
-        }
-        prompts
     fn buy_prompt(
         env: Env,
         buyer: Address,
@@ -361,7 +283,7 @@ impl PromptHashTrait for PromptHashContract {
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
 
-        ensure(prompt.active, Error::PromptInactive)?;
+        ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(lease_duration_secs > 0, Error::InvalidPrice)?;
         ensure(
@@ -501,7 +423,7 @@ impl PromptHashTrait for PromptHashContract {
         for index in 0..prompt_ids.len() {
             let prompt = Storage::require_prompt(&env, prompt_ids.get(index).unwrap())?;
             ensure(prompt.creator == creator, Error::Unauthorized)?;
-            ensure(prompt.active, Error::PromptInactive)?;
+            ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
             ensure(prompt.asset == asset, Error::InvalidAsset)?;
             if prompt.expires_at != 0 {
                 ensure(prompt.expires_at >= now, Error::ListingExpired)?;
@@ -559,7 +481,7 @@ impl PromptHashTrait for PromptHashContract {
         for index in 0..bundle.prompt_ids.len() {
             let mut prompt = Storage::require_prompt(&env, bundle.prompt_ids.get(index).unwrap())?;
             ensure(prompt.creator == bundle.creator, Error::Unauthorized)?;
-            ensure(prompt.active, Error::PromptInactive)?;
+            ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
             ensure(prompt.asset == bundle.asset, Error::InvalidAsset)?;
             if prompt.expires_at != 0 {
                 ensure(prompt.expires_at >= now, Error::ListingExpired)?;
@@ -1091,82 +1013,6 @@ impl PromptHashTrait for PromptHashContract {
         Ok(Storage::get_prompts_by_creator(&env, &creator))
     }
 
-    pub fn get_prompts_by_creator(env: Env, creator: Address) -> Vec<Prompt> {
-        let ids: Vec<u32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::CreatorPrompts(creator))
-            .unwrap_or(Vec::new(&env));
-        let mut prompts = Vec::new(&env);
-        for id in ids.iter() {
-            if let Some(prompt) = env.storage().instance().get(&DataKey::Prompt(id)) {
-                prompts.push_back(prompt);
-            }
-        }
-        prompts
-    }
-
-    pub fn get_prompts_by_buyer(env: Env, buyer: Address) -> Vec<Prompt> {
-        let ids: Vec<u32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::BuyerPrompts(buyer))
-            .unwrap_or(Vec::new(&env));
-        let mut prompts = Vec::new(&env);
-        for id in ids.iter() {
-            if let Some(prompt) = env.storage().instance().get(&DataKey::Prompt(id)) {
-                prompts.push_back(prompt);
-            }
-        }
-        prompts
-    }
-
-    pub fn update_prompt_price(
-        env: Env,
-        creator: Address,
-        prompt_id: u32,
-        new_price: i128,
-    ) -> Result<(), Error> {
-        creator.require_auth();
-
-        if new_price <= 0 {
-            return Err(Error::InvalidPrice);
-        }
-
-        let mut prompt: Prompt = env
-            .storage()
-            .instance()
-            .get(&DataKey::Prompt(prompt_id))
-            .ok_or(Error::NotFound)?;
-
-        if prompt.creator != creator {
-            return Err(Error::Unauthorized);
-        }
-
-        prompt.price = new_price;
-        env.storage()
-            .instance()
-            .set(&DataKey::Prompt(prompt_id), &prompt);
-        Ok(())
-    }
-
-    pub fn set_prompt_sale_status(
-        env: Env,
-        creator: Address,
-        prompt_id: u32,
-        active: bool,
-    ) -> Result<(), Error> {
-        creator.require_auth();
-
-        let mut prompt: Prompt = env
-            .storage()
-            .instance()
-            .get(&DataKey::Prompt(prompt_id))
-            .ok_or(Error::NotFound)?;
-
-        if prompt.creator != creator {
-            return Err(Error::Unauthorized);
-        }
     #[only_owner]
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error> {
         ensure(new_fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
@@ -1317,7 +1163,7 @@ fn execute_buy(
     let mut prompt = Storage::require_prompt(env, prompt_id)?;
     let now = env.ledger().timestamp();
 
-    ensure(prompt.active, Error::PromptInactive)?;
+    ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
     ensure(prompt.creator != *buyer, Error::CreatorCannotBuy)?;
     ensure(
         !Storage::has_active_purchase(env, prompt_id, buyer, now),
@@ -1605,12 +1451,6 @@ fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error>
     ensure(!value.is_empty() && value.len() <= max_len, error)
 }
 
-        prompt.active = active;
-        env.storage()
-            .instance()
-            .set(&DataKey::Prompt(prompt_id), &prompt);
-        Ok(())
-    }
 
     pub fn set_fee_wallet(env: Env, admin: Address, fee_wallet: Address) {
         admin.require_auth();

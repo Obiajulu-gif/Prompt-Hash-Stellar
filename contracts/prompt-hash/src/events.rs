@@ -1,3 +1,4 @@
+use super::types::PromptSaleStatus;
 use soroban_sdk::{contractevent, Address, Env};
 
 #[contractevent]
@@ -13,7 +14,7 @@ struct PromptCreated {
 struct PromptSaleStatusUpdated {
     #[topic]
     pub prompt_id: u64,
-    pub active: bool,
+    pub status: PromptSaleStatus,
 }
 
 #[contractevent]
@@ -21,7 +22,7 @@ struct PromptAdminModerated {
     #[topic]
     pub prompt_id: u64,
     pub admin: Address,
-    pub active: bool,
+    pub status: PromptSaleStatus,
 }
 
 #[contractevent]
@@ -196,17 +197,22 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u64, active: bool) {
-        PromptSaleStatusUpdated { prompt_id, active }.publish(env);
+    pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u64, status: PromptSaleStatus) {
+        env.events().publish(
+            (soroban_sdk::symbol_short!("STATUS"), prompt_id),
+            PromptSaleStatusUpdated { prompt_id, status },
+        );
     }
 
-    pub fn emit_prompt_admin_moderated(env: &Env, prompt_id: u64, admin: Address, active: bool) {
-        PromptAdminModerated {
-            prompt_id,
-            admin,
-            active,
-        }
-        .publish(env);
+    pub fn emit_prompt_admin_moderated(env: &Env, prompt_id: u64, admin: Address, status: PromptSaleStatus) {
+        env.events().publish(
+            (soroban_sdk::symbol_short!("MODERATED"), prompt_id),
+            PromptAdminModerated {
+                prompt_id,
+                admin,
+                status,
+            },
+        );
     }
 
     pub fn emit_prompt_price_updated(env: &Env, prompt_id: u64, price_stroops: i128) {
