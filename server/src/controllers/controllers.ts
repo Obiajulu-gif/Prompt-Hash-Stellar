@@ -10,6 +10,7 @@ import {
   validateListingMetadata,
 } from "../services/listingValidation";
 import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CACHE_KEYS } from "../services/cacheService";
+import { sendConditionalJson, markPrivate } from "../middleware/etag";
 import { notifyPromptReported } from "../services/emailNotifications";
 import { announceNewPrompt } from "../services/discordNotifications";
 
@@ -185,7 +186,7 @@ export const GetPrompts = async (
     // Build a deterministic cache key from the query params
     const cacheKey = CACHE_KEYS.promptList(`cat=${category ?? ""}&wallet=${walletAddress ?? ""}`);
     const cached = await cacheGet(cacheKey);
-    if (cached) return res.json(JSON.parse(cached));
+    if (cached) return sendConditionalJson(req, res, JSON.parse(cached));
 
     const query: any = { listingStatus: 'published', isActive: true };
 
@@ -222,7 +223,7 @@ export const GetPrompts = async (
       nextCursor = null;
     }
 
-    return res.json({
+    return sendConditionalJson(req, res, {
       data: prompts,
       metadata: {
         hasNextPage,
@@ -578,6 +579,7 @@ export const GetPreviewStats = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.query;
 
@@ -620,6 +622,7 @@ export const GetOwnedPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -652,6 +655,7 @@ export const GetSavedPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -752,6 +756,7 @@ export const GetDraftPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -876,7 +881,7 @@ export const GetPriceHistory = async (
       nextCursor = changes[changes.length - 1]._id;
     }
 
-    return res.json({
+    return sendConditionalJson(req, res, {
       data: changes,
       metadata: { hasNextPage, nextCursor },
     });

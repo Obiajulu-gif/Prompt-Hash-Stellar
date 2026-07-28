@@ -47,6 +47,7 @@ describe("Pagination logic - GetPrompts", () => {
     res = {
       json: jest.fn().mockReturnThis(),
       status: jest.fn().mockReturnThis(),
+      setHeader: jest.fn(),
     };
     
     mockFind.mockReturnValue(mockChain);
