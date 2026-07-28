@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWallet } from "@/hooks/useWallet";
+import { useDraftAutoSave } from "@/hooks/useDraftAutoSave";
 import { unlockPublicKey } from "@/lib/env";
 import {
   encryptPromptPlaintext,
@@ -156,37 +157,6 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     () => estimateEncryptedPayloadSize(watchAllFields.fullPrompt || ""),
     [watchAllFields.fullPrompt]
   );
-
-  useEffect(() => {
-    draftLoadRef.current = null;
-    setDraftRestored(false);
-    setLastSavedAt(null);
-
-    if (!draftStorageKey) {
-      return;
-    }
-
-    const rawDraft = window.localStorage.getItem(draftStorageKey);
-    if (!rawDraft) {
-      draftLoadRef.current = draftStorageKey;
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(rawDraft);
-      if (parsed.formData) {
-        Object.keys(parsed.formData).forEach((key) => {
-          setValue(key, parsed.formData[key]);
-        });
-        setDraftRestored(true);
-        setLastSavedAt(parsed.savedAt ?? null);
-      }
-    } catch {
-      window.localStorage.removeItem(draftStorageKey);
-    } finally {
-      draftLoadRef.current = draftStorageKey;
-    }
-  }, [draftStorageKey, setValue]);
 
   const checkDuplicateHash = useCallback(
     async (plaintext: string) => {

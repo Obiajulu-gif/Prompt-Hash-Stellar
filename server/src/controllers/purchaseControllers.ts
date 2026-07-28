@@ -3,6 +3,7 @@ import connectDb from "../db/connectDb";
 import Purchase from "../models/Purchase";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
+import { markPrivate } from "../middleware/etag";
 
 interface PromptLite {
   _id: unknown;
@@ -28,6 +29,7 @@ export const GetPurchaseTransactions = async (
   res: Response,
 ): Promise<Response> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -97,6 +99,7 @@ export const GetCreatorSalesAnalytics = async (
   res: Response,
 ): Promise<Response> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -194,6 +197,7 @@ export const GetCreatorPayoutStatement = async (
   res: Response,
 ): Promise<Response> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
     const { startDate, endDate, format } = req.query;
@@ -332,6 +336,7 @@ export const GetIntegrityReport = async (
   res: Response,
 ): Promise<Response> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { runContentIntegrityCheckAll } = await import(
       "../services/contentIntegrity"

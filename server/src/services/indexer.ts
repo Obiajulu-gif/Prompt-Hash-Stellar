@@ -6,6 +6,7 @@ import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
 import { scanForSimilarity } from "./similarityDetection";
 import { dispatchEvent } from "./webhookDispatcher";
+import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -25,6 +26,18 @@ async function ensureUser(walletAddress: string) {
     });
   }
   return user;
+}
+
+/**
+ * Invalidates the marketplace read caches for a listing after an indexed
+ * on-chain event changes it, so `GET /api/prompts` and per-prompt reads
+ * regenerate a fresh ETag on the next request instead of serving stale data.
+ */
+async function invalidatePromptCaches(promptId: string): Promise<void> {
+  await Promise.all([
+    cacheDelPattern("prompts:list:*"),
+    cacheDel(CACHE_KEYS.promptDetail(promptId)),
+  ]);
 }
 
 /** Fires a webhook to a creator/owner wallet, swallowing delivery errors. */
@@ -173,6 +186,7 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
           console.error("[similarity] Scan error for prompt", promptId, err),
         );
       }
+      await invalidatePromptCaches(promptId);
       break;
     }
 
@@ -217,6 +231,7 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
         priceStroops: price_stroops ? String(price_stroops) : undefined,
         txHash,
       });
+      await invalidatePromptCaches(promptId);
       break;
     }
 
@@ -241,6 +256,7 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
       };
       await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload);
       await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload);
+      await invalidatePromptCaches(promptId);
       break;
     }
 
@@ -267,15 +283,18 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
           txHash: txHash ?? "",
         }),
       ]);
+      await invalidatePromptCaches(promptId);
       break;
     }
 
     case "PromptSaleStatusUpdated": {
       const { prompt_id, active } = data;
+      const promptId = prompt_id.toString();
       await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
+        { onChainId: promptId },
         { $set: { isActive: active } },
       );
+      await invalidatePromptCaches(promptId);
       break;
     }
 

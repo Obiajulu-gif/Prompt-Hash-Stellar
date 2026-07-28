@@ -30,6 +30,7 @@ import { formatPriceLabel } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
 import { UnlockExplainer, type UnlockState } from "@/components/UnlockExplainer";
 import { stellarNetwork } from "@/lib/env";
+import { LibrarySkeleton } from "@/components/skeletons";
 
 const EXPECTED_NETWORK = stellarNetwork;
 
@@ -388,16 +389,7 @@ export function BuyerLibrary() {
   if (isWrongNetwork) return <WrongNetworkState network={network} />;
 
   if (isLoading) {
-    return (
-      <div className="space-y-4">
-        {[...Array(3)].map((_, i) => (
-          <div
-            key={i}
-            className="h-32 rounded-xl border border-white/5 bg-white/[0.02] animate-pulse"
-          />
-        ))}
-      </div>
-    );
+    return <LibrarySkeleton rows={3} />;
   }
 
   if (isError) {

@@ -60,6 +60,7 @@ Thumbs.db
 # Generated contract clients
 packages/*
 !packages/.gitkeep
+!packages/schema
 !src/contracts/util.ts
 .omx/
 
