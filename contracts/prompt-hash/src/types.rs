@@ -48,6 +48,16 @@ pub enum Error {
     InvalidAccessDuration = 41,
     BulkPurchaseTooLarge = 42,
     DuplicatePromptId = 43,
+    InvalidStatusTransition = 44,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PromptSaleStatus {
+    Draft,
+    Active,
+    Paused,
+    Retired,
 }
 
 /// Instance storage keys — contract-level configuration stored in
@@ -192,7 +202,6 @@ pub struct ListingConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
-    pub id: u32,
     pub id: u64,
     pub creator: Address,
     pub image_url: String,
@@ -201,14 +210,11 @@ pub struct Prompt {
     pub preview_text: String,
     pub encrypted_payload: String,
     pub encryption_iv: String,
-    pub wrapped_aes_key: String,
-    pub content_hash: String,
-    pub price: i128,
     pub wrapped_key: String,
     pub content_hash: BytesN<32>,
     pub price_stroops: i128,
     pub asset: Address,
-    pub active: bool,
+    pub status: PromptSaleStatus,
     pub sales_count: u64,
     pub max_supply: u64,
     /// Unix timestamp after which the listing can no longer be purchased.
@@ -253,28 +259,6 @@ pub struct AccessPass {
     pub max_supply: u32,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Prompt(u32),
-    PromptCount,
-    CreatorPrompts(Address),
-    BuyerPrompts(Address),
-    FeeWallet,
-    TokenContract,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    NotFound = 1,
-    AlreadyExists = 2,
-    Unauthorized = 3,
-    InvalidPrice = 4,
-    InvalidSupply = 5,
-    MaxSupplyReached = 6,
-    PaymentFailed = 7,
-    NotActive = 8,
 pub struct CatalogPassPurchase {
     pub creator: Address,
     pub buyer: Address,
@@ -325,14 +309,14 @@ pub trait PromptHashTrait {
         env: Env,
         creator: Address,
         prompt_id: u64,
-        active: bool,
+        status: PromptSaleStatus,
     ) -> Result<(), Error>;
 
     fn admin_set_prompt_sale_status(
         env: Env,
         admin: Address,
         prompt_id: u64,
-        active: bool,
+        status: PromptSaleStatus,
     ) -> Result<(), Error>;
 
     fn set_prompt_max_supply(
@@ -498,9 +482,7 @@ pub trait PromptHashTrait {
     ) -> Option<PurchaseEscrow>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
-    fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
-    fn get_fee_percentage(env: Env) -> u32;
     fn get_fee_wallet(env: Env) -> Option<Address>;
     fn set_referral_percentage(env: Env, new_referral_percentage: u32) -> Result<(), Error>;
     fn get_referral_percentage(env: Env) -> u32;
