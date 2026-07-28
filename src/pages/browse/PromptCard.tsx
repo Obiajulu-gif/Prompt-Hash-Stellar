@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import {
@@ -51,6 +52,8 @@ export const PromptCard = ({
   // eslint-disable-next-line no-unused-vars
   onToggleCompare?: (_prompt: PromptRecord) => void;
 }) => {
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const isBestSeller = prompt.salesCount >= 10;
   const reducedMotion = useReducedMotion();
   const reputation = buildCreatorReputation(prompt.creator, [prompt]);
@@ -98,11 +101,23 @@ export const PromptCard = ({
       aria-label={`Open ${prompt.title}`}
     >
       {/* Visual Header */}
-      <div className="relative aspect-[16/10] overflow-hidden">
+      <div className="relative aspect-[16/10] overflow-hidden bg-slate-900">
+        {!imageLoaded && !imageError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-800 animate-pulse" />
+        )}
         <img
-          src={prompt.imageUrl || "/images/codeguru.png"}
+          src={imageError ? "/images/codeguru.png" : (prompt.imageUrl || "/images/codeguru.png")}
           alt={prompt.title}
-          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+          loading="lazy"
+          decoding="async"
+          width={400}
+          height={250}
+          onLoad={() => setImageLoaded(true)}
+          onError={() => {
+            setImageError(true);
+            setImageLoaded(true);
+          }}
+          className={`absolute inset-0 h-full w-full object-cover transition-all duration-700 group-hover:scale-110 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-transparent to-transparent opacity-60" />
 

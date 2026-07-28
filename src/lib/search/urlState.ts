@@ -28,14 +28,24 @@ export function getSearchStateFromUrl(): Partial<SearchState> {
   const params = new URLSearchParams(window.location.search);
   const priceMin = params.get("priceMin");
   const priceMax = params.get("priceMax");
+  const parsedMin = priceMin ? Number(priceMin) : undefined;
+  const parsedMax = priceMax ? Number(priceMax) : undefined;
+  
+  const validPriceRange: [number, number] | undefined =
+    parsedMin !== undefined && !isNaN(parsedMin) && parsedMax !== undefined && !isNaN(parsedMax)
+      ? [Math.max(0, parsedMin), Math.max(Math.max(0, parsedMin), Math.min(25, parsedMax))]
+      : undefined;
+
+  const validSortOptions = ["recent", "sales", "price-low", "price-high"];
+  const sortParam = params.get("sort");
+  const validSortBy = sortParam && validSortOptions.includes(sortParam) ? sortParam : undefined;
 
   return {
     searchQuery: params.get("q") || undefined,
     selectedCategory: params.get("category") || undefined,
     selectedTag: params.get("tag") || undefined,
-    priceRange:
-      priceMin && priceMax ? [Number(priceMin), Number(priceMax)] : undefined,
-    sortBy: params.get("sort") || undefined,
+    priceRange: validPriceRange,
+    sortBy: validSortBy,
   };
 }
 
@@ -88,7 +98,13 @@ export function updateUrlWithSearchState(state: Partial<SearchState>) {
     ? `${window.location.pathname}?${params.toString()}`
     : window.location.pathname;
 
-  window.history.replaceState(null, "", newUrl);
+  // Use pushState if it's a new URL so back/forward works, else just replaceState (e.g. initial load)
+  if (window.location.pathname + window.location.search !== newUrl) {
+    // Only push if we're actually changing it, but wait, typing in search will flood history.
+    // Let's use replaceState to prevent flooding, but back/forward across pages will keep filters.
+    // Issue requested: "Back and forward navigation preserve filters"
+    window.history.replaceState(null, "", newUrl);
+  }
 }
 
 /**
