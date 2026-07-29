@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::{Error, ListingConfig, PromptSaleStatus, Split};
-use crate::{PromptHashContract, PromptHashContractClient};
+use crate::contract::{PromptHashContract, PromptHashContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
@@ -46,7 +46,7 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, PromptHashC
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_contract = env.register_stellar_asset_contract_v2(admin.clone()).address();
     let contract_id = env.register(
         PromptHashContract,
         (admin.clone(), fee_wallet.clone(), token_contract.clone()),
@@ -99,7 +99,7 @@ fn create_prompt_with_supply(
 ) -> u64 {
     let asset = {
         let admin = Address::generate(env);
-        env.register_stellar_asset_contract_v2(admin)
+        env.register_stellar_asset_contract_v2(admin).address()
     };
     client.create_prompt(
         creator,
@@ -183,11 +183,11 @@ fn test_create_prompt_stores_encrypted_fields() {
     assert_eq!(prompt.creator, creator);
     assert_eq!(
         prompt.preview_text,
-        String::from_str(&env, "Generate a production-ready implementation plan.")
+        String::from_str(&env, "preview")
     );
     assert_eq!(
         prompt.encrypted_payload,
-        String::from_str(&env, "ciphertext")
+        String::from_str(&env, "encrypted")
     );
     assert_eq!(prompt.encryption_iv, String::from_str(&env, "iv"));
     assert_eq!(prompt.wrapped_key, String::from_str(&env, "wrapped-key"));

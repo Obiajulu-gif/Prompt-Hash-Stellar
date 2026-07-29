@@ -2,7 +2,7 @@ use super::types::{
     AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
     ListingRevisionRecord, Prompt, Purchase, PurchaseDispute, PurchaseEscrow,
 };
-use soroban_sdk::{token, Address, BytesN, Env, Vec};
+use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
 
 pub const DAY_IN_LEDGERS: u32 = 17280;
 pub const PERSISTENT_BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
@@ -691,7 +691,7 @@ impl Storage {
     ) -> Vec<Prompt> {
         use crate::pagination::MAX_PAGE_SIZE;
 
-        let limit = std::cmp::min(limit, MAX_PAGE_SIZE);
+        let limit = if limit < MAX_PAGE_SIZE { limit } else { MAX_PAGE_SIZE };
         let ids: Vec<u64> = env
             .storage()
             .persistent()
@@ -699,13 +699,13 @@ impl Storage {
             .unwrap_or(Vec::new(env));
 
         let mut results = Vec::new(env);
-        let mut start_idx = 0usize;
+        let mut start_idx = 0u32;
 
         // Find start position if cursor provided
         if let Some(cursor_id) = cursor {
             for (i, id) in ids.iter().enumerate() {
                 if id == cursor_id {
-                    start_idx = i + 1;
+                    start_idx = i as u32 + 1;
                     break;
                 }
             }
@@ -791,64 +791,58 @@ impl Storage {
 
     // ====== TTL RENEWAL (BOUNDED BATCHES) ======
 
-    /// Renew all critical keys (purchases, escrow) in a bounded batch
-    /// Returns (renewed_count, next_cursor_if_more_work)
+    /// Renew the TTL of prompt records (and their listing revisions/creator
+    /// index) in a bounded batch. Returns (renewed_count, next_cursor_if_more_work).
     pub fn renew_critical_keys(
         env: &Env,
         cursor: Option<u64>,
     ) -> (u32, Option<u64>) {
         use crate::ttl_policy::MAX_RENEWAL_BATCH_SIZE;
 
+        let prompt_count = InstanceStorage::get_prompt_counter(env);
         let mut renewed_count = 0u32;
-        let mut start_from = cursor.unwrap_or(0);
+        let mut prompt_id = cursor.unwrap_or(0);
 
-        // Simplified MVP: check fixed batch of purchase keys
-        // Full impl would iterate all persistent keys with proper pagination
-        for prompt_id in start_from..start_from + MAX_RENEWAL_BATCH_SIZE as u64 {
+        while prompt_id < prompt_count {
             if renewed_count >= MAX_RENEWAL_BATCH_SIZE {
                 return (renewed_count, Some(prompt_id));
             }
 
-            let key = DataKey::Purchase(prompt_id as u64, Address::from_contract_id(env));
+            let key = DataKey::Prompt(prompt_id);
             if env.storage().persistent().has(&key) {
                 Self::extend_key_ttl(env, &key);
                 renewed_count += 1;
             }
+            prompt_id += 1;
         }
 
         (renewed_count, None) // All done
     }
 
-    /// Get expiry risk metrics for operator monitoring
+    /// Get expiry risk metrics for operator monitoring, sampled across the
+    /// TTL policy's own reference lifetimes for each tracked key family.
     pub fn compute_expiry_risks(env: &Env) -> Vec<(String, String)> {
-        use crate::ttl_policy::{compute_expiry_risk, get_ttl_for_key};
+        use crate::ttl_policy::{compute_expiry_risk, ONE_MONTH, ONE_YEAR};
 
         let mut risks = Vec::new(env);
-        let current_ledger = env.ledger().sequence();
+        let current_ledger = env.ledger().sequence() as u64;
 
-        // Check sample critical keys
-        let sample_keys = vec![
-            (DataKey::Purchase(1, Address::from_contract_id(env)), "Purchase"),
-            (DataKey::PurchaseEscrow(1, Address::from_contract_id(env)), "Escrow"),
-            (DataKey::CatalogPass(Address::from_contract_id(env), Address::from_contract_id(env)), "CatalogPass"),
+        let sample_ttls: [(&str, u32); 3] = [
+            ("Prompt", ONE_YEAR),
+            ("Purchase", ONE_YEAR + ONE_MONTH),
+            ("Dispute", ONE_MONTH),
         ];
 
-        for (key, label) in sample_keys {
-            let max_ttl = get_ttl_for_key(&key);
-            if max_ttl == u32::MAX {
-                continue;
-            }
-
-            // Conservative: assume mid-lifetime for risk assessment
+        for (label, max_ttl) in sample_ttls {
+            // Conservative: assume mid-lifetime for risk assessment.
             let last_extended = current_ledger.saturating_sub(max_ttl as u64 / 2);
             let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
 
             if risk.critical_keys > 0 || risk.imminent_keys > 0 {
-                let status = format!(
-                    "critical={},imminent={},atrisk={}",
-                    risk.critical_keys, risk.imminent_keys, risk.at_risk_keys
-                );
-                risks.push_back((label.into(), status));
+                risks.push_back((
+                    String::from_str(env, label),
+                    String::from_str(env, "at_risk"),
+                ));
             }
         }
 

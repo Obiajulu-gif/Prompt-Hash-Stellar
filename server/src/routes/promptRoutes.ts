@@ -73,8 +73,7 @@ promptRouter.get(
   requireAdminScope("integrity:read"),
   GetIntegrityReport,
 );
-promptRouter.post(
-  "/admin/integrity-check",
+promptRouter.post("/admin/integrity-check",
   requireAdminScope("integrity:write"),
   TriggerIntegrityCheck,
 );

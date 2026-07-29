@@ -5,7 +5,7 @@ use super::types::{
     ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus,
     PurchaseDispute, PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, crypto::Crypto, token, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 
@@ -248,7 +248,7 @@ impl PromptHashTrait for PromptHashContract {
         let now = env.ledger().sequence();
 
         // 1. Verify domain separation (network_id + contract_id)
-        let contract_id = env.current_contract_id();
+        let contract_id = current_contract_id_hash(&env);
         let network_id = env.ledger().network_id();
         ensure(
             authorization.network_id == network_id,
@@ -277,25 +277,25 @@ impl PromptHashTrait for PromptHashContract {
             Error::AuthorizationExpired,
         )?;
 
-        // 5. Verify nonce not yet consumed (replay protection)
-        let nonce_hash = env.crypto().sha256(&authorization.nonce.to_xdr(&env));
-        ensure(
-            !Storage::is_nonce_consumed(&env, prompt_id, &nonce_hash),
-            Error::AuthorizationNonceConsumed,
-        )?;
+        // 5. Verify the creator registered this exact authorization on-chain
+        // (`add_signed_discount_auth`, gated by `creator.require_auth()`) and
+        // it has not already been redeemed or revoked. Soroban's SDK
+        // explicitly discourages deriving a raw Ed25519 key from an Address
+        // for custom signature verification (the master key may not be a
+        // current signer), so registration is authenticated via the
+        // contract's native auth framework instead of `ed25519_verify`.
+        let registration_key =
+            DataKey::NonceConsumed(prompt_id, authorization.nonce.clone());
+        let stored: SignedDiscountAuthorization = env
+            .storage()
+            .persistent()
+            .get(&registration_key)
+            .ok_or(Error::AuthorizationNonceConsumed)?;
+        ensure(stored == authorization, Error::InvalidAuthorizationSignature)?;
 
-        // 6. Verify creator signature
-        let auth_hash = authorization.hash(&env);
-        let creator_pub_key = prompt.creator.clone();
-        let valid_sig = env.crypto().ed25519_verify(
-            &creator_pub_key,
-            &auth_hash,
-            &creator_sig,
-        );
-        ensure(valid_sig, Error::InvalidAuthorizationSignature)?;
-
-        // 7. Consume the nonce atomically
-        Storage::try_consume_nonce(&env, prompt_id, &nonce_hash);
+        // 6. Consume the nonce atomically so it cannot be redeemed twice.
+        env.storage().persistent().remove(&registration_key);
+        let _ = creator_sig;
 
         // 8. Execute buy with discount
         let discount_amount = prompt
@@ -680,6 +680,8 @@ impl PromptHashTrait for PromptHashContract {
             status: SettlementStatus::Settled,
             created_at: now,
             settled_at: now,
+            // Bundle funds settle immediately — there is no pending window (#541).
+            dispute_deadline: now,
             creator_amount,
             fee_amount,
             referral_amount: 0,
@@ -1106,7 +1108,7 @@ impl PromptHashTrait for PromptHashContract {
         
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
-            Some(encode_cursor(last_id, IndexType::All).to_string())
+            Some(encode_cursor(&env, last_id, IndexType::All))
         } else {
             None
         };
@@ -1114,7 +1116,7 @@ impl PromptHashTrait for PromptHashContract {
         Ok((prompts, next_cursor))
     }
 
-    fn get_prompts_by_category_paginated(
+    fn get_prompts_by_category_page(
         env: Env,
         category: String,
         cursor: Option<String>,
@@ -1136,7 +1138,7 @@ impl PromptHashTrait for PromptHashContract {
         
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
-            Some(encode_cursor(last_id, IndexType::Category).to_string())
+            Some(encode_cursor(&env, last_id, IndexType::Category))
         } else {
             None
         };
@@ -1166,7 +1168,7 @@ impl PromptHashTrait for PromptHashContract {
         
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
-            Some(encode_cursor(last_id, IndexType::Tag).to_string())
+            Some(encode_cursor(&env, last_id, IndexType::Tag))
         } else {
             None
         };
@@ -1193,7 +1195,7 @@ impl PromptHashTrait for PromptHashContract {
         
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
-            Some(encode_cursor(last_id, IndexType::Active).to_string())
+            Some(encode_cursor(&env, last_id, IndexType::Active))
         } else {
             None
         };
@@ -1507,7 +1509,7 @@ impl PromptHashTrait for PromptHashContract {
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
         // Verify domain separation
-        let contract_id = env.current_contract_id();
+        let contract_id = current_contract_id_hash(&env);
         let network_id = env.ledger().network_id();
         ensure(
             authorization.network_id == network_id,
@@ -1525,23 +1527,27 @@ impl PromptHashTrait for PromptHashContract {
             Error::AuthorizationExpired,
         )?;
 
-        // Verify nonce not already consumed (in case of re-submission)
-        let nonce_hash = env.crypto().sha256(&authorization.nonce.to_xdr(&env));
+        // Verify nonce not already registered (in case of re-submission)
+        let registration_key =
+            DataKey::NonceConsumed(authorization.prompt_id, authorization.nonce.clone());
         ensure(
-            !Storage::is_nonce_consumed(&env, authorization.prompt_id, &nonce_hash),
+            !env.storage().persistent().has(&registration_key),
             Error::AuthorizationNonceConsumed,
         )?;
 
-        // Verify the signature is valid from the creator
-        let auth_hash = authorization.hash(&env);
-        let valid_sig = env.crypto().ed25519_verify(&creator, &auth_hash, &signature);
-        ensure(valid_sig, Error::InvalidAuthorizationSignature)?;
+        // `creator.require_auth()` above is the actual authentication for
+        // this registration. Soroban's SDK explicitly discourages deriving
+        // a raw Ed25519 key from an Address for custom signature
+        // verification (the master key may not be a current signer), so
+        // `signature` is accepted for client-side record-keeping parity
+        // with `buy_prompt_with_auth` but is not independently re-verified.
+        let _ = signature;
 
-        // Store the authorization for later verification during buy_prompt_with_auth
-        env.storage().persistent().set(
-            &DataKey::NonceConsumed(authorization.prompt_id, nonce_hash),
-            &authorization,
-        );
+        // Store the authorization for later redemption during buy_prompt_with_auth
+        env.storage()
+            .persistent()
+            .set(&registration_key, &authorization);
+        Storage::extend_key_ttl(&env, &registration_key);
 
         Events::emit_signed_discount_added(
             &env,
@@ -1563,11 +1569,10 @@ impl PromptHashTrait for PromptHashContract {
         let prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
-        // Consume the nonce to prevent future use
-        let nonce_hash = env.crypto().sha256(&nonce.to_xdr(&env));
-        env.storage()
-            .persistent()
-            .set(&DataKey::NonceConsumed(prompt_id, nonce_hash), &true);
+        // Remove the registered authorization (if any) so it can no longer
+        // be redeemed via `buy_prompt_with_auth`.
+        let registration_key = DataKey::NonceConsumed(prompt_id, nonce.clone());
+        env.storage().persistent().remove(&registration_key);
 
         Events::emit_signed_discount_revoked(&env, prompt_id, creator, nonce);
         Ok(())
@@ -1641,7 +1646,7 @@ fn execute_buy(
     payment_amount_stroops: i128,
     voucher: Option<Bytes>,
 ) -> Result<(), Error> {
-    let mut prompt = Storage::require_prompt(env, prompt_id)?;
+    let prompt = Storage::require_prompt(env, prompt_id)?;
     let now = env.ledger().timestamp();
 
     ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
@@ -1655,7 +1660,11 @@ fn execute_buy(
         ensure(prompt.expires_at >= now, Error::ListingExpired)?;
     }
 
-    let reserved_sales_count = reserve_supply(prompt.sales_count, prompt.max_supply)?;
+    // Fail fast before spending gas on voucher validation; the actual
+    // reservation is (re)computed against a fresh fetch in
+    // `execute_buy_with_required_price`, which is also reachable directly
+    // from `buy_prompt_with_auth`.
+    reserve_supply(prompt.sales_count, prompt.max_supply)?;
 
     let mut required_price = prompt.price_stroops;
     if let Some(code) = voucher {
@@ -1702,6 +1711,7 @@ fn execute_buy_with_required_price(
     required_price: i128,
 ) -> Result<(), Error> {
     let mut prompt = Storage::require_prompt(env, prompt_id)?;
+    let reserved_sales_count = reserve_supply(prompt.sales_count, prompt.max_supply)?;
 
     InstanceStorage::set_reentrancy_guard(env)?;
 
@@ -2007,4 +2017,14 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     } else {
         Err(error)
     }
+}
+
+/// A stable per-contract domain-separation value for signed authorizations
+/// (#540/#565). There is no plain-build API for a contract's raw identity
+/// hash, so this hashes the current contract address's string encoding —
+/// available without enabling the SDK's `hazmat-address` feature.
+fn current_contract_id_hash(env: &Env) -> BytesN<32> {
+    env.crypto()
+        .sha256(&env.current_contract_address().to_string().to_bytes())
+        .to_bytes()
 }

@@ -1,4 +1,6 @@
-use soroban_sdk::{contracterror, contracttype, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{
+    contracterror, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, IntoVal, String, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -441,11 +443,11 @@ impl SignedDiscountAuthorization {
         buf.push_back(self.network_id.to_val());
         buf.push_back(self.contract_id.to_val());
         // Payload: prompt_id || buyer || discount_bps || nonce || expiry_ledger
-        buf.push_back((self.prompt_id as u128).into_val());
+        buf.push_back((self.prompt_id as u128).into_val(env));
         buf.push_back(self.buyer.to_val());
-        buf.push_back((self.discount_bps as u128).into_val());
+        buf.push_back((self.discount_bps as u128).into_val(env));
         buf.push_back(self.nonce.to_val());
-        buf.push_back((self.expiry_ledger as u128).into_val());
+        buf.push_back((self.expiry_ledger as u128).into_val(env));
         let raw = env.crypto().sha256(&buf.to_xdr(env));
         BytesN::from_array(env, &raw.to_array())
     }
@@ -813,7 +815,7 @@ pub trait PromptHashTrait {
         cursor: Option<String>,
         limit: u64,
     ) -> Result<(Vec<Prompt>, Option<String>), Error>;
-    fn get_prompts_by_category_paginated(
+    fn get_prompts_by_category_page(
         env: Env,
         category: String,
         cursor: Option<String>,
