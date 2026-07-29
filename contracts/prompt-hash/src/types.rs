@@ -58,6 +58,51 @@ pub enum Error {
     AuthorizationPromptMismatch = 52,
     AuthorizationDomainMismatch = 53,
     AuthorizationNotYetValid = 54,
+
+    // Signed quote commitments and slippage protection (#565).
+    QuoteExpired = 55,
+    QuoteNotYetValid = 56,
+    QuoteNonceConsumed = 57,
+    QuoteDomainMismatch = 58,
+    QuoteAcquisitionMismatch = 59,
+    QuoteAssetMismatch = 60,
+    /// The listing revision or fee/split configuration changed after the quote
+    /// was produced, so a committed commercial term no longer holds.
+    QuoteTermsChanged = 61,
+    /// The charge computed at execution exceeds the quote's authorized amount.
+    QuoteChargeExceeded = 62,
+    /// A tip was supplied without an explicit tip amount on the quote.
+    UnauthorizedTip = 63,
+
+    // Append-only settlement records (#567).
+    SettlementNotFound = 64,
+    SettlementAlreadyFinalized = 65,
+    /// The entitlement pointer does not reference the settlement being acted on.
+    SettlementEntitlementMismatch = 66,
+    DuplicateSettlementSubmission = 67,
+
+    // Signed resale orders (#568).
+    ResaleOrderNotFound = 68,
+    ResaleOrderExpired = 69,
+    ResaleOrderCancelled = 70,
+    ResaleOrderNonceConsumed = 71,
+    ResaleOrderBuyerMismatch = 72,
+    ResaleOrderDomainMismatch = 73,
+    /// The seller no longer holds the entitlement the order was written against.
+    ResaleOrderOwnershipChanged = 74,
+    /// Proceeds after royalties fall below the seller's stated minimum.
+    ResaleProceedsBelowMinimum = 75,
+    InvalidResaleOrderSignature = 76,
+
+    // Two-phase governance (#569).
+    GovernanceProposalNotFound = 77,
+    GovernanceProposalExists = 78,
+    GovernanceDelayNotElapsed = 79,
+    GovernanceProposalExpired = 80,
+    /// Current configuration no longer matches the proposal's expected state.
+    GovernanceStateMismatch = 81,
+    GovernanceNonceConsumed = 82,
+    InvalidGovernanceDelay = 83,
 }
 
 #[contracttype]
@@ -81,6 +126,11 @@ pub enum InstanceDataKey {
     Reentrancy,
     ReferralPercentage,
     IsPaused,
+    /// Monotonic counter backing append-only settlement IDs (#567).
+    SettlementCounter,
+    /// Ledger delay that must elapse between proposing and executing a
+    /// high-risk governance action (#569).
+    GovernanceDelayLedgers,
 }
 
 /// Persistent storage keys — per-item records stored in
@@ -113,6 +163,31 @@ pub enum DataKey {
     AccessPassCounter,
     CreatorAccessPasses(Address),
     CatalogPass(Address, Address),
+
+    /// Nonce consumed for a signed quote commitment (#565).
+    /// Key: (buyer, nonce) — scoped to the buyer so nonces need no global store.
+    QuoteNonceConsumed(Address, BytesN<32>),
+
+    /// Append-only settlement record, keyed by its own settlement ID (#567).
+    /// Never overwritten: a repeat purchase allocates a fresh ID.
+    Settlement(u128),
+    /// Current entitlement pointer: (prompt_id, buyer) -> settlement_id.
+    /// Keeps access checks O(1) without scanning history.
+    EntitlementPointer(u64, Address),
+    /// Bounded index of a buyer's settlement IDs for one prompt, for pagination.
+    BuyerSettlements(u64, Address),
+    /// Escrow and dispute records keyed by settlement ID rather than by buyer,
+    /// so settling or refunding one acquisition cannot mutate another.
+    SettlementEscrow(u128),
+    SettlementDispute(u128),
+
+    /// A seller-signed resale order, keyed by its order hash (#568).
+    ResaleOrder(BytesN<32>),
+    /// Nonce consumed for a resale order. Key: (seller, nonce).
+    ResaleOrderNonce(Address, BytesN<32>),
+
+    /// A pending two-phase governance action, keyed by proposal hash (#569).
+    GovernanceProposal(BytesN<32>),
 }
 
 #[contracttype]
@@ -364,6 +439,140 @@ impl SignedDiscountAuthorization {
         let raw = env.crypto().sha256(&buf.to_xdr(env));
         BytesN::from_array(env, &raw.to_array())
     }
+}
+
+/// Which checkout path a quote authorizes (#565).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AcquisitionKind {
+    DirectPurchase,
+    Lease,
+    Bundle,
+    AccessPass,
+    BulkCheckout,
+    ResaleFill,
+}
+
+/// A bounded quote commitment covering every checkout path (#565).
+///
+/// Binds the authorization to the network, contract, acquisition, asset and the
+/// exact commercial terms in effect when the quote was produced. `terms_hash`
+/// covers the listing revision, fee schedule, splits, bundle membership and
+/// pass duration, so any of those changing between simulation and submission
+/// invalidates the quote before funds move.
+///
+/// `max_charge` is a ceiling, not a target: the buyer is never debited above it.
+/// A tip is carried separately in `tip_amount` so an excess payment can never be
+/// silently reinterpreted as a gratuity.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuoteCommitment {
+    pub network_id: BytesN<32>,
+    pub contract_id: BytesN<32>,
+    pub buyer: Address,
+    pub kind: AcquisitionKind,
+    /// prompt_id, bundle_id or pass_id depending on `kind`.
+    pub acquisition_id: u128,
+    pub asset: Address,
+    /// Hash over the expected revision and fee/split/membership configuration.
+    pub terms_hash: BytesN<32>,
+    /// Maximum the buyer authorizes for the purchase itself, excluding any tip.
+    pub max_charge: i128,
+    /// Explicit tip. `0` means no tip is authorized.
+    pub tip_amount: i128,
+    pub not_before_ledger: u32,
+    pub expiry_ledger: u32,
+    pub nonce: BytesN<32>,
+}
+
+/// One acquisition attempt, keyed by its own settlement ID (#567).
+///
+/// Records are append-only. Reacquiring an expired or refunded license
+/// allocates a new ID rather than overwriting the prior commercial and dispute
+/// record, so historical settlement and receipts stay unambiguous.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementRecord {
+    pub settlement_id: u128,
+    pub prompt_id: u64,
+    pub buyer: Address,
+    pub kind: AcquisitionKind,
+    pub amount: i128,
+    pub asset: Address,
+    pub status: SettlementStatus,
+    pub created_at: u64,
+    pub settled_at: u64,
+    /// Settlement this one superseded, if it was a reacquisition.
+    pub supersedes: Option<u128>,
+    pub payout_plan: PayoutPlan,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResaleOrderStatus {
+    Open,
+    Filled,
+    Cancelled,
+}
+
+/// A seller-signed resale order (#568).
+///
+/// Replaces dual-authorization `transfer_license`, which needed both parties in
+/// one invocation and carried no nonce, expiry or cancellation state. The seller
+/// signs once; a buyer fills later without a synchronous seller signature.
+///
+/// `buyer` set to `None` is an open order; `Some(addr)` restricts the fill to
+/// that address. Ownership and entitlement expiry are revalidated at fill time.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResaleOrder {
+    pub network_id: BytesN<32>,
+    pub contract_id: BytesN<32>,
+    pub seller: Address,
+    pub prompt_id: u64,
+    /// Entitlement being sold, so a later reacquisition cannot be substituted.
+    pub settlement_id: u128,
+    pub asset: Address,
+    pub price: i128,
+    /// Minimum the seller accepts after royalties are routed.
+    pub min_proceeds: i128,
+    /// `None` leaves the order open to any buyer.
+    pub buyer: Option<Address>,
+    pub royalty_bps: u32,
+    pub expiry_ledger: u32,
+    pub nonce: BytesN<32>,
+    pub status: ResaleOrderStatus,
+}
+
+/// The high-risk changes that must go through the delay (#569).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GovernanceAction {
+    /// Upgrade the contract WASM to the given hash.
+    Upgrade(BytesN<32>),
+    /// Redirect platform fees to a new wallet.
+    SetFeeWallet(Address),
+    SetFeePercentage(u32),
+    SetReferralPercentage(u32),
+}
+
+/// A proposed governance action awaiting its observation window (#569).
+///
+/// `expected_state_hash` pins the configuration the proposal was written
+/// against, so execution fails if the current configuration has since drifted.
+/// Cancellable by the governance role and queryable while pending.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceProposal {
+    pub action: GovernanceAction,
+    pub proposer: Address,
+    pub proposed_at_ledger: u32,
+    /// Earliest ledger at which execution is permitted.
+    pub executable_at_ledger: u32,
+    /// Ledger after which the proposal can no longer be executed.
+    pub expiry_ledger: u32,
+    pub expected_state_hash: BytesN<32>,
+    pub nonce: BytesN<32>,
 }
 
 pub trait PromptHashTrait {
