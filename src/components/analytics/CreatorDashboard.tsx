@@ -1,11 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
   Coins,
+  Download,
   Eye,
+  FileText,
   PackageCheck,
   ShoppingBag,
   TrendingUp,
@@ -13,6 +15,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/Skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getAllPrompts, type PromptRecord } from "@/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { stroopsToXlmString, formatPriceLabel } from "@/lib/stellar/format";
@@ -205,7 +208,7 @@ function SalesChart({ dailySales, isLoading = false }: SalesChartProps) {
         Sales Trend (30 Days)
       </h3>
       {isLoading ? (
-        <div className="h-64 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+        <Skeleton className="h-64 w-full rounded-xl bg-white/[0.02]" />
       ) : (
         <div className="h-64">
           <Line data={chartData} options={options} />
@@ -255,6 +258,16 @@ interface CreatorDashboardProps {
 }
 
 export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const handleDownloadStatement = () => {
+    let url = `/api/prompts/creator/${encodeURIComponent(walletAddress)}/payout-statement?format=csv`;
+    if (startDate) url += `&startDate=${encodeURIComponent(startDate)}`;
+    if (endDate) url += `&endDate=${encodeURIComponent(endDate)}`;
+    window.open(url, "_blank");
+  };
+
   const { data: allPrompts = [], isLoading, isError } = useQuery({
     queryKey: ["creator-dashboard", walletAddress],
     queryFn: () => getAllPrompts(browserStellarConfig),
@@ -327,7 +340,7 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
         </div>
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+            <Skeleton key={i} className="h-16 w-full rounded-xl bg-white/[0.02]" />
           ))}
         </div>
       </div>
@@ -410,6 +423,52 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
         dailySales={salesAnalytics?.dailySales ?? []}
         isLoading={isSalesAnalyticsLoading}
       />
+
+      {/* Payout Statement Export */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">
+            <FileText className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Sales Payout Statement</h3>
+            <p className="text-xs text-slate-400">
+              Download a CSV statement showing sale date, prompt info, buyer, gross amount, platform fee, and net payout.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="payout-start-date" className="text-xs text-slate-400">From:</label>
+            <input
+              id="payout-start-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="payout-end-date" className="text-xs text-slate-400">To:</label>
+            <input
+              id="payout-end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <Button
+            onClick={handleDownloadStatement}
+            size="sm"
+            className="bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 gap-1.5"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download Statement (CSV)
+          </Button>
+        </div>
+      </div>
 
       {/* Top-performing prompts */}
       {metrics.topPrompts.length > 0 && (

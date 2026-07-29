@@ -219,6 +219,29 @@ The frontend hooks use React Query with:
 - 1-minute cache for suggestions
 - 5-minute cache for categories and featured prompts
 
+### HTTP Conditional Requests (ETag)
+
+Public marketplace reads — `GET /api/prompts` and `GET /api/prompts/:onChainId/price-history`
+— set a strong `ETag` derived from the response body plus a
+`Cache-Control: public, max-age=30, must-revalidate` header. Clients
+(including CDNs and browsers) that send the previous `ETag` back via
+`If-None-Match` receive a `304 Not Modified` with no body when the listing
+data hasn't changed, avoiding a repeated payload transfer.
+
+Because the tag is content-derived, it changes automatically whenever the
+underlying data changes — no separate cache-busting step is required. The
+Soroban event indexer (`server/src/services/indexer.ts`) additionally clears
+the Redis read-through cache (`prompts:list:*`, `prompts:detail:<id>`) after
+every `PromptCreated`, `PromptPurchased`, `PromptOwnershipTransferred`,
+`PromptPriceUpdated`, and `PromptSaleStatusUpdated` event, so a request made
+right after an indexed update always recomputes a fresh tag instead of
+serving a stale Redis entry.
+
+Wallet-scoped reads (buyer library, saved prompts, drafts, creator
+analytics/payout statements, preview stats, integrity reports) always send
+`Cache-Control: private, no-store` and never receive an ETag, so they are
+never cached by a shared/public cache such as a CDN.
+
 ### Pagination
 
 The API supports server-side pagination to:

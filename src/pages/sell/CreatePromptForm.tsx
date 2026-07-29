@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Eye, Loader2, Pencil, Plus, Trash2, Copy } from "lucide-react";
 import {
   ListingQualityChecklist,
   buildChecklistItems,
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWallet } from "@/hooks/useWallet";
+import { useDraftAutoSave } from "@/hooks/useDraftAutoSave";
 import { unlockPublicKey } from "@/lib/env";
 import {
   encryptPromptPlaintext,
@@ -30,13 +31,16 @@ import {
 import { isIpfsUploadConfigured, uploadCiphertextToIpfs } from "@/lib/ipfs";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
-import { createPrompt } from "@/lib/stellar/promptHashClient";
+import { createPrompt, findPromptByContentHash } from "@/lib/stellar/promptHashClient";
+import { hashPromptPlaintext } from "@/lib/crypto/promptCrypto";
 import {
   LISTING_LIMITS,
   RevenueSplitFormInput,
   createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloadSizeEstimator";
+import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
 
 const limits = {
   ...LISTING_LIMITS,
@@ -64,20 +68,17 @@ interface CreatePromptFormProps {
   onCreated?: () => void;
 }
 
-const DRAFT_STORAGE_PREFIX = "prompt-hash:create-draft:";
-
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
   const { address, signTransaction } = useWallet();
-  const draftStorageKey = address ? `${DRAFT_STORAGE_PREFIX}${address}` : null;
-  const draftLoadRef = useRef<string | null>(null);
   
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showChecklist, setShowChecklist] = useState(true);
-  const [draftRestored, setDraftRestored] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(true);
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [isFirstListing] = useState(true);
   const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
 
@@ -104,6 +105,16 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   });
 
   const watchAllFields = watch();
+
+  const {
+    draftRestored,
+    lastSavedAt,
+    discardDraft,
+  } = useDraftAutoSave({
+    address,
+    values: watchAllFields,
+    setValue,
+  });
 
   const isConfigured = useMemo(
     () => Boolean(address && browserStellarConfig.promptHashContractId && unlockPublicKey),
@@ -142,40 +153,59 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     [coCreatorsList],
   );
 
-  useEffect(() => {
-    draftLoadRef.current = null;
-    setDraftRestored(false);
-    setLastSavedAt(null);
+  const payloadEstimate = useMemo(
+    () => estimateEncryptedPayloadSize(watchAllFields.fullPrompt || ""),
+    [watchAllFields.fullPrompt]
+  );
 
-    if (!draftStorageKey) {
-      return;
-    }
-
-    const rawDraft = window.localStorage.getItem(draftStorageKey);
-    if (!rawDraft) {
-      draftLoadRef.current = draftStorageKey;
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(rawDraft);
-      if (parsed.formData) {
-        Object.keys(parsed.formData).forEach((key) => {
-          setValue(key, parsed.formData[key]);
-        });
-        setDraftRestored(true);
-        setLastSavedAt(parsed.savedAt ?? null);
+  const checkDuplicateHash = useCallback(
+    async (plaintext: string) => {
+      if (!plaintext.trim()) {
+        setDuplicateWarning(null);
+        return;
       }
-    } catch {
-      window.localStorage.removeItem(draftStorageKey);
-    } finally {
-      draftLoadRef.current = draftStorageKey;
-    }
-  }, [draftStorageKey, setValue]);
+
+      setIsCheckingDuplicate(true);
+      setDuplicateWarning(null);
+      setDuplicateConfirmed(false);
+
+      try {
+        const hash = await hashPromptPlaintext(plaintext);
+        const config = browserStellarConfig;
+        const matches = await findPromptByContentHash(config, hash);
+
+        if (matches.length > 0) {
+          const owned = matches.filter((m) => m.creator === address);
+          if (owned.length > 0) {
+            setDuplicateWarning(
+              `You already have a listing with this exact content (ID: ${owned[0].id}). Publishing will create a duplicate.`,
+            );
+          } else {
+            setDuplicateWarning(
+              "A listing with this exact content already exists. Publishing will create a duplicate.",
+            );
+          }
+        }
+      } catch {
+        // Silently ignore hash-check failures — the listing can still proceed.
+      } finally {
+        setIsCheckingDuplicate(false);
+      }
+    },
+    [address],
+  );
 
   const onSubmit = async (data: any) => {
     setSubmitError(null);
     setSuccessMessage(null);
+
+    // Final duplicate gate: block submission if a duplicate was detected
+    // and the creator hasn't explicitly confirmed.
+    if (duplicateWarning && !duplicateConfirmed) {
+      setSubmitError("A duplicate content hash was detected. Confirm below to proceed.");
+      return;
+    }
+
     console.log("Form submitted successfully:", data);
     await new Promise((resolve) => setTimeout(resolve, 1000));
   };
@@ -211,6 +241,11 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             )}
             <button
               type="button"
+              onClick={() => {
+                if (window.confirm("Discard this draft? All unsaved listing fields will be reset.")) {
+                  discardDraft();
+                }
+              }}
               className="ml-auto text-xs text-cyan-200 underline underline-offset-2 hover:text-cyan-50"
             >
               Discard
@@ -445,14 +480,56 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               {errors.fullPrompt.message?.toString()}
             </p>
           )}
+
+          {/* Encrypted payload size estimator (#458) */}
+          <EncryptedPayloadSizeEstimator
+            fullPromptText={watchAllFields.fullPrompt || ""}
+            className="mt-3"
+          />
+
+          {/* Duplicate content hash check (#488) */}
+          {watchAllFields.fullPrompt && (
+            <button
+              type="button"
+              onClick={() => checkDuplicateHash(watchAllFields.fullPrompt)}
+              disabled={isCheckingDuplicate}
+              className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
+            >
+              {isCheckingDuplicate ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+              Check for duplicates
+            </button>
+          )}
+          {duplicateWarning && (
+            <div className="mt-2 rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              <p className="font-medium">⚠ Duplicate detected</p>
+              <p className="mt-1">{duplicateWarning}</p>
+              <label className="mt-2 flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={duplicateConfirmed}
+                  onChange={(e) => setDuplicateConfirmed(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-amber-400"
+                />
+                <span>I understand — publish anyway</span>
+              </label>
+            </div>
+          )}
         </div>
 
         {showChecklist && <ListingQualityChecklist items={checklistItems} />}
 
         <Button
           type="submit"
-          className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300 mt-4"
-          disabled={isSubmitting || (showChecklist && checklistHasFailures)}
+          className="w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={
+            isSubmitting ||
+            (showChecklist && checklistHasFailures) ||
+            payloadEstimate.isOverLimit
+          }
         >
           {isSubmitting ? (
             <>

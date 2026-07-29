@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { Filter, Search, X, GitCompare, ChevronUp } from "lucide-react";
+import { Filter, Search, X, GitCompare, ChevronUp, Bookmark, Bell } from "lucide-react";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
@@ -7,6 +7,8 @@ import { FeaturedPrompts } from "@/components/featured-prompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MarketplaceFilters } from "@/components/MarketplaceFilters";
+import { SavedSearchesManager } from "@/components/SavedSearchesManager";
+import { useSavedSearches, SavedSearchFilter } from "@/hooks/useSavedSearches";
 import FetchAllPrompts from "./FetchAllPrompts";
 import { HeroAnimation } from "./HeroAnimation";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
@@ -17,6 +19,7 @@ import {
 import {
   getSearchStateFromUrl,
   updateUrlWithSearchState,
+  rememberMarketplaceReturnUrl,
   DEFAULT_SEARCH_STATE,
 } from "@/lib/search/urlState";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
@@ -56,8 +59,32 @@ export default function BrowsePage() {
   );
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCompareDrawerOpen, setIsCompareDrawerOpen] = useState(false);
+  const [isSavedSearchesOpen, setIsSavedSearchesOpen] = useState(false);
 
-  // Sync state to URL whenever any filter changes
+  const { savedSearches, unreadAlertCount } = useSavedSearches();
+
+  const currentFilterState: SavedSearchFilter = useMemo(
+    () => ({
+      searchQuery,
+      category: selectedCategory,
+      priceRange,
+      sortBy,
+      tag: selectedTag,
+    }),
+    [searchQuery, selectedCategory, priceRange, sortBy, selectedTag]
+  );
+
+  const handleApplySavedFilter = (filter: SavedSearchFilter) => {
+    setSearchQuery(filter.searchQuery || "");
+    setSelectedCategory(filter.category || "");
+    setPriceRange(filter.priceRange || [0, 25]);
+    setSortBy(filter.sortBy || "recent");
+    setSelectedTag(filter.tag || "");
+  };
+
+  // Sync state to URL whenever any filter changes, and remember this filtered
+  // view so a prompt detail page navigated to from here can link back to it
+  // instead of a bare, unfiltered /browse (#497).
   useEffect(() => {
     updateUrlWithSearchState({
       searchQuery,
@@ -66,7 +93,23 @@ export default function BrowsePage() {
       priceRange,
       sortBy,
     });
+    rememberMarketplaceReturnUrl();
   }, [searchQuery, selectedCategory, selectedTag, priceRange, sortBy]);
+
+  // Listen for back/forward navigation to restore filters
+  useEffect(() => {
+    const handlePopState = () => {
+      const state = getSearchStateFromUrl();
+      setSearchQuery(state.searchQuery || DEFAULT_SEARCH_STATE.searchQuery);
+      setSelectedCategory(state.selectedCategory || DEFAULT_SEARCH_STATE.selectedCategory);
+      setSelectedTag(state.selectedTag || DEFAULT_SEARCH_STATE.selectedTag);
+      setPriceRange(state.priceRange || DEFAULT_SEARCH_STATE.priceRange);
+      setSortBy(state.sortBy || DEFAULT_SEARCH_STATE.sortBy);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const { selected, addToComparison, removeFromComparison, clearComparison } =
     usePromptComparison();
@@ -184,6 +227,28 @@ export default function BrowsePage() {
                   className="h-14 pl-12 pr-4 rounded-2xl border-white/5 bg-white/[0.03] text-base placeholder:text-slate-500 focus-visible:ring-emerald-500/20 transition-all"
                 />
               </div>
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsSavedSearchesOpen(true)}
+                  className="h-14 px-4 rounded-2xl border-white/10 bg-white/5 flex items-center gap-2 hover:border-emerald-500/40 text-slate-200"
+                  aria-label="Open saved searches and alerts"
+                >
+                  <Bookmark className="h-4 w-4 text-emerald-400" />
+                  <span className="hidden sm:inline text-sm font-semibold">Saved Searches</span>
+                  {savedSearches.length > 0 && (
+                    <span className="bg-white/10 px-2 py-0.5 rounded-full text-xs font-mono">
+                      {savedSearches.length}
+                    </span>
+                  )}
+                  {unreadAlertCount > 0 && (
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-slate-950">
+                      {unreadAlertCount}
+                    </span>
+                  )}
+                </Button>
+              </div>
+
               <div className="relative lg:hidden">
                 <Button
                   variant="outline"
@@ -200,6 +265,13 @@ export default function BrowsePage() {
                 )}
               </div>
             </div>
+
+            <SavedSearchesManager
+              currentFilter={currentFilterState}
+              onApplyFilter={handleApplySavedFilter}
+              isOpen={isSavedSearchesOpen}
+              onClose={() => setIsSavedSearchesOpen(false)}
+            />
 
             <FetchAllPrompts
               selectedCategory={selectedCategory}

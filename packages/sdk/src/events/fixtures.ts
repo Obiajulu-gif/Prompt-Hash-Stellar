@@ -282,4 +282,45 @@ export const EVENT_FIXTURES: EventFixture[] = [
       data: { pass_id: 3n, buyer: ADDR_B, creator: ADDR_A, expires_at: 1_900_000_000n },
     },
   },
+  {
+    type: "ContractUpgraded",
+    raw: { old_wasm_hash: HASHED_CODE, new_wasm_hash: HASHED_CODE, admin: ADDR_C },
+    expected: {
+      recognized: true,
+      type: "ContractUpgraded",
+      version: 1,
+      data: { old_wasm_hash: HASHED_CODE, new_wasm_hash: HASHED_CODE, admin: ADDR_C },
+    },
+  },
+  {
+    type: "PromptCreated",
+    raw: { prompt_id: 100n, creator: ADDR_A, price_stroops: 10_000_0000000n, asset: ADDR_B, version: 2 },
+    expected: {
+      recognized: true,
+      type: "PromptCreated",
+      version: 2,
+      data: { prompt_id: 100n, creator: ADDR_A, price_stroops: 10_000_0000000n, asset: ADDR_B, version: 2 },
+    },
+  },
+  {
+    type: "PromptPurchased",
+    raw: { prompt_id: 100n, buyer: ADDR_B, creator: ADDR_A, price_stroops: 10_000_0000000n, referrer: undefined, version: 2 },
+    expected: {
+      recognized: true,
+      type: "PromptPurchased",
+      version: 2,
+      data: { prompt_id: 100n, buyer: ADDR_B, creator: ADDR_A, price_stroops: 10_000_0000000n, referrer: undefined, version: 2 },
+    },
+  },
+  {
+    type: "ContractUpgraded",
+    raw: { old_wasm_hash: HASHED_CODE, new_wasm_hash: HASHED_CODE, admin: ADDR_C, version: 2 },
+    expected: {
+      recognized: true,
+      type: "ContractUpgraded",
+      version: 2,
+      data: { old_wasm_hash: HASHED_CODE, new_wasm_hash: HASHED_CODE, admin: ADDR_C, version: 2 },
+    },
+  },
 ];
+

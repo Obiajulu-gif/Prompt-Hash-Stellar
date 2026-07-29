@@ -4,7 +4,7 @@ import "./index.css";
 import { applyThemeBeforeRender } from "./hooks/useTheme";
 import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
-import * as Sentry from "@sentry/react";
+import "./i18n"; // initialise i18n catalogue before rendering
 
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
