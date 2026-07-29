@@ -241,4 +241,100 @@ export const EVENT_SCHEMAS: Record<string, EventSchema> = {
       { name: "expires_at", type: "u64" },
     ],
   },
+  ContractUpgraded: {
+    name: "ContractUpgraded",
+    version: 1,
+    fields: [
+      { name: "old_wasm_hash", type: "bytes32" },
+      { name: "new_wasm_hash", type: "bytes32" },
+      { name: "admin", type: "address" },
+    ],
+  },
 };
+
+/**
+ * Explicit schema definitions for version 2 events (upgraded events containing explicit version fields or expanded parameters).
+ */
+export const EVENT_SCHEMAS_V2: Record<string, EventSchema> = {
+  PromptCreated: {
+    name: "PromptCreated",
+    version: 2,
+    fields: [
+      { name: "prompt_id", type: "u64" },
+      { name: "creator", type: "address" },
+      { name: "price_stroops", type: "i128" },
+      { name: "asset", type: "address" },
+      { name: "version", type: "u32" },
+    ],
+  },
+  PromptPurchased: {
+    name: "PromptPurchased",
+    version: 2,
+    fields: [
+      { name: "prompt_id", type: "u64" },
+      { name: "buyer", type: "address" },
+      { name: "creator", type: "address" },
+      { name: "price_stroops", type: "i128" },
+      { name: "referrer", type: "option<address>" },
+      { name: "version", type: "u32" },
+    ],
+  },
+  PromptPriceUpdated: {
+    name: "PromptPriceUpdated",
+    version: 2,
+    fields: [
+      { name: "prompt_id", type: "u64" },
+      { name: "price_stroops", type: "i128" },
+      { name: "version", type: "u32" },
+    ],
+  },
+  PromptSaleStatusUpdated: {
+    name: "PromptSaleStatusUpdated",
+    version: 2,
+    fields: [
+      { name: "prompt_id", type: "u64" },
+      { name: "active", type: "bool" },
+      { name: "version", type: "u32" },
+    ],
+  },
+  FeeUpdated: {
+    name: "FeeUpdated",
+    version: 2,
+    fields: [
+      { name: "new_fee_percentage", type: "u32" },
+      { name: "version", type: "u32" },
+    ],
+  },
+  ContractUpgraded: {
+    name: "ContractUpgraded",
+    version: 2,
+    fields: [
+      { name: "old_wasm_hash", type: "bytes32" },
+      { name: "new_wasm_hash", type: "bytes32" },
+      { name: "admin", type: "address" },
+      { name: "version", type: "u32" },
+    ],
+  },
+};
+
+/** Multi-version event schema registry indexed by event name and schema version. */
+export const ALL_EVENT_SCHEMAS: Record<string, Record<number, EventSchema>> = {
+  ...Object.fromEntries(
+    Object.entries(EVENT_SCHEMAS).map(([name, schema]) => [name, { 1: schema }]),
+  ),
+};
+
+for (const [name, schemaV2] of Object.entries(EVENT_SCHEMAS_V2)) {
+  if (!ALL_EVENT_SCHEMAS[name]) {
+    ALL_EVENT_SCHEMAS[name] = {};
+  }
+  ALL_EVENT_SCHEMAS[name][2] = schemaV2;
+}
+
+/**
+ * Resolves an event schema for a given event name and schema version.
+ */
+export function getEventSchema(type: string, version: number = 1): EventSchema | undefined {
+  return ALL_EVENT_SCHEMAS[type]?.[version];
+}
+

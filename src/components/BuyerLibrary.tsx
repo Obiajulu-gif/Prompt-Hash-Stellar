@@ -30,6 +30,13 @@ import { formatPriceLabel } from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
 import { UnlockExplainer, type UnlockState } from "@/components/UnlockExplainer";
 import { stellarNetwork } from "@/lib/env";
+import { LibrarySkeleton } from "@/components/skeletons";
+import { EntitlementStatusPanel } from "@/components/prompts/EntitlementStatusPanel";
+import { usePurchaseReceipt } from "@/hooks/usePurchaseReceipt";
+import {
+  deriveEntitlementState,
+  type ReferenceStatus,
+} from "@/lib/prompts/entitlementStatus";
 
 const EXPECTED_NETWORK = stellarNetwork;
 
@@ -148,6 +155,24 @@ function PromptLibraryCard({
   const [showRefundModal, setShowRefundModal] = useState(false);
   const canRequestRefund = unlockState === "failed" && buyerWallet;
 
+  // Licence entitlement status panel (#490) — surfaces the purchase
+  // transaction + licence version reference and distinguishes a slow
+  // indexer ("pending") from a real unlock failure.
+  const promptId = prompt.id.toString();
+  const receiptQuery = usePurchaseReceipt(promptId, buyerWallet);
+  const referenceStatus: ReferenceStatus = receiptQuery.isError
+    ? "unknown"
+    : receiptQuery.data === null
+      ? "pending"
+      : receiptQuery.data
+        ? "ready"
+        : "unknown";
+  const entitlementDescriptor = deriveEntitlementState({
+    listingActive: prompt.active,
+    referenceStatus,
+    unlockState,
+  });
+
   return (
     <article className="overflow-hidden rounded-xl border border-white/10 bg-[#0f1419] transition-colors hover:border-white/[0.18]">
       <div className="p-5 space-y-4">
@@ -193,6 +218,17 @@ function PromptLibraryCard({
             </p>
           </div>
         </div>
+
+        {/* Licence entitlement status panel — Issue #490 */}
+        <EntitlementStatusPanel
+          descriptor={entitlementDescriptor}
+          transactionHash={receiptQuery.data?.receipt.transaction.hash}
+          licenceVersion={receiptQuery.data?.receipt.prompt.revision}
+          onRetryReference={() => receiptQuery.refetch()}
+          isRetryingReference={receiptQuery.isFetching}
+          onRetryVerification={onUnlock}
+          isRetryingVerification={isBusy}
+        />
 
         {/* Unlock explainer — shown for non-idle, non-success states */}
         {showExplainer && (
@@ -388,16 +424,7 @@ export function BuyerLibrary() {
   if (isWrongNetwork) return <WrongNetworkState network={network} />;
 
   if (isLoading) {
-    return (
-      <div className="space-y-4">
-        {[...Array(3)].map((_, i) => (
-          <div
-            key={i}
-            className="h-32 rounded-xl border border-white/5 bg-white/[0.02] animate-pulse"
-          />
-        ))}
-      </div>
-    );
+    return <LibrarySkeleton rows={3} />;
   }
 
   if (isError) {

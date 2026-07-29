@@ -6,8 +6,11 @@ import { Keypair } from "@stellar/stellar-sdk";
 import {
   buildChallengeMessage,
   createChallengeToken,
+  globalNonceLedger,
 } from "../../src/lib/auth/challenge";
 import { ErrorCode } from "../../src/lib/api/errorCodes";
+import { CONTENT_HASH, PLAINTEXT } from "../../src/test/vectors/crypto";
+import { clearIdempotencyCache } from "../../src/lib/observability/idempotency";
 
 const hasAccessMock = vi.fn();
 const getPromptMock = vi.fn();
@@ -59,9 +62,9 @@ vi.mock("../../server/src/services/webhookDispatcher", () => ({
 
 import handler from "./unlock";
 
-async function setupUnlockFixture(plaintext = "Secret prompt instructions for buyers.") {
+async function setupUnlockFixture(plaintext = PLAINTEXT) {
   const buyer = Keypair.random();
-  const contentHash = "a".repeat(64);
+  const contentHash = CONTENT_HASH;
 
   process.env.CHALLENGE_TOKEN_SECRET = "integration-test-challenge-secret";
   process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
@@ -226,5 +229,254 @@ describe("unlock challenge message contract", () => {
     expect(buildChallengeMessage(payload)).toBe(
       "prompt-hash unlock:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:nonce-123:1700000000000:1700000000000",
     );
+  });
+});
+
+describe("unlock API replay, expiry, and missing-field rejection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+  });
+
+  it("rejects a replayed request (same token used twice)", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    // First request succeeds
+    const first = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Second request with identical parameters — must be rejected as replay
+    const second = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+    expect(second.statusCode).toBe(400);
+    expect(second.responseData.code).toBe(ErrorCode.TEMPORARY_FAILURE);
+    expect(String(second.responseData.error)).toContain("already been processed");
+  });
+
+  it("rejects an expired challenge token", async () => {
+    const buyer = Keypair.random();
+    const promptId = "42";
+
+    // Token issued in the past with a short TTL that has since expired
+    const challenge = createChallengeToken(
+      process.env.CHALLENGE_TOKEN_SECRET!,
+      buyer.publicKey(),
+      promptId,
+      Date.now() - 60_000, // 1 minute ago
+      1000,                 // 1 second TTL
+    );
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage: "does-not-matter-verification-fails-first",
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.CHALLENGE_EXPIRED);
+    expect(String(responseData.error)).toContain("expired");
+  });
+
+  it("rejects request with missing token", async () => {
+    const { buyer, promptId, signedMessage } = await setupUnlockFixture();
+
+    const { statusCode, responseData } = await invokeUnlock({
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.MISSING_FIELDS);
+  });
+
+  it("rejects request with missing address", async () => {
+    const { promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.MISSING_FIELDS);
+  });
+
+  it("rejects request with missing signedMessage", async () => {
+    const { buyer, promptId, challenge } = await setupUnlockFixture();
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.MISSING_FIELDS);
+  });
+
+  it("stable error shape for replay (consistent code and message)", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    // First request — consume the nonce
+    await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    // Replay
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData).toMatchObject({
+      code: ErrorCode.TEMPORARY_FAILURE,
+      error: "This unlock request has already been processed.",
+    });
+  });
+});
+
+describe("unlock API idempotency", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+  });
+
+  it("returns cached result when the same idempotency key is reused with identical data", async () => {
+    const { buyer, promptId, challenge, signedMessage, plaintext } =
+      await setupUnlockFixture();
+    const idempotencyKey = "retry-test-key-001";
+
+    // First request with idempotency key
+    const first = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+      idempotencyKey,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.responseData.plaintext).toBe(plaintext);
+
+    // Second request with the same idempotency key and identical data
+    const second = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+      idempotencyKey,
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.responseData.plaintext).toBe(plaintext);
+
+    // The handler should not have called the decrypt mock twice
+    expect(decryptPromptCiphertextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 when the same idempotency key is reused with different request data", async () => {
+    const { buyer, promptId, challenge, signedMessage } =
+      await setupUnlockFixture();
+    const idempotencyKey = "conflict-test-key-002";
+
+    // First request with idempotency key
+    const first = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+      idempotencyKey,
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Second request with the same key but different signedMessage
+    const differentSig = Buffer.from(
+      buyer.sign(Buffer.from("different-message", "utf8")),
+    ).toString("base64");
+    const second = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage: differentSig,
+      idempotencyKey,
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.responseData.code).toBe(ErrorCode.IDEMPOTENCY_CONFLICT);
+  });
+
+  it("does not apply idempotency when no key is provided (normal behaviour)", async () => {
+    const { buyer, promptId, challenge, signedMessage } =
+      await setupUnlockFixture();
+
+    // Two requests without an idempotency key — second should be rejected by nonce replay
+    const first = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+    expect(second.statusCode).toBe(400);
+  });
+
+  it("caches expired-challenge errors under the idempotency key", async () => {
+    const buyer = Keypair.random();
+    const promptId = "42";
+    const idempotencyKey = "error-cache-key-003";
+
+    const challenge = createChallengeToken(
+      process.env.CHALLENGE_TOKEN_SECRET!,
+      buyer.publicKey(),
+      promptId,
+      Date.now() - 60_000,
+      1000,
+    );
+
+    // First request — fails with expired challenge
+    const first = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage: "any-signature",
+      idempotencyKey,
+    });
+    expect(first.statusCode).toBe(400);
+    expect(first.responseData.code).toBe(ErrorCode.CHALLENGE_EXPIRED);
+
+    // Second request with the same key — returns cached error without reprocessing
+    const second = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage: "any-signature",
+      idempotencyKey,
+    });
+    expect(second.statusCode).toBe(400);
+    expect(second.responseData.code).toBe(ErrorCode.CHALLENGE_EXPIRED);
   });
 });

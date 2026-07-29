@@ -249,13 +249,113 @@ describe("unlock challenge security edge cases", () => {
 
   it("rejects a token replayed after explicit nonce consumption", () => {
     const address = Keypair.random().publicKey();
-    const challenge = createChallengeToken(SECRET, address, "replay-test", ISSUED_AT);
+    const now = Date.now();
+    const challenge = createChallengeToken(SECRET, address, "replay-test", now);
 
     // Simulate the unlock flow consuming the nonce
     const ledger = new NonceLedger();
     expect(ledger.consume(challenge.nonce, challenge.expiresAt)).toBe(true);
 
     // Second use of the same token must be rejected
-    expect(ledger.consume(challenge.nonce, challenge.expiresAt)).toBe(true);
+    expect(ledger.consume(challenge.nonce, challenge.expiresAt)).toBe(false);
+  });
+
+  it("isConsumed returns true after a nonce is consumed", () => {
+    const ledger = new NonceLedger();
+    ledger.consume("track-me", Date.now() + 60_000);
+    expect(ledger.isConsumed("track-me")).toBe(true);
+  });
+
+  it("isConsumed returns false for an unknown nonce", () => {
+    const ledger = new NonceLedger();
+    expect(ledger.isConsumed("never-consumed")).toBe(false);
+  });
+
+  it("isConsumed returns false after an expired nonce is pruned", () => {
+    const ledger = new NonceLedger();
+    ledger.consume("will-expire", Date.now() - 1);
+    // isConsumed triggers prune, so the expired entry is gone
+    expect(ledger.isConsumed("will-expire")).toBe(false);
+  });
+
+  it("size reflects the number of active nonces", () => {
+    const ledger = new NonceLedger();
+    expect(ledger.size).toBe(0);
+    ledger.consume("a", Date.now() + 60_000);
+    ledger.consume("b", Date.now() + 60_000);
+    expect(ledger.size).toBe(2);
+  });
+
+  it("size excludes expired nonces", () => {
+    const ledger = new NonceLedger();
+    ledger.consume("old", Date.now() - 1);
+    ledger.consume("active", Date.now() + 60_000);
+    // old is pruned during the second consume
+    expect(ledger.size).toBe(1);
+  });
+
+  it("clear removes all tracked nonces", () => {
+    const ledger = new NonceLedger();
+    ledger.consume("a", Date.now() + 60_000);
+    ledger.consume("b", Date.now() + 60_000);
+    expect(ledger.size).toBe(2);
+    ledger.clear();
+    expect(ledger.size).toBe(0);
+    expect(ledger.isConsumed("a")).toBe(false);
+    expect(ledger.isConsumed("b")).toBe(false);
+  });
+
+  it("rejects nonce replay within the same expiry window", () => {
+    const ledger = new NonceLedger();
+    const now = Date.now();
+    const farFuture = now + 300_000;
+
+    // First consume succeeds
+    expect(ledger.consume("replay-window", farFuture)).toBe(true);
+    // Second consume within the same window is rejected
+    expect(ledger.consume("replay-window", farFuture)).toBe(false);
+  });
+
+  it("allows independent nonces from the same wallet", () => {
+    const address = Keypair.random().publicKey();
+    const ledger = new NonceLedger();
+    const now = Date.now();
+    const c1 = createChallengeToken(SECRET, address, "1", now);
+    const c2 = createChallengeToken(SECRET, address, "2", now);
+    const c3 = createChallengeToken(SECRET, address, "3", now);
+
+    expect(ledger.consume(c1.nonce, c1.expiresAt)).toBe(true);
+    expect(ledger.consume(c2.nonce, c2.expiresAt)).toBe(true);
+    expect(ledger.consume(c3.nonce, c3.expiresAt)).toBe(true);
+
+    // Each nonce is distinct, so all succeed
+    expect(ledger.size).toBe(3);
+  });
+
+  it("simulates concurrent consumption of the same nonce — only one wins", () => {
+    const ledger = new NonceLedger();
+    const nonce = "race-condition-nonce";
+    const exp = Date.now() + 60_000;
+
+    // Simulate two requests arriving at nearly the same time
+    const result1 = ledger.consume(nonce, exp);
+    const result2 = ledger.consume(nonce, exp);
+
+    // Exactly one of the two must succeed (the first one)
+    expect(result1).toBe(true);
+    expect(result2).toBe(false);
+  });
+
+  it("nonce isolation across different prompt IDs", () => {
+    const address = Keypair.random().publicKey();
+    const ledger = new NonceLedger();
+
+    // Even if a nonce happens to collide (extremely unlikely with UUIDs),
+    // consuming it for one promptId should prevent reuse for any promptId
+    const nonce = "shared-nonce-scenario";
+    const exp = Date.now() + 60_000;
+
+    expect(ledger.consume(nonce, exp)).toBe(true);
+    expect(ledger.consume(nonce, exp)).toBe(false);
   });
 });

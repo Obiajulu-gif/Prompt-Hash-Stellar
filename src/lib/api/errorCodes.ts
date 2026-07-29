@@ -46,6 +46,9 @@ export const ErrorCode = {
 
   /** A temporary backend failure occurred. The client may retry. */
   TEMPORARY_FAILURE: "TEMPORARY_FAILURE",
+
+  /** The idempotency key was reused with conflicting request data. */
+  IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -92,6 +95,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CONFIGURATION_ERROR: "Something went wrong on our end. Please try again later.",
   INTEGRITY_FAILURE: "Prompt content could not be verified. Please contact support if this persists.",
   TEMPORARY_FAILURE: "A temporary error occurred. Please try again in a moment.",
+
+  IDEMPOTENCY_CONFLICT: "This idempotency key was used with a different request. Please use a new key.",
 };
 
 export type UnlockErrorCategory = "wallet" | "access" | "server";

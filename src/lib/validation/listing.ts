@@ -1,9 +1,10 @@
 import { xlmToStroops } from "@/lib/stellar/format";
 import { z } from "zod";
+import { PROMPT_METADATA_LIMITS } from "../../../packages/schema/src/promptMetadata.js";
 
 export const LISTING_LIMITS = {
-  imageUrl: 512,
-  title: 120,
+  imageUrl: PROMPT_METADATA_LIMITS.image.max,
+  title: PROMPT_METADATA_LIMITS.title.max,
   category: 40,
   preview: 280,
   previewMin: 10,
@@ -16,25 +17,36 @@ export const LISTING_LIMITS = {
 } as const;
 
 export const createPromptSchema = z.object({
+  imageUrl: z
+    .string()
+    .nonempty("Image URL is required")
+    .max(PROMPT_METADATA_LIMITS.image.max, `Image URL must be ${PROMPT_METADATA_LIMITS.image.max} characters or fewer`)
+    .regex(/^https?:\/\/.+/i, "Image URL must start with http:// or https://"),
   title: z
     .string()
-    .min(3, "Title must be at least 3 characters")
-    .max(50, "Title cannot exceed 50 characters")
+    .min(PROMPT_METADATA_LIMITS.title.min, `Title must be at least ${PROMPT_METADATA_LIMITS.title.min} characters`)
+    .max(PROMPT_METADATA_LIMITS.title.max, `Title cannot exceed ${PROMPT_METADATA_LIMITS.title.max} characters`)
     .nonempty("Title is required"),
+  category: z.string().nonempty("Category is required"),
+  previewText: z
+    .string()
+    .min(10, "Preview text must be at least 10 characters")
+    .max(280, "Preview text cannot exceed 280 characters")
+    .nonempty("Preview text is required"),
   description: z
     .string()
     .min(10, "Description must be at least 10 characters")
     .nonempty("Description is required"),
-  content: z
+  fullPrompt: z
     .string()
-    .min(5, "Prompt instructions/content are required")
-    .nonempty("Content is required"),
-  price: z
+    .min(5, "Full prompt content is required")
+    .nonempty("Full prompt is required"),
+  priceXlm: z
     .coerce // Automatically converts string input values to numbers
     .number()
     .positive("Price must be a positive number")
-    .min(0.00001, "Price must be greater than 0 XLM")
-    .max(100000, "Price exceeds maximum allowable XLM limit"),
+    .min(PROMPT_METADATA_LIMITS.price.min, "Price must be greater than 0 XLM")
+    .max(PROMPT_METADATA_LIMITS.price.max, "Price exceeds maximum allowable XLM limit"),
 });
 
 export type CreatePromptInput = z.infer<typeof createPromptSchema>;
