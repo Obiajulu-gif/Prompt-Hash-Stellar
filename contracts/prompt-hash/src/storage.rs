@@ -109,15 +109,11 @@ impl InstanceStorage {
     /// rather than silently using wrong defaults.
     pub fn require_config_initialized(env: &Env) -> Result<(), Error> {
         ensure(
-            env.storage()
-                .instance()
-                .has(&InstanceDataKey::FeeWallet),
+            env.storage().instance().has(&InstanceDataKey::FeeWallet),
             Error::FeeWalletNotSet,
         )?;
         ensure(
-            env.storage()
-                .instance()
-                .has(&InstanceDataKey::XlmAddress),
+            env.storage().instance().has(&InstanceDataKey::XlmAddress),
             Error::XlmAddressNotSet,
         )
     }
@@ -130,7 +126,7 @@ pub struct Storage;
 impl Storage {
     pub fn extend_key_ttl(env: &Env, key: &DataKey) {
         use crate::ttl_policy::get_ttl_for_key;
-        
+
         if !env.storage().persistent().has(key) {
             return;
         }
@@ -140,11 +136,9 @@ impl Storage {
             return; // Instance keys don't get TTL management
         }
 
-        env.storage().persistent().extend_ttl(
-            key,
-            PERSISTENT_LIFETIME_THRESHOLD,
-            max_ttl,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(key, PERSISTENT_LIFETIME_THRESHOLD, max_ttl);
     }
 
     pub fn save_prompt(env: &Env, prompt: &Prompt) -> Result<(), Error> {
@@ -154,12 +148,12 @@ impl Storage {
 
         let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         InstanceStorage::save_prompt_counter(env, next_prompt_id);
-        
+
         // Update all indexes for pagination
         Self::update_category_index(env, prompt);
         Self::update_tag_index(env, prompt);
         Self::update_status_indexes(env, prompt);
-        
+
         Ok(())
     }
 
@@ -372,7 +366,11 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
-    pub fn get_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) -> Option<PurchaseEscrow> {
+    pub fn get_purchase_escrow(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+    ) -> Option<PurchaseEscrow> {
         let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
         let escrow = env.storage().persistent().get(&key);
         if env.storage().persistent().has(&key) {
@@ -691,12 +689,12 @@ impl Storage {
     ) -> Vec<Prompt> {
         use crate::pagination::MAX_PAGE_SIZE;
 
-        let limit = if limit < MAX_PAGE_SIZE { limit } else { MAX_PAGE_SIZE };
-        let ids: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(key)
-            .unwrap_or(Vec::new(env));
+        let limit = if limit < MAX_PAGE_SIZE {
+            limit
+        } else {
+            MAX_PAGE_SIZE
+        };
+        let ids: Vec<u64> = env.storage().persistent().get(key).unwrap_or(Vec::new(env));
 
         let mut results = Vec::new(env);
         let mut start_idx = 0u32;
@@ -793,10 +791,7 @@ impl Storage {
 
     /// Renew the TTL of prompt records (and their listing revisions/creator
     /// index) in a bounded batch. Returns (renewed_count, next_cursor_if_more_work).
-    pub fn renew_critical_keys(
-        env: &Env,
-        cursor: Option<u64>,
-    ) -> (u32, Option<u64>) {
+    pub fn renew_critical_keys(env: &Env, cursor: Option<u64>) -> (u32, Option<u64>) {
         use crate::ttl_policy::MAX_RENEWAL_BATCH_SIZE;
 
         let prompt_count = InstanceStorage::get_prompt_counter(env);

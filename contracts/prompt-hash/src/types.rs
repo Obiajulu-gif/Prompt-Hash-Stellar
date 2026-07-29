@@ -148,10 +148,10 @@ pub enum DataKey {
     Prompt(u64),
     CreatorPrompts(Address),
     BuyerPrompts(Address),
-    CategoryPrompts(String),      // Index: category → Vec<prompt_ids>
-    TagPrompts(String),            // Index: tag → Vec<prompt_ids>
-    ActivePrompts,                 // Index: all active → Vec<prompt_ids>
-    AllPrompts,                    // Index: all → Vec<prompt_ids>
+    CategoryPrompts(String), // Index: category → Vec<prompt_ids>
+    TagPrompts(String),      // Index: tag → Vec<prompt_ids>
+    ActivePrompts,           // Index: all active → Vec<prompt_ids>
+    AllPrompts,              // Index: all → Vec<prompt_ids>
     Purchase(u64, Address),
     PurchaseEscrow(u64, Address), // Settlement tracking for refunds (#420)
     VoucherKey(u64, BytesN<32>),
@@ -215,9 +215,9 @@ pub enum DisputeReason {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SettlementStatus {
-    Pending,   // Purchase received, awaiting settlement
-    Settled,   // Payment distributed successfully
-    Refunded,  // Purchase refunded atomically
+    Pending,  // Purchase received, awaiting settlement
+    Settled,  // Payment distributed successfully
+    Refunded, // Purchase refunded atomically
 }
 
 #[contracttype]
@@ -857,11 +857,7 @@ pub trait PromptHashTrait {
         prompt_id: u64,
         buyer: Address,
     ) -> Result<(), Error>;
-    fn get_purchase_escrow(
-        env: Env,
-        prompt_id: u64,
-        buyer: Address,
-    ) -> Option<PurchaseEscrow>;
+    fn get_purchase_escrow(env: Env, prompt_id: u64, buyer: Address) -> Option<PurchaseEscrow>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;

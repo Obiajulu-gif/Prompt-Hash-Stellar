@@ -17,4 +17,3 @@ mod mock_asset;
 
 pub use contract::PromptHashContract;
 pub use types::{DataKey, Error, Prompt};
-

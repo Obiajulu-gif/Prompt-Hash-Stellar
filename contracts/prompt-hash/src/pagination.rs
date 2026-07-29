@@ -69,5 +69,8 @@ pub fn decode_cursor(_env: &Env, cursor: &SorobanString) -> Result<Cursor, Error
     let last_id = u64::from_be_bytes(id_bytes);
     let index_type = IndexType::from_u8(buf[8]).ok_or(Error::InvalidCursor)?;
 
-    Ok(Cursor { last_id, index_type })
+    Ok(Cursor {
+        last_id,
+        index_type,
+    })
 }

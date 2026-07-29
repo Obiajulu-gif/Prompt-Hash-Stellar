@@ -2,9 +2,9 @@
 
 extern crate std;
 
+use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::{Error, ListingConfig, PromptSaleStatus, Split};
-use crate::contract::{PromptHashContract, PromptHashContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
@@ -37,7 +37,15 @@ fn setup(env: &Env) -> PromptHashContext {
     }
 }
 
-fn setup_env() -> (Env, Address, Address, Address, Address, Address, PromptHashContractClient<'static>) {
+fn setup_env() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+    PromptHashContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -46,14 +54,24 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, PromptHashC
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let token_contract = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token_contract = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
     let contract_id = env.register(
         PromptHashContract,
         (admin.clone(), fee_wallet.clone(), token_contract.clone()),
     );
     let client = PromptHashContractClient::new(&env, &contract_id);
 
-    (env, admin, fee_wallet, creator, buyer, token_contract, client)
+    (
+        env,
+        admin,
+        fee_wallet,
+        creator,
+        buyer,
+        token_contract,
+        client,
+    )
 }
 
 fn hash(env: &Env, byte: u8) -> BytesN<32> {
@@ -181,10 +199,7 @@ fn test_create_prompt_stores_encrypted_fields() {
     let prompt = client.get_prompt(&prompt_id);
     assert_eq!(prompt.id, prompt_id);
     assert_eq!(prompt.creator, creator);
-    assert_eq!(
-        prompt.preview_text,
-        String::from_str(&env, "preview")
-    );
+    assert_eq!(prompt.preview_text, String::from_str(&env, "preview"));
     assert_eq!(
         prompt.encrypted_payload,
         String::from_str(&env, "encrypted")
@@ -884,11 +899,29 @@ fn test_multiple_buyers_until_supply_exhausted() {
     fund_buyer(&xlm_client, &buyer3, &context.contract, price);
 
     // Two buyers can purchase
-    client.buy_prompt(&buyer1, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
-    client.buy_prompt(&buyer2, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer1,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
+    client.buy_prompt(
+        &buyer2,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
 
     // Third buyer cannot
-    let result = client.try_buy_prompt(&buyer3, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    let result = client.try_buy_prompt(
+        &buyer3,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
 }
 
@@ -3933,13 +3966,26 @@ fn test_payout_invariant_fee_plus_creator_equals_payment() {
     let buyer = Address::generate(&env);
     let payment: i128 = 100_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Invariant Test", payment, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Invariant Test",
+        payment,
+        &context.xlm,
+    );
     fund_buyer(&xlm_client, &buyer, &context.contract, payment);
 
     let creator_balance_before = xlm_client.balance(&creator);
     let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
 
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &payment,
+        &None::<Bytes>,
+    );
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
@@ -3969,7 +4015,14 @@ fn test_payout_invariant_with_referral() {
     let referrer = Address::generate(&env);
     let payment: i128 = 100_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Referral Test", payment, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Referral Test",
+        payment,
+        &context.xlm,
+    );
     fund_buyer(&xlm_client, &buyer, &context.contract, payment);
 
     let creator_balance_before = xlm_client.balance(&creator);
@@ -4041,7 +4094,13 @@ fn test_payout_invariant_with_splits() {
     let split_1_balance_before = xlm_client.balance(&split_recipient_1);
     let split_2_balance_before = xlm_client.balance(&split_recipient_2);
 
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &payment,
+        &None::<Bytes>,
+    );
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
@@ -4087,7 +4146,13 @@ fn test_payout_invariant_with_tip() {
     let creator_balance_before = xlm_client.balance(&creator);
     let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
 
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &payment,
+        &None::<Bytes>,
+    );
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
@@ -4130,7 +4195,10 @@ fn test_lease_respects_max_supply() {
     let res = client.try_lease_prompt(&buyer_two, &prompt_id, &600);
     match res {
         Err(Ok(Error::MaxSupplyReached)) => {}
-        other => panic!("expected MaxSupplyReached for capped lease, got {:?}", other),
+        other => panic!(
+            "expected MaxSupplyReached for capped lease, got {:?}",
+            other
+        ),
     }
 }
 
@@ -4148,8 +4216,20 @@ fn test_set_max_supply_below_committed_sales_rejected() {
 
     fund_buyer(&xlm_client, &buyer_one, &context.contract, price);
     fund_buyer(&xlm_client, &buyer_two, &context.contract, price);
-    client.buy_prompt(&buyer_one, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
-    client.buy_prompt(&buyer_two, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer_one,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
+    client.buy_prompt(
+        &buyer_two,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
 
     let res = client.try_set_prompt_max_supply(&creator, &prompt_id, &1);
     match res {
@@ -4176,12 +4256,24 @@ fn test_dispute_refund_releases_supply_for_resale() {
     client.set_prompt_max_supply(&creator, &prompt_id, &1);
 
     fund_buyer(&xlm_client, &buyer_one, &context.contract, price);
-    client.buy_prompt(&buyer_one, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer_one,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(client.get_prompt(&prompt_id).sales_count, 1);
 
     // At capacity: a second buyer cannot acquire the unit.
     fund_buyer(&xlm_client, &buyer_two, &context.contract, price);
-    let blocked = client.try_buy_prompt(&buyer_two, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    let blocked = client.try_buy_prompt(
+        &buyer_two,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(blocked, Err(Ok(Error::MaxSupplyReached)));
 
     // Refunding the disputed purchase releases the reserved unit.
@@ -4194,7 +4286,13 @@ fn test_dispute_refund_releases_supply_for_resale() {
     assert_eq!(client.get_prompt(&prompt_id).sales_count, 0);
 
     // Now the second buyer can acquire the freed unit.
-    client.buy_prompt(&buyer_two, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer_two,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(client.get_prompt(&prompt_id).sales_count, 1);
 }
 
@@ -4213,7 +4311,13 @@ fn test_transfer_license_does_not_consume_or_free_supply() {
     client.set_prompt_max_supply(&creator, &prompt_id, &1);
 
     fund_buyer(&xlm_client, &seller, &context.contract, price);
-    client.buy_prompt(&seller, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &seller,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(client.get_prompt(&prompt_id).sales_count, 1);
 
     let resale_price = 3_000;
@@ -4225,7 +4329,13 @@ fn test_transfer_license_does_not_consume_or_free_supply() {
     // one nor frees the original slot for a fresh buyer.
     assert_eq!(client.get_prompt(&prompt_id).sales_count, 1);
     fund_buyer(&xlm_client, &stranger, &context.contract, price);
-    let res = client.try_buy_prompt(&stranger, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    let res = client.try_buy_prompt(
+        &stranger,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(res, Err(Ok(Error::MaxSupplyReached)));
 }
 
@@ -4246,7 +4356,13 @@ fn test_bundle_purchase_respects_prompt_max_supply() {
 
     // Exhaust the capped prompt's only unit via a direct purchase first.
     fund_buyer(&xlm_client, &early_buyer, &context.contract, price);
-    client.buy_prompt(&early_buyer, &capped_prompt, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &early_buyer,
+        &capped_prompt,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
 
     let mut prompt_ids = Vec::new(&env);
     prompt_ids.push_back(capped_prompt);
@@ -4265,7 +4381,10 @@ fn test_bundle_purchase_respects_prompt_max_supply() {
     let res = client.try_buy_bundle(&bundle_buyer, &bundle_id, &bundle_price);
     match res {
         Err(Ok(Error::MaxSupplyReached)) => {}
-        other => panic!("expected MaxSupplyReached for capped prompt in bundle, got {:?}", other),
+        other => panic!(
+            "expected MaxSupplyReached for capped prompt in bundle, got {:?}",
+            other
+        ),
     }
 }
 
@@ -4296,7 +4415,10 @@ fn test_access_pass_respects_own_max_supply() {
     let res = client.try_buy_access_pass(&buyer_two, &pass_id, &price);
     match res {
         Err(Ok(Error::MaxSupplyReached)) => {}
-        other => panic!("expected MaxSupplyReached for capped access pass, got {:?}", other),
+        other => panic!(
+            "expected MaxSupplyReached for capped access pass, got {:?}",
+            other
+        ),
     }
 }
 
@@ -4425,7 +4547,10 @@ fn test_retired_access_pass_cannot_be_reactivated() {
     let res = client.try_set_access_pass_status(&creator, &pass_id, &PromptSaleStatus::Active);
     match res {
         Err(Ok(Error::InvalidStatusTransition)) => {}
-        other => panic!("expected InvalidStatusTransition reviving a retired pass, got {:?}", other),
+        other => panic!(
+            "expected InvalidStatusTransition reviving a retired pass, got {:?}",
+            other
+        ),
     }
 }
 
@@ -4482,7 +4607,10 @@ fn test_update_access_pass_price_applies_to_next_purchase() {
     let res = client.try_buy_access_pass(&buyer, &pass_id, &old_price);
     match res {
         Err(Ok(Error::InvalidPaymentAmount)) => {}
-        other => panic!("expected InvalidPaymentAmount at stale price, got {:?}", other),
+        other => panic!(
+            "expected InvalidPaymentAmount at stale price, got {:?}",
+            other
+        ),
     }
     client.buy_access_pass(&buyer, &pass_id, &new_price);
 }
@@ -4505,7 +4633,8 @@ fn test_dispute_cannot_open_after_window_closes() {
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
     // Three days plus one second after purchase, the dispute window has closed.
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
     let res = client.try_open_dispute(
         &buyer,
         &prompt_id,
@@ -4532,7 +4661,8 @@ fn test_dispute_within_window_still_succeeds() {
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 - 1);
+    env.ledger()
+        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 - 1);
     client.open_dispute(
         &buyer,
         &prompt_id,

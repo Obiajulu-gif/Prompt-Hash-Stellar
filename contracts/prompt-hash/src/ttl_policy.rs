@@ -126,22 +126,14 @@ pub struct ExpiryRisk {
 }
 
 /// Check if a key needs renewal based on current ledger and last extension
-pub fn should_renew_key(
-    current_ledger: u64,
-    last_extended_ledger: u64,
-    max_ttl: u32,
-) -> bool {
+pub fn should_renew_key(current_ledger: u64, last_extended_ledger: u64, max_ttl: u32) -> bool {
     let age = current_ledger.saturating_sub(last_extended_ledger);
     let renewal_threshold = (max_ttl as u64) * (RENEWAL_THRESHOLD_PCT as u64) / 100;
     age >= renewal_threshold
 }
 
 /// Compute time remaining before expiry (in ledgers)
-pub fn get_time_remaining(
-    current_ledger: u64,
-    last_extended_ledger: u64,
-    max_ttl: u32,
-) -> u64 {
+pub fn get_time_remaining(current_ledger: u64, last_extended_ledger: u64, max_ttl: u32) -> u64 {
     let expiry_at = last_extended_ledger.saturating_add(max_ttl as u64);
     expiry_at.saturating_sub(current_ledger)
 }
@@ -226,7 +218,11 @@ mod tests {
 
         // After 70% of TTL, should need renewal
         let renewal_point = (max_ttl as u64) * 70 / 100;
-        assert!(should_renew_key(current_ledger + renewal_point, last_extended, max_ttl));
+        assert!(should_renew_key(
+            current_ledger + renewal_point,
+            last_extended,
+            max_ttl
+        ));
     }
 
     #[test]
@@ -261,6 +257,9 @@ mod tests {
         let last_extended = current_ledger - (max_ttl as u64) * 6 / 10;
 
         let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
-        assert!(risk.at_risk_keys > 0 || risk.imminent_keys > 0, "Should detect at-risk keys");
+        assert!(
+            risk.at_risk_keys > 0 || risk.imminent_keys > 0,
+            "Should detect at-risk keys"
+        );
     }
 }

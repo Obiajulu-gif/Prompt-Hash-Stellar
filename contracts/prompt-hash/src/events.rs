@@ -250,7 +250,12 @@ impl Events {
         PromptSaleStatusUpdated { prompt_id, status }.publish(env);
     }
 
-    pub fn emit_prompt_admin_moderated(env: &Env, prompt_id: u64, admin: Address, status: PromptSaleStatus) {
+    pub fn emit_prompt_admin_moderated(
+        env: &Env,
+        prompt_id: u64,
+        admin: Address,
+        status: PromptSaleStatus,
+    ) {
         PromptAdminModerated {
             prompt_id,
             admin,
@@ -357,12 +362,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_discount_applied(
-        env: &Env,
-        prompt_id: u64,
-        buyer: Address,
-        discount_bps: u32,
-    ) {
+    pub fn emit_discount_applied(env: &Env, prompt_id: u64, buyer: Address, discount_bps: u32) {
         DiscountApplied {
             prompt_id,
             buyer,
