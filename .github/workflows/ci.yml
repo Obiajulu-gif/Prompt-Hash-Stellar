@@ -68,6 +68,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Policy check (production build rules)
+        run: yarn check:policy
+
       - name: Typecheck
         run: yarn typecheck
 
