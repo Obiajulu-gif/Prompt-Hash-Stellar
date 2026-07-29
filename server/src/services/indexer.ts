@@ -4,6 +4,7 @@ import User from "../models/User";
 import Purchase from "../models/Purchase";
 import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
+import ProcessedEvent from "../models/ProcessedEvent";
 import { scanForSimilarity } from "./similarityDetection";
 import { dispatchEvent } from "./webhookDispatcher";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
@@ -125,11 +126,27 @@ export async function startIndexer(): Promise<void> {
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
+export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
   // Decode the topic and value from XDR to native JS types.
   const rawTopic = scValToNative(event.topic[0]);
   const rawData = scValToNative(event.value);
   const txHash = event.txHash;
+
+  try {
+    await ProcessedEvent.create({
+      eventId: event.id,
+      ledger: event.ledger,
+      txHash: txHash || "",
+      contractId: event.contractId,
+      topic: String(rawTopic),
+    });
+  } catch (err: any) {
+    if (err.code === 11000) {
+      console.log(`[indexer] Skipping duplicate event ${event.id}`);
+      return;
+    }
+    throw err;
+  }
 
   const decoded = decodeEvent(String(rawTopic), rawData);
   if (!decoded.recognized) {

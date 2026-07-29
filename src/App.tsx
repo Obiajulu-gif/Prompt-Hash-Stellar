@@ -18,6 +18,9 @@ const PromptDetailPage = lazy(
   () => import("./pages/prompts/PromptDetailPage.tsx"),
 );
 const AdminReportsPage = lazy(() => import("./pages/admin/Reports.tsx"));
+const AdminConfigPage = lazy(
+  () => import("./pages/admin/ConfigDashboard.tsx"),
+);
 
 import { OfflineBanner } from "./components/OfflineBanner";
 
@@ -53,6 +56,7 @@ function App() {
           <Route path="/status" element={<StatusPage />} />
           <Route path="/sellers/:sellerId" element={<SellerPage />} />
           <Route path="/admin/reports" element={<AdminReportsPage />} />
+          <Route path="/admin/config" element={<AdminConfigPage />} />
           <Route path="*" element={<Home />} />
         </Route>
       </Routes>
