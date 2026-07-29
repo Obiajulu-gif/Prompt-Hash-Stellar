@@ -49,6 +49,7 @@ pub enum Error {
     BulkPurchaseTooLarge = 42,
     DuplicatePromptId = 43,
     InvalidStatusTransition = 44,
+    AlreadyInitialized = 45,
 }
 
 #[contracttype]

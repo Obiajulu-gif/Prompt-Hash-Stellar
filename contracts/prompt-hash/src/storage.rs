@@ -102,6 +102,25 @@ impl InstanceStorage {
         let key = InstanceDataKey::IsPaused;
         env.storage().instance().get(&key).unwrap_or(false)
     }
+
+    /// Asserts that the canonical configuration written by `__constructor` is
+    /// present. Any economic entry-point must call this before reading config
+    /// so that a partially-constructed or legacy-migrated instance fails loudly
+    /// rather than silently using wrong defaults.
+    pub fn require_config_initialized(env: &Env) -> Result<(), Error> {
+        ensure(
+            env.storage()
+                .instance()
+                .has(&InstanceDataKey::FeeWallet),
+            Error::FeeWalletNotSet,
+        )?;
+        ensure(
+            env.storage()
+                .instance()
+                .has(&InstanceDataKey::XlmAddress),
+            Error::XlmAddressNotSet,
+        )
+    }
 }
 
 /// Persistent storage for prompt, purchase, and user-index records.

@@ -1,9 +1,3 @@
-use crate::types::{DataKey, Error, Prompt};
-use soroban_sdk::{
-    contract, contractimpl, token, Address, Env, String, Vec,
-};
-
-const PLATFORM_FEE_BPS: i128 = 500; // 5%
 use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
@@ -41,16 +35,6 @@ const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 #[contract]
 pub struct PromptHashContract;
 
-#[contractimpl]
-impl PromptHashContract {
-    pub fn initialize(env: Env, fee_wallet: Address, token_contract: Address) {
-        if env.storage().instance().has(&DataKey::FeeWallet) {
-            panic!("already initialized");
-        }
-        env.storage().instance().set(&DataKey::FeeWallet, &fee_wallet);
-        env.storage()
-            .instance()
-            .set(&DataKey::TokenContract, &token_contract);
 impl PromptHashTrait for PromptHashContract {
     fn __constructor(
         env: Env,
@@ -84,6 +68,7 @@ impl PromptHashTrait for PromptHashContract {
         listing: ListingConfig,
     ) -> Result<u64, Error> {
         creator.require_auth();
+        InstanceStorage::require_config_initialized(&env)?;
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         validate_prompt_fields(
             &image_url,
@@ -1449,14 +1434,5 @@ fn validate_no_duplicate_prompt_ids(prompt_ids: &Vec<u64>) -> Result<(), Error> 
 
 fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
     ensure(!value.is_empty() && value.len() <= max_len, error)
-}
-
-
-    pub fn set_fee_wallet(env: Env, admin: Address, fee_wallet: Address) {
-        admin.require_auth();
-        env.storage()
-            .instance()
-            .set(&DataKey::FeeWallet, &fee_wallet);
-    }
 }
 
