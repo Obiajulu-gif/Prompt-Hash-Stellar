@@ -1,5 +1,4 @@
-use soroban_sdk::{contracttype, Address, String};
-use soroban_sdk::{contracterror, contracttype, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contracterror, contracttype, crypto::Crypto, Address, Bytes, BytesN, Env, String, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -52,6 +51,13 @@ pub enum Error {
     AlreadyInitialized = 45,
     InvalidCursor = 46,
     InvalidTtlPolicy = 47,
+    AuthorizationExpired = 48,
+    AuthorizationNonceConsumed = 49,
+    InvalidAuthorizationSignature = 50,
+    AuthorizationBuyerMismatch = 51,
+    AuthorizationPromptMismatch = 52,
+    AuthorizationDomainMismatch = 53,
+    AuthorizationNotYetValid = 54,
 }
 
 #[contracttype]
@@ -93,6 +99,9 @@ pub enum DataKey {
     Purchase(u64, Address),
     PurchaseEscrow(u64, Address), // Settlement tracking for refunds (#420)
     VoucherKey(u64, BytesN<32>),
+    /// Nonce consumed for a signed discount authorization.
+    /// Key: (prompt_id, nonce_hash) where nonce_hash = sha256(nonce_bytes)
+    NonceConsumed(u64, BytesN<32>),
     /// Snapshot of a listing taken before a revision (#226).
     /// Key: (prompt_id, revision_number_before_change)
     ListingRevision(u64, u32),
@@ -289,6 +298,43 @@ pub struct ListingRevisionRecord {
     pub revised_at: u64,
 }
 
+/// A creator-signed discount authorization.
+///
+/// Replaces raw voucher preimages with a signed payload that binds the
+/// discount to a specific prompt, buyer, nonce, expiry, and domain
+/// (network_id + contract_id). This prevents front-running, replay across
+/// contracts/networks, and nonce reuse.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignedDiscountAuthorization {
+    pub prompt_id: u64,
+    pub buyer: Address,
+    pub discount_bps: u32,
+    pub nonce: BytesN<32>,
+    pub expiry_ledger: u32,
+    pub network_id: BytesN<32>,
+    pub contract_id: BytesN<32>,
+}
+
+impl SignedDiscountAuthorization {
+    /// Compute the domain-separated message hash for signature verification.
+    /// The domain separator prevents replay across different contracts/networks.
+    pub fn hash(&self, env: &Env) -> BytesN<32> {
+        let mut buf = Vec::new(env);
+        // Domain separator: network_id || contract_id
+        buf.push_back(self.network_id.to_val());
+        buf.push_back(self.contract_id.to_val());
+        // Payload: prompt_id || buyer || discount_bps || nonce || expiry_ledger
+        buf.push_back((self.prompt_id as u128).into_val());
+        buf.push_back(self.buyer.to_val());
+        buf.push_back((self.discount_bps as u128).into_val());
+        buf.push_back(self.nonce.to_val());
+        buf.push_back((self.expiry_ledger as u128).into_val());
+        let raw = env.crypto().sha256(&buf.to_xdr(env));
+        BytesN::from_array(env, &raw.to_array())
+    }
+}
+
 pub trait PromptHashTrait {
     fn __constructor(
         env: Env,
@@ -347,6 +393,34 @@ pub trait PromptHashTrait {
         referrer: Option<Address>,
         payment_amount_stroops: i128,
         voucher: Option<Bytes>,
+    ) -> Result<(), Error>;
+
+    fn buy_prompt_with_auth(
+        env: Env,
+        buyer: Address,
+        prompt_id: u64,
+        referrer: Option<Address>,
+        payment_amount_stroops: i128,
+        authorization: SignedDiscountAuthorization,
+        creator_sig: BytesN<64>,
+    ) -> Result<(), Error>;
+
+    /// Add a signed discount authorization. The creator signs the authorization
+    /// off-chain and submits the signature to the contract for verification.
+    /// This replaces the old `add_voucher` which used raw hashed preimages.
+    fn add_signed_discount_auth(
+        env: Env,
+        creator: Address,
+        authorization: SignedDiscountAuthorization,
+        signature: BytesN<64>,
+    ) -> Result<(), Error>;
+
+    /// Revoke a signed discount authorization by consuming its nonce.
+    fn revoke_discount_auth(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        nonce: BytesN<32>,
     ) -> Result<(), Error>;
 
     fn lease_prompt(
