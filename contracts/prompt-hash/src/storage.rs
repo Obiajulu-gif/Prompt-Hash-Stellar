@@ -549,6 +549,19 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
+    pub fn get_catalog_pass_purchase(
+        env: &Env,
+        creator: &Address,
+        buyer: &Address,
+    ) -> Option<CatalogPassPurchase> {
+        let key = DataKey::CatalogPass(creator.clone(), buyer.clone());
+        let purchase = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        purchase
+    }
+
     pub fn has_active_creator_pass(
         env: &Env,
         creator: &Address,

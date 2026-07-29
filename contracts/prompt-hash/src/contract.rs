@@ -7,7 +7,7 @@ use super::types::{
 };
 use soroban_sdk::{contract, contractimpl, crypto::Crypto, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
-use stellar_macros::{default_impl, only_owner};
+use stellar_macros::only_owner;
 
 const DEFAULT_FEE_BPS: u32 = 500;
 const ROYALTY_BPS: u32 = 500;
@@ -31,10 +31,15 @@ const MAX_PASS_DURATION_SECS: u64 = 31_536_000;
 // budget) so a caller cannot force an unbounded-cost simulation or transaction
 // just by passing an oversized vector (issue #438).
 const MAX_BULK_PURCHASE_SIZE: u32 = 20;
+// Window (from purchase) within which a buyer may open a dispute against a
+// pending escrow. After it elapses with no open dispute, settlement becomes
+// permissionless (#541).
+const DISPUTE_WINDOW_SECS: u64 = 3 * 24 * 60 * 60;
 
 #[contract]
 pub struct PromptHashContract;
 
+#[contractimpl]
 impl PromptHashTrait for PromptHashContract {
     fn __constructor(
         env: Env,
@@ -176,8 +181,15 @@ impl PromptHashTrait for PromptHashContract {
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
+        // A cap can never be lowered below units already sold/leased — that
+        // would silently invalidate commitments already made to buyers (#538).
+        ensure(
+            max_supply == 0 || max_supply >= prompt.sales_count,
+            Error::MaxSupplyBelowCommitted,
+        )?;
         prompt.max_supply = max_supply;
         Storage::update_prompt(&env, &prompt);
+        Events::emit_prompt_max_supply_updated(&env, prompt_id, max_supply);
         Ok(())
     }
 
@@ -199,6 +211,7 @@ impl PromptHashTrait for PromptHashContract {
         Events::emit_prompt_price_updated(&env, prompt_id, price_stroops);
         Ok(())
     }
+
     fn buy_prompt(
         env: Env,
         buyer: Address,
@@ -337,6 +350,9 @@ impl PromptHashTrait for PromptHashContract {
             ensure(prompt.expires_at >= now, Error::ListingExpired)?;
         }
 
+        // Leases consume the same supply pool as direct sales (#538).
+        let reserved_sales_count = reserve_supply(prompt.sales_count, prompt.max_supply)?;
+
         InstanceStorage::set_reentrancy_guard(&env)?;
 
         let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
@@ -373,10 +389,7 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &fee_wallet, &fee_amount);
         }
 
-        prompt.sales_count = prompt
-            .sales_count
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
+        prompt.sales_count = reserved_sales_count;
         let expires_at = now
             .checked_add(lease_duration_secs)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -400,6 +413,8 @@ impl PromptHashTrait for PromptHashContract {
             status: SettlementStatus::Settled,
             created_at: now,
             settled_at: now,
+            // Lease funds settle immediately — there is no pending window.
+            dispute_deadline: now,
             creator_amount: seller_amount,
             fee_amount,
             referral_amount: 0,
@@ -547,17 +562,8 @@ impl PromptHashTrait for PromptHashContract {
                 ensure(prompt.expires_at >= now, Error::ListingExpired)?;
             }
             if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
-                if prompt.max_supply > 0 {
-                    ensure(
-                        prompt.sales_count < prompt.max_supply,
-                        Error::MaxSupplyReached,
-                    )?;
-                }
                 needs_access = true;
-                prompt.sales_count = prompt
-                    .sales_count
-                    .checked_add(1)
-                    .ok_or(Error::ArithmeticOverflow)?;
+                prompt.sales_count = reserve_supply(prompt.sales_count, prompt.max_supply)?;
             }
             prompts.push_back(prompt);
         }
@@ -709,6 +715,7 @@ impl PromptHashTrait for PromptHashContract {
         duration_secs: u64,
         price_stroops: i128,
         asset: Address,
+        max_supply: u32,
     ) -> Result<u128, Error> {
         creator.require_auth();
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
@@ -728,14 +735,55 @@ impl PromptHashTrait for PromptHashContract {
             duration_secs,
             price_stroops,
             asset,
-            active: true,
+            status: PromptSaleStatus::Active,
             sales_count: 0,
+            max_supply,
         };
 
         Storage::save_access_pass(&env, &access_pass)?;
         Storage::add_access_pass_to_creator(&env, &creator, pass_id);
         Events::emit_access_pass_created(&env, pass_id, creator, duration_secs, price_stroops);
         Ok(pass_id)
+    }
+
+    fn set_access_pass_status(
+        env: Env,
+        creator: Address,
+        pass_id: u128,
+        status: PromptSaleStatus,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        let mut access_pass = Storage::require_access_pass(&env, pass_id)?;
+        ensure(access_pass.creator == creator, Error::Unauthorized)?;
+        ensure(
+            access_pass.status != PromptSaleStatus::Retired,
+            Error::InvalidStatusTransition,
+        )?;
+        ensure(access_pass.status != status, Error::InvalidStatusTransition)?;
+
+        access_pass.status = status.clone();
+        Storage::update_access_pass(&env, &access_pass);
+        Events::emit_access_pass_status_updated(&env, pass_id, status);
+        Ok(())
+    }
+
+    fn update_access_pass_price(
+        env: Env,
+        creator: Address,
+        pass_id: u128,
+        price_stroops: i128,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure(price_stroops > 0, Error::InvalidPrice)?;
+        let mut access_pass = Storage::require_access_pass(&env, pass_id)?;
+        ensure(access_pass.creator == creator, Error::Unauthorized)?;
+
+        access_pass.price_stroops = price_stroops;
+        Storage::update_access_pass(&env, &access_pass);
+        Events::emit_access_pass_price_updated(&env, pass_id, price_stroops);
+        Ok(())
     }
 
     fn buy_access_pass(
@@ -749,16 +797,19 @@ impl PromptHashTrait for PromptHashContract {
         let mut access_pass = Storage::require_access_pass(&env, pass_id)?;
         let now = env.ledger().timestamp();
 
-        ensure(access_pass.active, Error::PromptInactive)?;
+        ensure(
+            access_pass.status == PromptSaleStatus::Active,
+            Error::PromptInactive,
+        )?;
         ensure(access_pass.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(
             payment_amount_stroops >= access_pass.price_stroops,
             Error::InvalidPaymentAmount,
         )?;
-        ensure(
-            !Storage::has_active_creator_pass(&env, &access_pass.creator, &buyer, now),
-            Error::AlreadyPurchased,
-        )?;
+
+        // Each purchase reserves one unit of this pass's own supply, on top
+        // of whatever other passes this creator has sold (#538).
+        access_pass.sales_count = reserve_pass_supply(access_pass.sales_count, access_pass.max_supply)?;
 
         InstanceStorage::set_reentrancy_guard(&env)?;
 
@@ -796,7 +847,15 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &access_pass.creator, &creator_amount);
         }
 
-        let expires_at = now
+        // Renewing before the current grant expires extends it forward from
+        // the existing expiry rather than from `now`, so the buyer never
+        // loses paid-for time or is double-charged for an overlapping
+        // period (#539).
+        let existing = Storage::get_catalog_pass_purchase(&env, &access_pass.creator, &buyer);
+        let base = existing
+            .map(|p| if p.expires_at > now { p.expires_at } else { now })
+            .unwrap_or(now);
+        let expires_at = base
             .checked_add(access_pass.duration_secs)
             .ok_or(Error::ArithmeticOverflow)?;
         let catalog_pass = CatalogPassPurchase {
@@ -807,7 +866,9 @@ impl PromptHashTrait for PromptHashContract {
         };
         Storage::save_catalog_pass_purchase(&env, &catalog_pass);
 
-        // Create escrow with payout plan for unified dispute/settlement (#564)
+        // Create escrow with payout plan for unified dispute/settlement (#564).
+        // sales_count was already advanced by reserve_pass_supply above (#538)
+        // — do not increment it again here.
         let payout_plan = super::types::PayoutPlan {
             creator: access_pass.creator.clone(),
             fee_wallet: fee_wallet.clone(),
@@ -826,17 +887,14 @@ impl PromptHashTrait for PromptHashContract {
             status: SettlementStatus::Settled,
             created_at: now,
             settled_at: now,
+            // Access-pass funds settle immediately — there is no pending window (#541).
+            dispute_deadline: now,
             creator_amount,
             fee_amount,
             referral_amount: 0,
             payout_plan,
         };
         Storage::save_purchase_escrow(&env, &escrow);
-
-        access_pass.sales_count = access_pass
-            .sales_count
-            .checked_add(1)
-            .ok_or(Error::ArithmeticOverflow)?;
         Storage::update_access_pass(&env, &access_pass);
         InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_access_pass_purchased(&env, pass_id, buyer, access_pass.creator, expires_at);
@@ -1165,6 +1223,18 @@ impl PromptHashTrait for PromptHashContract {
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let now = env.ledger().timestamp();
         Storage::require_purchase(&env, prompt_id, &buyer)?;
+        // Purchases with a pending escrow (direct/bulk buys) may only be
+        // disputed within the purchase-relative window; once it closes the
+        // escrow is eligible for permissionless settlement (#541). Purchases
+        // without a pending escrow (leases, bundles, passes) are unaffected.
+        if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+            if escrow.status == SettlementStatus::Pending {
+                ensure(now <= escrow.dispute_deadline, Error::DisputeWindowClosed)?;
+            } else {
+                // Already settled or refunded — nothing left to dispute.
+                return Err(Error::DisputeWindowClosed);
+            }
+        }
         if let Some(dispute) = Storage::get_dispute(&env, prompt_id, &buyer) {
             ensure(
                 dispute.status != DisputeStatus::Open,
@@ -1194,7 +1264,7 @@ impl PromptHashTrait for PromptHashContract {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
-        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let purchase = Storage::require_purchase(&env, prompt_id, &buyer)?;
         let mut dispute = Storage::require_dispute(&env, prompt_id, &buyer)?;
         ensure(
@@ -1218,6 +1288,11 @@ impl PromptHashTrait for PromptHashContract {
             Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
             dispute.status = DisputeStatus::Refunded;
 
+            // Release the reserved supply unit back to the pool so another
+            // buyer can acquire it (#538).
+            prompt.sales_count = prompt.sales_count.saturating_sub(1);
+            Storage::update_prompt(&env, &prompt);
+
             // Update the escrow record so the settlement admin knows
             // the funds were already returned to the buyer.
             if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
@@ -1233,10 +1308,13 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    /// Release escrowed funds after the dispute window closes (#454).
-    /// The contract owner (admin) or the prompt creator can settle.
-    /// This distributes the held payment using the immutable payout plan
-    /// snapshotted at purchase time (#562), not the current listing state.
+    /// Release escrowed funds using the immutable payout plan snapshotted at
+    /// purchase time (#562), not the current listing state. The contract
+    /// owner (admin) or the prompt creator may settle at any time; any
+    /// other caller may settle only once the purchase-relative dispute
+    /// window has closed with no open dispute, guaranteeing every escrow
+    /// has a bounded path to Released even if the admin/creator never
+    /// act (#454/#541).
     fn settle_purchase(
         env: Env,
         caller: Address,
@@ -1246,15 +1324,29 @@ impl PromptHashTrait for PromptHashContract {
         caller.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         let prompt = Storage::require_prompt(&env, prompt_id)?;
-        ensure(
-            caller == owner || caller == prompt.creator,
-            Error::Unauthorized,
-        )?;
 
-        let mut escrow = Storage::require_purchase_escrow(&env, &prompt_id, &buyer)?;
+        let mut escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
         ensure(escrow.status == SettlementStatus::Pending, Error::DisputeResolved)?;
 
+        // An open dispute must be resolved via `resolve_dispute`, not
+        // settled — this holds even for the admin/creator fast path (#541).
+        if let Some(dispute) = Storage::get_dispute(&env, prompt_id, &buyer) {
+            ensure(
+                dispute.status != DisputeStatus::Open,
+                Error::DisputeAlreadyOpen,
+            )?;
+        }
+
         let now = env.ledger().timestamp();
+        let is_privileged = caller == owner || caller == prompt.creator;
+        if !is_privileged {
+            // Permissionless fallback: once the dispute window has closed
+            // with no open dispute, anyone may finalize the escrow — this
+            // guarantees a bounded path to Released even if the admin or
+            // creator never act (#541).
+            ensure(now > escrow.dispute_deadline, Error::DisputeWindowNotElapsed)?;
+        }
+
         let this_contract = env.current_contract_address();
         let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
 
@@ -1314,6 +1406,10 @@ impl PromptHashTrait for PromptHashContract {
 
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
         Ok(Storage::get_prompts_by_creator(&env, &creator))
+    }
+
+    fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error> {
+        Ok(Storage::get_prompts_by_buyer(&env, &buyer))
     }
 
     #[only_owner]
@@ -1534,8 +1630,7 @@ impl PromptHashTrait for PromptHashContract {
     }
 }
 
-#[default_impl]
-#[contractimpl]
+#[contractimpl(contracttrait)]
 impl Ownable for PromptHashContract {}
 
 fn execute_buy(
@@ -1560,12 +1655,7 @@ fn execute_buy(
         ensure(prompt.expires_at >= now, Error::ListingExpired)?;
     }
 
-    if prompt.max_supply > 0 {
-        ensure(
-            prompt.sales_count < prompt.max_supply,
-            Error::MaxSupplyReached,
-        )?;
-    }
+    let reserved_sales_count = reserve_supply(prompt.sales_count, prompt.max_supply)?;
 
     let mut required_price = prompt.price_stroops;
     if let Some(code) = voucher {
@@ -1673,13 +1763,10 @@ fn execute_buy_with_required_price(
     );
 
     // All funds are held in the contract.  No distribution occurs
-    // here — `settle_purchase` (admin) releases them to the creator,
-    // fee wallet, referrer, and split recipients, or a dispute
-    // refund returns them to the buyer.
-    prompt.sales_count = prompt
-        .sales_count
-        .checked_add(1)
-        .ok_or(Error::ArithmeticOverflow)?;
+    // here — `settle_purchase` releases them to the creator, fee wallet,
+    // referrer, and split recipients, or a dispute refund returns them
+    // to the buyer.
+    prompt.sales_count = reserved_sales_count;
     Storage::update_prompt(env, &prompt);
     Storage::grant_purchase(
         env,
@@ -1733,6 +1820,9 @@ fn execute_buy_with_required_price(
         status: SettlementStatus::Pending,
         created_at: now,
         settled_at: 0,
+        dispute_deadline: now
+            .checked_add(DISPUTE_WINDOW_SECS)
+            .ok_or(Error::ArithmeticOverflow)?,
         creator_amount,
         fee_amount,
         referral_amount,
@@ -1761,6 +1851,31 @@ fn execute_buy_with_required_price(
     }
 
     Ok(())
+}
+
+// ─── Supply accounting ─────────────────────────────────────────────────────
+//
+// Every acquisition path that grants a new unit of access (direct purchase,
+// bulk purchase, lease, bundle) must reserve supply through these helpers so
+// `max_supply` means the same thing everywhere (#538). Resale
+// (`transfer_license`) intentionally does not call these — it moves an
+// already-reserved unit between owners rather than minting a new one.
+
+/// Atomically check-and-reserve one unit of a prompt's capped supply.
+/// `max_supply == 0` means unlimited.
+fn reserve_supply(sales_count: u64, max_supply: u64) -> Result<u64, Error> {
+    if max_supply > 0 {
+        ensure(sales_count < max_supply, Error::MaxSupplyReached)?;
+    }
+    sales_count.checked_add(1).ok_or(Error::ArithmeticOverflow)
+}
+
+/// Same as [`reserve_supply`] for access passes, whose counters are `u32`.
+fn reserve_pass_supply(sales_count: u32, max_supply: u32) -> Result<u32, Error> {
+    if max_supply > 0 {
+        ensure(sales_count < max_supply, Error::MaxSupplyReached)?;
+    }
+    sales_count.checked_add(1).ok_or(Error::ArithmeticOverflow)
 }
 
 // ─── Validation helpers ───────────────────────────────────────────────────────
@@ -1886,3 +2001,10 @@ fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error>
     ensure(!value.is_empty() && value.len() <= max_len, error)
 }
 
+fn ensure(condition: bool, error: Error) -> Result<(), Error> {
+    if condition {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
