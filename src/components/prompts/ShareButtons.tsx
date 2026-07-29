@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Check, Link2, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { copyToClipboard } from "@/lib/clipboard/secureClipboard";
+import { useClipboardAutoClear } from "@/hooks/useClipboardAutoClear";
+import { ClipboardAutoClearBanner } from "@/components/ClipboardAutoClearBanner";
 
 interface ShareButtonsProps {
   /** Title of the prompt — used to seed the share text. */
@@ -52,6 +53,14 @@ function resolveShareUrl(url?: string): string {
 export function ShareButtons({ title, url, summary, className }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
   const [canNativeShare, setCanNativeShare] = useState(false);
+  const {
+    enabled,
+    toggle,
+    copy,
+    cancel,
+    remaining,
+    isCountingDown,
+  } = useClipboardAutoClear();
 
   const shareUrl = resolveShareUrl(url);
   const shareText = `${title} on Prompt Hash Stellar`;
@@ -73,8 +82,8 @@ export function ShareButtons({ title, url, summary, className }: ShareButtonsPro
   )}`;
 
   const handleCopy = async () => {
-    const result = await copyToClipboard(shareUrl);
-    if (result.success) {
+    const ok = await copy(shareUrl);
+    if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     }
@@ -154,6 +163,13 @@ export function ShareButtons({ title, url, summary, className }: ShareButtonsPro
           )}
         </Button>
       </div>
+
+      <ClipboardAutoClearBanner
+        remaining={remaining}
+        enabled={enabled}
+        onToggle={toggle}
+        onCancel={cancel}
+      />
     </div>
   );
 }

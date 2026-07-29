@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
 
 const promptSchema = new mongoose.Schema(
   {
@@ -11,8 +12,8 @@ const promptSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      minLength: 3,
-      maxLength: 100,
+      minLength: PROMPT_METADATA_LIMITS.title.min,
+      maxLength: PROMPT_METADATA_LIMITS.title.max,
     },
     content: {
       type: String,
@@ -60,14 +61,7 @@ const promptSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: [
-        "Marketing",
-        "Creative Writing",
-        "Programming",
-        "Music",
-        "Gaming",
-        "Other",
-      ],
+      enum: PROMPT_CATEGORIES,
       default: "Other",
     },
     currentVersionIndex: {
@@ -137,6 +131,29 @@ const promptSchema = new mongoose.Schema(
       type: String,
       default: "",
       trim: true,
+    },
+    // Content integrity recheck fields (#460)
+    encryptedPrompt: {
+      type: String,
+      default: null,
+    },
+    contentHash: {
+      type: String,
+      default: null,
+    },
+    integrityStatus: {
+      type: String,
+      enum: ["pending", "ok", "corrupted", "missing", "unreachable"],
+      default: "pending",
+      index: true,
+    },
+    integrityCheckedAt: {
+      type: Date,
+      default: null,
+    },
+    integrityError: {
+      type: String,
+      default: null,
     },
   },
   {

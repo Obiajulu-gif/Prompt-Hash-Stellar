@@ -16,6 +16,8 @@ import { notificationRouter } from "./routes/notificationRoutes";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
+import connectDb from "./db/connectDb";
+import { runMigrations } from "./db/migrationRunner";
 import {
   globalLimiter,
   authLimiter,
@@ -86,27 +88,44 @@ if (process.env.SENTRY_DSN) {
   }
 }
 
-app.listen(port, () => {
-  console.log(`Listening on port ${port}`);
+async function start() {
+  try {
+    // Only attempt database connection and migrations if not in test environment
+    if (process.env.NODE_ENV !== "test") {
+      console.log("[server] Connecting to database...");
+      await connectDb();
+      console.log("[server] Running database migrations...");
+      await runMigrations();
+    }
 
-  // Start the background Soroban event indexer. It no-ops when the RPC /
-  // contract environment is not configured, so this is safe to call always.
-  startIndexer().catch((err: unknown) => {
-    console.error("Failed to start Soroban Indexer:", err);
-  });
+    app.listen(port, () => {
+      console.log(`Listening on port ${port}`);
 
-  // DAILY AUTOMATED BACKUP — runs immediately on startup then every 24 h.
-  // Use BACKUP_S3_BUCKET env var to enable; silently skips if not configured.
-  if (process.env.BACKUP_S3_BUCKET) {
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    const triggerBackup = () => {
-      runBackup().catch((err) => {
-        console.error("[backup] Scheduled backup failed:", err?.message ?? err);
+      // Start the background Soroban event indexer. It no-ops when the RPC /
+      // contract environment is not configured, so this is safe to call always.
+      startIndexer().catch((err: unknown) => {
+        console.error("Failed to start Soroban Indexer:", err);
       });
-    };
-    // Run once on startup, then on a 24-hour interval.
-    triggerBackup();
-    setInterval(triggerBackup, TWENTY_FOUR_HOURS);
-    console.log("[backup] Daily backup scheduler started.");
+
+      // DAILY AUTOMATED BACKUP — runs immediately on startup then every 24 h.
+      // Use BACKUP_S3_BUCKET env var to enable; silently skips if not configured.
+      if (process.env.BACKUP_S3_BUCKET) {
+        const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+        const triggerBackup = () => {
+          runBackup().catch((err) => {
+            console.error("[backup] Scheduled backup failed:", err?.message ?? err);
+          });
+        };
+        // Run once on startup, then on a 24-hour interval.
+        triggerBackup();
+        setInterval(triggerBackup, TWENTY_FOUR_HOURS);
+        console.log("[backup] Daily backup scheduler started.");
+      }
+    });
+  } catch (err) {
+    console.error("❌ Critical: Server failed to start due to database/migration error:", err);
+    process.exit(1);
   }
-});
+}
+
+start();

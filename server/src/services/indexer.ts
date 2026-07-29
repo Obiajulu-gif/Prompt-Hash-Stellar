@@ -2,9 +2,13 @@ import { rpc as StellarRpc, scValToNative } from "@stellar/stellar-sdk";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
 import Purchase from "../models/Purchase";
+import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
+import ProcessedEvent from "../models/ProcessedEvent";
 import { scanForSimilarity } from "./similarityDetection";
 import { dispatchEvent } from "./webhookDispatcher";
+import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
+import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -23,6 +27,18 @@ async function ensureUser(walletAddress: string) {
     });
   }
   return user;
+}
+
+/**
+ * Invalidates the marketplace read caches for a listing after an indexed
+ * on-chain event changes it, so `GET /api/prompts` and per-prompt reads
+ * regenerate a fresh ETag on the next request instead of serving stale data.
+ */
+async function invalidatePromptCaches(promptId: string): Promise<void> {
+  await Promise.all([
+    cacheDelPattern("prompts:list:*"),
+    cacheDel(CACHE_KEYS.promptDetail(promptId)),
+  ]);
 }
 
 /** Fires a webhook to a creator/owner wallet, swallowing delivery errors. */
@@ -110,41 +126,84 @@ export async function startIndexer(): Promise<void> {
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
+export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
   // Decode the topic and value from XDR to native JS types.
-  const topic = scValToNative(event.topic[0]);
-  const data = scValToNative(event.value);
+  const rawTopic = scValToNative(event.topic[0]);
+  const rawData = scValToNative(event.value);
   const txHash = event.txHash;
 
-  console.log(`Processing Event: ${topic}`, data);
+  try {
+    await ProcessedEvent.create({
+      eventId: event.id,
+      ledger: event.ledger,
+      txHash: txHash || "",
+      contractId: event.contractId,
+      topic: String(rawTopic),
+    });
+  } catch (err: any) {
+    if (err.code === 11000) {
+      console.log(`[indexer] Skipping duplicate event ${event.id}`);
+      return;
+    }
+    throw err;
+  }
+
+  const decoded = decodeEvent(String(rawTopic), rawData);
+  if (!decoded.recognized) {
+    console.log(`[indexer] Unrecognized event: ${rawTopic} (reason: ${decoded.reason})`, rawData);
+    return;
+  }
+
+  const topic = decoded.type;
+  const data = decoded.data as Record<string, any>;
+
+  console.log(`Processing Event: ${topic} (v${decoded.version})`, data);
 
   switch (topic) {
     case "PromptCreated": {
       const { prompt_id, creator, price_stroops } = data;
+      const promptId = prompt_id.toString();
+      const initialPrice = Number(price_stroops) / 10_000_000;
 
       const user = await ensureUser(creator);
 
       // handles discovery of prompts created off-platform
       const upserted = await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
+        { onChainId: promptId },
         {
           $set: {
-            onChainId: prompt_id.toString(),
+            onChainId: promptId,
             owner: user._id,
-            price: Number(price_stroops) / 10_000_000,
+            price: initialPrice,
             isActive: true,
           },
         },
         { upsert: true, new: true },
       );
 
+      // Record the initial price as the first entry in the price history.
+      await PriceChange.findOneAndUpdate(
+        { promptId, ledgerSeq: 0 },
+        {
+          $set: {
+            promptId,
+            previousPrice: null,
+            newPrice: initialPrice,
+            asset: "XLM",
+            ledgerSeq: 0,
+          },
+        },
+        { upsert: true },
+      );
+
       // Run similarity scan asynchronously — never block the indexer loop.
       if (upserted?.content) {
         const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
-        scanForSimilarity(prompt_id.toString(), combinedText).catch((err) =>
-          console.error("[similarity] Scan error for prompt", prompt_id.toString(), err),
+        scanForSimilarity(promptId, combinedText).catch((err) =>
+          console.error("[similarity] Scan error for prompt", promptId, err),
         );
       }
+      await invalidatePromptCaches(promptId);
       break;
     }
 
@@ -189,6 +248,7 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
         priceStroops: price_stroops ? String(price_stroops) : undefined,
         txHash,
       });
+      await invalidatePromptCaches(promptId);
       break;
     }
 
@@ -213,24 +273,45 @@ async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> 
       };
       await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload);
       await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload);
+      await invalidatePromptCaches(promptId);
       break;
     }
 
     case "PromptPriceUpdated": {
       const { prompt_id, price_stroops } = data;
-      await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
-        { $set: { price: Number(price_stroops) / 10_000_000 } },
-      );
+      const promptId = prompt_id.toString();
+      const newPrice = Number(price_stroops) / 10_000_000;
+
+      // Read the current price before updating so we can record the delta.
+      const current = await Prompt.findOne({ onChainId: promptId });
+      const previousPrice = current?.price ?? null;
+
+      await Promise.all([
+        Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { price: newPrice } },
+        ),
+        PriceChange.create({
+          promptId,
+          previousPrice,
+          newPrice,
+          asset: "XLM",
+          ledgerSeq: event.ledger ?? null,
+          txHash: txHash ?? "",
+        }),
+      ]);
+      await invalidatePromptCaches(promptId);
       break;
     }
 
     case "PromptSaleStatusUpdated": {
       const { prompt_id, active } = data;
+      const promptId = prompt_id.toString();
       await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
+        { onChainId: promptId },
         { $set: { isActive: active } },
       );
+      await invalidatePromptCaches(promptId);
       break;
     }
 

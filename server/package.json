@@ -7,8 +7,8 @@
   },
   "main": "server.js",
   "scripts": {
-    "test": "jest --passWithNoTests",
-    "test:api": "jest --passWithNoTests",
+    "test": "vitest run",
+    "test:api": "vitest run",
     "lint": "tsc --noEmit",
     "format": "prettier --write .",
     "build": "tsc",
@@ -17,7 +17,12 @@
     "backup": "ts-node scripts/runBackup.ts",
     "reindex": "ts-node scripts/reIndexFromLedger.ts",
     "reindex:dry-run": "ts-node scripts/reIndexFromLedger.ts --dry-run",
+
     "seed:preview": "node scripts/seedPreview.mjs"
+
+    "db:migrate": "ts-node src/db/migrateCli.ts up",
+    "db:rollback": "ts-node src/db/migrateCli.ts down"
+
   },
   "files": [
     "build"
@@ -34,9 +39,10 @@
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
-    "@sentry/node": "^10.62.0",
+    "@prompthash/schema": "file:../packages/schema",
+    "@sentry/node": "^10.63.0",
     "@stellar/stellar-sdk": "^14.6.1",
-    "@typescript-eslint/parser": "^8.59.0",
+    "@typescript-eslint/parser": "^8.62.1",
     "ai": "^6.0.168",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
@@ -54,6 +60,7 @@
     "eslint": "^10.2.1",
     "globals": "^17.5.0",
     "ts-node": "^10.9.2",
-    "typescript-eslint": "^8.59.0"
+    "typescript-eslint": "^8.59.0",
+    "vitest": "^2.1.9"
   }
 }

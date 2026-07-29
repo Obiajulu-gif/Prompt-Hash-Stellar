@@ -9,7 +9,12 @@
  * see `docs/event-versioning.md` for the compatibility policy this
  * supports.
  */
-import { CURRENT_EVENT_SCHEMA_VERSION, EVENT_SCHEMAS, type EventFieldType } from "./schema.js";
+import {
+  CURRENT_EVENT_SCHEMA_VERSION,
+  ALL_EVENT_SCHEMAS,
+  getEventSchema,
+  type EventFieldType,
+} from "./schema.js";
 
 export interface DecodedEvent<T = Record<string, unknown>> {
   recognized: true;
@@ -79,19 +84,29 @@ export function decodeEvent(
   raw: unknown,
   version: number = CURRENT_EVENT_SCHEMA_VERSION,
 ): DecodeResult {
-  const schema = EVENT_SCHEMAS[type];
-  if (!schema) {
-    return { recognized: false, type, version, reason: "unknown_type", raw };
-  }
-  if (schema.version !== version) {
-    return { recognized: false, type, version, reason: "unsupported_version", raw };
+  const source = (raw ?? {}) as Record<string, unknown>;
+
+  let targetVersion = version;
+  if (source && typeof source.version === "number") {
+    targetVersion = source.version;
+  } else if (source && typeof source.version === "bigint") {
+    targetVersion = Number(source.version);
   }
 
-  const source = (raw ?? {}) as Record<string, unknown>;
+  const hasEventName = Boolean(ALL_EVENT_SCHEMAS[type]);
+  if (!hasEventName) {
+    return { recognized: false, type, version: targetVersion, reason: "unknown_type", raw };
+  }
+
+  const schema = getEventSchema(type, targetVersion);
+  if (!schema) {
+    return { recognized: false, type, version: targetVersion, reason: "unsupported_version", raw };
+  }
+
   const data: Record<string, unknown> = {};
   for (const field of schema.fields) {
     data[field.name] = coerceField(field.type, source[field.name]);
   }
 
-  return { recognized: true, type, version, data };
+  return { recognized: true, type, version: targetVersion, data };
 }

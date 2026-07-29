@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import User from "../models/User";
 import Prompt from "../models/Prompt";
+import PriceChange from "../models/PriceChange";
 import Report from "../models/Report";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
@@ -9,6 +10,7 @@ import {
   validateListingMetadata,
 } from "../services/listingValidation";
 import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CACHE_KEYS } from "../services/cacheService";
+import { sendConditionalJson, markPrivate } from "../middleware/etag";
 import { notifyPromptReported } from "../services/emailNotifications";
 import { announceNewPrompt } from "../services/discordNotifications";
 
@@ -184,7 +186,7 @@ export const GetPrompts = async (
     // Build a deterministic cache key from the query params
     const cacheKey = CACHE_KEYS.promptList(`cat=${category ?? ""}&wallet=${walletAddress ?? ""}`);
     const cached = await cacheGet(cacheKey);
-    if (cached) return res.json(JSON.parse(cached));
+    if (cached) return sendConditionalJson(req, res, JSON.parse(cached));
 
     const query: any = { listingStatus: 'published', isActive: true };
 
@@ -221,7 +223,7 @@ export const GetPrompts = async (
       nextCursor = null;
     }
 
-    return res.json({
+    return sendConditionalJson(req, res, {
       data: prompts,
       metadata: {
         hasNextPage,
@@ -577,6 +579,7 @@ export const GetPreviewStats = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.query;
 
@@ -619,6 +622,7 @@ export const GetOwnedPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -651,6 +655,7 @@ export const GetSavedPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -751,6 +756,7 @@ export const GetDraftPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -841,6 +847,48 @@ export const ArchivePrompt = async (
     console.error("Archive prompt error:", err);
     return res.status(500).json({
       error: (err as Error).message || "Failed to archive prompt",
+    });
+  }
+};
+
+export const GetPriceHistory = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+
+    const { onChainId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const cursor = req.query.cursor as string;
+
+    const query: any = { promptId: onChainId };
+
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
+    const changes = await PriceChange.find(query)
+      .sort({ _id: -1 })
+      .limit(limit + 1);
+
+    let hasNextPage = false;
+    let nextCursor: string | null = null;
+
+    if (changes.length > limit) {
+      hasNextPage = true;
+      changes.pop();
+      nextCursor = changes[changes.length - 1]._id;
+    }
+
+    return sendConditionalJson(req, res, {
+      data: changes,
+      metadata: { hasNextPage, nextCursor },
+    });
+  } catch (error) {
+    console.error("Fetch price history error:", error);
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to fetch price history",
     });
   }
 };

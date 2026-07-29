@@ -61,6 +61,7 @@ import {
   unsavePromptListing,
   type SavedPromptListing,
 } from "@/lib/prompts/library";
+import { canCloneListing, hasExistingDraft, seedCloneDraft } from "@/lib/prompts/cloneListing";
 import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
@@ -613,6 +614,27 @@ function CreatedPromptCard({
               )}
               {isActive ? "Pause listing" : "Reactivate"}
             </Button>
+            {canCloneListing(prompt, walletAddress) && (
+              <Link
+                to="/sell"
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md border border-white/15 bg-white/[0.03] px-4 text-sm font-medium text-white transition-colors hover:bg-white/10"
+                onClick={(event) => {
+                  if (
+                    hasExistingDraft(walletAddress) &&
+                    !window.confirm(
+                      "Cloning this listing will replace your current unsaved draft. Continue?",
+                    )
+                  ) {
+                    event.preventDefault();
+                    return;
+                  }
+                  seedCloneDraft(prompt, walletAddress);
+                }}
+              >
+                <Copy className="h-4 w-4" />
+                Clone as new listing
+              </Link>
+            )}
           </div>
           <div className="mt-4">
             <PostVersionUpdate

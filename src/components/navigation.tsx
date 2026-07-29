@@ -1,4 +1,3 @@
-import { memo } from "react";
 import { Link, NavLink } from "react-router-dom";
 import {
   Activity,
@@ -13,17 +12,10 @@ import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
 import { ThemeToggle } from "./ThemeToggle";
-import { SellerNotificationCenter } from "./SellerNotificationCenter";
 import { BuyerNotificationCenter } from "./BuyerNotificationCenter";
-
-const navItems = [
-  { to: "/browse", label: "Browse", icon: Search },
-  { to: "/collections", label: "Collections", icon: LibraryBig },
-  { to: "/sell", label: "Sell", icon: ShoppingBag },
-  { to: "/chat", label: "Chat", icon: MessageCircle },
-  { to: "/profile", label: "Profile", icon: User },
-  { to: "/status", label: "Status", icon: Activity },
-];
+import { SellerNotificationCenter } from "./SellerNotificationCenter";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useTranslation } from 'react-i18next';
 
 const linkClasses = ({ isActive }: { isActive: boolean }) =>
   [
@@ -33,7 +25,17 @@ const linkClasses = ({ isActive }: { isActive: boolean }) =>
       : "text-slate-300 hover:bg-white/5 hover:text-white",
   ].join(" ");
 
-export const Navigation = memo(function Navigation() {
+export function Navigation() {
+  const { t } = useTranslation();
+
+  const navItems = [
+    { to: "/browse", label: t('nav.browse'), icon: Search },
+    { to: "/sell", label: t('nav.sell'), icon: ShoppingBag },
+    { to: "/chat", label: t('nav.chat'), icon: MessageCircle },
+    { to: "/profile", label: t('nav.profile'), icon: User },
+    { to: "/status", label: t('nav.status'), icon: Activity },
+  ];
+
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -65,7 +67,8 @@ export const Navigation = memo(function Navigation() {
           </nav>
         </div>
 
-        <div className="hidden items-center gap-2 md:flex md:gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
+          <LanguageSwitcher />
           <ThemeToggle />
           <BuyerNotificationCenter />
           <SellerNotificationCenter />
@@ -104,6 +107,4 @@ export const Navigation = memo(function Navigation() {
       </div>
     </header>
   );
-});
-
-Navigation.displayName = "Navigation";
+}
