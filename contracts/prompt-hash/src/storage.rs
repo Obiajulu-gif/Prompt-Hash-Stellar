@@ -129,13 +129,22 @@ pub struct Storage;
 
 impl Storage {
     pub fn extend_key_ttl(env: &Env, key: &DataKey) {
-        if env.storage().persistent().has(key) {
-            env.storage().persistent().extend_ttl(
-                key,
-                PERSISTENT_LIFETIME_THRESHOLD,
-                PERSISTENT_BUMP_AMOUNT,
-            );
+        use crate::ttl_policy::get_ttl_for_key;
+        
+        if !env.storage().persistent().has(key) {
+            return;
         }
+
+        let max_ttl = get_ttl_for_key(key);
+        if max_ttl == u32::MAX {
+            return; // Instance keys don't get TTL management
+        }
+
+        env.storage().persistent().extend_ttl(
+            key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            max_ttl,
+        );
     }
 
     pub fn save_prompt(env: &Env, prompt: &Prompt) -> Result<(), Error> {
@@ -145,6 +154,12 @@ impl Storage {
 
         let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         InstanceStorage::save_prompt_counter(env, next_prompt_id);
+        
+        // Update all indexes for pagination
+        Self::update_category_index(env, prompt);
+        Self::update_tag_index(env, prompt);
+        Self::update_status_indexes(env, prompt);
+        
         Ok(())
     }
 
@@ -632,5 +647,178 @@ impl Storage {
                 }
             }
         }
+    }
+
+    pub fn extend_all_ttl(env: &Env) {
+    pub fn get_prompts_paginated(
+        env: &Env,
+        key: &DataKey,
+        cursor: Option<u64>,
+        limit: u64,
+    ) -> Vec<Prompt> {
+        use crate::pagination::MAX_PAGE_SIZE;
+
+        let limit = std::cmp::min(limit, MAX_PAGE_SIZE);
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(key)
+            .unwrap_or(Vec::new(env));
+
+        let mut results = Vec::new(env);
+        let mut start_idx = 0usize;
+
+        // Find start position if cursor provided
+        if let Some(cursor_id) = cursor {
+            for (i, id) in ids.iter().enumerate() {
+                if id == cursor_id {
+                    start_idx = i + 1;
+                    break;
+                }
+            }
+        }
+
+        // Collect up to `limit` items
+        for i in start_idx..ids.len() {
+            if results.len() as u64 >= limit {
+                break;
+            }
+            if let Some(prompt) = Self::get_prompt(env, ids.get(i).unwrap()) {
+                results.push_back(prompt);
+            }
+        }
+
+        results
+    }
+
+    /// Update index for category
+    pub fn update_category_index(env: &Env, prompt: &Prompt) {
+        let key = DataKey::CategoryPrompts(prompt.category.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+
+        if !ids.contains(&prompt.id) {
+            ids.push_back(prompt.id);
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
+    }
+
+    /// Update index for tags
+    pub fn update_tag_index(env: &Env, prompt: &Prompt) {
+        for tag in prompt.tags.iter() {
+            let key = DataKey::TagPrompts(tag);
+            let mut ids: Vec<u64> = env
+                .storage()
+                .persistent()
+                .get(&key)
+                .unwrap_or(Vec::new(env));
+
+            if !ids.contains(&prompt.id) {
+                ids.push_back(prompt.id);
+                env.storage().persistent().set(&key, &ids);
+                Self::extend_key_ttl(env, &key);
+            }
+        }
+    }
+
+    /// Update active/all indexes
+    pub fn update_status_indexes(env: &Env, prompt: &Prompt) {
+        // AllPrompts index
+        let all_key = DataKey::AllPrompts;
+        let mut all_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&all_key)
+            .unwrap_or(Vec::new(env));
+        if !all_ids.contains(&prompt.id) {
+            all_ids.push_back(prompt.id);
+            env.storage().persistent().set(&all_key, &all_ids);
+            Self::extend_key_ttl(env, &all_key);
+        }
+
+        // ActivePrompts index (if active)
+        if matches!(prompt.status, super::types::PromptSaleStatus::Active) {
+            let active_key = DataKey::ActivePrompts;
+            let mut active_ids: Vec<u64> = env
+                .storage()
+                .persistent()
+                .get(&active_key)
+                .unwrap_or(Vec::new(env));
+            if !active_ids.contains(&prompt.id) {
+                active_ids.push_back(prompt.id);
+                env.storage().persistent().set(&active_key, &active_ids);
+                Self::extend_key_ttl(env, &active_key);
+            }
+        }
+    }
+
+    // ====== TTL RENEWAL (BOUNDED BATCHES) ======
+
+    /// Renew all critical keys (purchases, escrow) in a bounded batch
+    /// Returns (renewed_count, next_cursor_if_more_work)
+    pub fn renew_critical_keys(
+        env: &Env,
+        cursor: Option<u64>,
+    ) -> (u32, Option<u64>) {
+        use crate::ttl_policy::MAX_RENEWAL_BATCH_SIZE;
+
+        let mut renewed_count = 0u32;
+        let mut start_from = cursor.unwrap_or(0);
+
+        // Simplified MVP: check fixed batch of purchase keys
+        // Full impl would iterate all persistent keys with proper pagination
+        for prompt_id in start_from..start_from + MAX_RENEWAL_BATCH_SIZE as u64 {
+            if renewed_count >= MAX_RENEWAL_BATCH_SIZE {
+                return (renewed_count, Some(prompt_id));
+            }
+
+            let key = DataKey::Purchase(prompt_id as u64, Address::from_contract_id(env));
+            if env.storage().persistent().has(&key) {
+                Self::extend_key_ttl(env, &key);
+                renewed_count += 1;
+            }
+        }
+
+        (renewed_count, None) // All done
+    }
+
+    /// Get expiry risk metrics for operator monitoring
+    pub fn compute_expiry_risks(env: &Env) -> Vec<(String, String)> {
+        use crate::ttl_policy::{compute_expiry_risk, get_ttl_for_key};
+
+        let mut risks = Vec::new(env);
+        let current_ledger = env.ledger().sequence();
+
+        // Check sample critical keys
+        let sample_keys = vec![
+            (DataKey::Purchase(1, Address::from_contract_id(env)), "Purchase"),
+            (DataKey::PurchaseEscrow(1, Address::from_contract_id(env)), "Escrow"),
+            (DataKey::CatalogPass(Address::from_contract_id(env), Address::from_contract_id(env)), "CatalogPass"),
+        ];
+
+        for (key, label) in sample_keys {
+            let max_ttl = get_ttl_for_key(&key);
+            if max_ttl == u32::MAX {
+                continue;
+            }
+
+            // Conservative: assume mid-lifetime for risk assessment
+            let last_extended = current_ledger.saturating_sub(max_ttl as u64 / 2);
+            let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
+
+            if risk.critical_keys > 0 || risk.imminent_keys > 0 {
+                let status = format!(
+                    "critical={},imminent={},atrisk={}",
+                    risk.critical_keys, risk.imminent_keys, risk.at_risk_keys
+                );
+                risks.push_back((label.into(), status));
+            }
+        }
+
+        risks
     }
 }

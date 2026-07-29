@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "node scripts/check-local-setup.mjs --warn-only && vite",
     "start": "vite",
-    "build": "vite build",
+    "build": "node scripts/check-no-mocks.mjs && vite build",
     "prebuild": "node scripts/check-local-setup.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",

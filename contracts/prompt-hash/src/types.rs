@@ -50,6 +50,8 @@ pub enum Error {
     DuplicatePromptId = 43,
     InvalidStatusTransition = 44,
     AlreadyInitialized = 45,
+    InvalidCursor = 46,
+    InvalidTtlPolicy = 47,
 }
 
 #[contracttype]
@@ -84,6 +86,10 @@ pub enum DataKey {
     Prompt(u64),
     CreatorPrompts(Address),
     BuyerPrompts(Address),
+    CategoryPrompts(String),      // Index: category → Vec<prompt_ids>
+    TagPrompts(String),            // Index: tag → Vec<prompt_ids>
+    ActivePrompts,                 // Index: all active → Vec<prompt_ids>
+    AllPrompts,                    // Index: all → Vec<prompt_ids>
     Purchase(u64, Address),
     PurchaseEscrow(u64, Address), // Settlement tracking for refunds (#420)
     VoucherKey(u64, BytesN<32>),

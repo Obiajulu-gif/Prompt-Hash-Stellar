@@ -2,7 +2,15 @@ import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Eye, Loader2, Pencil, Plus, Trash2, Copy } from "lucide-react";
+import {
+  AlertCircle,
+  Eye,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  Copy,
+} from "lucide-react";
 import {
   ListingQualityChecklist,
   buildChecklistItems,
@@ -31,7 +39,11 @@ import {
 import { isIpfsUploadConfigured, uploadCiphertextToIpfs } from "@/lib/ipfs";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { xlmToStroops } from "@/lib/stellar/format";
-import { createPrompt, findPromptByContentHash } from "@/lib/stellar/promptHashClient";
+import {
+  createPrompt,
+  findPromptByContentHash,
+  PromptHashClient,
+} from "@/lib/stellar/promptHashClient";
 import { hashPromptPlaintext } from "@/lib/crypto/promptCrypto";
 import {
   LISTING_LIMITS,
@@ -71,7 +83,7 @@ interface CreatePromptFormProps {
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
   const { address, signTransaction } = useWallet();
-  
+
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showChecklist, setShowChecklist] = useState(true);
@@ -80,7 +92,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [isFirstListing] = useState(true);
-  const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
+  const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">(
+    "write",
+  );
 
   const {
     register,
@@ -106,19 +120,18 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const watchAllFields = watch();
 
-  const {
-    draftRestored,
-    lastSavedAt,
-    discardDraft,
-  } = useDraftAutoSave({
+  const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
     address,
     values: watchAllFields,
     setValue,
   });
 
   const isConfigured = useMemo(
-    () => Boolean(address && browserStellarConfig.promptHashContractId && unlockPublicKey),
-    [address]
+    () =>
+      Boolean(
+        address && browserStellarConfig.promptHashContractId && unlockPublicKey,
+      ),
+    [address],
   );
 
   const offChainStorage = useMemo(() => isIpfsUploadConfigured(), []);
@@ -142,12 +155,13 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   );
 
   const checklistHasFailures = checklistItems.some((i) => i.status === "fail");
-  
+
   const coCreatorsList = watchAllFields.coCreators || [];
   const totalRevenueSharePercent = useMemo(
     () =>
       coCreatorsList.reduce(
-        (sum: number, coCreator: any) => sum + (Number(coCreator?.sharePercent?.trim()) || 0),
+        (sum: number, coCreator: any) =>
+          sum + (Number(coCreator?.sharePercent?.trim()) || 0),
         0,
       ),
     [coCreatorsList],
@@ -155,7 +169,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const payloadEstimate = useMemo(
     () => estimateEncryptedPayloadSize(watchAllFields.fullPrompt || ""),
-    [watchAllFields.fullPrompt]
+    [watchAllFields.fullPrompt],
   );
 
   const checkDuplicateHash = useCallback(
@@ -199,15 +213,71 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     setSubmitError(null);
     setSuccessMessage(null);
 
-    // Final duplicate gate: block submission if a duplicate was detected
-    // and the creator hasn't explicitly confirmed.
-    if (duplicateWarning && !duplicateConfirmed) {
-      setSubmitError("A duplicate content hash was detected. Confirm below to proceed.");
+    if (!address || !signTransaction) {
+      setSubmitError("Please connect your wallet first.");
       return;
     }
 
-    console.log("Form submitted successfully:", data);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Final duplicate gate: block submission if a duplicate was detected
+    // and the creator hasn't explicitly confirmed.
+    if (duplicateWarning && !duplicateConfirmed) {
+      setSubmitError(
+        "A duplicate content hash was detected. Confirm below to proceed.",
+      );
+      return;
+    }
+
+    try {
+      // Encrypt the prompt content
+      const encryptionResult = await encryptPromptPlaintext(
+        data.fullPrompt,
+        unlockPublicKey,
+      );
+
+      const hash = await hashPromptPlaintext(data.fullPrompt);
+
+      // Build the contract creation payload
+      const createInput = {
+        imageUrl: data.imageUrl || "",
+        title: data.title,
+        category: data.category,
+        previewText: data.previewText,
+        encryptedPrompt: encryptionResult.ciphertext,
+        encryptionIv: encryptionResult.iv,
+        wrappedKey: encryptionResult.wrappedKey,
+        contentHash: hash,
+        priceStroops: BigInt(xlmToStroops(Number(data.priceXlm) || 0)),
+        splits: (data.coCreators || [])
+          .filter((cc: any) => cc.address?.trim())
+          .map((cc: any) => ({
+            recipient: cc.address.trim(),
+            bps: Math.round((Number(cc.sharePercent) || 0) * 100),
+          })),
+      };
+
+      // Call the contract
+      const result = await PromptHashClient.createPrompt(
+        browserStellarConfig,
+        { signTransaction },
+        address,
+        createInput,
+      );
+
+      if (result.success) {
+        setSuccessMessage(`Prompt created! Transaction: ${result.txHash}`);
+        setTimeout(() => {
+          onCreated?.();
+          navigate("/sell");
+        }, 2000);
+      } else {
+        setSubmitError("Transaction was not confirmed. Please try again.");
+      }
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Failed to create prompt.",
+      );
+      console.error("Prompt creation error:", error);
+    }
   };
 
   return (
@@ -222,7 +292,8 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
         {!isConfigured && (
           <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">
-            Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID` plus `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
+            Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID`
+            plus `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
           </div>
         )}
 
@@ -231,18 +302,26 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             {draftRestored ? (
               <>
                 <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                Draft restored from {lastSavedAt ? new Date(lastSavedAt).toLocaleString() : "previous session"}
+                Draft restored from{" "}
+                {lastSavedAt
+                  ? new Date(lastSavedAt).toLocaleString()
+                  : "previous session"}
               </>
             ) : (
               <>
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                Draft saved {lastSavedAt ? new Date(lastSavedAt).toLocaleString() : ""}
+                Draft saved{" "}
+                {lastSavedAt ? new Date(lastSavedAt).toLocaleString() : ""}
               </>
             )}
             <button
               type="button"
               onClick={() => {
-                if (window.confirm("Discard this draft? All unsaved listing fields will be reset.")) {
+                if (
+                  window.confirm(
+                    "Discard this draft? All unsaved listing fields will be reset.",
+                  )
+                ) {
                   discardDraft();
                 }
               }}
@@ -255,8 +334,14 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-2">
-            <label htmlFor="imageUrl" className="text-sm font-medium text-slate-100">
-              Image URL <span aria-hidden="true" className="text-red-400">*</span>
+            <label
+              htmlFor="imageUrl"
+              className="text-sm font-medium text-slate-100"
+            >
+              Image URL{" "}
+              <span aria-hidden="true" className="text-red-400">
+                *
+              </span>
             </label>
             <Input
               id="imageUrl"
@@ -264,12 +349,22 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               placeholder="https://example.com/prompt-cover.png"
               {...register("imageUrl")}
             />
-            {errors.imageUrl && <p className="text-sm text-red-400">{errors.imageUrl.message?.toString()}</p>}
+            {errors.imageUrl && (
+              <p className="text-sm text-red-400">
+                {errors.imageUrl.message?.toString()}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="title" className="text-sm font-medium text-slate-100">
-              Title <span aria-hidden="true" className="text-red-400">*</span>
+            <label
+              htmlFor="title"
+              className="text-sm font-medium text-slate-100"
+            >
+              Title{" "}
+              <span aria-hidden="true" className="text-red-400">
+                *
+              </span>
             </label>
             <Input
               id="title"
@@ -289,8 +384,14 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
         <div className="grid gap-6 md:grid-cols-[1fr_220px] mt-4">
           <div className="space-y-2">
-            <label htmlFor="previewText" className="text-sm font-medium text-slate-100">
-              Preview text <span aria-hidden="true" className="text-red-400">*</span>
+            <label
+              htmlFor="previewText"
+              className="text-sm font-medium text-slate-100"
+            >
+              Preview text{" "}
+              <span aria-hidden="true" className="text-red-400">
+                *
+              </span>
             </label>
             <Textarea
               id="previewText"
@@ -309,8 +410,14 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="category" className="text-sm font-medium text-slate-100">
-              Category <span aria-hidden="true" className="text-red-400">*</span>
+            <label
+              htmlFor="category"
+              className="text-sm font-medium text-slate-100"
+            >
+              Category{" "}
+              <span aria-hidden="true" className="text-red-400">
+                *
+              </span>
             </label>
             <Controller
               name="category"
@@ -331,8 +438,14 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               )}
             />
 
-            <label htmlFor="priceXlm" className="pt-3 text-sm font-medium text-slate-100 block">
-              Price in XLM <span aria-hidden="true" className="text-red-400">*</span>
+            <label
+              htmlFor="priceXlm"
+              className="pt-3 text-sm font-medium text-slate-100 block"
+            >
+              Price in XLM{" "}
+              <span aria-hidden="true" className="text-red-400">
+                *
+              </span>
             </label>
             <Input
               id="priceXlm"
@@ -353,15 +466,23 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
         <div className="space-y-2 mt-4">
           <div className="flex items-center justify-between">
-            <label htmlFor="description" className="text-sm font-medium text-slate-100">
-              Description <span className="text-slate-500 font-normal">(Markdown supported)</span>
+            <label
+              htmlFor="description"
+              className="text-sm font-medium text-slate-100"
+            >
+              Description{" "}
+              <span className="text-slate-500 font-normal">
+                (Markdown supported)
+              </span>
             </label>
             <div className="flex gap-1 rounded-lg border border-white/10 p-0.5 bg-slate-900/60">
               <button
                 type="button"
                 onClick={() => setDescriptionTab("write")}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  descriptionTab === "write" ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                  descriptionTab === "write"
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
                 <Pencil className="h-3 w-3" /> Write
@@ -370,7 +491,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
                 type="button"
                 onClick={() => setDescriptionTab("preview")}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  descriptionTab === "preview" ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                  descriptionTab === "preview"
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
                 <Eye className="h-3 w-3" /> Preview
@@ -389,14 +512,20 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               {watchAllFields.description ? (
                 <MarkdownContent>{watchAllFields.description}</MarkdownContent>
               ) : (
-                <p className="text-sm text-slate-500 italic">Nothing to preview yet — write some Markdown first.</p>
+                <p className="text-sm text-slate-500 italic">
+                  Nothing to preview yet — write some Markdown first.
+                </p>
               )}
             </div>
           )}
           <p className="text-xs text-slate-400">
             {(watchAllFields.description || "").length} / 4000 characters
           </p>
-          {errors.description && <p className="text-sm text-red-400">{errors.description.message?.toString()}</p>}
+          {errors.description && (
+            <p className="text-sm text-red-400">
+              {errors.description.message?.toString()}
+            </p>
+          )}
         </div>
 
         <PricingGuidance currentPriceXlm={watchAllFields.priceXlm} />
@@ -404,15 +533,24 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
         <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-medium text-slate-100">Co-creators and revenue splits</h3>
-              <p className="text-xs text-slate-400">Share a portion of each sale with collaborators.</p>
+              <h3 className="text-sm font-medium text-slate-100">
+                Co-creators and revenue splits
+              </h3>
+              <p className="text-xs text-slate-400">
+                Share a portion of each sale with collaborators.
+              </p>
             </div>
             <Button
               type="button"
               variant="outline"
               className="gap-2"
               disabled={coCreatorsList.length >= LISTING_LIMITS.maxCoCreators}
-              onClick={() => setValue("coCreators", [...coCreatorsList, { address: "", sharePercent: "" }])}
+              onClick={() =>
+                setValue("coCreators", [
+                  ...coCreatorsList,
+                  { address: "", sharePercent: "" },
+                ])
+              }
             >
               <Plus className="h-4 w-4" /> Add co-creator
             </Button>
@@ -426,14 +564,18 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
                   className="grid gap-3 rounded-xl border border-slate-800/80 bg-slate-900/50 p-3 md:grid-cols-[minmax(0,1fr)_140px_auto]"
                 >
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-300">Stellar address</label>
+                    <label className="text-xs font-medium text-slate-300">
+                      Stellar address
+                    </label>
                     <Input
                       placeholder="G..."
                       {...register(`coCreators.${index}.address`)}
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-300">Share %</label>
+                    <label className="text-xs font-medium text-slate-300">
+                      Share %
+                    </label>
                     <Input
                       inputMode="decimal"
                       placeholder="15"
@@ -445,7 +587,14 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
                       type="button"
                       variant="ghost"
                       className="px-3 text-slate-300 hover:text-white"
-                      onClick={() => setValue("coCreators", coCreatorsList.filter((_: any, i: number) => i !== index))}
+                      onClick={() =>
+                        setValue(
+                          "coCreators",
+                          coCreatorsList.filter(
+                            (_: any, i: number) => i !== index,
+                          ),
+                        )
+                      }
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -454,18 +603,29 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-400">Add collaborators here when a prompt has multiple creators.</p>
+            <p className="text-sm text-slate-400">
+              Add collaborators here when a prompt has multiple creators.
+            </p>
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
             <span>Total shared: {totalRevenueSharePercent.toFixed(2)}%</span>
-            <span>Primary creator keeps: {Math.max(0, 100 - totalRevenueSharePercent).toFixed(2)}%</span>
+            <span>
+              Primary creator keeps:{" "}
+              {Math.max(0, 100 - totalRevenueSharePercent).toFixed(2)}%
+            </span>
           </div>
         </div>
 
         <div className="space-y-2 mt-4">
-          <label htmlFor="fullPrompt" className="text-sm font-medium text-slate-100">
-            Full prompt <span aria-hidden="true" className="text-red-400">*</span>
+          <label
+            htmlFor="fullPrompt"
+            className="text-sm font-medium text-slate-100"
+          >
+            Full prompt{" "}
+            <span aria-hidden="true" className="text-red-400">
+              *
+            </span>
           </label>
           <Textarea
             id="fullPrompt"
