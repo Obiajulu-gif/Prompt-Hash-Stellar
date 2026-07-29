@@ -1,3 +1,4 @@
+import os from "os";
 import { rpc as StellarRpc, scValToNative } from "@stellar/stellar-sdk";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
@@ -11,20 +12,37 @@ import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 
 const POLL_INTERVAL_MS = 5_000;
+const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
+const REPLICA_ID = `${process.pid}@${os.hostname()}`;
+
+let tickInFlight = false; // single-flight guard for the current process
+
+// Entitlement decision cache — invalidated on settlement events (#545).
+// Short TTL balances freshness with RPC load.
+const entitlementCache = new Map<string, { decision: boolean; cachedAt: number }>();
+const ENTITLEMENT_CACHE_TTL_MS = 30_000;
+
+function invalidateEntitlementCacheForPrompt(promptId: string): void {
+  const prefix = `entitlement:${promptId}:`;
+  for (const key of entitlementCache.keys()) {
+    if (key.startsWith(prefix)) {
+      entitlementCache.delete(key);
+    }
+  }
+}
 
 /**
- * Resolves a wallet address to a User document, creating a lightweight record
- * if one does not exist yet (e.g. prompts created or acquired off-platform).
+ * Resolves a wallet address to a User document, creating a minimal wallet
+ * subject if none exists yet. The subject carries only the on-chain address;
+ * no synthetic username or reputation rating is injected. Identity fields
+ * (username, displayName, rating) must be set explicitly through verified
+ * profile claims to prevent unearned reputation from landing in the index.
  */
 async function ensureUser(walletAddress: string) {
   const normalized = walletAddress.toLowerCase();
   let user = await User.findOne({ walletAddress: normalized });
   if (!user) {
-    user = await User.create({
-      walletAddress: normalized,
-      username: `user_${walletAddress.slice(0, 6)}`,
-      rating: 4,
-    });
+    user = await User.create({ walletAddress: normalized });
   }
   return user;
 }
@@ -82,10 +100,45 @@ export async function startIndexer(): Promise<void> {
     { upsert: true, new: true },
   );
 
-  console.log("[indexer] Soroban event indexer started.");
+  console.log("[indexer] Soroban event indexer started.", { replicaId: REPLICA_ID });
 
   setInterval(async () => {
+    // Single-flight: skip this tick if the previous one is still running.
+    if (tickInFlight) {
+      console.warn("[indexer] Tick skipped — previous tick still in flight.");
+      return;
+    }
+
+    tickInFlight = true;
     try {
+      // Acquire or renew the distributed lease via a compare-and-swap write.
+      // Only one replica holds the lease at a time; others skip their tick.
+      const now = new Date();
+      const leaseExpiry = new Date(now.getTime() + LEASE_TTL_MS);
+
+      const leased = await IndexerState.findOneAndUpdate(
+        {
+          key: "prompt_hash_contract",
+          $or: [
+            { leaseHolder: REPLICA_ID },                  // we already hold it
+            { leaseExpiresAt: { $lt: now } },             // it has expired
+            { leaseHolder: null },                        // nobody holds it
+          ],
+        },
+        {
+          $set: { leaseHolder: REPLICA_ID, leaseExpiresAt: leaseExpiry },
+          $inc: { fencingToken: 1 },
+        },
+        { new: true },
+      );
+
+      if (!leased) {
+        // Another replica holds a valid lease — yield this tick.
+        return;
+      }
+
+      const myToken = leased.fencingToken;
+
       const latestLedger = await server.getLatestLedger();
       const startLedger = (state.lastIndexedLedger || 0) + 1;
 
@@ -109,6 +162,14 @@ export async function startIndexer(): Promise<void> {
         lastFinalizedLedger = Math.max(lastFinalizedLedger, event.ledger || 0);
       }
 
+      // Fence: only commit the checkpoint if we still hold the same lease epoch.
+      // A stale replica that woke up after expiry is rejected here.
+      const current = await IndexerState.findOne({ key: "prompt_hash_contract" });
+      if (!current || current.fencingToken !== myToken) {
+        console.warn("[indexer] Fencing token mismatch — checkpoint discarded.");
+        return;
+      }
+
       // Update cursors: track both indexed and finalized ledgers separately
       // for fork recovery and ensuring only finalized events are processed
       state.lastIndexedLedger = latestLedger.sequence;
@@ -118,6 +179,8 @@ export async function startIndexer(): Promise<void> {
       await state.save();
     } catch (err) {
       console.error("Indexer Error:", err);
+    } finally {
+      tickInFlight = false;
     }
   }, POLL_INTERVAL_MS);
 }
@@ -249,6 +312,8 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         txHash,
       });
       await invalidatePromptCaches(promptId);
+      // Invalidate entitlement cache on settlement (refund/transfer)
+      invalidateEntitlementCacheForPrompt(promptId);
       break;
     }
 

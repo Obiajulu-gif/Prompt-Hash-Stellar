@@ -1,5 +1,5 @@
 use super::types::PromptSaleStatus;
-use soroban_sdk::{contractevent, Address, Env};
+use soroban_sdk::{contractevent, Address, BytesN, Env};
 
 #[contractevent]
 struct PromptCreated {
@@ -105,6 +105,34 @@ struct ListingExtended {
     #[topic]
     pub prompt_id: u64,
     pub new_expires_at: u64,
+}
+
+/// Emitted when a signed discount authorization is applied during purchase (#540).
+#[contractevent]
+struct DiscountApplied {
+    #[topic]
+    pub prompt_id: u64,
+    pub buyer: Address,
+    pub discount_bps: u32,
+}
+
+/// Emitted when a creator adds a signed discount authorization (#540).
+#[contractevent]
+struct SignedDiscountAdded {
+    #[topic]
+    pub prompt_id: u64,
+    pub creator: Address,
+    pub discount_bps: u32,
+    pub nonce: BytesN<32>,
+}
+
+/// Emitted when a creator revokes a signed discount authorization (#540).
+#[contractevent]
+struct SignedDiscountRevoked {
+    #[topic]
+    pub prompt_id: u64,
+    pub creator: Address,
+    pub nonce: BytesN<32>,
 }
 
 /// Emitted when a creator revises their listing metadata (#226).
@@ -309,6 +337,50 @@ impl Events {
             old_fee,
             new_fee,
             admin,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_discount_applied(
+        env: &Env,
+        prompt_id: u64,
+        buyer: Address,
+        discount_bps: u32,
+    ) {
+        DiscountApplied {
+            prompt_id,
+            buyer,
+            discount_bps,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_signed_discount_added(
+        env: &Env,
+        prompt_id: u64,
+        creator: Address,
+        discount_bps: u32,
+        nonce: BytesN<32>,
+    ) {
+        SignedDiscountAdded {
+            prompt_id,
+            creator,
+            discount_bps,
+            nonce,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_signed_discount_revoked(
+        env: &Env,
+        prompt_id: u64,
+        creator: Address,
+        nonce: BytesN<32>,
+    ) {
+        SignedDiscountRevoked {
+            prompt_id,
+            creator,
+            nonce,
         }
         .publish(env);
     }

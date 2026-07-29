@@ -65,103 +65,6 @@ export const ImproveProxy = async (
 
 /* PROMPTS CONTROLLERS */
 
-export const CreatePrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-
-    const promptData = await req.body;
-    const { image, title, content, walletAddress, price, category } =
-      promptData;
-
-    // Validate required fields with specific messages
-    const missingFields = [];
-    if (!image) missingFields.push("Image URL");
-    if (!title) missingFields.push("Title");
-    if (!content) missingFields.push("Content");
-    if (!walletAddress) missingFields.push("Wallet Address");
-    if (!price) missingFields.push("Price");
-
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-      });
-    }
-
-    const { normalized, errors } = validateListingMetadata({
-      image,
-      title,
-      content,
-      price,
-      category,
-    });
-
-    if (Object.keys(errors).length > 0) {
-      return res.status(422).json({
-        error: "Invalid listing metadata",
-        fields: errors,
-      });
-    }
-
-    // Find the user by wallet address
-    const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        error: "User not found. Please connect your wallet first.",
-      });
-    }
-
-    const newPrompt = new Prompt({
-      image: normalized.image,
-      title: normalized.title,
-      content: normalized.content,
-      owner: user._id, // Set the owner as the user's ObjectId
-      price: normalized.price,
-      category: normalized.category,
-      rating: 3,
-    });
-
-    await newPrompt.save();
-
-    // Bust every listing cache variant since a new prompt was created
-    await cacheDelPattern("prompts:list:*");
-
-    // Announce new prompt to Discord (non-blocking)
-    announceNewPrompt({
-      title: newPrompt.title,
-      price: newPrompt.price,
-      promptId: newPrompt._id.toString(),
-      category: newPrompt.category,
-      description: newPrompt.content,
-      imageUrl: newPrompt.image,
-      creator: walletAddress,
-    }).catch((err) => {
-      console.error("[discord] Failed to announce new prompt:", err);
-    });
-
-    // Populate the owner details in the response
-    const populatedPrompt = await newPrompt.populate(
-      "owner",
-      "username walletAddress",
-    );
-
-    return res.status(201).json({
-      message: "Prompt created successfully",
-      prompt: populatedPrompt,
-    });
-  } catch (err) {
-    console.error("Create prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to create prompt",
-    });
-  }
-};
-
 export const GetPrompts = async (
   req: Request,
   res: Response,
@@ -615,40 +518,9 @@ export const GetPreviewStats = async (
   }
 };
 
-// ─── Prompt lifecycle controllers ────────────────────────────────────────────
-
-export const GetOwnedPrompts = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    markPrivate(res);
-    await connectDb();
-    const { walletAddress } = req.params;
-
-    if (!walletAddress) {
-      return res.status(400).json({ error: "walletAddress is required." });
-    }
-
-    const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
-    });
-    if (!user) {
-      return res.status(404).json({ error: "User not found." });
-    }
-
-    const prompts = await Prompt.find({ owner: user._id })
-      .populate("owner", "username walletAddress")
-      .sort({ createdAt: -1 });
-
-    return res.json(prompts);
-  } catch (err) {
-    console.error("Get owned prompts error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to fetch owned prompts",
-    });
-  }
-};
+// ─── User Preference Controllers (non-authoritative) ─────────────────────────
+// These are client-side preferences, not authoritative state.
+// They require a valid wallet signature to prevent unauthorized modification.
 
 export const GetSavedPrompts = async (
   req: Request,
@@ -689,12 +561,18 @@ export const SavePrompt = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { promptId, walletAddress } = req.body;
+    const { promptId, walletAddress, signature } = req.body;
 
     if (!promptId || !walletAddress) {
       return res
         .status(400)
         .json({ error: "promptId and walletAddress are required." });
+    }
+
+    if (!signature) {
+      return res
+        .status(401)
+        .json({ error: "Wallet signature required for preference changes." });
     }
 
     const user = await User.findOne({
@@ -708,7 +586,7 @@ export const SavePrompt = async (
       $addToSet: { savedPrompts: user._id },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, authoritative: false });
   } catch (err) {
     console.error("Save prompt error:", err);
     return res.status(500).json({
@@ -723,12 +601,18 @@ export const UnsavePrompt = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { promptId, walletAddress } = req.body;
+    const { promptId, walletAddress, signature } = req.body;
 
     if (!promptId || !walletAddress) {
       return res
         .status(400)
         .json({ error: "promptId and walletAddress are required." });
+    }
+
+    if (!signature) {
+      return res
+        .status(401)
+        .json({ error: "Wallet signature required for preference changes." });
     }
 
     const user = await User.findOne({
@@ -742,7 +626,7 @@ export const UnsavePrompt = async (
       $pull: { savedPrompts: user._id },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, authoritative: false });
   } catch (err) {
     console.error("Unsave prompt error:", err);
     return res.status(500).json({
@@ -783,70 +667,6 @@ export const GetDraftPrompts = async (
     console.error("Get draft prompts error:", err);
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch drafts",
-    });
-  }
-};
-
-export const PublishPrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-    const { id } = req.params;
-
-    const prompt = await Prompt.findByIdAndUpdate(
-      id,
-      { listingStatus: "published", isActive: true },
-      { new: true },
-    );
-
-    if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found." });
-    }
-
-    await Promise.all([
-      cacheDelPattern("prompts:list:*"),
-      cacheDel(CACHE_KEYS.promptDetail(id)),
-    ]);
-
-    return res.json({ success: true, prompt });
-  } catch (err) {
-    console.error("Publish prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to publish prompt",
-    });
-  }
-};
-
-export const ArchivePrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-    const { id } = req.params;
-
-    const prompt = await Prompt.findByIdAndUpdate(
-      id,
-      { listingStatus: "archived", isActive: false },
-      { new: true },
-    );
-
-    if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found." });
-    }
-
-    await Promise.all([
-      cacheDelPattern("prompts:list:*"),
-      cacheDel(CACHE_KEYS.promptDetail(id)),
-    ]);
-
-    return res.json({ success: true, prompt });
-  } catch (err) {
-    console.error("Archive prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to archive prompt",
     });
   }
 };

@@ -14,7 +14,10 @@ import {
 import {
   getPrompt,
   hasAccess,
+  verifyEntitlement,
   type PromptHashConfig,
+  type LedgerVerifiedEntitlement,
+  DEFAULT_MAX_LEDGER_AGE,
 } from "../../src/lib/stellar/promptHashClient";
 import { fetchCiphertextFromIpfs } from "../../src/lib/ipfs/gateway";
 import { isIpfsReference } from "../../src/lib/ipfs/reference";
@@ -266,7 +269,7 @@ async function handler(
     }
 
     // Nonce-based replay protection: ensure this nonce is consumed only once
-    const nonceConsumed = globalNonceLedger.consume(payload.nonce, payload.expiresAt);
+    const nonceConsumed = await globalNonceLedger.consume(payload.nonce, payload.expiresAt);
     if (!nonceConsumed) {
       req.logger.warn({ address, promptId, nonce: payload.nonce }, "Replay attack detected (nonce already consumed)");
       metrics.trackUnlockFailure(String(address), String(promptId), "replay_detected");
@@ -309,9 +312,42 @@ async function handler(
 
     const config = getServerConfig();
     const id = BigInt(promptId);
-    const access = await hasAccess(config, String(address), id);
-    if (!access) {
-      req.logger.warn({ address, promptId }, "Prompt access denied");
+
+    // Verify entitlement against finalized ledger state (#545).
+    // Binds the access decision to ledger_sequence, ledger_hash, network_id,
+    // and contract_id with a strict freshness threshold.
+    // Fail-closed: if RPC is unreachable or state is stale, deny access.
+    let entitlement: LedgerVerifiedEntitlement;
+    try {
+      entitlement = await verifyEntitlement(
+        config,
+        String(address),
+        id,
+        DEFAULT_MAX_LEDGER_AGE,
+      );
+    } catch {
+      req.logger.error({ address, promptId }, "Ledger entitlement verification failed (RPC error)");
+      metrics.trackUnlockFailure(String(address), String(promptId), "ledger_verification_failed");
+      void recordAuditEvent({
+        action: "unlock_ledger_failure",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "ledger_verification_failed",
+      });
+      res.status(403).json(
+        apiError(ErrorCode.ACCESS_NOT_PURCHASED, "Unable to verify access. Please try again."),
+      );
+      return;
+    }
+
+    if (!entitlement.hasAccess) {
+      req.logger.warn(
+        { address, promptId, ledgerSequence: entitlement.ledgerSequence, ledgerHash: entitlement.ledgerHash },
+        "Prompt access denied (ledger-verified)",
+      );
       metrics.trackUnlockFailure(String(address), String(promptId), "no_access");
       void recordAuditEvent({
         action: "unlock_no_access",
@@ -327,6 +363,18 @@ async function handler(
       );
       return;
     }
+
+    req.logger.info(
+      {
+        address,
+        promptId,
+        ledgerSequence: entitlement.ledgerSequence,
+        ledgerHash: entitlement.ledgerHash,
+        networkId: entitlement.networkId,
+        contractId: entitlement.contractId,
+      },
+      "Entitlement verified against finalized ledger state",
+    );
 
     const prompt = await getPrompt(config, id);
     const keyBytes = await unwrapPromptKey(
