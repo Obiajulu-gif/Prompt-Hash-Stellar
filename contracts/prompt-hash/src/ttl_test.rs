@@ -53,7 +53,7 @@ mod tests {
         let last_extended = 100_000u64;
 
         let remaining = get_time_remaining(current, last_extended, max_ttl);
-        let expected = (last_extended as u64 + max_ttl as u64) - current;
+        let expected = (last_extended + max_ttl as u64) - current;
 
         assert_eq!(remaining, expected);
     }
@@ -78,6 +78,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn test_batch_size_respected() {
         assert!(MAX_RENEWAL_BATCH_SIZE > 0, "Batch size must be positive");
         assert!(

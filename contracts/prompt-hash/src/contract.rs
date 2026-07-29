@@ -1825,10 +1825,10 @@ fn execute_buy_with_required_price(
     // Escrow is created as Pending — the creator's share is held in
     // the contract until `settle_purchase` is called (#454).
     let now = env.ledger().timestamp();
-    let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+    let fee_wallet = InstanceStorage::get_fee_wallet(env).ok_or(Error::FeeWalletNotSet)?;
 
     // Snapshot the complete payout plan at purchase time (#562).
-    let mut payout_splits: Vec<super::types::PayoutSplit> = Vec::new(&env);
+    let mut payout_splits: Vec<super::types::PayoutSplit> = Vec::new(env);
     let mut split_total: i128 = 0;
     for i in 0..prompt.splits.len() {
         let split = prompt.splits.get(i).unwrap();

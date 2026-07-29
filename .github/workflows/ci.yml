@@ -42,6 +42,11 @@ jobs:
 
       - name: Build WASM
         run: cargo build --release --target wasm32v1-none
+        env:
+          # soroban-sdk 27's spec-shaking feature otherwise requires building
+          # through `stellar contract build` (stellar-cli v25.2.0+); this is
+          # the same flag that CLI sets internally.
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
 
   # ── TypeScript frontend ───────────────────────────────────────────────────
   frontend:

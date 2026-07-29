@@ -7,7 +7,6 @@ use soroban_sdk::Env;
 
 /// TTL constants (in ledgers, ~6 seconds per ledger)
 /// Reference: 1 day ≈ 14,400 ledgers, 1 year ≈ 5.256M ledgers
-
 pub const ONE_DAY: u32 = 14_400;
 pub const ONE_WEEK: u32 = 7 * ONE_DAY;
 pub const ONE_MONTH: u32 = 30 * ONE_DAY;

@@ -731,7 +731,7 @@ impl Storage {
             .get(&key)
             .unwrap_or(Vec::new(env));
 
-        if !ids.contains(&prompt.id) {
+        if !ids.contains(prompt.id) {
             ids.push_back(prompt.id);
             env.storage().persistent().set(&key, &ids);
             Self::extend_key_ttl(env, &key);
@@ -748,7 +748,7 @@ impl Storage {
                 .get(&key)
                 .unwrap_or(Vec::new(env));
 
-            if !ids.contains(&prompt.id) {
+            if !ids.contains(prompt.id) {
                 ids.push_back(prompt.id);
                 env.storage().persistent().set(&key, &ids);
                 Self::extend_key_ttl(env, &key);
@@ -765,7 +765,7 @@ impl Storage {
             .persistent()
             .get(&all_key)
             .unwrap_or(Vec::new(env));
-        if !all_ids.contains(&prompt.id) {
+        if !all_ids.contains(prompt.id) {
             all_ids.push_back(prompt.id);
             env.storage().persistent().set(&all_key, &all_ids);
             Self::extend_key_ttl(env, &all_key);
@@ -779,7 +779,7 @@ impl Storage {
                 .persistent()
                 .get(&active_key)
                 .unwrap_or(Vec::new(env));
-            if !active_ids.contains(&prompt.id) {
+            if !active_ids.contains(prompt.id) {
                 active_ids.push_back(prompt.id);
                 env.storage().persistent().set(&active_key, &active_ids);
                 Self::extend_key_ttl(env, &active_key);
