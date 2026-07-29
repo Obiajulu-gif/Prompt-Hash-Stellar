@@ -100,6 +100,8 @@ async function handler(
     return;
   }
 
+  const challengeStartMs = Date.now();
+
   // Issue a strictly time-bound challenge (default TTL = 5 minutes).
   // The ttlMs parameter is capped at 10 minutes server-side to prevent
   // unreasonably long-lived tokens.
@@ -116,6 +118,7 @@ async function handler(
   };
 
   metrics.trackChallengeIssued(String(address), String(promptId));
+  metrics.trackChallengeLatency(Date.now() - challengeStartMs);
   req.logger.info({ address, promptId }, "Challenge token issued successfully");
 
   void recordAuditEvent({

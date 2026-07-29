@@ -147,6 +147,26 @@ export class NonceLedger {
     return true;
   }
 
+  /**
+   * Check whether a nonce has already been consumed without consuming it.
+   * Useful for diagnostics and tests.
+   */
+  isConsumed(nonce: string): boolean {
+    this.prune(Date.now());
+    return this.used.has(nonce);
+  }
+
+  /** Number of non-expired nonces currently tracked. */
+  get size(): number {
+    this.prune(Date.now());
+    return this.used.size;
+  }
+
+  /** Remove all tracked nonces (intended for test teardown). */
+  clear(): void {
+    this.used.clear();
+  }
+
   private prune(now: number): void {
     for (const [nonce, expiresAt] of this.used) {
       if (expiresAt < now) {

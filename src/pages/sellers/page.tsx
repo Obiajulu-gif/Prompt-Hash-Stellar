@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PromptCard } from "@/pages/browse/PromptCard";
 import { PromptModal } from "@/pages/browse/PromptModal";
+import { PromptGridSkeleton } from "@/components/skeletons";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import {
@@ -222,14 +223,10 @@ export default function SellerPage() {
             Active prompts by {displayName}
           </h2>
           {promptsQuery.isLoading ? (
-            <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {[...Array(3)].map((_, index) => (
-                <div
-                  key={index}
-                  className="h-[400px] animate-pulse rounded-3xl border border-white/5 bg-white/[0.02]"
-                />
-              ))}
-            </div>
+            <PromptGridSkeleton
+              count={3}
+              gridClassName="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3"
+            />
           ) : promptsQuery.isError ? (
             <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-10 text-center">
               <p className="font-semibold text-red-300">Seller sync failed</p>

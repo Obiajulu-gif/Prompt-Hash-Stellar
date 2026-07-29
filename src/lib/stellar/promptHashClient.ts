@@ -245,6 +245,18 @@ export class PromptHashClient {
     return [];
   }
 
+  /**
+   * Find existing prompts whose content hash matches the given hash.
+   * Returns matching records without exposing plaintext content.
+   */
+  static async findPromptByContentHash(
+    _config: PromptHashConfig,
+    _contentHash: string,
+  ): Promise<PromptRecord[]> {
+    warnMockUse();
+    return [];
+  }
+
   static async getBundlesByCreator(
     _config: PromptHashConfig,
     _address: string,
@@ -471,4 +483,9 @@ export const getRecentPurchases = async (
   config: PromptHashConfig,
   limit?: number
 ) => PromptHashClient.getRecentPurchases(config, limit);
+
+export const findPromptByContentHash = async (
+  config: PromptHashConfig,
+  contentHash: string,
+) => PromptHashClient.findPromptByContentHash(config, contentHash);
 

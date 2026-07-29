@@ -1,6 +1,10 @@
 {
   "nav": {
     "browse": "浏览",
+    "sell": "出售",
+    "chat": "聊天",
+    "profile": "个人资料",
+    "status": "状态",
     "create": "创建",
     "dashboard": "仪表盘",
     "connect": "连接钱包",
@@ -12,6 +16,23 @@
     "browse_prompts": "浏览提示词",
     "create_prompt": "创建提示词"
   },
+  "marketplace": {
+    "title": "市场",
+    "subtitle": "浏览并解锁AI提示词。购买在Stellar网络上结算。",
+    "listings_count_one": "{{count}} 条上架",
+    "listings_count_other": "{{count}} 条上架",
+    "load_error": "加载市场列表失败。",
+    "load_error_hint": "检查您的连接并刷新页面。",
+    "empty_title": "暂无提示词上架",
+    "empty_body": "成为第一个上架提示词的人！前往出售页面发布您的AI提示词并开始赚取XLM。",
+    "sell_link": "出售",
+    "owned": "已拥有",
+    "buy": "购买",
+    "purchasing": "购买中…",
+    "network_wait": "等待Stellar网络确认…",
+    "pending_message": "正在Stellar网络上处理购买…",
+    "success_message": "购买完成！已解锁。"
+  },
   "prompt": {
     "buy": "购买提示词",
     "lease": "租用提示词",
@@ -19,10 +40,59 @@
     "creator": "创作者",
     "category": "分类",
     "sales": "销售数量",
+    "content_hash": "内容哈希",
+    "quality_score": "质量评分",
+    "preview": "预览",
+    "no_ratings": "暂无评分 — 成为第一个评价的人。",
     "purchase_success": "提示词购买成功！",
     "lease_success": "提示词租用成功！",
     "already_owned": "您已拥有此提示词。",
-    "max_supply_reached": "此提示词已达到最大供应量。"
+    "max_supply_reached": "此提示词已达到最大供应量。",
+    "acquire_license": "获取许可证",
+    "acquire_license_subtitle": "通过Stellar智能合约解锁高质量提示词内容。",
+    "secure_purchase": "安全购买",
+    "secure_purchase_body": "资金由合约托管，直到铸造访问权限为止。平台费用已包含在价格中。",
+    "confirm_purchase": "确认并购买",
+    "offline": "离线",
+    "license_verified": "许可证已验证",
+    "license_verified_body": "链上检测到所有权。签署解锁请求以解密。",
+    "decrypt": "解密内容",
+    "unlocking": "解锁中…",
+    "copy_content": "复制内容",
+    "copied": "已复制",
+    "store_securely": "请安全保存此提示词。请勿公开分享或与未授权用户分享。",
+    "go_to_library": "前往我的库",
+    "back_to_marketplace": "返回市场",
+    "share_link": "复制分享链接",
+    "share_link_copied": "链接已复制",
+    "report": "举报提示词",
+    "write_review": "撰写评价",
+    "share_experience": "分享您的体验"
+  },
+  "receipt": {
+    "title": "购买收据",
+    "pending_indexing": "等待索引…",
+    "pending_indexing_body": "您的交易已在Stellar网络上成功，但我们的系统仍在索引更新。您很快就可以解锁提示词。",
+    "prompt_label": "提示词",
+    "creator_label": "创作者",
+    "amount_label": "金额",
+    "fee_label": "网络费用",
+    "tx_hash_label": "交易哈希",
+    "prompt_id_label": "提示词ID",
+    "content_hash_label": "内容哈希",
+    "details_heading": "交易详情",
+    "buyer_status": "买家状态",
+    "buyer_label": "买家",
+    "licensed": "已授权"
+  },
+  "sell": {
+    "title": "上架新提示词",
+    "name_label": "提示词名称",
+    "price_label": "价格（XLM）",
+    "description_label": "描述",
+    "submit": "上架资产",
+    "submitting": "处理中…",
+    "offline": "离线"
   },
   "create": {
     "title": "创建提示词",
@@ -37,9 +107,19 @@
   "errors": {
     "not_found": "未找到提示词。",
     "unauthorized": "您无权执行此操作。",
-    "paused": "市场目前已暂停。"
+    "paused": "市场目前已暂停。",
+    "load_failed": "加载数据失败。",
+    "network_error": "发生网络错误，请重试。"
+  },
+  "offline": {
+    "banner": "您当前处于离线状态。正在查看缓存的公开列表。钱包操作和购买已禁用。",
+    "last_refreshed": "数据最后刷新时间：{{time}}",
+    "reconnect": "重新连接"
   },
   "language": {
     "select": "语言"
+  },
+  "format": {
+    "xlm_amount": "{{amount}} XLM"
   }
 }

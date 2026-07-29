@@ -10,7 +10,7 @@ repository = "https://github.com/Birdmannn/prompt-hash"
 version = "0.0.1"
 
 [workspace.dependencies.soroban-sdk]
-version = "23.0.2"
+version = "27.0.2"
 
 [workspace.dependencies.stellar-access]
 git = "https://github.com/OpenZeppelin/stellar-contracts"

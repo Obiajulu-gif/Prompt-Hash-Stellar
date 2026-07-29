@@ -50,4 +50,37 @@ describe("decodeEvent", () => {
     expect(result.recognized).toBe(true);
     expect((result as { data: Record<string, unknown> }).data.referrer).toBeUndefined();
   });
+
+  it("decodes a mixed-version event stream (v1, v2, and unrecognized future event)", () => {
+    const rawStream = [
+      { type: "PromptCreated", raw: { prompt_id: 1n, creator: "GCREATOR1", price_stroops: 1000n, asset: "GASSET" } }, // v1
+      { type: "PromptCreated", raw: { prompt_id: 2n, creator: "GCREATOR2", price_stroops: 2000n, asset: "GASSET", version: 2 } }, // v2
+      { type: "UnknownFutureEvent", raw: { data: "test" } },
+    ];
+
+    const decodedStream = rawStream.map((evt) => decodeEvent(evt.type, evt.raw));
+
+    expect(decodedStream[0]).toEqual({
+      recognized: true,
+      type: "PromptCreated",
+      version: 1,
+      data: { prompt_id: 1n, creator: "GCREATOR1", price_stroops: 1000n, asset: "GASSET" },
+    });
+
+    expect(decodedStream[1]).toEqual({
+      recognized: true,
+      type: "PromptCreated",
+      version: 2,
+      data: { prompt_id: 2n, creator: "GCREATOR2", price_stroops: 2000n, asset: "GASSET", version: 2 },
+    });
+
+    expect(decodedStream[2]).toEqual({
+      recognized: false,
+      type: "UnknownFutureEvent",
+      version: 1,
+      reason: "unknown_type",
+      raw: { data: "test" },
+    });
+  });
 });
+
