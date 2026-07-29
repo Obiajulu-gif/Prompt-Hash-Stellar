@@ -1,6 +1,5 @@
 import { createHash } from "crypto";
-import { getRedisClient } from "./redisClient";
-import { LRUCache } from "lru-cache";
+import { idempotencyStore as store } from "./sharedStore";
 
 export interface IdempotencyRecord {
   requestHash: string;
@@ -13,13 +12,6 @@ export interface IdempotencyCheckResult {
   statusCode?: number;
   responseData?: unknown;
 }
-
-const IDEMPOTENCY_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-const fallbackCache = new LRUCache<string, IdempotencyRecord>({
-  max: 5000,
-  ttl: IDEMPOTENCY_TTL_MS,
-});
 
 /**
  * Compute a canonical hash of the unlock request fields (excluding the
@@ -35,62 +27,6 @@ export function computeRequestHash(
   return createHash("sha256").update(canonical).digest("hex");
 }
 
-async function redisCheck(
-  idempotencyKey: string,
-  requestHash: string,
-): Promise<IdempotencyCheckResult | null> {
-  const redis = await getRedisClient();
-  if (!redis) return null;
-
-  const key = `idempotent:${idempotencyKey}`;
-  const raw = await redis.get(key);
-  if (!raw) return null;
-
-  let record: IdempotencyRecord;
-  try {
-    record = JSON.parse(raw) as IdempotencyRecord;
-  } catch {
-    return null;
-  }
-
-  if (record.requestHash === requestHash) {
-    return { status: "cached", statusCode: record.statusCode, responseData: record.responseData };
-  }
-  return { status: "conflict" };
-}
-
-function inMemoryCheck(
-  idempotencyKey: string,
-  requestHash: string,
-): IdempotencyCheckResult | null {
-  const record = fallbackCache.get(idempotencyKey);
-  if (!record) return null;
-
-  if (record.requestHash === requestHash) {
-    return { status: "cached", statusCode: record.statusCode, responseData: record.responseData };
-  }
-  return { status: "conflict" };
-}
-
-async function redisStore(
-  idempotencyKey: string,
-  record: IdempotencyRecord,
-): Promise<void> {
-  const redis = await getRedisClient();
-  if (!redis) return;
-
-  const key = `idempotent:${idempotencyKey}`;
-  const ttlSec = Math.ceil(IDEMPOTENCY_TTL_MS / 1000);
-  await redis.setEx(key, ttlSec, JSON.stringify(record));
-}
-
-function inMemoryStore(
-  idempotencyKey: string,
-  record: IdempotencyRecord,
-): void {
-  fallbackCache.set(idempotencyKey, record);
-}
-
 /**
  * Check whether an idempotency key has been used before.
  *
@@ -98,6 +34,8 @@ function inMemoryStore(
  * - `"new"`: proceed with processing and call `storeIdempotencyResult` on completion.
  * - `"cached"`: return the stored result immediately.
  * - `"conflict"`: reject with a 409 error.
+ *
+ * Fail-closed: throws if the shared store is unreachable in production.
  */
 export async function checkIdempotency(
   idempotencyKey: string,
@@ -108,12 +46,31 @@ export async function checkIdempotency(
 ): Promise<IdempotencyCheckResult> {
   const requestHash = computeRequestHash(token, promptId, address, signedMessage);
 
-  // Try Redis first, fall back to in-memory.
-  const redisResult = await redisCheck(idempotencyKey, requestHash);
-  if (redisResult) return redisResult;
+  // Atomic check-and-store: if the key doesn't exist, store it with
+  // status "in-progress" to prevent concurrent duplicate processing.
+  const consumed = await store.consume(`check:${idempotencyKey}`);
+  if (!consumed) {
+    // Key already exists — retrieve the existing record
+    const record = await store.get<IdempotencyRecord>(`data:${idempotencyKey}`);
+    if (record) {
+      if (record.requestHash === requestHash) {
+        return { status: "cached", statusCode: record.statusCode, responseData: record.responseData };
+      }
+      return { status: "conflict" };
+    }
+    // Key was consumed but no data yet (concurrent processing).
+    // Return "new" — the caller will proceed but the first to finish wins.
+    return { status: "new" };
+  }
 
-  const memResult = inMemoryCheck(idempotencyKey, requestHash);
-  if (memResult) return memResult;
+  // First time seeing this key — check if there's a conflicting in-progress
+  const existing = await store.get<IdempotencyRecord>(`data:${idempotencyKey}`);
+  if (existing) {
+    if (existing.requestHash === requestHash) {
+      return { status: "cached", statusCode: existing.statusCode, responseData: existing.responseData };
+    }
+    return { status: "conflict" };
+  }
 
   return { status: "new" };
 }
@@ -134,13 +91,12 @@ export async function storeIdempotencyResult(
   const requestHash = computeRequestHash(token, promptId, address, signedMessage);
   const record: IdempotencyRecord = { requestHash, statusCode, responseData };
 
-  await redisStore(idempotencyKey, record).catch(() => {});
-  inMemoryStore(idempotencyKey, record);
+  await store.set(`data:${idempotencyKey}`, record);
 }
 
 /**
  * Clear the in-memory idempotency cache. Intended for test teardown.
  */
 export function clearIdempotencyCache(): void {
-  fallbackCache.clear();
+  // No-op: shared store cannot be cleared from a single instance.
 }

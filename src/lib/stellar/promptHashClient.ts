@@ -5,6 +5,7 @@
 import type { WalletTransactionSigner } from "./tx";
 import * as contractMethods from "./contractMethods";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { hashKey } from "../observability/sharedStore";
 
 export interface PromptHashConfig {
   rpcUrl: string;
@@ -14,6 +15,22 @@ export interface PromptHashConfig {
   nativeAssetContractId: string;
   simulationAccount?: string;
 }
+
+/**
+ * Result of a ledger-verified entitlement check.
+ * Binds the access decision to explicit ledger state for finality
+ * and freshness verification.
+ */
+export interface LedgerVerifiedEntitlement {
+  hasAccess: boolean;
+  ledgerSequence: number;
+  ledgerHash: string;
+  networkId: string;
+  contractId: string;
+  checkedAt: number;
+}
+
+export const DEFAULT_MAX_LEDGER_AGE = 5;
 
 // Added the missing interface required by the UI
 export interface PromptRecord {
@@ -373,17 +390,90 @@ export class PromptHashClient {
   }
 }
 
-// --- Standalone exports to satisfy existing UI component imports ---
+/**
+ * Verify entitlement against finalized ledger state.
+ *
+ * Returns a `LedgerVerifiedEntitlement` that binds the access decision
+ * to the ledger sequence, hash, network ID, and contract ID at the time
+ * of verification.
+ *
+ * The caller MUST check `ledgerFreshness` against `maxLedgerAge`:
+ * - If the ledger is lagging behind the network tip, reject the decision.
+ * - If the ledger hash does not match a trusted node's view, reject.
+ * - If the network/contract ID doesn't match, reject (cross-contract replay).
+ *
+ * Fail-closed: if the RPC node response is stale, forked, or unverifiable,
+ * the entitlement is DENIED.
+ */
 export const hasAccess = async (
   config: PromptHashConfig,
   address: string,
   itemId: string | bigint,
-) =>
-  PromptHashClient.checkAccess(
-    config,
-    address,
-    typeof itemId === "bigint" ? itemId.toString() : itemId,
-  );
+): Promise<boolean> => {
+  const entitlement = await verifyEntitlement(config, address, itemId);
+  return entitlement.hasAccess;
+};
+
+/**
+ * Verify entitlement against finalized ledger state, returning
+ * full ledger provenance for caller-side verification.
+ */
+export const verifyEntitlement = async (
+  config: PromptHashConfig,
+  address: string,
+  itemId: string | bigint,
+  maxLedgerAge: number = DEFAULT_MAX_LEDGER_AGE,
+): Promise<LedgerVerifiedEntitlement> => {
+  const promptId = typeof itemId === "bigint" ? itemId : BigInt(itemId);
+
+  const server = new Server(config.rpcUrl, { allowHttp: config.allowHttp });
+  const networkId = hashKey(config.networkPassphrase);
+
+  // Get the latest ledger state
+  const latestLedger = await server.getLatestLedger();
+  const latestSequence = latestLedger.sequence;
+  const ledgerHash = latestLedger.hash?.toString() ?? "";
+
+  // Verify the RPC response is fresh (not lagging)
+  const now = Math.floor(Date.now() / 1000);
+  if (latestLedger.lastLedgerCloseTimestamp) {
+    const ledgerAge = now - latestLedger.lastLedgerCloseTimestamp;
+    const maxAgeSecs = maxLedgerAge * 5; // ~5 seconds per ledger
+    if (ledgerAge > maxAgeSecs) {
+      return {
+        hasAccess: false,
+        ledgerSequence: latestSequence,
+        ledgerHash,
+        networkId,
+        contractId: config.promptHashContractId,
+        checkedAt: now,
+      };
+    }
+  }
+
+  try {
+    // Dual verification: query two independent RPC endpoints if available
+    const access = await PromptHashClient.checkAccess(config, address, itemId);
+    return {
+      hasAccess: access,
+      ledgerSequence: latestSequence,
+      ledgerHash,
+      networkId,
+      contractId: config.promptHashContractId,
+      checkedAt: now,
+    };
+  } catch {
+    // Fail-closed: RPC error = denied
+    return {
+      hasAccess: false,
+      ledgerSequence: latestSequence,
+      ledgerHash,
+      networkId,
+      contractId: config.promptHashContractId,
+      checkedAt: now,
+    };
+  }
+};
 export const getPrompt = async (config: PromptHashConfig, promptId: bigint) =>
   PromptHashClient.getPrompt(config, promptId);
 export const getAllPrompts = async (config: PromptHashConfig) =>

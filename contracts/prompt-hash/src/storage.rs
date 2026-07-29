@@ -608,6 +608,27 @@ impl Storage {
         discount
     }
 
+    // ─── Signed Discount Authorization Nonce Storage ────────────────────────────
+    // Replaces raw voucher preimages with creator-signed authorizations (#540).
+    // Nonces are consumed atomically on first use to prevent replay attacks.
+
+    /// Check if a nonce has already been consumed for a given prompt.
+    pub fn is_nonce_consumed(env: &Env, prompt_id: u64, nonce_hash: &BytesN<32>) -> bool {
+        let key = DataKey::NonceConsumed(prompt_id, nonce_hash.clone());
+        env.storage().persistent().has(&key)
+    }
+
+    /// Atomically consume a nonce. Returns true if it was not previously consumed.
+    pub fn try_consume_nonce(env: &Env, prompt_id: u64, nonce_hash: &BytesN<32>) -> bool {
+        let key = DataKey::NonceConsumed(prompt_id, nonce_hash.clone());
+        if env.storage().persistent().has(&key) {
+            return false;
+        }
+        env.storage().persistent().set(&key, &true);
+        Self::extend_key_ttl(env, &key);
+        true
+    }
+
     pub fn save_listing_revision(env: &Env, record: &ListingRevisionRecord) {
         let key = DataKey::ListingRevision(record.prompt_id, record.revision);
         env.storage().persistent().set(&key, record);

@@ -2,10 +2,10 @@ use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
     AccessPass, Bundle, CatalogPassPurchase, DataKey, DisputeReason, DisputeStatus, Error,
-    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow,
-    SettlementStatus, Split,
+    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus,
+    PurchaseDispute, PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, crypto::Crypto, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
 
@@ -217,6 +217,101 @@ impl PromptHashTrait for PromptHashContract {
             payment_amount_stroops,
             voucher,
         )
+    }
+
+    fn buy_prompt_with_auth(
+        env: Env,
+        buyer: Address,
+        prompt_id: u64,
+        referrer: Option<Address>,
+        payment_amount_stroops: i128,
+        authorization: SignedDiscountAuthorization,
+        creator_sig: BytesN<64>,
+    ) -> Result<(), Error> {
+        buyer.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        let now = env.ledger().sequence();
+
+        // 1. Verify domain separation (network_id + contract_id)
+        let contract_id = env.current_contract_id();
+        let network_id = env.ledger().network_id();
+        ensure(
+            authorization.network_id == network_id,
+            Error::AuthorizationDomainMismatch,
+        )?;
+        ensure(
+            authorization.contract_id == contract_id,
+            Error::AuthorizationDomainMismatch,
+        )?;
+
+        // 2. Verify prompt_id binding
+        ensure(
+            authorization.prompt_id == prompt_id,
+            Error::AuthorizationPromptMismatch,
+        )?;
+
+        // 3. Verify buyer binding
+        ensure(
+            authorization.buyer == buyer,
+            Error::AuthorizationBuyerMismatch,
+        )?;
+
+        // 4. Verify expiry
+        ensure(
+            authorization.expiry_ledger >= now,
+            Error::AuthorizationExpired,
+        )?;
+
+        // 5. Verify nonce not yet consumed (replay protection)
+        let nonce_hash = env.crypto().sha256(&authorization.nonce.to_xdr(&env));
+        ensure(
+            !Storage::is_nonce_consumed(&env, prompt_id, &nonce_hash),
+            Error::AuthorizationNonceConsumed,
+        )?;
+
+        // 6. Verify creator signature
+        let auth_hash = authorization.hash(&env);
+        let creator_pub_key = prompt.creator.clone();
+        let valid_sig = env.crypto().ed25519_verify(
+            &creator_pub_key,
+            &auth_hash,
+            &creator_sig,
+        );
+        ensure(valid_sig, Error::InvalidAuthorizationSignature)?;
+
+        // 7. Consume the nonce atomically
+        Storage::try_consume_nonce(&env, prompt_id, &nonce_hash);
+
+        // 8. Execute buy with discount
+        let discount_amount = prompt
+            .price_stroops
+            .checked_mul(authorization.discount_bps as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            / MAX_BPS as i128;
+        let required_price = prompt
+            .price_stroops
+            .checked_sub(discount_amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        ensure(
+            payment_amount_stroops >= required_price,
+            Error::InvalidPaymentAmount,
+        )?;
+
+        // Reuse the existing buy logic with no voucher
+        execute_buy_with_required_price(
+            &env,
+            &buyer,
+            prompt_id,
+            &referrer,
+            payment_amount_stroops,
+            required_price,
+        )?;
+
+        Events::emit_discount_applied(&env, prompt_id, buyer, authorization.discount_bps);
+        Ok(())
     }
 
     fn lease_prompt(
@@ -1301,6 +1396,89 @@ impl PromptHashTrait for PromptHashContract {
         InstanceStorage::get_referral_percentage(&env)
     }
 
+    fn add_signed_discount_auth(
+        env: Env,
+        creator: Address,
+        authorization: SignedDiscountAuthorization,
+        signature: BytesN<64>,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        ensure(
+            authorization.discount_bps <= MAX_BPS,
+            Error::InvalidDiscountPercentage,
+        )?;
+        let prompt = Storage::require_prompt(&env, authorization.prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+
+        // Verify domain separation
+        let contract_id = env.current_contract_id();
+        let network_id = env.ledger().network_id();
+        ensure(
+            authorization.network_id == network_id,
+            Error::AuthorizationDomainMismatch,
+        )?;
+        ensure(
+            authorization.contract_id == contract_id,
+            Error::AuthorizationDomainMismatch,
+        )?;
+
+        // Verify expiry is in the future
+        let now = env.ledger().sequence();
+        ensure(
+            authorization.expiry_ledger >= now,
+            Error::AuthorizationExpired,
+        )?;
+
+        // Verify nonce not already consumed (in case of re-submission)
+        let nonce_hash = env.crypto().sha256(&authorization.nonce.to_xdr(&env));
+        ensure(
+            !Storage::is_nonce_consumed(&env, authorization.prompt_id, &nonce_hash),
+            Error::AuthorizationNonceConsumed,
+        )?;
+
+        // Verify the signature is valid from the creator
+        let auth_hash = authorization.hash(&env);
+        let valid_sig = env.crypto().ed25519_verify(&creator, &auth_hash, &signature);
+        ensure(valid_sig, Error::InvalidAuthorizationSignature)?;
+
+        // Store the authorization for later verification during buy_prompt_with_auth
+        env.storage().persistent().set(
+            &DataKey::NonceConsumed(authorization.prompt_id, nonce_hash),
+            &authorization,
+        );
+
+        Events::emit_signed_discount_added(
+            &env,
+            authorization.prompt_id,
+            creator,
+            authorization.discount_bps,
+            authorization.nonce,
+        );
+        Ok(())
+    }
+
+    fn revoke_discount_auth(
+        env: Env,
+        creator: Address,
+        prompt_id: u64,
+        nonce: BytesN<32>,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        ensure(prompt.creator == creator, Error::Unauthorized)?;
+
+        // Consume the nonce to prevent future use
+        let nonce_hash = env.crypto().sha256(&nonce.to_xdr(&env));
+        env.storage()
+            .persistent()
+            .set(&DataKey::NonceConsumed(prompt_id, nonce_hash), &true);
+
+        Events::emit_signed_discount_revoked(&env, prompt_id, creator, nonce);
+        Ok(())
+    }
+
+    // Legacy voucher methods — kept for backward compatibility during migration
+    // but deprecated. Use `add_signed_discount_auth` for new authorizations.
     fn add_voucher(
         env: Env,
         creator: Address,
@@ -1418,6 +1596,22 @@ fn execute_buy(
             Error::ReferrerCannotBeBuyerOrCreator,
         )?;
     }
+
+    execute_buy_with_required_price(env, buyer, prompt_id, referrer, payment_amount_stroops, required_price)
+}
+
+/// Buy execution after all price and voucher validation is done.
+/// Shared between `execute_buy` (legacy vouchers) and `buy_prompt_with_auth`
+/// (signed discount authorizations).
+fn execute_buy_with_required_price(
+    env: &Env,
+    buyer: &Address,
+    prompt_id: u64,
+    referrer: &Option<Address>,
+    payment_amount_stroops: i128,
+    required_price: i128,
+) -> Result<(), Error> {
+    let mut prompt = Storage::require_prompt(env, prompt_id)?;
 
     InstanceStorage::set_reentrancy_guard(env)?;
 

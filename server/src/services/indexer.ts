@@ -17,6 +17,20 @@ const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 
 let tickInFlight = false; // single-flight guard for the current process
 
+// Entitlement decision cache — invalidated on settlement events (#545).
+// Short TTL balances freshness with RPC load.
+const entitlementCache = new Map<string, { decision: boolean; cachedAt: number }>();
+const ENTITLEMENT_CACHE_TTL_MS = 30_000;
+
+function invalidateEntitlementCacheForPrompt(promptId: string): void {
+  const prefix = `entitlement:${promptId}:`;
+  for (const key of entitlementCache.keys()) {
+    if (key.startsWith(prefix)) {
+      entitlementCache.delete(key);
+    }
+  }
+}
+
 /**
  * Resolves a wallet address to a User document, creating a minimal wallet
  * subject if none exists yet. The subject carries only the on-chain address;
@@ -298,6 +312,8 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         txHash,
       });
       await invalidatePromptCaches(promptId);
+      // Invalidate entitlement cache on settlement (refund/transfer)
+      invalidateEntitlementCacheForPrompt(promptId);
       break;
     }
 
