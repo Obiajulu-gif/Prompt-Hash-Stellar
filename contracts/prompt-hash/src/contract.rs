@@ -834,6 +834,133 @@ impl PromptHashTrait for PromptHashContract {
         Ok(Storage::get_prompts_by_tag(&env, &tag))
     }
 
+    // Paginated catalog queries (bounded, respects resource limits)
+    fn get_all_prompts_paginated(
+        env: Env,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::AllPrompts;
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+        
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(last_id, IndexType::All).to_string())
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    fn get_prompts_by_category_paginated(
+        env: Env,
+        category: String,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        validate_len(&category, MAX_CATEGORY_LEN, Error::InvalidCategoryLength)?;
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::CategoryPrompts(category);
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+        
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(last_id, IndexType::Category).to_string())
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    fn get_prompts_by_tag_paginated(
+        env: Env,
+        tag: String,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        validate_len(&tag, MAX_TAG_LEN, Error::InvalidCategoryLength)?;
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::TagPrompts(tag);
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+        
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(last_id, IndexType::Tag).to_string())
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    fn get_active_prompts_paginated(
+        env: Env,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::ActivePrompts;
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+        
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(last_id, IndexType::Active).to_string())
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    // ====== TTL MAINTENANCE (OPERATOR UTILITIES) ======
+
+    fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error> {
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        Ok(Storage::renew_critical_keys(&env, cursor))
+    }
+
+    fn get_expiry_risk_metrics(env: Env) -> Result<Vec<(String, String)>, Error> {
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        Ok(Storage::compute_expiry_risks(&env))
+    }
+
     fn open_dispute(
         env: Env,
         buyer: Address,
