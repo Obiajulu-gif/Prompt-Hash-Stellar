@@ -144,6 +144,37 @@ pub struct PurchaseEscrow {
     pub creator_amount: i128,
     pub fee_amount: i128,
     pub referral_amount: i128,
+    pub payout_plan: PayoutPlan,
+}
+
+/// Immutable payout snapshot captured at purchase time (#562).
+/// Stored inside `PurchaseEscrow` so settlement is independent of
+/// any subsequent listing or configuration mutation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PayoutPlan {
+    /// The prompt creator who receives the creator share.
+    pub creator: Address,
+    /// Platform fee wallet address at time of purchase.
+    pub fee_wallet: Address,
+    /// Platform fee amount in stroops.
+    pub fee_amount: i128,
+    /// Optional referrer address.
+    pub referrer: Option<Address>,
+    /// Referral commission amount in stroops.
+    pub referral_amount: i128,
+    /// Collaborator splits snapshot (recipient, amount) at purchase time.
+    pub splits: Vec<PayoutSplit>,
+    /// Creator's share after all deductions.
+    pub creator_amount: i128,
+}
+
+/// A single collaborator split entry in the payout snapshot.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PayoutSplit {
+    pub recipient: Address,
+    pub amount: i128,
 }
 
 #[contracttype]

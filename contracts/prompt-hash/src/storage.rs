@@ -649,7 +649,6 @@ impl Storage {
         }
     }
 
-    pub fn extend_all_ttl(env: &Env) {
     pub fn get_prompts_paginated(
         env: &Env,
         key: &DataKey,

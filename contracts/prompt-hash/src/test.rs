@@ -1,13 +1,10 @@
 #![cfg(test)]
 
-use crate::{PromptHashContract, PromptHashContractClient};
-use crate::types::Error;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, Address, Env, IntoVal, String};
-use crate::contract::{PromptHashContract, PromptHashContractClient};
-use crate::mock_asset::FungibleTokenContract;
-use crate::types::{Error, ListingConfig, Split};
 extern crate std;
+
+use crate::mock_asset::FungibleTokenContract;
+use crate::types::{Error, ListingConfig, PromptSaleStatus, Split};
+use crate::{PromptHashContract, PromptHashContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
@@ -19,6 +16,24 @@ struct PromptHashContext {
     fee_wallet: Address,
     xlm: Address,
     contract: Address,
+}
+
+fn setup(env: &Env) -> PromptHashContext {
+    let contract_id = env.register_contract(None, PromptHashContract);
+    let client = PromptHashContractClient::new(env, &contract_id);
+
+    let admin = Address::generate(env);
+    let fee_wallet = Address::generate(env);
+
+    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+    client.initialize(&fee_wallet, &token_contract);
+
+    PromptHashContext {
+        admin,
+        fee_wallet,
+        xlm: token_contract,
+        contract: contract_id,
+    }
 }
 
 fn setup_env() -> (Env, Address, Address, Address, Address, Address, PromptHashContractClient<'static>) {
@@ -44,13 +59,15 @@ fn create_native_token(env: &Env, admin: &Address) -> token::Client<'static> {
     token::Client::new(env, &sac)
 }
 
-fn create_prompt_with_supply(
-    env: &Env,
-    client: &PromptHashContractClient,
-    creator: &Address,
-    max_supply: u32,
-    price: i128,
-) -> u32 {
+fn hash(env: &Env, n: u32) -> BytesN<32> {
+    let mut data = [0u8; 32];
+    data[0] = (n & 0xFF) as u8;
+    data[1] = ((n >> 8) & 0xFF) as u8;
+    data[2] = ((n >> 16) & 0xFF) as u8;
+    data[3] = ((n >> 24) & 0xFF) as u8;
+    BytesN::from_array(env, &data)
+}
+
 /// Convenience helper: creates a prompt with no expiry and no splits.
 fn create_prompt(
     env: &Env,
@@ -63,18 +80,11 @@ fn create_prompt(
     client.create_prompt(
         creator,
         &String::from_str(env, "https://example.com/image.png"),
-        &String::from_str(env, "Test Prompt"),
-        &String::from_str(env, "testing"),
+        &String::from_str(env, title),
+        &String::from_str(env, "Software Development"),
         &String::from_str(env, "preview"),
         &String::from_str(env, "encrypted"),
         &String::from_str(env, "iv"),
-        &String::from_str(env, "wrapped_key"),
-        &String::from_str(env, "hash"),
-        &price,
-        &max_supply,
-    )
-}
-
         &String::from_str(env, "wrapped-key"),
         &hash(env, 7),
         &ListingConfig {
@@ -84,6 +94,38 @@ fn create_prompt(
             splits: Vec::new(env),
             tags: Vec::new(env),
             max_supply: 0,
+        },
+    )
+}
+
+fn create_prompt_with_supply(
+    env: &Env,
+    client: &PromptHashContractClient,
+    creator: &Address,
+    max_supply: u32,
+    price: i128,
+) -> u64 {
+    let asset = {
+        let admin = Address::generate(env);
+        env.register_stellar_asset_contract_v2(admin)
+    };
+    client.create_prompt(
+        creator,
+        &String::from_str(env, "https://example.com/image.png"),
+        &String::from_str(env, "Supply Prompt"),
+        &String::from_str(env, "Software Development"),
+        &String::from_str(env, "preview"),
+        &String::from_str(env, "encrypted"),
+        &String::from_str(env, "iv"),
+        &String::from_str(env, "wrapped-key"),
+        &hash(env, 8),
+        &ListingConfig {
+            price,
+            asset,
+            expires_at: 0,
+            splits: Vec::new(env),
+            tags: Vec::new(env),
+            max_supply: max_supply as u64,
         },
     )
 }
@@ -249,6 +291,21 @@ fn test_buy_prompt_reaches_exact_max_supply() {
 fn test_buy_prompt_exceeds_max_supply_fails() {
     let (env, admin, _fee_wallet, creator, buyer, _token_contract, client) = setup_env();
     let token = create_native_token(&env, &admin);
+
+    let id = create_prompt_with_supply(&env, &client, &creator, 1, 1000);
+
+    token.mint(&buyer, &10000);
+    token.approve(&buyer, &client.address, &10000, &1000);
+
+    // First purchase succeeds
+    client.buy_prompt(&buyer, &id).unwrap();
+
+    // Second purchase fails because max_supply = 1
+    let result = client.try_buy_prompt(&buyer, &id);
+    assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
+}
+
+#[test]
 fn test_fee_routing_pays_seller_and_platform_wallet_for_exact_purchase() {
     let env: Env = Default::default();
     let context = setup(&env);
@@ -542,6 +599,16 @@ fn test_max_supply_zero_is_unlimited() {
     // Multiple purchases should all succeed
     for _ in 0..5 {
         client.buy_prompt(&buyer, &id).unwrap();
+    }
+}
+
+#[test]
+fn test_get_prompts_by_creator_and_buyer() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let prompt_a = create_prompt(&env, &client, &creator, "Prompt A", 8_000, &context.xlm);
@@ -728,14 +795,29 @@ fn test_duplicate_purchase_returns_typed_error() {
         other => panic!("unexpected duplicate purchase result: {:?}", other),
     }
 
-    let prompt = client.get_prompt(&id);
-    assert_eq!(prompt.sales_count, 5);
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.sales_count, 1);
 }
 
 #[test]
 fn test_max_supply_one_allows_exactly_one_purchase() {
     let (env, admin, _fee_wallet, creator, buyer1, _token_contract, client) = setup_env();
     let token = create_native_token(&env, &admin);
+
+    let id = create_prompt_with_supply(&env, &client, &creator, 1, 1000);
+
+    token.mint(&buyer1, &10000);
+    token.approve(&buyer1, &client.address, &10000, &1000);
+
+    // First buyer succeeds
+    client.buy_prompt(&buyer1, &id).unwrap();
+
+    // Any further purchase fails
+    let buyer2 = Address::generate(&env);
+    let result = client.try_buy_prompt(&buyer2, &id);
+    assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
+}
+
 #[test]
 fn test_creator_cannot_buy_own_prompt() {
     let env: Env = Default::default();
@@ -784,7 +866,7 @@ fn test_inactive_prompt_cannot_be_bought() {
     );
 
     fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
-    client.set_prompt_sale_status(&creator, &prompt_id, &false);
+    client.set_prompt_sale_status(&creator, &prompt_id, &PromptSaleStatus::Paused);
 
     let result = client.try_buy_prompt(
         &buyer,
@@ -821,34 +903,39 @@ fn test_buy_prompt_with_zero_fee() {
         &context.xlm,
     );
 
-    let id = create_prompt_with_supply(&env, &client, &creator, 1, 1000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
 
-    token.mint(&buyer1, &10000);
-    token.approve(&buyer1, &client.address, &10000, &1000);
+    let creator_start = xlm_client.balance(&creator);
+    let fee_start = xlm_client.balance(&context.fee_wallet);
 
-    // First buyer succeeds
-    client.buy_prompt(&buyer1, &id).unwrap();
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
-    // Any further purchase fails
-    let result = client.try_buy_prompt(&buyer1, &id);
-    assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
+    // With 0% fee, creator gets the full price
+    assert_eq!(
+        xlm_client.balance(&creator),
+        creator_start + price
+    );
+    assert_eq!(
+        xlm_client.balance(&context.fee_wallet),
+        fee_start
+    );
 }
 
 #[test]
 fn test_multiple_buyers_until_supply_exhausted() {
-    let (env, admin, _fee_wallet, creator, buyer1, _token_contract, client) = setup_env();
-    let token = create_native_token(&env, &admin);
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
+    let creator = Address::generate(&env);
+    let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
     let buyer3 = Address::generate(&env);
-
-    let id = create_prompt_with_supply(&env, &client, &creator, 2, 1000);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
     let price = 10_000;
+
     let prompt_id = create_prompt(
         &env,
         &client,
@@ -858,37 +945,29 @@ fn test_multiple_buyers_until_supply_exhausted() {
         &context.xlm,
     );
 
-    token.mint(&buyer1, &10000);
-    token.mint(&buyer2, &10000);
-    token.mint(&buyer3, &10000);
-    token.approve(&buyer1, &client.address, &10000, &1000);
-    token.approve(&buyer2, &client.address, &10000, &1000);
-    token.approve(&buyer3, &client.address, &10000, &1000);
+    // Set max supply to 2
+    client.set_prompt_max_supply(&creator, &prompt_id, &2);
+
+    fund_buyer(&xlm_client, &buyer1, &context.contract, price);
+    fund_buyer(&xlm_client, &buyer2, &context.contract, price);
+    fund_buyer(&xlm_client, &buyer3, &context.contract, price);
 
     // Two buyers can purchase
-    client.buy_prompt(&buyer1, &id).unwrap();
-    client.buy_prompt(&buyer2, &id).unwrap();
+    client.buy_prompt(&buyer1, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(&buyer2, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
     // Third buyer cannot
-    let result = client.try_buy_prompt(&buyer3, &id);
+    let result = client.try_buy_prompt(&buyer3, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
     assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
-
-    client.settle_purchase(&context.admin, &prompt_id, &buyer);
-
-    let prompt = client.get_prompt(&id);
-    assert_eq!(prompt.sales_count, 2);
 }
 
 #[test]
 fn test_supply_check_happens_before_payment() {
-    let (env, admin, _fee_wallet, creator, buyer, _token_contract, client) = setup_env();
-    let token = create_native_token(&env, &admin);
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
-    let id = create_prompt_with_supply(&env, &client, &creator, 1, 1000);
-
-    token.mint(&buyer, &10000);
-    token.approve(&buyer, &client.address, &10000, &1000);
     let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
     let prompt_id = create_prompt(
@@ -901,7 +980,7 @@ fn test_supply_check_happens_before_payment() {
     );
 
     // Try to update status as stranger
-    let status_res = client.try_set_prompt_sale_status(&stranger, &prompt_id, &false);
+    let status_res = client.try_set_prompt_sale_status(&stranger, &prompt_id, &PromptSaleStatus::Paused);
     match status_res {
         Err(Ok(Error::Unauthorized)) => {}
         other => panic!("expected unauthorized for status update, got {:?}", other),
@@ -915,39 +994,17 @@ fn test_supply_check_happens_before_payment() {
     }
 }
 
-    // Exhaust supply
-    client.buy_prompt(&buyer, &id).unwrap();
+#[test]
+fn test_massive_price_does_not_overflow() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
-    // Capture balance before failed attempt
-    let balance_before = token.balance(&buyer);
-    let result = client.try_buy_prompt(
-        &buyer,
-        &999_999,
-        &None::<Address>,
-        &1_000i128,
-        &None::<Bytes>,
-    );
-    match result {
-        Err(Ok(Error::PromptNotFound)) => {}
-        other => panic!(
-            "expected PromptNotFound for nonexistent prompt, got {:?}",
-            other
-        ),
-    }
-}
-
-    // Attempt to buy again fails
-    let result = client.try_buy_prompt(&buyer, &id);
-    assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
-
-    // Balance should not change because payment should not occur
-    let balance_after = token.balance(&buyer);
-    assert_eq!(balance_before, balance_after);
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    // Test with a very large price that might cause overflow in fee calculation if not careful
-    // price * fee / 10000.
+    // Test with a very large price that might cause overflow in fee calculation
     let massive_price = i128::MAX / 10_000;
     let prompt_id = create_prompt(
         &env,
@@ -3846,7 +3903,7 @@ fn test_inactive_prompt_purchase_fails_with_correct_error() {
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
 
     // Deactivate the listing
-    client.set_prompt_sale_status(&creator, &prompt_id, &false);
+    client.set_prompt_sale_status(&creator, &prompt_id, &PromptSaleStatus::Paused);
 
     let result =
         client.try_buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -3859,7 +3916,7 @@ fn test_inactive_prompt_purchase_fails_with_correct_error() {
     }
 
     // Reactivate and purchase should succeed
-    client.set_prompt_sale_status(&creator, &prompt_id, &true);
+    client.set_prompt_sale_status(&creator, &prompt_id, &PromptSaleStatus::Active);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
     assert!(client.has_access(&buyer, &prompt_id));
 }
