@@ -11,6 +11,7 @@ import {
   History,
   ShoppingBag,
   Sparkles,
+  GitFork,
   ThumbsUp,
   User,
 } from "lucide-react";
@@ -211,6 +212,21 @@ export default function PromptDetailPage() {
                   </div>
                 )}
               </div>
+
+              {prompt.sourcePromptId && (
+                <div className="rounded-xl border border-violet-400/20 bg-violet-400/10 px-4 py-3 text-sm text-violet-100">
+                  <span className="inline-flex items-center gap-2">
+                    <GitFork className="h-4 w-4" />
+                    Inspired by{" "}
+                    <Link
+                      to={`/prompts/${prompt.sourcePromptId}`}
+                      className="font-semibold underline underline-offset-4 hover:text-white"
+                    >
+                      prompt #{prompt.sourcePromptId}
+                    </Link>
+                  </span>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-400">
                 <span className="inline-flex items-center gap-2">

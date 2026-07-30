@@ -17,6 +17,16 @@ export const LISTING_LIMITS = {
 } as const;
 
 export const createPromptSchema = z.object({
+  sourcePromptId: z
+    .string()
+    .trim()
+    .regex(/^\d+$/, "Source prompt ID must be a positive whole number")
+    .refine(
+      (value) => BigInt(value) > 0n,
+      "Source prompt ID must be greater than zero",
+    )
+    .optional()
+    .or(z.literal("")),
   imageUrl: z
     .string()
     .nonempty("Image URL is required")
