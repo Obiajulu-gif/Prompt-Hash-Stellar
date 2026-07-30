@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CreatorDashboard } from "@/components/sell/CreatorDashboard";
+import { BulkListingActionsBar } from "@/components/sell/BulkListingActionsBar";
 import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
@@ -39,6 +40,12 @@ import {
   restorePrompt,
   getArchivedPromptIds,
 } from "@/lib/prompts/PromptArchiveStore";
+import {
+  runBulkListingAction,
+  type BulkListingAction,
+  type BulkListingResult,
+  type BulkListingTarget,
+} from "@/lib/prompts/bulkListingActions";
 
 interface MyPromptsProps {
   onCreateNew?: () => void;
@@ -63,6 +70,15 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const [passDurationDays, setPassDurationDays] = useState("30");
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
+
+  // Bulk listing actions (issue #500).
+  const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [isBulkActionRunning, setIsBulkActionRunning] = useState(false);
+  const [bulkActionResults, setBulkActionResults] = useState<
+    BulkListingResult[] | null
+  >(null);
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -186,6 +202,73 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     restorePrompt(address, promptId);
     setArchivedIds(getArchivedPromptIds(address));
     updateStatus("Prompt restored.");
+  };
+
+  const toggleListingSelection = (promptId: string) => {
+    setSelectedListingIds((current) => {
+      const next = new Set(current);
+      if (next.has(promptId)) {
+        next.delete(promptId);
+      } else {
+        next.add(promptId);
+      }
+      return next;
+    });
+  };
+
+  const clearListingSelection = () => {
+    setSelectedListingIds(new Set());
+    setBulkActionResults(null);
+  };
+
+  const handleRunBulkAction = async (action: BulkListingAction) => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before changing prompt status.");
+      return;
+    }
+
+    const targets: BulkListingTarget[] = activeCreatedPrompts
+      .filter((prompt) => selectedListingIds.has(prompt.id.toString()))
+      .map((prompt) => ({
+        id: prompt.id,
+        title: prompt.title,
+        creatorAddress: prompt.creator,
+        active: prompt.active,
+      }));
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    setIsBulkActionRunning(true);
+    setBulkActionResults(null);
+    try {
+      const results = await runBulkListingAction(action, targets, {
+        config: browserStellarConfig,
+        signer: { signTransaction },
+        address,
+      });
+      setBulkActionResults(results);
+
+      const failureCount = results.filter((r) => !r.success).length;
+      if (failureCount === 0) {
+        updateStatus(`${results.length} listing${results.length === 1 ? "" : "s"} updated.`);
+      } else if (failureCount === results.length) {
+        updateError(`Failed to update ${failureCount} listing${failureCount === 1 ? "" : "s"}.`);
+      } else {
+        updateStatus(
+          `${results.length - failureCount} updated, ${failureCount} failed. See details below.`,
+        );
+      }
+
+      if (action === "retire") {
+        setArchivedIds(address ? getArchivedPromptIds(address) : new Set());
+      }
+      await refreshPromptLists();
+      setSelectedListingIds(new Set());
+    } finally {
+      setIsBulkActionRunning(false);
+    }
   };
 
   const handleUpdatePrice = async (promptId: bigint) => {
@@ -497,6 +580,15 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           )}
         </div>
 
+        <BulkListingActionsBar
+          selectedCount={selectedListingIds.size}
+          isRunning={isBulkActionRunning}
+          results={bulkActionResults}
+          onRunAction={(action) => void handleRunBulkAction(action)}
+          onClearSelection={clearListingSelection}
+          onDismissResults={() => setBulkActionResults(null)}
+        />
+
         {createdQuery.isLoading ? (
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
             Loading created prompts...
@@ -529,7 +621,18 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                     key={prompt.id.toString()}
                     className="border-white/10 bg-slate-950/70 text-white"
                   >
-                    <div className="aspect-video overflow-hidden rounded-t-xl">
+                    <div className="relative aspect-video overflow-hidden rounded-t-xl">
+                      <label
+                        className="absolute left-3 top-3 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/20 bg-slate-950/70 backdrop-blur"
+                        aria-label={`Select ${prompt.title} for bulk actions`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedListingIds.has(prompt.id.toString())}
+                          onChange={() => toggleListingSelection(prompt.id.toString())}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                        />
+                      </label>
                       <img
                         src={prompt.imageUrl || "/images/codeguru.png"}
                         alt={prompt.title}
