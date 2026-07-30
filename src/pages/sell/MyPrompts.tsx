@@ -2,16 +2,22 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   CalendarDays,
+  CheckSquare,
   Eye,
   Loader2,
   LockKeyhole,
   PackagePlus,
+  Pause,
+  Play,
   ShoppingBag,
+  Square,
   ToggleLeft,
   ToggleRight,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -63,6 +69,17 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const [passDurationDays, setPassDurationDays] = useState("30");
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
+
+  // Issue #500: Bulk status actions state
+  const [selectedPromptIds, setSelectedPromptIds] = useState<Set<string>>(new Set());
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [bulkResults, setBulkResults] = useState<{
+    actionName: string;
+    successCount: number;
+    failureCount: number;
+    details: Array<{ id: string; title: string; success: boolean; error?: string }>;
+  } | null>(null);
+  const [isRetireModalOpen, setIsRetireModalOpen] = useState(false);
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
@@ -186,6 +203,91 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     restorePrompt(address, promptId);
     setArchivedIds(getArchivedPromptIds(address));
     updateStatus("Prompt restored.");
+  };
+
+  // Issue #500: Selection & Bulk Status Update Handlers
+  const toggleSelectPrompt = (promptId: string) => {
+    setSelectedPromptIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(promptId)) {
+        next.delete(promptId);
+      } else {
+        next.add(promptId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllActive = () => {
+    const allIds = activeCreatedPrompts.map((p) => p.id.toString());
+    setSelectedPromptIds(new Set(allIds));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPromptIds(new Set());
+  };
+
+  const executeBulkStatusChange = async (targetActive: boolean, actionLabel: string) => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before updating prompt statuses.");
+      return;
+    }
+
+    if (selectedPromptIds.size === 0) {
+      updateError("Select at least one listing for bulk status update.");
+      return;
+    }
+
+    setIsBulkProcessing(true);
+    setBulkResults(null);
+    setStatusMessage(null);
+    setErrorMessage(null);
+
+    const targetPrompts = activeCreatedPrompts.filter((p) =>
+      selectedPromptIds.has(p.id.toString())
+    );
+
+    let successCount = 0;
+    let failureCount = 0;
+    const details: Array<{ id: string; title: string; success: boolean; error?: string }> = [];
+
+    for (const prompt of targetPrompts) {
+      const promptIdStr = prompt.id.toString();
+      try {
+        await setPromptSaleStatus(
+          browserStellarConfig,
+          { signTransaction },
+          address,
+          promptIdStr,
+          targetActive,
+        );
+        successCount++;
+        details.push({ id: promptIdStr, title: prompt.title, success: true });
+      } catch (err) {
+        failureCount++;
+        const errMsg = err instanceof Error ? err.message : "Status update failed";
+        details.push({ id: promptIdStr, title: prompt.title, success: false, error: errMsg });
+      }
+    }
+
+    setBulkResults({
+      actionName: actionLabel,
+      successCount,
+      failureCount,
+      details,
+    });
+
+    if (successCount > 0) {
+      await refreshPromptLists();
+    }
+
+    setIsBulkProcessing(false);
+    setSelectedPromptIds(new Set());
+  };
+
+  const handleConfirmBulkRetire = async () => {
+    setIsRetireModalOpen(false);
+    await executeBulkStatusChange(false, "Retire");
   };
 
   const handleUpdatePrice = async (promptId: bigint) => {
@@ -479,23 +581,193 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
       </section>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-semibold text-white">Created by me</h2>
             <p className="mt-2 text-sm text-slate-400">
               Update pricing, pause listings, and track license sales without changing ownership.
             </p>
           </div>
-          {archivedCreatedPrompts.length > 0 && (
-            <button
-              onClick={() => setShowArchived((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
-            >
-              <Archive className="h-3.5 w-3.5" />
-              {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {activeCreatedPrompts.length > 0 && (
+              <button
+                type="button"
+                onClick={
+                  selectedPromptIds.size === activeCreatedPrompts.length
+                    ? handleDeselectAll
+                    : handleSelectAllActive
+                }
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition border border-white/10 rounded-lg px-3 py-2 bg-white/5"
+              >
+                {selectedPromptIds.size === activeCreatedPrompts.length ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Square className="h-3.5 w-3.5 text-slate-400" />
+                )}
+                {selectedPromptIds.size === activeCreatedPrompts.length
+                  ? "Deselect All"
+                  : `Select All (${activeCreatedPrompts.length})`}
+              </button>
+            )}
+            {archivedCreatedPrompts.length > 0 && (
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Issue #500: Sticky Bulk Actions Bar */}
+        {selectedPromptIds.size > 0 && (
+          <div className="sticky top-4 z-40 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-500/30 bg-slate-900/95 p-4 shadow-xl backdrop-blur-md transition-all">
+            <div className="flex items-center gap-3">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
+                {selectedPromptIds.size}
+              </span>
+              <span className="text-sm font-medium text-slate-200">
+                {selectedPromptIds.size} listing(s) selected
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30"
+                onClick={() => void executeBulkStatusChange(true, "Activate")}
+                disabled={isBulkProcessing}
+              >
+                {isBulkProcessing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
+                Bulk Activate
+              </Button>
+
+              <Button
+                size="sm"
+                className="gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30"
+                onClick={() => void executeBulkStatusChange(false, "Pause")}
+                disabled={isBulkProcessing}
+              >
+                {isBulkProcessing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Pause className="h-3.5 w-3.5" />
+                )}
+                Bulk Pause
+              </Button>
+
+              <Button
+                size="sm"
+                className="gap-1.5 bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30"
+                onClick={() => setIsRetireModalOpen(true)}
+                disabled={isBulkProcessing}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Bulk Retire
+              </Button>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs text-slate-400 hover:text-slate-200"
+                onClick={handleDeselectAll}
+                disabled={isBulkProcessing}
+              >
+                Clear selection
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Issue #500: Bulk Execution Results Box */}
+        {bulkResults && (
+          <div className="rounded-2xl border border-white/10 bg-slate-900 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-white">
+                Bulk {bulkResults.actionName} Results
+              </h4>
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-400">
+                  {bulkResults.successCount} Succeeded
+                </span>
+                {bulkResults.failureCount > 0 && (
+                  <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-red-400">
+                    {bulkResults.failureCount} Failed
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {bulkResults.details.map((item) => (
+                <div
+                  key={item.id}
+                  className={`flex items-center justify-between rounded-xl p-2.5 text-xs ${
+                    item.success
+                      ? "bg-emerald-500/5 border border-emerald-500/20 text-emerald-200"
+                      : "bg-red-500/5 border border-red-500/20 text-red-200"
+                  }`}
+                >
+                  <span className="font-medium truncate max-w-[60%]">{item.title}</span>
+                  <span>
+                    {item.success ? (
+                      <span className="text-emerald-400 font-semibold">Success</span>
+                    ) : (
+                      <span className="text-red-400 font-medium">{item.error || "Failed"}</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Issue #500: Bulk Retire Confirmation Modal */}
+        {isRetireModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-md rounded-3xl border border-red-500/30 bg-slate-950 p-6 shadow-2xl space-y-4">
+              <div className="flex items-center gap-3 text-red-400">
+                <AlertTriangle className="h-6 w-6 shrink-0 text-red-500" />
+                <h3 className="text-lg font-semibold text-white">Confirm Permanent Listing Retire</h3>
+              </div>
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200 space-y-2">
+                <p className="font-medium">
+                  Warning: Retiring listings is an irreversible action on Stellar Soroban.
+                </p>
+                <p className="text-xs text-red-300/80 leading-relaxed">
+                  You are about to retire <strong>{selectedPromptIds.size}</strong> listing(s). Once retired, buyers can no longer purchase licenses and you cannot reactivate or update these listings on-chain.
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 border-white/10 text-slate-300 hover:bg-white/10"
+                  onClick={() => setIsRetireModalOpen(false)}
+                  disabled={isBulkProcessing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-red-500 text-white hover:bg-red-600 font-semibold"
+                  onClick={() => void handleConfirmBulkRetire()}
+                  disabled={isBulkProcessing}
+                >
+                  {isBulkProcessing ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Confirm Retire
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {createdQuery.isLoading ? (
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
@@ -524,18 +796,37 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
             {/* Active prompts grid */}
             {activeCreatedPrompts.length > 0 && (
               <div className="grid gap-6 xl:grid-cols-2">
-                {activeCreatedPrompts.map((prompt) => (
-                  <Card
-                    key={prompt.id.toString()}
-                    className="border-white/10 bg-slate-950/70 text-white"
-                  >
-                    <div className="aspect-video overflow-hidden rounded-t-xl">
-                      <img
-                        src={prompt.imageUrl || "/images/codeguru.png"}
-                        alt={prompt.title}
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
+                {activeCreatedPrompts.map((prompt) => {
+                  const isSelected = selectedPromptIds.has(prompt.id.toString());
+                  return (
+                    <Card
+                      key={prompt.id.toString()}
+                      className={`border-white/10 bg-slate-950/70 text-white transition-all ${
+                        isSelected ? "ring-2 ring-emerald-500 border-emerald-500/50" : ""
+                      }`}
+                    >
+                      <div className="relative aspect-video overflow-hidden rounded-t-xl">
+                        <img
+                          src={prompt.imageUrl || "/images/codeguru.png"}
+                          alt={prompt.title}
+                          className="h-full w-full object-cover"
+                        />
+                        {/* Selection Checkbox Overlay */}
+                        <label
+                          className="absolute top-3 left-3 z-10 flex cursor-pointer items-center gap-2 rounded-xl bg-slate-950/80 px-2.5 py-1.5 backdrop-blur-md border border-white/20 hover:border-emerald-400 transition"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelectPrompt(prompt.id.toString())}
+                            className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
+                          />
+                          <span className="text-xs font-semibold text-slate-200">
+                            {isSelected ? "Selected" : "Select"}
+                          </span>
+                        </label>
+                      </div>
                     <CardContent className="space-y-4 p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -644,7 +935,8 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       </Button>
                     </CardFooter>
                   </Card>
-                ))}
+                );
+              })}
               </div>
             )}
 
