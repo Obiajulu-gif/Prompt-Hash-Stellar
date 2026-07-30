@@ -51,6 +51,7 @@ import {
   createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
 import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloadSizeEstimator";
 import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
 
@@ -120,6 +121,16 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const watchAllFields = watch();
 
+  const { isActive: hasUnsavedChanges, resetBlocker } = useUnsavedChangesWarning({
+    isDirty: Object.values(watchAllFields).some(
+      (v) => v !== "" && v !== undefined && v !== null && v !== "2" && !(Array.isArray(v) && v.length === 0)
+    ),
+    disabled: !!successMessage,
+  const {
+    draftRestored,
+    lastSavedAt,
+    discardDraft,
+  } = useDraftAutoSave({
   const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
     address,
     values: watchAllFields,
@@ -227,6 +238,10 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
 
+    console.log("Form submitted successfully:", data);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setSuccessMessage("Prompt listing created successfully!");
+    resetBlocker();
     try {
       // Encrypt the prompt content
       const encryptionResult = await encryptPromptPlaintext(
