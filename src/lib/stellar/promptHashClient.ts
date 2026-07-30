@@ -6,6 +6,7 @@ import type { WalletTransactionSigner } from "./tx";
 import * as contractMethods from "./contractMethods";
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { hashKey } from "../observability/sharedStore";
+import { getSourcePromptId } from "../prompts/remixAttribution";
 
 export interface PromptHashConfig {
   rpcUrl: string;
@@ -49,6 +50,7 @@ export interface PromptRecord {
   encryptedPrompt?: string;
   encryptionIv?: string;
   wrappedKey?: string;
+  sourcePromptId?: string;
 }
 
 export interface RevenueSplitInput {
@@ -121,7 +123,11 @@ export class PromptHashClient {
     config: PromptHashConfig,
     promptId: bigint,
   ): Promise<PromptRecord> {
-    return contractMethods.contractGetPrompt(config, promptId);
+    const prompt = await contractMethods.contractGetPrompt(config, promptId);
+    return {
+      ...prompt,
+      sourcePromptId: getSourcePromptId(promptId),
+    };
   }
 
   /**
