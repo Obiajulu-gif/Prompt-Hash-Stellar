@@ -57,6 +57,9 @@ import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 
 import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloadSizeEstimator";
 import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
+import { getPrompt } from "@/lib/stellar/promptHashClient";
+import { saveRemixAttribution } from "@/lib/prompts/remixAttribution";
+
 
 
 const limits = {
@@ -70,6 +73,7 @@ const categories = Array.from(
 );
 
 interface FormData {
+  sourcePromptId: string;
   imageUrl: string;
   title: string;
   category: string;
@@ -105,6 +109,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     "write",
   );
 
+
   const {
     register,
     handleSubmit,
@@ -116,6 +121,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     resolver: zodResolver(createPromptSchema),
     defaultValues: {
       imageUrl: "",
+      sourcePromptId: "",
       title: "",
       category: "",
       previewText: "",
@@ -260,6 +266,18 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     }
 
     try {
+      const sourcePromptId = data.sourcePromptId?.trim();
+      if (sourcePromptId) {
+        try {
+          await getPrompt(browserStellarConfig, BigInt(sourcePromptId));
+        } catch {
+          setSubmitError(
+            `Source prompt #${sourcePromptId} does not exist or is unavailable.`,
+          );
+          return;
+        }
+      }
+
       // Encrypt the prompt content
       const encryptionResult = await encryptPromptPlaintext(
         data.fullPrompt,
@@ -296,6 +314,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       );
 
       if (result.success) {
+        if (sourcePromptId) {
+          saveRemixAttribution(result.promptId, sourcePromptId);
+        }
         setSuccessMessage(`Prompt created! Transaction: ${result.txHash}`);
         setTimeout(() => {
           onCreated?.();
@@ -412,6 +433,32 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               </p>
             )}
           </div>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <label
+            htmlFor="sourcePromptId"
+            className="text-sm font-medium text-slate-100"
+          >
+            Source prompt ID{" "}
+            <span className="font-normal text-slate-400">(optional)</span>
+          </label>
+          <Input
+            id="sourcePromptId"
+            inputMode="numeric"
+            placeholder="e.g. 42"
+            className={errors.sourcePromptId ? "border-red-500" : ""}
+            {...register("sourcePromptId")}
+          />
+          <p className="text-xs text-slate-400">
+            Credit the listing that inspired this remix.
+          </p>
+          {errors.sourcePromptId && (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.sourcePromptId.message?.toString()}
+            </p>
+          )}
         </div>
 
         <div className="grid gap-6 md:grid-cols-[1fr_220px] mt-4">

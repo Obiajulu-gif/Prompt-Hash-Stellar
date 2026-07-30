@@ -14,20 +14,24 @@ export interface UnlockResult {
 async function parseApiError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as
     | ApiErrorResponse
-    | { error?: string }
+    | { error?: string; correlationId?: string }
     | null;
 
+  let message = "Failed to unlock prompt.";
   if (payload && typeof payload === "object" && "code" in payload && payload.code) {
     const code = payload.code as keyof typeof ERROR_MESSAGES;
-    return ERROR_MESSAGES[code] ?? payload.error ?? "Failed to unlock prompt.";
+    message = ERROR_MESSAGES[code] ?? payload.error ?? "Failed to unlock prompt.";
+  } else if (payload && typeof payload === "object" && "error" in payload && payload.error) {
+    message = String(payload.error);
   }
 
-  if (payload && typeof payload === "object" && "error" in payload && payload.error) {
-    return String(payload.error);
+  if (payload && typeof payload === "object" && "correlationId" in payload && payload.correlationId) {
+    message += ` (Support Reference: ${payload.correlationId})`;
   }
 
-  return "Failed to unlock prompt.";
+  return message;
 }
+
 
 function extractSignedMessage(
   signature: { signedMessage?: string } | string,

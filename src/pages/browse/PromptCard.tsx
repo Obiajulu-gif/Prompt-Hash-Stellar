@@ -247,7 +247,12 @@ export const PromptCard = ({
                 <p className="font-mono text-lg font-black tracking-tight text-emerald-400 sm:text-xl" aria-label={`Price: ${formatPriceLabel(prompt.priceStroops)}`} data-testid="price-label">
                   {formatPriceLabel(prompt.priceStroops)}
                 </p>
+
                 <p className="text-[10px] uppercase tracking-tighter text-slate-500">per license</p
+
+                <p className="text-[10px] uppercase tracking-tighter text-slate-500">per license</p>
+
+
       <CardContent className="flex flex-1 flex-col p-4 pt-4 sm:p-6 sm:pt-5">
         {/* Modern Stateful Badges Row */}
         <div className="flex flex-wrap gap-2 mb-3">

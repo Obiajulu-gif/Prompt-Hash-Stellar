@@ -206,6 +206,27 @@ struct AccessPassPurchased {
     pub expires_at: u64,
 }
 
+#[contractevent]
+struct AccessPassStatusUpdated {
+    #[topic]
+    pub pass_id: u128,
+    pub status: PromptSaleStatus,
+}
+
+#[contractevent]
+struct AccessPassPriceUpdated {
+    #[topic]
+    pub pass_id: u128,
+    pub price_stroops: i128,
+}
+
+#[contractevent]
+struct PromptMaxSupplyUpdated {
+    #[topic]
+    pub prompt_id: u64,
+    pub max_supply: u64,
+}
+
 pub struct Events;
 
 impl Events {
@@ -226,21 +247,21 @@ impl Events {
     }
 
     pub fn emit_prompt_sale_status_updated(env: &Env, prompt_id: u64, status: PromptSaleStatus) {
-        env.events().publish(
-            (soroban_sdk::symbol_short!("STATUS"), prompt_id),
-            PromptSaleStatusUpdated { prompt_id, status },
-        );
+        PromptSaleStatusUpdated { prompt_id, status }.publish(env);
     }
 
-    pub fn emit_prompt_admin_moderated(env: &Env, prompt_id: u64, admin: Address, status: PromptSaleStatus) {
-        env.events().publish(
-            (soroban_sdk::symbol_short!("MODERATED"), prompt_id),
-            PromptAdminModerated {
-                prompt_id,
-                admin,
-                status,
-            },
-        );
+    pub fn emit_prompt_admin_moderated(
+        env: &Env,
+        prompt_id: u64,
+        admin: Address,
+        status: PromptSaleStatus,
+    ) {
+        PromptAdminModerated {
+            prompt_id,
+            admin,
+            status,
+        }
+        .publish(env);
     }
 
     pub fn emit_prompt_price_updated(env: &Env, prompt_id: u64, price_stroops: i128) {
@@ -341,12 +362,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_discount_applied(
-        env: &Env,
-        prompt_id: u64,
-        buyer: Address,
-        discount_bps: u32,
-    ) {
+    pub fn emit_discount_applied(env: &Env, prompt_id: u64, buyer: Address, discount_bps: u32) {
         DiscountApplied {
             prompt_id,
             buyer,
@@ -473,6 +489,26 @@ impl Events {
             buyer,
             creator,
             expires_at,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_access_pass_status_updated(env: &Env, pass_id: u128, status: PromptSaleStatus) {
+        AccessPassStatusUpdated { pass_id, status }.publish(env);
+    }
+
+    pub fn emit_access_pass_price_updated(env: &Env, pass_id: u128, price_stroops: i128) {
+        AccessPassPriceUpdated {
+            pass_id,
+            price_stroops,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_prompt_max_supply_updated(env: &Env, prompt_id: u64, max_supply: u64) {
+        PromptMaxSupplyUpdated {
+            prompt_id,
+            max_supply,
         }
         .publish(env);
     }

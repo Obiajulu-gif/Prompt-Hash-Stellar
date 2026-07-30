@@ -42,6 +42,11 @@ jobs:
 
       - name: Build WASM
         run: cargo build --release --target wasm32v1-none
+        env:
+          # soroban-sdk 27's spec-shaking feature otherwise requires building
+          # through `stellar contract build` (stellar-cli v25.2.0+); this is
+          # the same flag that CLI sets internally.
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
 
   # ── TypeScript frontend ───────────────────────────────────────────────────
   frontend:
@@ -79,24 +84,31 @@ jobs:
   api:
     name: API (Express / server)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
 
     steps:
       - uses: actions/checkout@v7
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "22"
-          cache: "yarn"
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
 
       - name: Install dependencies
-        run: yarn install --immutable
+        run: npm ci
 
-      - name: API / server tests
-        run: yarn test:api --if-present
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build backend
+        run: npm run build
 
   # ── Gate: all jobs must pass ──────────────────────────────────────────────
   ci-gate:

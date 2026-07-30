@@ -24,6 +24,7 @@ import {
   strictLimiter,
   chatLimiter,
 } from "./middleware/rateLimiter";
+import { correlationMiddleware } from "./middleware/correlation";
 
 // ── Sentry backend monitoring (#332) ─────────────────────────────────────────
 // Set SENTRY_DSN in the server .env to enable exception capture.
@@ -41,6 +42,7 @@ const port = 5000;
 
 // Sentry error handler should be registered after routes (#332).
 app.use(express.json());
+app.use(correlationMiddleware);
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
 // Global rate limit: 100 requests per 15 minutes per IP.
@@ -88,6 +90,23 @@ if (process.env.SENTRY_DSN) {
   }
 }
 
+// Global Express error handler to print error logs with Correlation IDs
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const correlationId = req.correlationId;
+  console.error(`[Express Global Error] Correlation ID: ${correlationId} |`, err);
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: err.message || "Internal Server Error",
+      correlationId,
+    });
+  } else {
+    next(err);
+  }
+});
+
+
+app.listen(port, () => {
+  console.log(`Listening on port ${port}`);
 async function start() {
   try {
     // Only attempt database connection and migrations if not in test environment
