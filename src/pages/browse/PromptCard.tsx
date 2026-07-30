@@ -169,6 +169,7 @@ export const PromptCard = ({
                 <ShieldCheck className="mr-1 h-3 w-3" /> Verified Creator
               </Badge>
             )}
+
           </div>
           <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
 
@@ -246,7 +247,11 @@ export const PromptCard = ({
                 <p className="font-mono text-lg font-black tracking-tight text-emerald-400 sm:text-xl" aria-label={`Price: ${formatPriceLabel(prompt.priceStroops)}`} data-testid="price-label">
                   {formatPriceLabel(prompt.priceStroops)}
                 </p>
+
+                <p className="text-[10px] uppercase tracking-tighter text-slate-500">per license</p
+
                 <p className="text-[10px] uppercase tracking-tighter text-slate-500">per license</p>
+
 
       <CardContent className="flex flex-1 flex-col p-4 pt-4 sm:p-6 sm:pt-5">
         {/* Modern Stateful Badges Row */}
