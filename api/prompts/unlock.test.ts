@@ -13,6 +13,7 @@ import { CONTENT_HASH, PLAINTEXT } from "../../src/test/vectors/crypto";
 import { clearIdempotencyCache } from "../../src/lib/observability/idempotency";
 
 const hasAccessMock = vi.fn();
+const verifyEntitlementMock = vi.fn();
 const getPromptMock = vi.fn();
 const unwrapPromptKeyMock = vi.fn();
 const decryptPromptCiphertextMock = vi.fn();
@@ -20,7 +21,9 @@ const hashPromptPlaintextMock = vi.fn();
 
 vi.mock("../../src/lib/stellar/promptHashClient", () => ({
   hasAccess: (...args: unknown[]) => hasAccessMock(...args),
+  verifyEntitlement: (...args: unknown[]) => verifyEntitlementMock(...args),
   getPrompt: (...args: unknown[]) => getPromptMock(...args),
+  DEFAULT_MAX_LEDGER_AGE: 5,
 }));
 
 vi.mock("../../src/lib/crypto/promptCrypto", () => ({
@@ -84,6 +87,14 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
     buyer.sign(Buffer.from(challenge.challenge, "utf8")),
   ).toString("base64");
 
+  verifyEntitlementMock.mockResolvedValue({
+    hasAccess: true,
+    ledgerSequence: 123456,
+    ledgerHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    networkId: "testnet",
+    contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    checkedAt: Date.now(),
+  });
   hasAccessMock.mockResolvedValue(true);
   getPromptMock.mockResolvedValue({
     id: 42n,
@@ -478,5 +489,99 @@ describe("unlock API idempotency", () => {
     });
     expect(second.statusCode).toBe(400);
     expect(second.responseData.code).toBe(ErrorCode.CHALLENGE_EXPIRED);
+  });
+});
+
+describe("unlock API ledger state verification (#545)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+  });
+
+  it("rejects access when ledger verification returns no_access", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    verifyEntitlementMock.mockResolvedValue({
+      hasAccess: false,
+      ledgerSequence: 123456,
+      ledgerHash: "stale_hash",
+      networkId: "testnet",
+      contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      checkedAt: Date.now(),
+    });
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(403);
+    expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+  });
+
+  it("rejects access when ledger verification returns lagging/stale state", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    // Simulate an RPC node that is 20 ledgers behind — beyond max freshness threshold
+    verifyEntitlementMock.mockResolvedValue({
+      hasAccess: false,
+      ledgerSequence: 100, // very old ledger
+      ledgerHash: "lagging_hash",
+      networkId: "testnet",
+      contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      checkedAt: Date.now() - 120_000, // 2 minutes old
+    });
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(403);
+    expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+  });
+
+  it("rejects access on network ID mismatch (cross-network replay)", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    verifyEntitlementMock.mockResolvedValue({
+      hasAccess: false,
+      ledgerSequence: 123456,
+      ledgerHash: "wrong_network_hash",
+      networkId: "wrong-network-id",
+      contractId: "wrong-contract-id",
+      checkedAt: Date.now(),
+    });
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(403);
+    expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+  });
+
+  it("denies access when RPC call throws (fail-closed on backend outage)", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    verifyEntitlementMock.mockRejectedValue(new Error("RPC node unreachable"));
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(403);
+    expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
   });
 });
