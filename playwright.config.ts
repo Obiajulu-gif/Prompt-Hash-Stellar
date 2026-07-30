@@ -19,7 +19,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'yarn dev', // Switched to your native yarn command
+    command: 'npm run dev', // Matches this workflow's `npm install` step; `yarn dev` re-triggers Yarn's own install/immutability check under Corepack and fails to start
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
