@@ -36,7 +36,15 @@ fn setup(env: &Env) -> PromptHashContext {
     }
 }
 
-fn setup_env() -> (Env, Address, Address, Address, Address, Address, PromptHashContractClient<'static>) {
+fn setup_env() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+    PromptHashContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -51,7 +59,15 @@ fn setup_env() -> (Env, Address, Address, Address, Address, Address, PromptHashC
     let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
     client.initialize(&fee_wallet, &token_contract);
 
-    (env, admin, fee_wallet, creator, buyer, token_contract, client)
+    (
+        env,
+        admin,
+        fee_wallet,
+        creator,
+        buyer,
+        token_contract,
+        client,
+    )
 }
 
 fn create_native_token(env: &Env, admin: &Address) -> token::Client<'static> {
@@ -913,14 +929,8 @@ fn test_buy_prompt_with_zero_fee() {
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
     // With 0% fee, creator gets the full price
-    assert_eq!(
-        xlm_client.balance(&creator),
-        creator_start + price
-    );
-    assert_eq!(
-        xlm_client.balance(&context.fee_wallet),
-        fee_start
-    );
+    assert_eq!(xlm_client.balance(&creator), creator_start + price);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start);
 }
 
 #[test]
@@ -953,11 +963,29 @@ fn test_multiple_buyers_until_supply_exhausted() {
     fund_buyer(&xlm_client, &buyer3, &context.contract, price);
 
     // Two buyers can purchase
-    client.buy_prompt(&buyer1, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
-    client.buy_prompt(&buyer2, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer1,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
+    client.buy_prompt(
+        &buyer2,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
 
     // Third buyer cannot
-    let result = client.try_buy_prompt(&buyer3, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    let result = client.try_buy_prompt(
+        &buyer3,
+        &prompt_id,
+        &None::<Address>,
+        &price,
+        &None::<Bytes>,
+    );
     assert_eq!(result, Err(Ok(Error::MaxSupplyReached)));
 }
 
@@ -980,7 +1008,8 @@ fn test_supply_check_happens_before_payment() {
     );
 
     // Try to update status as stranger
-    let status_res = client.try_set_prompt_sale_status(&stranger, &prompt_id, &PromptSaleStatus::Paused);
+    let status_res =
+        client.try_set_prompt_sale_status(&stranger, &prompt_id, &PromptSaleStatus::Paused);
     match status_res {
         Err(Ok(Error::Unauthorized)) => {}
         other => panic!("expected unauthorized for status update, got {:?}", other),
@@ -3937,13 +3966,26 @@ fn test_payout_invariant_fee_plus_creator_equals_payment() {
     let buyer = Address::generate(&env);
     let payment: i128 = 100_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Invariant Test", payment, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Invariant Test",
+        payment,
+        &context.xlm,
+    );
     fund_buyer(&xlm_client, &buyer, &context.contract, payment);
 
     let creator_balance_before = xlm_client.balance(&creator);
     let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
 
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &payment,
+        &None::<Bytes>,
+    );
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
@@ -3973,7 +4015,14 @@ fn test_payout_invariant_with_referral() {
     let referrer = Address::generate(&env);
     let payment: i128 = 100_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Referral Test", payment, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Referral Test",
+        payment,
+        &context.xlm,
+    );
     fund_buyer(&xlm_client, &buyer, &context.contract, payment);
 
     let creator_balance_before = xlm_client.balance(&creator);
@@ -4045,7 +4094,13 @@ fn test_payout_invariant_with_splits() {
     let split_1_balance_before = xlm_client.balance(&split_recipient_1);
     let split_2_balance_before = xlm_client.balance(&split_recipient_2);
 
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &payment,
+        &None::<Bytes>,
+    );
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
@@ -4091,7 +4146,13 @@ fn test_payout_invariant_with_tip() {
     let creator_balance_before = xlm_client.balance(&creator);
     let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
 
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &payment, &None::<Bytes>);
+    client.buy_prompt(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &payment,
+        &None::<Bytes>,
+    );
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 

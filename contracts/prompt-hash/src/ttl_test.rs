@@ -12,7 +12,10 @@ mod tests {
             std::mem::transmute([0u8; 32])
         }));
 
-        assert!(purchase_ttl > dispute_ttl, "Purchases must have longer TTL than disputes");
+        assert!(
+            purchase_ttl > dispute_ttl,
+            "Purchases must have longer TTL than disputes"
+        );
     }
 
     #[test]
@@ -25,7 +28,10 @@ mod tests {
             std::mem::transmute([0u8; 32])
         }));
 
-        assert!(catalog_pass_ttl >= escrow_ttl, "Entitlements must outlive escrow");
+        assert!(
+            catalog_pass_ttl >= escrow_ttl,
+            "Entitlements must outlive escrow"
+        );
     }
 
     #[test]
@@ -68,7 +74,10 @@ mod tests {
         // At risk (80% through lifetime)
         let risky_extended = current - (max_ttl as u64) / 5;
         let risk = compute_expiry_risk(current, risky_extended, max_ttl);
-        assert!(risk.at_risk_keys > 0 || risk.imminent_keys > 0, "Should flag at-risk key");
+        assert!(
+            risk.at_risk_keys > 0 || risk.imminent_keys > 0,
+            "Should flag at-risk key"
+        );
     }
 
     #[test]

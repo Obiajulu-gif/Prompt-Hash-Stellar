@@ -1,7 +1,7 @@
 // Cursor pagination for bounded catalog queries.
 // Prevents full-catalog scans and respects Soroban resource limits.
 
-use soroban_sdk::{Env, Vec, String as SorobanString};
+use soroban_sdk::{Env, String as SorobanString, Vec};
 
 pub const MAX_PAGE_SIZE: u64 = 50;
 
@@ -60,7 +60,10 @@ pub fn decode_cursor(env: &Env, cursor: &SorobanString) -> Result<Cursor, crate:
     let type_num = parts[1].parse::<u8>().map_err(|_| Error::InvalidCursor)?;
     let index_type = IndexType::from_u8(type_num).ok_or(Error::InvalidCursor)?;
 
-    Ok(Cursor { last_id, index_type })
+    Ok(Cursor {
+        last_id,
+        index_type,
+    })
 }
 
 /// Paginated result with cursor for next page
@@ -68,4 +71,3 @@ pub struct PageResult<T> {
     pub items: Vec<T>,
     pub next_cursor: Option<SorobanString>, // None if end of results
 }
-

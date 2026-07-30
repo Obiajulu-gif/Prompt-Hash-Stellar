@@ -5,7 +5,9 @@ use super::types::{
     ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus,
     PurchaseDispute, PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, crypto::Crypto, token, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{
+    contract, contractimpl, crypto::Crypto, token, Address, Bytes, BytesN, Env, String, Vec,
+};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::{default_impl, only_owner};
 
@@ -136,7 +138,10 @@ impl PromptHashTrait for PromptHashContract {
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(prompt.creator == creator, Error::Unauthorized)?;
 
-        ensure(prompt.status != PromptSaleStatus::Retired, Error::InvalidStatusTransition)?;
+        ensure(
+            prompt.status != PromptSaleStatus::Retired,
+            Error::InvalidStatusTransition,
+        )?;
         ensure(prompt.status != status, Error::InvalidStatusTransition)?;
 
         prompt.status = status.clone();
@@ -157,7 +162,10 @@ impl PromptHashTrait for PromptHashContract {
         ensure(owner == admin, Error::Unauthorized)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        ensure(prompt.status != PromptSaleStatus::Retired, Error::InvalidStatusTransition)?;
+        ensure(
+            prompt.status != PromptSaleStatus::Retired,
+            Error::InvalidStatusTransition,
+        )?;
         ensure(prompt.status != status, Error::InvalidStatusTransition)?;
 
         prompt.status = status.clone();
@@ -274,11 +282,9 @@ impl PromptHashTrait for PromptHashContract {
         // 6. Verify creator signature
         let auth_hash = authorization.hash(&env);
         let creator_pub_key = prompt.creator.clone();
-        let valid_sig = env.crypto().ed25519_verify(
-            &creator_pub_key,
-            &auth_hash,
-            &creator_sig,
-        );
+        let valid_sig = env
+            .crypto()
+            .ed25519_verify(&creator_pub_key, &auth_hash, &creator_sig);
         ensure(valid_sig, Error::InvalidAuthorizationSignature)?;
 
         // 7. Consume the nonce atomically
@@ -325,7 +331,10 @@ impl PromptHashTrait for PromptHashContract {
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().timestamp();
 
-        ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
+        ensure(
+            prompt.status == PromptSaleStatus::Active,
+            Error::PromptInactive,
+        )?;
         ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
         ensure(lease_duration_secs > 0, Error::InvalidPrice)?;
         ensure(
@@ -483,7 +492,10 @@ impl PromptHashTrait for PromptHashContract {
         for index in 0..prompt_ids.len() {
             let prompt = Storage::require_prompt(&env, prompt_ids.get(index).unwrap())?;
             ensure(prompt.creator == creator, Error::Unauthorized)?;
-            ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
+            ensure(
+                prompt.status == PromptSaleStatus::Active,
+                Error::PromptInactive,
+            )?;
             ensure(prompt.asset == asset, Error::InvalidAsset)?;
             if prompt.expires_at != 0 {
                 ensure(prompt.expires_at >= now, Error::ListingExpired)?;
@@ -541,7 +553,10 @@ impl PromptHashTrait for PromptHashContract {
         for index in 0..bundle.prompt_ids.len() {
             let mut prompt = Storage::require_prompt(&env, bundle.prompt_ids.get(index).unwrap())?;
             ensure(prompt.creator == bundle.creator, Error::Unauthorized)?;
-            ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
+            ensure(
+                prompt.status == PromptSaleStatus::Active,
+                Error::PromptInactive,
+            )?;
             ensure(prompt.asset == bundle.asset, Error::InvalidAsset)?;
             if prompt.expires_at != 0 {
                 ensure(prompt.expires_at >= now, Error::ListingExpired)?;
@@ -1045,7 +1060,7 @@ impl PromptHashTrait for PromptHashContract {
 
         let key = crate::types::DataKey::AllPrompts;
         let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
-        
+
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
             Some(encode_cursor(last_id, IndexType::All).to_string())
@@ -1075,7 +1090,7 @@ impl PromptHashTrait for PromptHashContract {
 
         let key = crate::types::DataKey::CategoryPrompts(category);
         let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
-        
+
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
             Some(encode_cursor(last_id, IndexType::Category).to_string())
@@ -1105,7 +1120,7 @@ impl PromptHashTrait for PromptHashContract {
 
         let key = crate::types::DataKey::TagPrompts(tag);
         let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
-        
+
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
             Some(encode_cursor(last_id, IndexType::Tag).to_string())
@@ -1132,7 +1147,7 @@ impl PromptHashTrait for PromptHashContract {
 
         let key = crate::types::DataKey::ActivePrompts;
         let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
-        
+
         let next_cursor = if !prompts.is_empty() {
             let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
             Some(encode_cursor(last_id, IndexType::Active).to_string())
@@ -1252,7 +1267,10 @@ impl PromptHashTrait for PromptHashContract {
         )?;
 
         let mut escrow = Storage::require_purchase_escrow(&env, &prompt_id, &buyer)?;
-        ensure(escrow.status == SettlementStatus::Pending, Error::DisputeResolved)?;
+        ensure(
+            escrow.status == SettlementStatus::Pending,
+            Error::DisputeResolved,
+        )?;
 
         let now = env.ledger().timestamp();
         let this_contract = env.current_contract_address();
@@ -1304,11 +1322,7 @@ impl PromptHashTrait for PromptHashContract {
         Storage::require_dispute(&env, prompt_id, &buyer)
     }
 
-    fn get_purchase_escrow(
-        env: Env,
-        prompt_id: u64,
-        buyer: Address,
-    ) -> Option<PurchaseEscrow> {
+    fn get_purchase_escrow(env: Env, prompt_id: u64, buyer: Address) -> Option<PurchaseEscrow> {
         Storage::get_purchase_escrow(&env, prompt_id, &buyer)
     }
 
@@ -1438,7 +1452,9 @@ impl PromptHashTrait for PromptHashContract {
 
         // Verify the signature is valid from the creator
         let auth_hash = authorization.hash(&env);
-        let valid_sig = env.crypto().ed25519_verify(&creator, &auth_hash, &signature);
+        let valid_sig = env
+            .crypto()
+            .ed25519_verify(&creator, &auth_hash, &signature);
         ensure(valid_sig, Error::InvalidAuthorizationSignature)?;
 
         // Store the authorization for later verification during buy_prompt_with_auth
@@ -1549,7 +1565,10 @@ fn execute_buy(
     let mut prompt = Storage::require_prompt(env, prompt_id)?;
     let now = env.ledger().timestamp();
 
-    ensure(prompt.status == PromptSaleStatus::Active, Error::PromptInactive)?;
+    ensure(
+        prompt.status == PromptSaleStatus::Active,
+        Error::PromptInactive,
+    )?;
     ensure(prompt.creator != *buyer, Error::CreatorCannotBuy)?;
     ensure(
         !Storage::has_active_purchase(env, prompt_id, buyer, now),
@@ -1597,7 +1616,14 @@ fn execute_buy(
         )?;
     }
 
-    execute_buy_with_required_price(env, buyer, prompt_id, referrer, payment_amount_stroops, required_price)
+    execute_buy_with_required_price(
+        env,
+        buyer,
+        prompt_id,
+        referrer,
+        payment_amount_stroops,
+        required_price,
+    )
 }
 
 /// Buy execution after all price and voucher validation is done.
@@ -1885,4 +1911,3 @@ fn validate_no_duplicate_prompt_ids(prompt_ids: &Vec<u64>) -> Result<(), Error> 
 fn validate_len(value: &String, max_len: u32, error: Error) -> Result<(), Error> {
     ensure(!value.is_empty() && value.len() <= max_len, error)
 }
-

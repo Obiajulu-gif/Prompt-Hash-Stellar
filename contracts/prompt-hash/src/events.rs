@@ -232,7 +232,12 @@ impl Events {
         );
     }
 
-    pub fn emit_prompt_admin_moderated(env: &Env, prompt_id: u64, admin: Address, status: PromptSaleStatus) {
+    pub fn emit_prompt_admin_moderated(
+        env: &Env,
+        prompt_id: u64,
+        admin: Address,
+        status: PromptSaleStatus,
+    ) {
         env.events().publish(
             (soroban_sdk::symbol_short!("MODERATED"), prompt_id),
             PromptAdminModerated {
@@ -341,12 +346,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_discount_applied(
-        env: &Env,
-        prompt_id: u64,
-        buyer: Address,
-        discount_bps: u32,
-    ) {
+    pub fn emit_discount_applied(env: &Env, prompt_id: u64, buyer: Address, discount_bps: u32) {
         DiscountApplied {
             prompt_id,
             buyer,
