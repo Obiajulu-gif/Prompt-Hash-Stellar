@@ -1,4 +1,6 @@
-use soroban_sdk::{contracterror, contracttype, crypto::Crypto, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{
+    contracterror, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, IntoVal, String, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -103,6 +105,10 @@ pub enum Error {
     GovernanceStateMismatch = 81,
     GovernanceNonceConsumed = 82,
     InvalidGovernanceDelay = 83,
+
+    MaxSupplyBelowCommitted = 84,
+    DisputeWindowClosed = 85,
+    DisputeWindowNotElapsed = 86,
 }
 
 #[contracttype]
@@ -142,10 +148,10 @@ pub enum DataKey {
     Prompt(u64),
     CreatorPrompts(Address),
     BuyerPrompts(Address),
-    CategoryPrompts(String),      // Index: category → Vec<prompt_ids>
-    TagPrompts(String),            // Index: tag → Vec<prompt_ids>
-    ActivePrompts,                 // Index: all active → Vec<prompt_ids>
-    AllPrompts,                    // Index: all → Vec<prompt_ids>
+    CategoryPrompts(String), // Index: category → Vec<prompt_ids>
+    TagPrompts(String),      // Index: tag → Vec<prompt_ids>
+    ActivePrompts,           // Index: all active → Vec<prompt_ids>
+    AllPrompts,              // Index: all → Vec<prompt_ids>
     Purchase(u64, Address),
     PurchaseEscrow(u64, Address), // Settlement tracking for refunds (#420)
     VoucherKey(u64, BytesN<32>),
@@ -209,9 +215,9 @@ pub enum DisputeReason {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SettlementStatus {
-    Pending,   // Purchase received, awaiting settlement
-    Settled,   // Payment distributed successfully
-    Refunded,  // Purchase refunded atomically
+    Pending,  // Purchase received, awaiting settlement
+    Settled,  // Payment distributed successfully
+    Refunded, // Purchase refunded atomically
 }
 
 #[contracttype]
@@ -223,6 +229,10 @@ pub struct PurchaseEscrow {
     pub status: SettlementStatus,
     pub created_at: u64,
     pub settled_at: u64, // 0 if not yet settled
+    /// Deadline (unix timestamp) by which a buyer must open a dispute.
+    /// After this passes with no open dispute, settlement becomes
+    /// permissionless (#541).
+    pub dispute_deadline: u64,
     pub asset: Address,
     pub referrer: Option<Address>,
     pub creator_amount: i128,
@@ -376,11 +386,13 @@ pub struct AccessPass {
     pub duration_secs: u64,
     pub price_stroops: i128,
     pub asset: Address,
-    pub active: bool,
+    pub status: PromptSaleStatus,
     pub sales_count: u32,
     pub max_supply: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CatalogPassPurchase {
     pub creator: Address,
     pub buyer: Address,
@@ -431,11 +443,11 @@ impl SignedDiscountAuthorization {
         buf.push_back(self.network_id.to_val());
         buf.push_back(self.contract_id.to_val());
         // Payload: prompt_id || buyer || discount_bps || nonce || expiry_ledger
-        buf.push_back((self.prompt_id as u128).into_val());
+        buf.push_back((self.prompt_id as u128).into_val(env));
         buf.push_back(self.buyer.to_val());
-        buf.push_back((self.discount_bps as u128).into_val());
+        buf.push_back((self.discount_bps as u128).into_val(env));
         buf.push_back(self.nonce.to_val());
-        buf.push_back((self.expiry_ledger as u128).into_val());
+        buf.push_back((self.expiry_ledger as u128).into_val(env));
         let raw = env.crypto().sha256(&buf.to_xdr(env));
         BytesN::from_array(env, &raw.to_array())
     }
@@ -712,6 +724,7 @@ pub trait PromptHashTrait {
 
     fn get_bundles_by_creator(env: Env, creator: Address) -> Result<Vec<Bundle>, Error>;
 
+    #[allow(clippy::too_many_arguments)]
     fn create_access_pass(
         env: Env,
         creator: Address,
@@ -719,7 +732,26 @@ pub trait PromptHashTrait {
         duration_secs: u64,
         price_stroops: i128,
         asset: Address,
+        // Maximum number of active pass grants this pass can issue (0 = unlimited).
+        max_supply: u32,
     ) -> Result<u128, Error>;
+
+    /// Pause, reactivate, or retire an access pass. Existing buyer grants are
+    /// unaffected — they follow their own stored `expires_at` regardless of
+    /// the pass's current status (#539).
+    fn set_access_pass_status(
+        env: Env,
+        creator: Address,
+        pass_id: u128,
+        status: PromptSaleStatus,
+    ) -> Result<(), Error>;
+
+    fn update_access_pass_price(
+        env: Env,
+        creator: Address,
+        pass_id: u128,
+        price_stroops: i128,
+    ) -> Result<(), Error>;
 
     fn buy_access_pass(
         env: Env,
@@ -776,6 +808,35 @@ pub trait PromptHashTrait {
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_category(env: Env, category: String) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_tag(env: Env, tag: String) -> Result<Vec<Prompt>, Error>;
+
+    // Paginated catalog queries (bounded, respects resource limits).
+    fn get_all_prompts_paginated(
+        env: Env,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_prompts_by_category_page(
+        env: Env,
+        category: String,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_prompts_by_tag_paginated(
+        env: Env,
+        tag: String,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_active_prompts_paginated(
+        env: Env,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+
+    // TTL maintenance (operator utilities).
+    fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error>;
+    fn get_expiry_risk_metrics(env: Env) -> Result<Vec<(String, String)>, Error>;
+
     fn open_dispute(
         env: Env,
         buyer: Address,
@@ -796,15 +857,13 @@ pub trait PromptHashTrait {
         prompt_id: u64,
         buyer: Address,
     ) -> Result<(), Error>;
-    fn get_purchase_escrow(
-        env: Env,
-        prompt_id: u64,
-        buyer: Address,
-    ) -> Option<PurchaseEscrow>;
+    fn get_purchase_escrow(env: Env, prompt_id: u64, buyer: Address) -> Option<PurchaseEscrow>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
     fn get_fee_wallet(env: Env) -> Option<Address>;
+    fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error>;
+    fn get_fee_percentage(env: Env) -> u32;
     fn set_referral_percentage(env: Env, new_referral_percentage: u32) -> Result<(), Error>;
     fn get_referral_percentage(env: Env) -> u32;
     // New platform fee governance API

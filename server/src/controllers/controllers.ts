@@ -421,18 +421,12 @@ export const GetPromptReports = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    // Admin authentication and authorization is enforced by the
+    // `requireAdminScope("reports:read")` middleware mounted on this route
+    // (#542) — this handler only runs once that has already succeeded.
     await connectDb();
 
-    // Check admin authentication (placeholder)
-    const adminToken = req.headers.authorization?.split(" ")[1];
-    if (!adminToken) {
-      return res.status(401).json({
-        error: "Unauthorized: Admin token required",
-      });
-    }
-
-    const { searchParams } = new URL(req.url);
-    const promptId = searchParams.get("promptId");
+    const promptId = typeof req.query.promptId === "string" ? req.query.promptId : undefined;
 
     const query: any = {};
     if (promptId) {

@@ -1,7 +1,8 @@
 // Cursor pagination for bounded catalog queries.
 // Prevents full-catalog scans and respects Soroban resource limits.
 
-use soroban_sdk::{Env, Vec, String as SorobanString};
+use crate::types::Error;
+use soroban_sdk::{Env, String as SorobanString};
 
 pub const MAX_PAGE_SIZE: u64 = 50;
 
@@ -33,8 +34,14 @@ impl IndexType {
     }
 }
 
-/// Encode cursor to base64 string for API transmission
-pub fn encode_cursor(last_id: u64, index_type: IndexType) -> SorobanString {
+// Cursors are opaque to callers: 8 bytes of big-endian `last_id` followed by
+// a 1-byte index-type discriminant. `soroban_sdk::String` has no std-only
+// parsing available inside the contract runtime (only under testutils), so
+// the cursor is carried as raw bytes rather than a human-readable string.
+const CURSOR_LEN: usize = 9;
+
+/// Encode a cursor for API transmission.
+pub fn encode_cursor(env: &Env, last_id: u64, index_type: IndexType) -> SorobanString {
     let type_num = match index_type {
         IndexType::Creator => 0u8,
         IndexType::Category => 1u8,
@@ -42,30 +49,28 @@ pub fn encode_cursor(last_id: u64, index_type: IndexType) -> SorobanString {
         IndexType::Active => 3u8,
         IndexType::All => 4u8,
     };
-    // Simple encoding: "id:type" (e.g., "12345:0")
-    // In production, use proper base64, but this is readable for testing
-    format!("{}:{}", last_id, type_num).into()
+    let mut bytes = [0u8; CURSOR_LEN];
+    bytes[0..8].copy_from_slice(&last_id.to_be_bytes());
+    bytes[8] = type_num;
+    SorobanString::from_bytes(env, &bytes)
 }
 
-/// Decode cursor from base64 string
-pub fn decode_cursor(env: &Env, cursor: &SorobanString) -> Result<Cursor, crate::error::Error> {
-    use crate::error::Error;
-    let s = cursor.to_string();
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() != 2 {
+/// Decode a cursor previously produced by [`encode_cursor`].
+pub fn decode_cursor(_env: &Env, cursor: &SorobanString) -> Result<Cursor, Error> {
+    if cursor.len() as usize != CURSOR_LEN {
         return Err(Error::InvalidCursor);
     }
 
-    let last_id = parts[0].parse::<u64>().map_err(|_| Error::InvalidCursor)?;
-    let type_num = parts[1].parse::<u8>().map_err(|_| Error::InvalidCursor)?;
-    let index_type = IndexType::from_u8(type_num).ok_or(Error::InvalidCursor)?;
+    let mut buf = [0u8; CURSOR_LEN];
+    cursor.copy_into_slice(&mut buf);
 
-    Ok(Cursor { last_id, index_type })
+    let mut id_bytes = [0u8; 8];
+    id_bytes.copy_from_slice(&buf[0..8]);
+    let last_id = u64::from_be_bytes(id_bytes);
+    let index_type = IndexType::from_u8(buf[8]).ok_or(Error::InvalidCursor)?;
+
+    Ok(Cursor {
+        last_id,
+        index_type,
+    })
 }
-
-/// Paginated result with cursor for next page
-pub struct PageResult<T> {
-    pub items: Vec<T>,
-    pub next_cursor: Option<SorobanString>, // None if end of results
-}
-
