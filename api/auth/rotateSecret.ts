@@ -8,6 +8,8 @@
 
 import { randomBytes } from "crypto";
 import { isPlaceholder } from "../../src/lib/validation/envValidator";
+import { AdminTokenError, verifyAdminToken } from "../../server/src/services/adminToken";
+import { recordAuditEvent } from "../../server/src/services/auditTrail";
 
 interface SecretRotationConfig {
   currentSecret: string;
@@ -139,6 +141,14 @@ export function cleanupExpiredSecrets(): void {
   }
 }
 
+const ROTATE_SECRET_SCOPE = "secrets:rotate";
+
+function activeAdminSecrets(): string[] {
+  return [process.env.ADMIN_TOKEN_SECRET, process.env.ADMIN_TOKEN_SECRET_PREVIOUS].filter(
+    (value): value is string => Boolean(value) && value.length >= 16,
+  );
+}
+
 // HTTP endpoint handler for manual rotation
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
@@ -146,14 +156,49 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  // Authentication check - only allow authorized operators
-  const authHeader = req.headers.authorization;
-  const adminToken = process.env.ADMIN_ROTATION_TOKEN;
-  
-  if (!adminToken || authHeader !== `Bearer ${adminToken}`) {
+  // Authentication check — only an admin token carrying the
+  // "secrets:rotate" scope may rotate the challenge token secret (#542).
+  // Signature, issuer, audience, expiry, role, and scope are all verified;
+  // presence of *some* bearer token is no longer sufficient.
+  const secrets = activeAdminSecrets();
+  const authHeader = req.headers.authorization as string | undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined;
+  const clientIp = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
+
+  if (secrets.length === 0 || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+
+  try {
+    verifyAdminToken(secrets, token, {
+      audience: process.env.ADMIN_TOKEN_AUDIENCE || "prompt-hash-admin",
+      requiredScope: ROTATE_SECRET_SCOPE,
+    });
+  } catch (err) {
+    const code = err instanceof AdminTokenError ? err.code : "unknown_error";
+    void recordAuditEvent({
+      action: "admin_auth_denied",
+      result: "blocked",
+      promptId: null,
+      walletAddress: null,
+      requestId: null,
+      clientIp,
+      reason: `scope=${ROTATE_SECRET_SCOPE} route=POST /auth/rotateSecret error=${code}`,
+    });
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  void recordAuditEvent({
+    action: "admin_auth_success",
+    result: "success",
+    promptId: null,
+    walletAddress: null,
+    requestId: null,
+    clientIp,
+    reason: `scope=${ROTATE_SECRET_SCOPE} route=POST /auth/rotateSecret`,
+  });
 
   try {
     const newConfig = rotateSecret();

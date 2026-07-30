@@ -53,7 +53,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Cache cargo registry
         uses: actions/cache@v6
@@ -80,18 +80,22 @@ jobs:
             ${{ runner.os }}-cargo-build-target-
 
       - name: Build contract
-        run: cargo build --release -p prompt-hash --target wasm32-unknown-unknown
+        run: cargo build --release -p prompt-hash --target wasm32v1-none
         env:
           CARGO_TERM_COLOR: always
+          # soroban-sdk 27's spec-shaking feature otherwise requires building
+          # through `stellar contract build` (stellar-cli v25.2.0+); this is
+          # the same flag that CLI sets internally.
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
 
       - name: List WASM artifacts
-        run: ls -lah target/wasm32-unknown-unknown/release/*.wasm
+        run: ls -lah target/wasm32v1-none/release/*.wasm
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v7
         with:
           name: contract-wasm-${{ github.sha }}
-          path: target/wasm32-unknown-unknown/release/*.wasm
+          path: target/wasm32v1-none/release/*.wasm
           retention-days: 30
           if-no-files-found: warn
 

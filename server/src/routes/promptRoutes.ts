@@ -19,6 +19,7 @@ import {
   GetIntegrityReport,
   TriggerIntegrityCheck,
 } from "../controllers/purchaseControllers";
+import { requireAdminScope } from "../middleware/adminAuth";
 
 export const promptRouter = express.Router();
 
@@ -57,16 +58,25 @@ promptRouter.get("/creator/:walletAddress/drafts", GetDraftPrompts);
 promptRouter.post("/preview", RecordPreview);
 promptRouter.get("/preview/stats", GetPreviewStats);
 
-// Report endpoints — off-chain moderation data, does not affect access control
+// Report endpoints — off-chain moderation data, does not affect access control.
+// Submission is public (anyone can flag a listing); reading the queue is a
+// moderation action and requires an admin token (#542).
 promptRouter.post("/reports", SubmitPromptReport);
-promptRouter.get("/reports", GetPromptReports);
+promptRouter.get("/reports", requireAdminScope("reports:read"), GetPromptReports);
 
 // Price history — derived from indexed PromptPriceUpdated events
 promptRouter.get("/:onChainId/price-history", GetPriceHistory);
 
-// Content integrity rechecks (#460)
-promptRouter.get("/admin/integrity-report", GetIntegrityReport);
-promptRouter.post("/admin/integrity-check", TriggerIntegrityCheck);
+// Content integrity rechecks (#460) — admin-only (#542)
+promptRouter.get(
+  "/admin/integrity-report",
+  requireAdminScope("integrity:read"),
+  GetIntegrityReport,
+);
+promptRouter.post("/admin/integrity-check",
+  requireAdminScope("integrity:write"),
+  TriggerIntegrityCheck,
+);
 
 // ── User Preference (non-authoritative, wallet-signature required) ────────────
 promptRouter.post("/buyer/save", SavePrompt);

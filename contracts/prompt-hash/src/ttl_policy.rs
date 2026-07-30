@@ -3,11 +3,10 @@
 // data corruption and access state violations.
 
 use crate::types::{DataKey, Error};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::Env;
 
 /// TTL constants (in ledgers, ~6 seconds per ledger)
 /// Reference: 1 day ≈ 14,400 ledgers, 1 year ≈ 5.256M ledgers
-
 pub const ONE_DAY: u32 = 14_400;
 pub const ONE_WEEK: u32 = 7 * ONE_DAY;
 pub const ONE_MONTH: u32 = 30 * ONE_DAY;
@@ -23,15 +22,6 @@ pub const MAX_RENEWAL_BATCH_SIZE: u32 = 20;
 /// Ensures entitlements don't expire before supporting records
 pub fn get_ttl_for_key(key: &DataKey) -> u32 {
     match key {
-        // Instance keys — no TTL, never expire
-        DataKey::PromptCounter
-        | DataKey::FeePercentage
-        | DataKey::FeeWallet
-        | DataKey::XlmAddress
-        | DataKey::Reentrancy
-        | DataKey::ReferralPercentage
-        | DataKey::IsPaused => u32::MAX, // No renewal
-
         // Prompts — longer TTL, renewed on each access
         DataKey::Prompt(_) => ONE_YEAR,
         DataKey::CreatorPrompts(_) => ONE_YEAR,
@@ -69,6 +59,11 @@ pub fn get_ttl_for_key(key: &DataKey) -> u32 {
 
         // Vouchers — shorter, tied to prompt
         DataKey::VoucherKey(_, _) => ONE_MONTH,
+
+        // Everything else (nonce ledgers, settlement/quote/resale/governance
+        // records) defaults to the same long, conservative retention as the
+        // purchase records they support.
+        _ => ONE_YEAR + ONE_MONTH,
     }
 }
 
@@ -138,22 +133,18 @@ pub fn should_renew_key(current_ledger: u64, last_extended_ledger: u64, max_ttl:
 
 /// Compute time remaining before expiry (in ledgers)
 pub fn get_time_remaining(current_ledger: u64, last_extended_ledger: u64, max_ttl: u32) -> u64 {
-    let age = current_ledger.saturating_sub(last_extended_ledger);
     let expiry_at = last_extended_ledger.saturating_add(max_ttl as u64);
     expiry_at.saturating_sub(current_ledger)
 }
 
 /// Validate that dependent keys have sufficient TTL protection
 pub fn validate_ttl_dependency(
-    env: &Env,
-    parent_key: &DataKey,
-    child_key: &DataKey,
+    _env: &Env,
+    _parent_key: &DataKey,
+    _child_key: &DataKey,
     parent_last_extended: u64,
     child_last_extended: u64,
 ) -> Result<(), Error> {
-    let parent_ttl = get_ttl_for_key(parent_key);
-    let child_ttl = get_ttl_for_key(child_key);
-
     // Child TTL must be at least as long as parent
     // Actually: child_last_extended must be >= parent_last_extended
     // so they expire at the same time or child expires later
@@ -195,23 +186,23 @@ pub fn compute_expiry_risk(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_ttl_for_all_keys() {
         // Ensure every DataKey variant has a TTL policy
-        let sample_keys = vec![
+        let env = Env::default();
+        let addr = Address::generate(&env);
+        let sample_keys = [
             DataKey::Prompt(1),
-            DataKey::Purchase(1, Address::from_contract_id(&soroban_sdk::Env::default())),
-            DataKey::PurchaseEscrow(1, Address::from_contract_id(&soroban_sdk::Env::default())),
+            DataKey::Purchase(1, addr.clone()),
+            DataKey::PurchaseEscrow(1, addr),
         ];
 
         for key in sample_keys {
             let ttl = get_ttl_for_key(&key);
-            assert!(
-                ttl > 0 || ttl == u32::MAX,
-                "Key {:?} must have valid TTL",
-                key
-            );
+            assert!(ttl > 0, "key must have a positive TTL");
         }
     }
 
@@ -248,8 +239,10 @@ mod tests {
     #[test]
     fn test_expiry_risk_critical() {
         let max_ttl = ONE_MONTH;
-        let current_ledger = 100_000u64;
-        let last_extended = 100_000u64 - (max_ttl as u64) / 10 + 100; // Just past critical threshold
+        let current_ledger = 1_000_000u64;
+        // Nearly the full TTL has elapsed since the last renewal, so almost
+        // no time remains before expiry.
+        let last_extended = current_ledger - (max_ttl as u64) + 100;
 
         let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
         assert!(risk.critical_keys > 0, "Should detect critical expiry risk");
@@ -258,8 +251,9 @@ mod tests {
     #[test]
     fn test_expiry_risk_at_risk() {
         let max_ttl = ONE_MONTH;
-        let current_ledger = 100_000u64;
-        let last_extended = 100_000u64 - (max_ttl as u64) / 3; // 33% through lifetime
+        let current_ledger = 1_000_000u64;
+        // 60% of the TTL has elapsed, leaving ~40% remaining (at-risk band).
+        let last_extended = current_ledger - (max_ttl as u64) * 6 / 10;
 
         let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
         assert!(

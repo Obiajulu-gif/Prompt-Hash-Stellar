@@ -2,15 +2,15 @@
 mod tests {
     use crate::ttl_policy::*;
     use crate::types::DataKey;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env};
 
     #[test]
     fn test_purchase_has_longer_ttl_than_dispute() {
-        let purchase_ttl = get_ttl_for_key(&DataKey::Purchase(1, unsafe {
-            std::mem::transmute([0u8; 32])
-        }));
-        let dispute_ttl = get_ttl_for_key(&DataKey::PurchaseDispute(1, unsafe {
-            std::mem::transmute([0u8; 32])
-        }));
+        let env = Env::default();
+        let addr = Address::generate(&env);
+        let purchase_ttl = get_ttl_for_key(&DataKey::Purchase(1, addr.clone()));
+        let dispute_ttl = get_ttl_for_key(&DataKey::PurchaseDispute(1, addr));
 
         assert!(
             purchase_ttl > dispute_ttl,
@@ -20,13 +20,10 @@ mod tests {
 
     #[test]
     fn test_entitlement_outlives_escrow() {
-        let catalog_pass_ttl = get_ttl_for_key(&DataKey::CatalogPass(
-            unsafe { std::mem::transmute([0u8; 32]) },
-            unsafe { std::mem::transmute([0u8; 32]) },
-        ));
-        let escrow_ttl = get_ttl_for_key(&DataKey::PurchaseEscrow(1, unsafe {
-            std::mem::transmute([0u8; 32])
-        }));
+        let env = Env::default();
+        let addr = Address::generate(&env);
+        let catalog_pass_ttl = get_ttl_for_key(&DataKey::CatalogPass(addr.clone(), addr.clone()));
+        let escrow_ttl = get_ttl_for_key(&DataKey::PurchaseEscrow(1, addr));
 
         assert!(
             catalog_pass_ttl >= escrow_ttl,
@@ -56,7 +53,7 @@ mod tests {
         let last_extended = 100_000u64;
 
         let remaining = get_time_remaining(current, last_extended, max_ttl);
-        let expected = (last_extended as u64 + max_ttl as u64) - current;
+        let expected = (last_extended + max_ttl as u64) - current;
 
         assert_eq!(remaining, expected);
     }
@@ -71,8 +68,8 @@ mod tests {
         assert_eq!(risk.critical_keys, 0);
         assert_eq!(risk.imminent_keys, 0);
 
-        // At risk (80% through lifetime)
-        let risky_extended = current - (max_ttl as u64) / 5;
+        // At risk (80% through lifetime, only 20% of the TTL remains)
+        let risky_extended = current - (max_ttl as u64) * 4 / 5;
         let risk = compute_expiry_risk(current, risky_extended, max_ttl);
         assert!(
             risk.at_risk_keys > 0 || risk.imminent_keys > 0,
@@ -81,6 +78,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn test_batch_size_respected() {
         assert!(MAX_RENEWAL_BATCH_SIZE > 0, "Batch size must be positive");
         assert!(
