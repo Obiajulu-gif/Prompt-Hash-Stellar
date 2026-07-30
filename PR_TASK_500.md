@@ -29,5 +29,5 @@ Frontend-only UI and Soroban client interaction changes (`set_prompt_sale_status
 
 ## Push Command
 ```bash
-git push origin main
+git push -u origin fix/500-bulk-creator-actions
 ```
