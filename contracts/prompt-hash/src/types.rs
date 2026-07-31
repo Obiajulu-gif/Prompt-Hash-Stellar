@@ -194,6 +194,12 @@ pub enum DataKey {
 
     /// A pending two-phase governance action, keyed by proposal hash (#569).
     GovernanceProposal(BytesN<32>),
+
+    /// Aggregate per-asset escrow liability, keyed by SAC asset address (#570).
+    AssetLiability(Address),
+    /// Marks that `migrate_asset_liability` has already backfilled the given
+    /// escrow into `AssetLiability`, so a repeat call is a safe no-op (#570).
+    EscrowLiabilityMigrated(u64, Address),
 }
 
 #[contracttype]
@@ -269,6 +275,33 @@ pub struct PayoutPlan {
 pub struct PayoutSplit {
     pub recipient: Address,
     pub amount: i128,
+}
+
+/// Aggregate escrow liability tracked for one SAC asset (#570).
+///
+/// `pending` is the total amount held for escrows awaiting settlement or
+/// refund. `disputed` is the subset currently under an open dispute — moved
+/// out of `pending` while the dispute is open so operators can see disputed
+/// exposure separately, and moved back on settle/refund/reject. The two
+/// buckets never overlap; `pending + disputed` is the asset's total
+/// customer liability the contract's SAC balance must cover.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetLiability {
+    pub pending: i128,
+    pub disputed: i128,
+}
+
+/// Read-only solvency snapshot for one asset (#570). `surplus` is
+/// `actual_balance - tracked_liability`: rounding dust, accidental direct
+/// transfers, or other non-customer balance. A negative surplus means the
+/// contract's SAC balance no longer covers its tracked liabilities.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetSolvency {
+    pub tracked_liability: i128,
+    pub actual_balance: i128,
+    pub surplus: i128,
 }
 
 #[contracttype]
@@ -869,6 +902,28 @@ pub trait PromptHashTrait {
     // New platform fee governance API
     fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error>;
     fn get_platform_fee(env: Env) -> u32;
+    /// One-time post-upgrade fix for deployments that hold a fee percentage
+    /// set above `MAX_PLATFORM_FEE` by the legacy `set_fee_percentage`
+    /// ceiling. Clamps it down; a no-op if already within bound (#566).
+    fn migrate_platform_fee_bound(env: Env, admin: Address) -> Result<(), Error>;
+
+    // Per-asset escrow liability and solvency reconciliation (#570).
+    fn get_asset_liability(env: Env, asset: Address) -> AssetLiability;
+    fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency;
+    /// Compares tracked liability against the contract's actual SAC balance
+    /// for `asset` and pauses the contract if the balance no longer covers
+    /// tracked liabilities. Safe to call permissionlessly as a monitor.
+    fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error>;
+    /// One-time backfill of a single pre-existing Pending/Disputed escrow
+    /// into the per-asset liability ledger, for deployments upgrading into
+    /// this feature. Idempotent — a repeat call for an already-migrated
+    /// escrow is a no-op.
+    fn migrate_asset_liability(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error>;
     fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>;
     fn is_paused(env: Env) -> bool;
     fn add_voucher(

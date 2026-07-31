@@ -126,7 +126,13 @@ payments and platform fees, and exposes read methods for marketplace views.
 Core methods: `create_prompt`, `buy_prompt`, `has_access`, `get_prompt`,
 `get_all_prompts`, `get_prompts_by_creator`, `get_prompts_by_buyer`,
 `update_prompt_price`, `set_prompt_sale_status`, `transfer_license`,
-`set_fee_percentage`, `set_fee_wallet`.
+`set_fee_percentage`, `set_fee_wallet`. `set_fee_percentage` is the single
+bounded fee-configuration path (max 1,000 bps / 10%); `update_platform_fee`
+is a deprecated alias with identical bound/auth/event, kept only for ABI
+compatibility. Per-asset escrow liability is tracked through every
+create/settle/dispute/refund transition and readable via
+`get_asset_liability`/`get_asset_solvency`, with `check_asset_solvency`
+pausing the contract if a tracked asset's balance ever falls short.
 
 ### Unlock / auth service (`api/`)
 

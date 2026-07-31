@@ -1,5 +1,5 @@
 use super::types::{
-    AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
+    AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
     ListingRevisionRecord, Prompt, Purchase, PurchaseDispute, PurchaseEscrow,
 };
 use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
@@ -390,6 +390,136 @@ impl Storage {
     pub fn remove_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) {
         let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
         env.storage().persistent().remove(&key);
+    }
+
+    // ─── Per-Asset Escrow Liability (#570) ──────────────────────────────────
+    // Aggregate pending/disputed liability per SAC asset, updated atomically
+    // alongside every escrow creation, settlement, dispute-open, and dispute
+    // resolution so it stays in lockstep with the underlying escrow records.
+
+    pub fn get_asset_liability(env: &Env, asset: &Address) -> AssetLiability {
+        let key = DataKey::AssetLiability(asset.clone());
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(AssetLiability {
+                pending: 0,
+                disputed: 0,
+            })
+    }
+
+    fn save_asset_liability(env: &Env, asset: &Address, liability: &AssetLiability) {
+        let key = DataKey::AssetLiability(asset.clone());
+        env.storage().persistent().set(&key, liability);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    /// A new escrow was created: `amount` becomes pending liability.
+    pub fn add_pending_liability(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.pending = liability
+            .pending
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// An escrow settled or a rejected dispute closed with no open dispute:
+    /// `amount` leaves the pending bucket entirely.
+    pub fn remove_pending_liability(
+        env: &Env,
+        asset: &Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.pending = liability
+            .pending
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// A dispute was opened against a pending escrow: move `amount` from
+    /// pending into disputed.
+    pub fn move_pending_to_disputed(
+        env: &Env,
+        asset: &Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.pending = liability
+            .pending
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        liability.disputed = liability
+            .disputed
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// A dispute was rejected without a refund: the escrow remains Pending,
+    /// so `amount` moves back from disputed into pending.
+    pub fn move_disputed_to_pending(
+        env: &Env,
+        asset: &Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.disputed = liability
+            .disputed
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        liability.pending = liability
+            .pending
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// Migration-only: credit `amount` directly into the disputed bucket for
+    /// a pre-existing escrow that was already under dispute before this
+    /// feature shipped (as opposed to `move_pending_to_disputed`, which
+    /// debits an already-tracked pending amount that never existed here).
+    pub fn add_disputed_liability(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.disputed = liability
+            .disputed
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// A disputed escrow was refunded: `amount` leaves the disputed bucket
+    /// entirely (paid out to the buyer, no longer anyone's liability).
+    pub fn remove_disputed_liability(
+        env: &Env,
+        asset: &Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.disputed = liability
+            .disputed
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    pub fn is_escrow_liability_migrated(env: &Env, prompt_id: u64, buyer: &Address) -> bool {
+        let key = DataKey::EscrowLiabilityMigrated(prompt_id, buyer.clone());
+        env.storage().persistent().has(&key)
+    }
+
+    pub fn mark_escrow_liability_migrated(env: &Env, prompt_id: u64, buyer: &Address) {
+        let key = DataKey::EscrowLiabilityMigrated(prompt_id, buyer.clone());
+        env.storage().persistent().set(&key, &true);
+        Self::extend_key_ttl(env, &key);
     }
 
     pub fn save_bundle(env: &Env, bundle: &Bundle) -> Result<(), Error> {

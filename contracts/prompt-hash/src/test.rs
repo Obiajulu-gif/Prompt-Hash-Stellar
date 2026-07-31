@@ -932,8 +932,13 @@ fn test_buy_prompt_with_max_fee() {
     let client = PromptHashContractClient::new(&env, &context.contract);
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
-    // Set fee to 100% (10,000 BPS)
-    client.set_fee_percentage(&10_000);
+    // Set fee to the unified ceiling (MAX_PLATFORM_FEE = 1,000 BPS = 10%).
+    // Prior to #566 this test exercised 10,000 BPS (100%) via
+    // `set_fee_percentage`, which was only possible because that entrypoint
+    // enforced a looser bound than `update_platform_fee` — see
+    // `test_set_fee_percentage_cannot_exceed_platform_fee_ceiling` below for
+    // proof that gap is now closed.
+    client.set_fee_percentage(&1_000);
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -956,8 +961,69 @@ fn test_buy_prompt_with_max_fee() {
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
-    assert_eq!(xlm_client.balance(&creator), seller_start);
-    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + price);
+    assert_eq!(xlm_client.balance(&creator), seller_start + price - price / 10);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + price / 10);
+}
+
+#[test]
+fn test_set_fee_percentage_cannot_exceed_platform_fee_ceiling() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Before #566, `set_fee_percentage` accepted anything up to MAX_BPS
+    // (10,000 = 100%), bypassing `update_platform_fee`'s tighter
+    // MAX_PLATFORM_FEE ceiling since both wrote the same storage key. Both
+    // entrypoints now delegate to the same bounded internal path.
+    let res = client.try_set_fee_percentage(&10_000u32);
+    match res {
+        Err(Ok(Error::FeeExceedsMaximum)) => {}
+        other => panic!("expected FeeExceedsMaximum, got {:?}", other),
+    }
+
+    let res = client.try_update_platform_fee(&context.admin, &10_000u32);
+    match res {
+        Err(Ok(Error::FeeExceedsMaximum)) => {}
+        other => panic!("expected FeeExceedsMaximum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_set_fee_percentage_and_update_platform_fee_emit_same_event_shape() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    client.set_fee_percentage(&600u32);
+    assert_eq!(client.get_fee_percentage(), 600u32);
+    assert_eq!(client.get_platform_fee(), 600u32);
+
+    client.update_platform_fee(&context.admin, &700u32);
+    assert_eq!(client.get_fee_percentage(), 700u32);
+    assert_eq!(client.get_platform_fee(), 700u32);
+}
+
+#[test]
+fn test_migrate_platform_fee_bound_clamps_legacy_value() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Simulate a legacy deployment where `set_fee_percentage` had already
+    // stored a value above the now-unified MAX_PLATFORM_FEE ceiling before
+    // this fix shipped. `set_fee_percentage` itself now rejects it, so this
+    // models the pre-upgrade stored state directly.
+    env.as_contract(&context.contract, || {
+        crate::storage::InstanceStorage::set_fee_percentage(&env, &5_000u32);
+    });
+    assert_eq!(client.get_fee_percentage(), 5_000u32);
+
+    client.migrate_platform_fee_bound(&context.admin);
+    assert_eq!(client.get_fee_percentage(), 1_000u32);
+
+    // Idempotent: calling again once already within bound is a no-op.
+    client.migrate_platform_fee_bound(&context.admin);
+    assert_eq!(client.get_fee_percentage(), 1_000u32);
 }
 
 #[test]
@@ -4768,4 +4834,229 @@ fn test_creator_can_settle_immediately_without_waiting() {
     client.settle_purchase(&creator, &prompt_id, &buyer);
     let escrow = client.get_purchase_escrow(&prompt_id, &buyer).unwrap();
     assert_eq!(escrow.status, crate::types::SettlementStatus::Settled);
+}
+
+// ---------- Per-asset escrow liability tests (#570) ----------
+
+#[test]
+fn test_asset_liability_tracks_pending_on_purchase() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, price);
+    assert_eq!(liability.disputed, 0);
+}
+
+#[test]
+fn test_asset_liability_decrements_on_settle() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, 0);
+    assert_eq!(liability.disputed, 0);
+}
+
+#[test]
+fn test_asset_liability_moves_to_disputed_on_dispute_open() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.open_dispute(
+        &buyer,
+        &prompt_id,
+        &crate::types::DisputeReason::InvalidEncryptedPayload,
+    );
+
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, 0);
+    assert_eq!(liability.disputed, price);
+}
+
+#[test]
+fn test_asset_liability_moves_back_to_pending_on_dispute_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.open_dispute(
+        &buyer,
+        &prompt_id,
+        &crate::types::DisputeReason::InvalidEncryptedPayload,
+    );
+    client.resolve_dispute(&context.admin, &prompt_id, &buyer, &false);
+
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, price);
+    assert_eq!(liability.disputed, 0);
+
+    // The escrow is still Pending, so it can settle normally afterward.
+    client.settle_purchase(&context.admin, &prompt_id, &buyer);
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, 0);
+}
+
+#[test]
+fn test_asset_liability_clears_on_dispute_refunded() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    client.open_dispute(
+        &buyer,
+        &prompt_id,
+        &crate::types::DisputeReason::InvalidEncryptedPayload,
+    );
+    client.resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, 0);
+    assert_eq!(liability.disputed, 0);
+}
+
+#[test]
+fn test_asset_liability_unaffected_by_lease_prompt() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Lease", price, &context.xlm);
+
+    // Leases (like bundles and access passes) transfer payment in and pay it
+    // straight back out within the same call — there's never a persisted
+    // Pending escrow, so they must never touch the liability ledger.
+    fund_buyer(&xlm_client, &buyer, &context.contract, price * 2);
+    client.lease_prompt(&buyer, &prompt_id, &3600u64);
+
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, 0);
+    assert_eq!(liability.disputed, 0);
+}
+
+#[test]
+fn test_asset_solvency_matches_when_no_drift() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Solvency", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    let solvency = client.get_asset_solvency(&context.xlm);
+    assert_eq!(solvency.tracked_liability, price);
+    assert_eq!(solvency.actual_balance, price);
+    assert_eq!(solvency.surplus, 0);
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_check_asset_solvency_detects_drift_and_pauses() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Drift", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    assert!(!client.is_paused());
+
+    // Fault injection: simulate an accounting bug inflating tracked
+    // liability beyond what the contract actually holds, without moving any
+    // real funds. `check_asset_solvency` must detect this and fail closed.
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::add_pending_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    let solvency = client.check_asset_solvency(&context.xlm);
+    assert!(solvency.surplus < 0);
+    assert!(client.is_paused());
+
+    // Fail-closed: mutating entry points are blocked while paused, so no
+    // further customer funds can move until an operator investigates and
+    // explicitly unpauses.
+    let res = client.try_settle_purchase(&context.admin, &prompt_id, &buyer);
+    assert_eq!(res, Err(Ok(Error::ContractIsPaused)));
+}
+
+#[test]
+fn test_migrate_asset_liability_is_idempotent() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 5_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Migrate", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Simulate a pre-#570 deployment: the escrow exists, but its amount was
+    // never credited to the liability ledger (the feature didn't exist yet).
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_pending_liability(&env, &context.xlm, price).unwrap();
+    });
+    assert_eq!(client.get_asset_liability(&context.xlm).pending, 0);
+
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+    assert_eq!(client.get_asset_liability(&context.xlm).pending, price);
+
+    // A duplicate call (retry, or double-invocation) must not double-count.
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+    assert_eq!(client.get_asset_liability(&context.xlm).pending, price);
 }
