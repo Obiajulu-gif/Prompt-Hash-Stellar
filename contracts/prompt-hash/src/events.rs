@@ -93,11 +93,27 @@ struct FeeWalletUpdated {
     pub new_fee_wallet: Address,
 }
 
+/// Canonical platform-fee-change event (#566). Emitted by every fee-update
+/// entrypoint (`set_fee_percentage`, `update_platform_fee`,
+/// `migrate_platform_fee_bound`) so there is exactly one event shape to
+/// index regardless of which entrypoint a caller used.
 #[contractevent]
 struct PlatformFeeUpdated {
     pub old_fee: u32,
     pub new_fee: u32,
     pub admin: Address,
+    pub effective_ledger: u32,
+}
+
+/// Emitted when `check_asset_solvency` finds the contract's actual SAC
+/// balance for an asset no longer covers its tracked liability, and the
+/// contract has been paused as a result (#570).
+#[contractevent]
+struct SolvencyViolationDetected {
+    #[topic]
+    pub asset: Address,
+    pub tracked_liability: i128,
+    pub actual_balance: i128,
 }
 
 #[contractevent]
@@ -353,11 +369,32 @@ impl Events {
         FeeWalletUpdated { new_fee_wallet }.publish(env);
     }
 
-    pub fn emit_platform_fee_updated(env: &Env, old_fee: u32, new_fee: u32, admin: Address) {
+    pub fn emit_platform_fee_updated(
+        env: &Env,
+        old_fee: u32,
+        new_fee: u32,
+        admin: Address,
+        effective_ledger: u32,
+    ) {
         PlatformFeeUpdated {
             old_fee,
             new_fee,
             admin,
+            effective_ledger,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_solvency_violation_detected(
+        env: &Env,
+        asset: Address,
+        tracked_liability: i128,
+        actual_balance: i128,
+    ) {
+        SolvencyViolationDetected {
+            asset,
+            tracked_liability,
+            actual_balance,
         }
         .publish(env);
     }

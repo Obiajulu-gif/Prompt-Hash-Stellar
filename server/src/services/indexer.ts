@@ -7,7 +7,7 @@ import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
 import ProcessedEvent from "../models/ProcessedEvent";
 import { scanForSimilarity } from "./similarityDetection";
-import { dispatchEvent } from "./webhookDispatcher";
+import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 
@@ -59,17 +59,24 @@ async function invalidatePromptCaches(promptId: string): Promise<void> {
   ]);
 }
 
-/** Fires a webhook to a creator/owner wallet, swallowing delivery errors. */
+/**
+ * Enqueues a durable webhook delivery for a creator/owner wallet, swallowing
+ * enqueue errors so a webhook problem never blocks indexing. `dedupeKey` is
+ * the chain event's own id — the indexer is the sole projector of on-chain
+ * marketplace events into webhooks (#536), so this is a stable identity a
+ * re-scanned ledger range can't double-enqueue.
+ */
 async function notify(
   wallet: string | undefined | null,
   event: string,
   data: Record<string, unknown>,
+  dedupeKey: string,
 ): Promise<void> {
   if (!wallet) return;
   try {
-    await dispatchEvent(wallet, event, data);
+    await enqueueWebhookEvent(wallet, event, data, dedupeKey);
   } catch (err) {
-    console.error(`[indexer] Webhook dispatch failed for ${event}:`, err);
+    console.error(`[indexer] Webhook enqueue failed for ${event}:`, err);
   }
 }
 
@@ -305,12 +312,17 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
 
       const ownerWallet = (prompt?.owner as { walletAddress?: string } | null)
         ?.walletAddress;
-      await notify(ownerWallet, "PromptPurchased", {
-        promptId,
-        buyer: buyer ? String(buyer) : undefined,
-        priceStroops: price_stroops ? String(price_stroops) : undefined,
-        txHash,
-      });
+      await notify(
+        ownerWallet,
+        "PromptPurchased",
+        {
+          promptId,
+          buyer: buyer ? String(buyer) : undefined,
+          priceStroops: price_stroops ? String(price_stroops) : undefined,
+          txHash,
+        },
+        event.id,
+      );
       await invalidatePromptCaches(promptId);
       // Invalidate entitlement cache on settlement (refund/transfer)
       invalidateEntitlementCacheForPrompt(promptId);
@@ -336,8 +348,8 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         to: to ? String(to) : undefined,
         txHash,
       };
-      await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload);
-      await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload);
+      await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload, event.id);
+      await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload, event.id);
       await invalidatePromptCaches(promptId);
       break;
     }

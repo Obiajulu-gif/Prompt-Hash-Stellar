@@ -22,15 +22,10 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier . --write",
-
-    "prepare": "husky",
-    "check:setup": "node scripts/check-local-setup.mjs",
-    "seed:preview": "node server/scripts/seedPreview.mjs"
-
     "prepare": "node -e \"try { require('fs').existsSync('.husky/') && process.exit(0) } catch(e) {}\" && husky || true",
     "check:setup": "node scripts/check-local-setup.mjs",
+    "seed:preview": "node server/scripts/seedPreview.mjs",
     "verify:smoke": "node scripts/smoke-verification.mjs"
-
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.5.0",

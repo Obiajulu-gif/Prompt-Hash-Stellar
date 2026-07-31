@@ -1,9 +1,10 @@
 use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
-    AccessPass, Bundle, CatalogPassPurchase, DataKey, DisputeReason, DisputeStatus, Error,
-    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus,
-    PurchaseDispute, PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
+    AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey,
+    DisputeReason, DisputeStatus, Error, ListingConfig, ListingRevisionRecord, Prompt,
+    PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
+    SignedDiscountAuthorization, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
 use stellar_access::ownable::{self as ownable, Ownable};
@@ -1253,9 +1254,11 @@ impl PromptHashTrait for PromptHashContract {
         // disputed within the purchase-relative window; once it closes the
         // escrow is eligible for permissionless settlement (#541). Purchases
         // without a pending escrow (leases, bundles, passes) are unaffected.
+        let mut escrow_liability_move: Option<(Address, i128)> = None;
         if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
             if escrow.status == SettlementStatus::Pending {
                 ensure(now <= escrow.dispute_deadline, Error::DisputeWindowClosed)?;
+                escrow_liability_move = Some((escrow.asset, escrow.amount));
             } else {
                 // Already settled or refunded — nothing left to dispute.
                 return Err(Error::DisputeWindowClosed);
@@ -1266,6 +1269,14 @@ impl PromptHashTrait for PromptHashContract {
                 dispute.status != DisputeStatus::Open,
                 Error::DisputeAlreadyOpen,
             )?;
+        }
+        // The escrowed amount is now at risk of refund rather than
+        // settlement — move it out of `pending` into `disputed` so per-asset
+        // liability reflects the dispute (#570). Applied only once every
+        // other guard above has passed, so a rejected duplicate-open attempt
+        // never touches the ledger.
+        if let Some((asset, amount)) = escrow_liability_move {
+            Storage::move_pending_to_disputed(&env, &asset, amount)?;
         }
         let dispute = PurchaseDispute {
             prompt_id,
@@ -1290,6 +1301,10 @@ impl PromptHashTrait for PromptHashContract {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
+        // Refunds move customer funds — must respect the pause flag like
+        // every other mutating entry point, including an invariant-triggered
+        // pause from `check_asset_solvency` (#570).
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         let purchase = Storage::require_purchase(&env, prompt_id, &buyer)?;
         let mut dispute = Storage::require_dispute(&env, prompt_id, &buyer)?;
@@ -1322,12 +1337,23 @@ impl PromptHashTrait for PromptHashContract {
             // Update the escrow record so the settlement admin knows
             // the funds were already returned to the buyer.
             if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                // The disputed amount was just paid out to the buyer — it's
+                // no longer anyone's liability (#570).
+                Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
                 escrow.status = SettlementStatus::Refunded;
                 escrow.settled_at = env.ledger().timestamp();
                 Storage::save_purchase_escrow(&env, &escrow);
             }
         } else {
             dispute.status = DisputeStatus::Rejected;
+            // The escrow stays Pending, awaiting a future `settle_purchase`
+            // call — move its amount back out of `disputed` into `pending`
+            // (#570).
+            if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                if escrow.status == SettlementStatus::Pending {
+                    Storage::move_disputed_to_pending(&env, &escrow.asset, escrow.amount)?;
+                }
+            }
         }
         Storage::save_dispute(&env, &dispute);
         Events::emit_dispute_resolved(&env, prompt_id, buyer, refund);
@@ -1348,6 +1374,10 @@ impl PromptHashTrait for PromptHashContract {
         buyer: Address,
     ) -> Result<(), Error> {
         caller.require_auth();
+        // Settlement moves customer funds — must respect the pause flag like
+        // every other mutating entry point, including an invariant-triggered
+        // pause from `check_asset_solvency` (#570).
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         let prompt = Storage::require_prompt(&env, prompt_id)?;
 
@@ -1410,6 +1440,11 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
         }
 
+        // The escrow guards above guarantee this amount was still in the
+        // pending bucket (Pending status, no open dispute) — release it
+        // from tracked liability now that it's been paid out (#570).
+        Storage::remove_pending_liability(&env, &escrow.asset, escrow.amount)?;
+
         escrow.status = SettlementStatus::Settled;
         escrow.settled_at = now;
         Storage::save_purchase_escrow(&env, &escrow);
@@ -1440,12 +1475,15 @@ impl PromptHashTrait for PromptHashContract {
         Ok(Storage::get_prompts_by_buyer(&env, &buyer))
     }
 
+    /// Canonical, bounded fee-configuration entrypoint (#566). Both this
+    /// function and the deprecated `update_platform_fee` alias route through
+    /// `set_platform_fee_internal`, so every caller is held to the same
+    /// `MAX_PLATFORM_FEE` ceiling and emits the same canonical event —
+    /// neither entrypoint can be used to bypass the other's policy.
     #[only_owner]
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error> {
-        ensure(new_fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
-        InstanceStorage::set_fee_percentage(&env, &new_fee_percentage);
-        Events::emit_fee_updated(&env, new_fee_percentage);
-        Ok(())
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        set_platform_fee_internal(&env, owner, new_fee_percentage)
     }
 
     #[only_owner]
@@ -1463,21 +1501,38 @@ impl PromptHashTrait for PromptHashContract {
         InstanceStorage::get_fee_wallet(&env)
     }
 
+    /// Deprecated alias for `set_fee_percentage` (#566), kept because removing
+    /// a public entrypoint is a breaking ABI change. Delegates to the same
+    /// internal helper, so it enforces the identical bound/auth/event as the
+    /// canonical entrypoint rather than a looser or divergent policy.
     #[only_owner]
     fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
-        ensure(new_fee <= MAX_PLATFORM_FEE, Error::FeeExceedsMaximum)?;
-
-        let old_fee = InstanceStorage::get_fee_percentage(&env);
-        InstanceStorage::set_fee_percentage(&env, &new_fee);
-        Events::emit_platform_fee_updated(&env, old_fee, new_fee, admin);
-        Ok(())
+        set_platform_fee_internal(&env, admin, new_fee)
     }
 
     fn get_platform_fee(env: Env) -> u32 {
         InstanceStorage::get_fee_percentage(&env)
+    }
+
+    /// One-time post-upgrade fix for deployments where the legacy
+    /// `set_fee_percentage` (previously bounded only by `MAX_BPS`, i.e. up to
+    /// 100%) left a stored fee above the now-unified `MAX_PLATFORM_FEE`
+    /// ceiling. Clamps that value down; a no-op if it's already within
+    /// bound, so it is safe to call repeatedly (#566).
+    #[only_owner]
+    fn migrate_platform_fee_bound(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        let current_fee = InstanceStorage::get_fee_percentage(&env);
+        if current_fee <= MAX_PLATFORM_FEE {
+            return Ok(());
+        }
+        set_platform_fee_internal(&env, admin, MAX_PLATFORM_FEE)
     }
 
     fn get_xlm_sac(env: Env) -> Option<Address> {
@@ -1659,10 +1714,99 @@ impl PromptHashTrait for PromptHashContract {
         Storage::extend_all_ttl(&env);
         Ok(())
     }
+
+    fn get_asset_liability(env: Env, asset: Address) -> AssetLiability {
+        Storage::get_asset_liability(&env, &asset)
+    }
+
+    fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency {
+        compute_asset_solvency(&env, &asset)
+    }
+
+    /// Permissionless invariant check: compares tracked liability against the
+    /// contract's actual SAC balance for `asset` and pauses the contract if
+    /// the balance no longer covers what's owed (#570). Intended to be
+    /// callable by an off-chain operational monitor on a schedule, not just
+    /// the owner — catching drift early matters more than gating who can look.
+    fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error> {
+        let solvency = compute_asset_solvency(&env, &asset);
+        if solvency.surplus < 0 {
+            InstanceStorage::set_pause_status(&env, true);
+            Events::emit_contract_paused_state_changed(&env, true);
+            Events::emit_solvency_violation_detected(
+                &env,
+                asset,
+                solvency.tracked_liability,
+                solvency.actual_balance,
+            );
+        }
+        Ok(solvency)
+    }
+
+    /// One-time backfill for a deployment upgrading into this feature: adds a
+    /// single pre-existing Pending/Disputed escrow's amount into the
+    /// per-asset liability ledger. A no-op (Ok) if this exact escrow was
+    /// already migrated, so it is safe to retry (#570).
+    #[only_owner]
+    fn migrate_asset_liability(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        if Storage::is_escrow_liability_migrated(&env, prompt_id, &buyer) {
+            return Ok(());
+        }
+
+        let escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
+        if escrow.status == SettlementStatus::Pending {
+            let dispute_open = Storage::get_dispute(&env, prompt_id, &buyer)
+                .map(|d| d.status == DisputeStatus::Open)
+                .unwrap_or(false);
+            if dispute_open {
+                Storage::add_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+            } else {
+                Storage::add_pending_liability(&env, &escrow.asset, escrow.amount)?;
+            }
+        }
+        Storage::mark_escrow_liability_migrated(&env, prompt_id, &buyer);
+        Ok(())
+    }
 }
 
 #[contractimpl(contracttrait)]
 impl Ownable for PromptHashContract {}
+
+/// Single write path for the platform fee (#566). `set_fee_percentage`,
+/// `update_platform_fee`, and `migrate_platform_fee_bound` all delegate here
+/// so the bound, storage key, and emitted event can never diverge between
+/// entrypoints.
+fn set_platform_fee_internal(env: &Env, actor: Address, new_fee: u32) -> Result<(), Error> {
+    ensure(new_fee <= MAX_PLATFORM_FEE, Error::FeeExceedsMaximum)?;
+    let old_fee = InstanceStorage::get_fee_percentage(env);
+    InstanceStorage::set_fee_percentage(env, &new_fee);
+    Events::emit_platform_fee_updated(env, old_fee, new_fee, actor, env.ledger().sequence());
+    Ok(())
+}
+
+/// Compares tracked per-asset liability against the contract's actual SAC
+/// balance for `asset` (#570). `surplus` is the excess above what's owed —
+/// rounding dust or an accidental direct transfer, not customer liability —
+/// and goes negative only if the balance no longer covers tracked liability.
+fn compute_asset_solvency(env: &Env, asset: &Address) -> AssetSolvency {
+    let liability = Storage::get_asset_liability(env, asset);
+    let tracked_liability = liability.pending.saturating_add(liability.disputed);
+    let actual_balance = token::Client::new(env, asset).balance(&env.current_contract_address());
+    AssetSolvency {
+        tracked_liability,
+        actual_balance,
+        surplus: actual_balance.saturating_sub(tracked_liability),
+    }
+}
 
 fn execute_buy(
     env: &Env,
@@ -1875,6 +2019,9 @@ fn execute_buy_with_required_price(
         payout_plan,
     };
     Storage::save_purchase_escrow(env, &escrow);
+    // Escrow was just created Pending — its full amount is now tracked
+    // liability for this asset until settled or refunded (#570).
+    Storage::add_pending_liability(env, &escrow.asset, escrow.amount)?;
 
     InstanceStorage::clear_reentrancy_guard(env);
 
