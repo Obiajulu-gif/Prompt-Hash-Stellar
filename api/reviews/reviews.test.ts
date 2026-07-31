@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment node
+process.env.MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/test";
+import { describe, expect, it } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import submitHandler, { buildReviewMessage, verifyReviewSignature } from "./submit";
-import listHandler from "./list";
 
 describe("Durable Wallet-Signed Reviews API", () => {
   const buyerKeypair = Keypair.random();
