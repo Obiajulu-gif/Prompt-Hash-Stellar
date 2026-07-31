@@ -52,9 +52,10 @@ export function getServerDeploymentManifest(forceRefresh = false): ServerDeploym
   const errors: string[] = [];
 
   const network = process.env.PUBLIC_STELLAR_NETWORK || (isProd ? "" : "TESTNET");
+  const defaultPassphrase = WalletNetwork?.TESTNET || "Test SDF Network ; September 2015";
   const networkPassphrase =
     process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ||
-    (isProd ? "" : WalletNetwork.TESTNET);
+    (isProd ? "" : defaultPassphrase);
 
   const rpcUrl =
     process.env.PUBLIC_STELLAR_RPC_URL ||
@@ -145,7 +146,7 @@ export function getServerDeploymentManifest(forceRefresh = false): ServerDeploym
 
 export function getReadinessAttestation() {
   try {
-    const manifest = getServerDeploymentManifest();
+    const manifest = getServerDeploymentManifest(true);
     return {
       ready: true,
       network: manifest.network,
