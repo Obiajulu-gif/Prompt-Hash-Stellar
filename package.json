@@ -11,8 +11,8 @@
   "scripts": {
     "dev": "node scripts/check-local-setup.mjs --warn-only && vite",
     "start": "vite",
-    "build": "node scripts/check-no-mocks.mjs && vite build",
-    "prebuild": "node scripts/check-local-setup.mjs",
+    "build": "vite build",
+    "prebuild": "node scripts/policy-scanner.mjs && node scripts/check-local-setup.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:frontend": "vitest run",
@@ -22,15 +22,11 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier . --write",
-
-    "prepare": "husky",
-    "check:setup": "node scripts/check-local-setup.mjs",
-    "seed:preview": "node server/scripts/seedPreview.mjs"
-
     "prepare": "node -e \"try { require('fs').existsSync('.husky/') && process.exit(0) } catch(e) {}\" && husky || true",
     "check:setup": "node scripts/check-local-setup.mjs",
-    "verify:smoke": "node scripts/smoke-verification.mjs"
-
+    "check:policy": "node scripts/policy-scanner.mjs",
+    "verify:smoke": "node scripts/smoke-verification.mjs",
+    "seed:preview": "node server/scripts/seedPreview.mjs"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.5.0",
