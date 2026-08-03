@@ -3301,10 +3301,10 @@
     buffer "^6.0.3"
     sha.js "^2.4.12"
 
-"@stellar/stellar-sdk@16.1.0", "@stellar/stellar-sdk@^16.0.0", "@stellar/stellar-sdk@^16.1.0":
-  version "16.1.0"
-  resolved "https://registry.yarnpkg.com/@stellar/stellar-sdk/-/stellar-sdk-16.1.0.tgz#1a7c722435dfefe3f932b9fae52fd9cd708b79a6"
-  integrity sha512-MOIrUvbzuTnSvUurL+9nrS1UW6Ko+QTW00RggSomm4WaWkE8onKPo2MRJMd89X7qPaGPjYjxNX6B671AEQlzxQ==
+"@stellar/stellar-sdk@16.2.0", "@stellar/stellar-sdk@^16.0.0", "@stellar/stellar-sdk@^16.2.0":
+  version "16.2.0"
+  resolved "https://registry.yarnpkg.com/@stellar/stellar-sdk/-/stellar-sdk-16.2.0.tgz#be66570ffb9cb93c6557513fecd7cb608ac213b7"
+  integrity sha512-FV/Rm11QvrFzR5X9fIfb6Pg30KyYyrRkNezELGFmYDAYrzoPTjqo7vklnEPd2HEontzjJmZizWk8CjyIh5vp0w==
   dependencies:
     "@noble/ed25519" "^3.1.0"
     "@noble/hashes" "^2.2.0"
