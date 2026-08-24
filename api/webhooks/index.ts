@@ -29,9 +29,12 @@ export async function webhookHandler(req: any, res: any) {
       return;
     }
 
+    // Exclude the signing secret from the query so it never enters the
+    // response object (defense-in-depth; see POST which still stores it for
+    // delivery signature verification).
     const sub = await WebhookSubscription.findOne({
       walletAddress: String(walletAddress).toLowerCase(),
-    });
+    }).select("-secret");
     if (!sub) {
       res.status(404).json({ error: "No webhook registered for this wallet." });
       return;
@@ -45,10 +48,8 @@ export async function webhookHandler(req: any, res: any) {
 
     // The delivery URL is sensitive: it reveals where a creator's sale
     // notifications are routed. Only return it to a caller that has proven
-    // ownership of the wallet the subscription belongs to. The signing secret
-    // is never returned on GET.
+    // ownership of the wallet the subscription belongs to.
     const response = sub.toObject();
-    delete response.secret;
     if (!owned) {
       delete response.url;
     }

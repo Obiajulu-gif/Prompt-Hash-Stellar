@@ -27,6 +27,9 @@ const hoisted = vi.hoisted(() => {
         failureCount: this.failureCount,
       };
     },
+    select() {
+      return this;
+    },
     save: vi.fn().mockResolvedValue(undefined),
   };
 
@@ -51,6 +54,16 @@ vi.mock("../../server/src/models/WebhookSubscription", () => ({
 }));
 
 const { fakeSub, findOneMock, deleteOneMock } = hoisted;
+
+// Helper to make findOne return a query-like object whose .select() resolves
+// to the provided document (or null), mirroring Mongoose's Query API so the
+// handler's `findOne(...).select("-secret")` chaining works in tests. The
+// returned object also carries the document's own methods (e.g. `save`) so
+// callers that don't chain `.select()` still receive a usable document.
+const findOneResolvingTo = (doc: any) =>
+  findOneMock.mockReturnValue(
+    doc == null ? { select: () => null } : { ...doc, select: () => doc },
+  );
 
 // Partially mock the auth challenge module: keep the real verification and
 // token-building primitives, but control the nonce ledger so we can simulate
@@ -116,7 +129,7 @@ describe("api/webhooks ownership verification", () => {
   beforeEach(() => {
     process.env.CHALLENGE_TOKEN_SECRET = SECRET;
     // Default GET behavior: findOne resolves to the existing subscription.
-    findOneMock.mockReset().mockResolvedValue(fakeSub);
+    findOneMock.mockReset(); findOneResolvingTo(fakeSub);
     deleteOneMock.mockReset().mockResolvedValue({ deletedCount: 1 });
     fakeSub.walletAddress = creator.publicKey().toLowerCase();
     fakeSub.url = "https://old.example.com/hook";
@@ -161,7 +174,9 @@ describe("api/webhooks ownership verification", () => {
   });
 
   it("accepts a POST with a valid signature for the SAME address", async () => {
-    findOneMock.mockResolvedValue(null);
+    // POST does not chain `.select()`, so findOne must resolve to the document
+    // (or null) directly here.
+    findOneMock.mockReturnValue(null);
     const proof = signedProof(creator);
     const res = makeRes();
     await webhookHandler(
@@ -203,7 +218,7 @@ describe("api/webhooks ownership verification", () => {
   });
 
   it("hides the delivery url from an unauthenticated GET caller", async () => {
-    findOneMock.mockResolvedValue(fakeSub);
+    findOneResolvingTo(fakeSub);
     const res = makeRes();
     await webhookHandler(
       { method: "GET", query: { walletAddress: creator.publicKey() } },
@@ -215,7 +230,7 @@ describe("api/webhooks ownership verification", () => {
   });
 
   it("returns the delivery url to an authenticated GET caller", async () => {
-    findOneMock.mockResolvedValue(fakeSub);
+    findOneResolvingTo(fakeSub);
     const proof = signedProof(creator);
     const res = makeRes();
     await webhookHandler(
