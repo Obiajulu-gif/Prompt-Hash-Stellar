@@ -1,0 +1,22 @@
+name: CodeQL Debug (backend)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/issue-627-631-629-630"]
+
+jobs:
+  analyze:
+    name: CodeQL Analyze (javascript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
