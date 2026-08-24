@@ -269,7 +269,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       // Run similarity scan asynchronously — never block the indexer loop.
       if (upserted?.content) {
         const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
-        scanForSimilarity(promptId, combinedText).catch((err) =>
+        scanForSimilarity(promptId, combinedText, upserted.category).catch((err) =>
           console.error("[similarity] Scan error for prompt", promptId, err),
         );
       }
