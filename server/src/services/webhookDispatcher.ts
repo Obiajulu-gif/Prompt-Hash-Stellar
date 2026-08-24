@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "crypto";
 import WebhookSubscription from "../models/WebhookSubscription";
+import { enqueueWebhookEvent } from "./webhookOutbox";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000, 30_000];
@@ -69,27 +70,19 @@ async function deliverWithRetry(
   }
 }
 
+/**
+ * Dispatch a webhook event to all active subscribers for the given wallet.
+ *
+ * Uses the outbox pattern (#606): events are persisted to WebhookOutboxEvent
+ * and delivered asynchronously by the webhookOutboxWorker with exponential
+ * backoff, jitter, and dead-letter handling. This guarantees at-least-once
+ * delivery even if the server crashes mid-retry.
+ */
 export async function dispatchEvent(
   creatorWallet: string,
   event: string,
   data: Record<string, unknown>,
 ): Promise<void> {
-  const subscriptions = await WebhookSubscription.find({
-    walletAddress: creatorWallet.toLowerCase(),
-    active: true,
-    events: event,
-  });
-
-  const payload: WebhookPayload = {
-    event,
-    deliveryId: randomUUID(),
-    timestamp: new Date().toISOString(),
-    data,
-  };
-
-  await Promise.allSettled(
-    subscriptions.map((sub) =>
-      deliverWithRetry(String(sub._id), sub.url, sub.secret, payload),
-    ),
-  );
+  // Enqueue to the outbox for reliable async delivery.
+  await enqueueWebhookEvent(creatorWallet, event, data);
 }
