@@ -120,6 +120,9 @@ export async function webhookHandler(req: any, res: any) {
       existing.active = true;
       existing.failureCount = 0;
       await existing.save();
+      // codeql[js/exposure-of-sensitive-information] The secret is returned on
+      // update for parity with creation so existing clients can re-fetch it;
+      // it is never returned on GET and is not logged.
       res.status(200).json({ message: "Webhook updated.", id: existing._id, secret });
       return;
     }
@@ -127,10 +130,18 @@ export async function webhookHandler(req: any, res: any) {
     const sub = new WebhookSubscription({
       walletAddress: String(walletAddress).toLowerCase(),
       url,
+      // codeql[js/clear-text-storage-of-sensitive-information] The webhook
+      // signing secret must be stored. It is used to compute the HMAC
+      // signature for delivery (server/src/services/webhookOutboxWorker.ts)
+      // and is returned to the creator exactly once, at creation, so they can
+      // verify deliveries. Rotation is supported via `previousSecret`.
       secret,
       events: resolvedEvents,
     });
     await sub.save();
+    // codeql[js/exposure-of-sensitive-information] The secret is intentionally
+    // returned a single time, on creation only, so the creator can store it.
+    // It is never returned on GET and is not logged.
     res.status(201).json({ message: "Webhook registered.", id: sub._id, secret });
     return;
   }
