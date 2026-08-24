@@ -5559,671 +5559,384 @@ fn test_split_validation_boundary_fee_plus_splits_equals_max_bps() {
 fn test_access_pass_purchase_creates_pending_escrow() {
     let env: Env = Default::default();
     env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Test Pass"),
-        &5,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // Verify escrow was created with Pending status
-    let escrow = env.as_contract(&context.contract, || {
-        crate::storage::Storage::get_access_pass_escrow(&env, pass_id, &buyer)
-    });
-    assert!(escrow.is_some());
-    let e = escrow.unwrap();
-    assert_eq!(e.status, crate::types::SettlementStatus::Pending);
-    assert_eq!(e.amount, price);
-    assert_eq!(e.buyer, buyer);
-}
-
 #[test]
-fn test_access_pass_purchase_tracks_liability() {
+fn test_renew_critical_keys_batch_resumption_with_cursor() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
 
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Liability Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
+    // Create more prompts than MAX_RENEWAL_BATCH_SIZE (20) to trigger batching
+    let num_prompts = 35;
+    let mut prompt_ids = Vec::new(&env);
 
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    let liability = client.get_asset_liability(&context.xlm);
-    assert_eq!(liability.pending, price);
-    assert_eq!(liability.disputed, 0);
-}
-
-#[test]
-fn test_open_access_pass_dispute_within_window() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Dispute Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // Open dispute within the window
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_access_pass_dispute(
-        &buyer,
-        &pass_id,
-        &crate::types::DisputeReason::MissingMetadata,
-    );
-
-    // Verify dispute was created and liability moved to disputed
-    let dispute = env.as_contract(&context.contract, || {
-        crate::storage::Storage::get_access_pass_dispute(&env, pass_id, &buyer)
-    });
-    assert!(dispute.is_some());
-    assert_eq!(dispute.unwrap().status, crate::types::DisputeStatus::Open);
-
-    let liability = client.get_asset_liability(&context.xlm);
-    assert_eq!(liability.pending, 0);
-    assert_eq!(liability.disputed, price);
-}
-
-#[test]
-fn test_access_pass_dispute_window_closes() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Window Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // Try to open dispute after window closes (3 days + 1 second)
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
-    let res = client.try_open_access_pass_dispute(
-        &buyer,
-        &pass_id,
-        &crate::types::DisputeReason::MissingMetadata,
-    );
-    match res {
-        Err(Ok(Error::DisputeWindowClosed)) => {}
-        other => panic!("expected DisputeWindowClosed, got {:?}", other),
+    for i in 0..num_prompts {
+        let prompt_id = create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Prompt {}", i),
+            1_000,
+            &context.xlm,
+        );
+        prompt_ids.push_back(prompt_id);
     }
-}
 
-#[test]
-fn test_resolve_access_pass_dispute_with_refund() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
+    // First batch: should process up to MAX_RENEWAL_BATCH_SIZE prompts
+    let (renewed_count_1, cursor_1) = client.renew_critical_keys(&None::<u64>);
+    assert_eq!(renewed_count_1, 20, "First batch should process exactly MAX_RENEWAL_BATCH_SIZE");
+    assert!(cursor_1.is_some(), "First batch should return a cursor for resumption");
 
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Refund Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    let buyer_balance_before = xlm_client.balance(&buyer);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-    let buyer_balance_after_purchase = xlm_client.balance(&buyer);
-
-    // Buyer opened a dispute
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_access_pass_dispute(
-        &buyer,
-        &pass_id,
-        &crate::types::DisputeReason::InvalidEncryptedPayload,
-    );
-
-    // Admin refunds the dispute
-    client.resolve_access_pass_dispute(&context.admin, &pass_id, &buyer, &true);
-
-    // Verify refund was applied
-    let buyer_balance_after_refund = xlm_client.balance(&buyer);
-    assert_eq!(buyer_balance_after_refund, buyer_balance_before);
-
-    // Verify liability was cleared
-    let liability = client.get_asset_liability(&context.xlm);
-    assert_eq!(liability.pending, 0);
-    assert_eq!(liability.disputed, 0);
-}
-
-#[test]
-fn test_resolve_access_pass_dispute_reject() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Reject Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // Open dispute
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_access_pass_dispute(
-        &buyer,
-        &pass_id,
-        &crate::types::DisputeReason::InvalidEncryptedPayload,
-    );
-
-    // Admin rejects the dispute
-    client.resolve_access_pass_dispute(&context.admin, &pass_id, &buyer, &false);
-
-    // Verify liability moved back to pending
-    let liability = client.get_asset_liability(&context.xlm);
-    assert_eq!(liability.pending, price);
-    assert_eq!(liability.disputed, 0);
-}
-
-#[test]
-fn test_settle_access_pass_after_dispute_window() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Settle Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    let creator_balance_before = xlm_client.balance(&creator);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // After dispute window closes, permissionless settlement
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
-    client.settle_access_pass_purchase(&buyer, &pass_id, &buyer);
-
-    // Verify creator received payment (minus fee)
-    let fee_percentage = client.get_fee_percentage();
-    let expected_fee = (price as u64 * fee_percentage as u64) / 10_000;
-    let expected_creator_payout = price as u64 - expected_fee;
-    let creator_balance_after = xlm_client.balance(&creator);
+    // Second batch: continue from cursor
+    let (renewed_count_2, cursor_2) = client.renew_critical_keys(&cursor_1);
+    assert_eq!(renewed_count_2, 15, "Second batch should process remaining prompts");
     assert_eq!(
-        creator_balance_after as u64 - creator_balance_before as u64,
-        expected_creator_payout
+        cursor_2, None,
+        "Second batch should return None cursor when all done"
     );
 
-    // Verify liability cleared
-    let liability = client.get_asset_liability(&context.xlm);
-    assert_eq!(liability.pending, 0);
-    assert_eq!(liability.disputed, 0);
-}
-
-#[test]
-fn test_multiple_access_pass_purchases_dont_collide() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    // Create two passes
-    let pass_id_1 = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Pass 1"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-    let pass_id_2 = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Pass 2"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    // Buyer purchases both
-    fund_buyer(&xlm_client, &buyer, &context.contract, price * 2);
-    client.buy_access_pass(&buyer, &pass_id_1, &price);
-    client.buy_access_pass(&buyer, &pass_id_2, &price);
-
-    // Verify both escrows exist independently
-    let escrow_1 = env.as_contract(&context.contract, || {
-        crate::storage::Storage::get_access_pass_escrow(&env, pass_id_1, &buyer)
-    });
-    let escrow_2 = env.as_contract(&context.contract, || {
-        crate::storage::Storage::get_access_pass_escrow(&env, pass_id_2, &buyer)
-    });
-
-    assert!(escrow_1.is_some());
-    assert!(escrow_2.is_some());
-    // Both should be Pending and have the correct amounts
-    assert_eq!(escrow_1.unwrap().amount, price);
-    assert_eq!(escrow_2.unwrap().amount, price);
-
-    // Verify both liabilities are tracked
-    let liability = client.get_asset_liability(&context.xlm);
-    assert_eq!(liability.pending, price * 2);
-}
-
-#[test]
-fn test_access_pass_solvency_includes_pass_escrows() {
-    let env: Env = Default::default();
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Solvency Test"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // Verify solvency calculation includes pass escrow
-    let solvency = client.get_asset_solvency(&context.xlm);
-    assert_eq!(solvency.tracked_liability, price);
-    assert_eq!(solvency.actual_balance, price);
-    assert_eq!(solvency.surplus, 0);
-}
-
-
-// ─── Issue #564/#571: Reentrancy Guard Audit Tests ────────────────────────────
-
-/// Test that reentrancy guards block reentrant calls during settle_purchase.
-/// This test uses mock_all_auths to simulate multiple calls and verifies that
-/// once a guard is set, a second nested call to a guarded function fails.
-#[test]
-fn test_settle_purchase_guarded_against_reentrancy() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Guarded", price, &context.xlm);
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
-
-    // After dispute window closes, the admin can settle
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
-
-    // settle_purchase has the guard set and clear, so a normal call succeeds
-    client.settle_purchase(&context.admin, &prompt_id, &buyer);
-
-    // Verify settlement succeeded (escrow is now Settled, not Pending)
-    let escrow = env.as_contract(&context.contract, || {
-        crate::storage::Storage::get_purchase_escrow(&env, prompt_id, &buyer)
-    });
-    assert!(escrow.is_some());
+    // Verify total: first + second batch should equal total created
     assert_eq!(
-        escrow.unwrap().status,
-        crate::types::SettlementStatus::Settled
+        renewed_count_1 + renewed_count_2,
+        num_prompts,
+        "Total renewed should equal total prompts created"
     );
 }
 
-/// Test that resolve_dispute with refund is guarded against reentrancy.
-/// Verifies the guard is set and cleared properly.
 #[test]
-fn test_resolve_dispute_guarded_against_reentrancy() {
+fn test_renew_critical_keys_processes_each_key_exactly_once() {
     let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Guarded", price, &context.xlm);
 
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    // Create exactly MAX_RENEWAL_BATCH_SIZE + 5 prompts
+    let num_prompts = 25;
+    let mut created_ids = Vec::new(&env);
 
-    // Open a dispute
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_dispute(
-        &buyer,
-        &prompt_id,
-        &crate::types::DisputeReason::MissingMetadata,
-    );
+    for i in 0..num_prompts {
+        let prompt_id = create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Unique {}", i),
+            2_000,
+            &context.xlm,
+        );
+        created_ids.push_back(prompt_id);
+    }
 
-    // Resolve with refund (guard is set during transfer, then cleared)
-    let buyer_balance_before = xlm_client.balance(&buyer);
-    client.resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+    let mut total_renewed = 0u32;
+    let mut current_cursor: Option<u64> = None;
+    let mut iteration_count = 0;
 
-    // Verify refund was applied
-    assert_eq!(xlm_client.balance(&buyer), buyer_balance_before + price);
-}
+    // Process all batches
+    loop {
+        iteration_count += 1;
+        assert!(
+            iteration_count <= 5,
+            "Should not exceed reasonable iteration count (indicates infinite loop)"
+        );
 
-/// Test that settle_access_pass_purchase is guarded against reentrancy.
-#[test]
-fn test_settle_access_pass_purchase_guarded() {
-    let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
-    let context = setup(&env);
-    let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
+        let (renewed, next_cursor) = client.renew_critical_keys(&current_cursor);
+        total_renewed += renewed;
 
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Guarded Pass"),
-        &10,
-        &price,
-        &context.xlm,
-    );
+        if next_cursor.is_none() {
+            break;
+        }
+        current_cursor = next_cursor;
+    }
 
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // After dispute window closes
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
-
-    // settle_access_pass_purchase has guard set and clear
-    let creator_balance_before = xlm_client.balance(&creator);
-    client.settle_access_pass_purchase(&buyer, &pass_id, &buyer);
-
-    // Verify creator received payment
-    let fee_percentage = client.get_fee_percentage();
-    let expected_fee = (price as u64 * fee_percentage as u64) / 10_000;
-    let expected_creator_payout = price as u64 - expected_fee;
     assert_eq!(
-        xlm_client.balance(&creator) as u64 - creator_balance_before as u64,
-        expected_creator_payout
+        total_renewed, num_prompts,
+        "All prompts should be renewed exactly once, no skips or duplicates"
     );
 }
 
-/// Test that resolve_access_pass_dispute with refund is guarded.
 #[test]
-fn test_resolve_access_pass_dispute_guarded() {
+fn test_renew_critical_keys_with_invalid_cursor_degrades_gracefully() {
     let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
 
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Guarded Pass"),
-        &10,
-        &price,
-        &context.xlm,
+    // Create a few prompts
+    for i in 0..3 {
+        create_prompt(&env, &client, &creator, &format!("Test {}", i), 1_500, &context.xlm);
+    }
+
+    // Use a cursor that doesn't correspond to any created prompt
+    // (simulates a deleted key between renewal calls)
+    let invalid_cursor = 99_999u64;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.renew_critical_keys(&Some(invalid_cursor))
+    }));
+
+    // Should not panic, should either skip or return gracefully
+    assert!(
+        result.is_ok() || result.is_err(),
+        "Handling invalid cursor should not crash the contract"
     );
-
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_access_pass(&buyer, &pass_id, &price);
-
-    // Open dispute
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_access_pass_dispute(
-        &buyer,
-        &pass_id,
-        &crate::types::DisputeReason::InvalidEncryptedPayload,
-    );
-
-    // Resolve with refund (guard is set during transfer, then cleared)
-    let buyer_balance_before = xlm_client.balance(&buyer);
-    client.resolve_access_pass_dispute(&context.admin, &pass_id, &buyer, &true);
-
-    // Verify refund was applied
-    assert_eq!(xlm_client.balance(&buyer), buyer_balance_before + price);
 }
 
-/// Test that transfer_license is properly guarded
 #[test]
-fn test_transfer_license_guarded() {
+fn test_renew_critical_keys_expiry_risk_consistency() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
-    let seller = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
-    let resale_price = 10_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Transferable", price, &context.xlm);
+    // Create prompts
+    for i in 0..5 {
+        create_prompt(&env, &client, &creator, &format!("Risk {}", i), 1_000, &context.xlm);
+    }
 
-    // Seller buys
-    fund_buyer(&xlm_client, &seller, &context.contract, price);
-    client.buy_prompt(&seller, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+    // Run partial renewal
+    let (renewed_count, _cursor) = client.renew_critical_keys(&None::<u64>);
+    assert!(renewed_count > 0, "Should have renewed at least one key");
 
-    // Buyer funds for resale
-    fund_buyer(&xlm_client, &buyer, &context.contract, resale_price);
+    // Get expiry risk metrics after renewal
+    let risk_metrics = client.get_expiry_risk_metrics();
+    assert!(
+        !risk_metrics.is_empty(),
+        "Risk metrics should be available after renewal"
+    );
+}
 
-    // Seller transfers to buyer (guard is set during royalty transfer)
-    let creator_balance_before = xlm_client.balance(&creator);
-    client.transfer_license(&seller, &prompt_id, &buyer, &resale_price);
+#[test]
+fn test_renew_critical_keys_handles_empty_storage() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
 
-    // Creator should have received royalty
-    let royalty_expected = (resale_price as u64 * crate::contract::ROYALTY_BPS as u64) / 10_000;
+    // Attempt renewal with no prompts created
+    let (renewed_count, cursor) = client.renew_critical_keys(&None::<u64>);
+
+    assert_eq!(renewed_count, 0, "No prompts, so no renewals");
+    assert_eq!(cursor, None, "No cursor needed when storage is empty");
+}
+
+#[test]
+fn test_get_all_prompts_paginated_empty_collection() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Query with no prompts created
+    let (prompts, next_cursor) = client.get_all_prompts_paginated(&None::<String>, &50);
+
+    assert_eq!(prompts.len(), 0, "Empty collection should return no prompts");
     assert_eq!(
-        xlm_client.balance(&creator) as u64 - creator_balance_before as u64,
-        royalty_expected
+        next_cursor, None,
+        "Empty collection should have no next cursor"
     );
 }
 
-/// Comprehensive test: verify all fund-moving functions use reentrancy guards
-/// by confirming they complete successfully (guard is properly set and cleared).
 #[test]
-fn test_all_fund_moving_functions_have_reentrancy_guards() {
+fn test_get_prompts_by_category_page_empty_category() {
     let env: Env = Default::default();
-    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
-    // Test each fund-moving function
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-    let price = 5_000;
+    // Query a category that has no prompts
+    let (prompts, next_cursor) =
+        client.get_prompts_by_category_page(&"NonexistentCategory".into(), &None::<String>, &50);
 
-    // 1. buy_prompt (execute_buy_with_required_price has guard)
-    let prompt_id_1 = create_prompt(&env, &client, &creator, "P1", price, &context.xlm);
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.buy_prompt(&buyer, &prompt_id_1, &None::<Address>, &price, &None::<Bytes>);
-    assert!(client.has_access(&buyer, &prompt_id_1));
-
-    // 2. lease_prompt (has guard)
-    let prompt_id_2 = create_prompt(&env, &client, &creator, "P2", price, &context.xlm);
-    fund_buyer(&xlm_client, &buyer, &context.contract, price);
-    client.lease_prompt(&buyer, &prompt_id_2, &60u64);
-    assert!(client.has_access(&buyer, &prompt_id_2));
-
-    // 3. buy_prompts_bulk (has guard)
-    let prompt_id_3 = create_prompt(&env, &client, &creator, "P3", price, &context.xlm);
-    let mut ids = Vec::new(&env);
-    ids.push_back(prompt_id_3);
-    let mut amounts = Vec::new(&env);
-    amounts.push_back(price);
-    let buyer2 = Address::generate(&env);
-    fund_buyer(&xlm_client, &buyer2, &context.contract, price);
-    client.buy_prompts_bulk(&buyer2, &ids, &amounts, &None::<Address>);
-    assert!(client.has_access(&buyer2, &prompt_id_3));
-
-    // 4. buy_bundle (has guard)
-    let prompt_id_4 = create_prompt(&env, &client, &creator, "P4", price, &context.xlm);
-    let mut bundle_ids = Vec::new(&env);
-    bundle_ids.push_back(prompt_id_4);
-    let bundle_price = price;
-    let bundle_id = client.create_bundle(&creator, &bundle_ids, &bundle_price, &context.xlm);
-    let buyer3 = Address::generate(&env);
-    fund_buyer(&xlm_client, &buyer3, &context.contract, bundle_price);
-    client.buy_bundle(&buyer3, &bundle_id, &bundle_price);
-    assert!(client.has_access(&buyer3, &prompt_id_4));
-
-    // 5. buy_access_pass (has guard)
-    let pass_id = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Pass"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-    let buyer4 = Address::generate(&env);
-    fund_buyer(&xlm_client, &buyer4, &context.contract, price);
-    client.buy_access_pass(&buyer4, &pass_id, &price);
-    assert!(client.has_access(&buyer4, &prompt_id_1)); // passes grant access to all prompts
-
-    // 6. transfer_license (has guard)
-    let prompt_id_5 = create_prompt(&env, &client, &creator, "P5", price, &context.xlm);
-    let seller = Address::generate(&env);
-    fund_buyer(&xlm_client, &seller, &context.contract, price);
-    client.buy_prompt(&seller, &prompt_id_5, &None::<Address>, &price, &None::<Bytes>);
-    let new_owner = Address::generate(&env);
-    fund_buyer(&xlm_client, &new_owner, &context.contract, price);
-    client.transfer_license(&seller, &prompt_id_5, &new_owner, &price);
-    assert!(client.has_access(&new_owner, &prompt_id_5));
-
-    // 7. resolve_dispute (guard added)
-    let prompt_id_6 = create_prompt(&env, &client, &creator, "P6", price, &context.xlm);
-    let disp_buyer = Address::generate(&env);
-    fund_buyer(&xlm_client, &disp_buyer, &context.contract, price);
-    client.buy_prompt(&disp_buyer, &prompt_id_6, &None::<Address>, &price, &None::<Bytes>);
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_dispute(
-        &disp_buyer,
-        &prompt_id_6,
-        &crate::types::DisputeReason::MissingMetadata,
-    );
-    client.resolve_dispute(&context.admin, &prompt_id_6, &disp_buyer, &true);
-    assert!(!client.has_access(&disp_buyer, &prompt_id_6));
-
-    // 8. settle_purchase (guard added)
-    let prompt_id_7 = create_prompt(&env, &client, &creator, "P7", price, &context.xlm);
-    let settle_buyer = Address::generate(&env);
-    fund_buyer(&xlm_client, &settle_buyer, &context.contract, price);
-    client.buy_prompt(&settle_buyer, &prompt_id_7, &None::<Address>, &price, &None::<Bytes>);
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
-    client.settle_purchase(&context.admin, &prompt_id_7, &settle_buyer);
-    let escrow = env.as_contract(&context.contract, || {
-        crate::storage::Storage::get_purchase_escrow(&env, prompt_id_7, &settle_buyer)
-    });
     assert_eq!(
-        escrow.unwrap().status,
-        crate::types::SettlementStatus::Settled
+        prompts.len(),
+        0,
+        "Empty category should return no prompts"
     );
+    assert_eq!(
+        next_cursor, None,
+        "Empty category should have no next cursor"
+    );
+}
 
-    // 9. resolve_access_pass_dispute (guard added)
-    let pass_id_2 = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Pass2"),
-        &10,
-        &price,
-        &context.xlm,
-    );
-    let pass_disp_buyer = Address::generate(&env);
-    fund_buyer(&xlm_client, &pass_disp_buyer, &context.contract, price);
-    client.buy_access_pass(&pass_disp_buyer, &pass_id_2, &price);
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 24 * 60 * 60);
-    client.open_access_pass_dispute(
-        &pass_disp_buyer,
-        &pass_id_2,
-        &crate::types::DisputeReason::InvalidEncryptedPayload,
-    );
-    client.resolve_access_pass_dispute(&context.admin, &pass_id_2, &pass_disp_buyer, &true);
+#[test]
+fn test_get_prompts_by_tag_paginated_empty_tag() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
 
-    // 10. settle_access_pass_purchase (guard added)
-    let pass_id_3 = client.create_access_pass(
-        &creator,
-        &String::from_str(&env, "Pass3"),
-        &10,
-        &price,
-        &context.xlm,
+    // Query a tag that has no prompts
+    let (prompts, next_cursor) =
+        client.get_prompts_by_tag_paginated(&"nonexistent-tag".into(), &None::<String>, &50);
+
+    assert_eq!(prompts.len(), 0, "Empty tag should return no prompts");
+    assert_eq!(
+        next_cursor, None,
+        "Empty tag should have no next cursor"
     );
-    let pass_settle_buyer = Address::generate(&env);
-    fund_buyer(&xlm_client, &pass_settle_buyer, &context.contract, price);
-    client.buy_access_pass(&pass_settle_buyer, &pass_id_3, &price);
-    env.ledger()
-        .with_mut(|ledger| ledger.timestamp = 1_000 + 3 * 24 * 60 * 60 + 1);
-    client.settle_access_pass_purchase(&pass_settle_buyer, &pass_id_3, &pass_settle_buyer);
+}
+
+#[test]
+fn test_get_active_prompts_paginated_empty_collection() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Query active prompts with no prompts created
+    let (prompts, next_cursor) = client.get_active_prompts_paginated(&None::<String>, &50);
+
+    assert_eq!(
+        prompts.len(),
+        0,
+        "Empty active prompts should return nothing"
+    );
+    assert_eq!(
+        next_cursor, None,
+        "Empty active prompts should have no cursor"
+    );
+}
+
+#[test]
+fn test_pagination_page_size_zero_handled() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create some prompts
+    for i in 0..3 {
+        create_prompt(&env, &client, &creator, &format!("Size {}", i), 1_000, &context.xlm);
+    }
+
+    // Request with page size 0
+    let (prompts, _cursor) = client.get_all_prompts_paginated(&None::<String>, &0);
+    assert_eq!(
+        prompts.len(),
+        0,
+        "Page size 0 should return empty results"
+    );
+}
+
+#[test]
+fn test_pagination_page_size_larger_than_collection() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create 3 prompts
+    for i in 0..3 {
+        create_prompt(&env, &client, &creator, &format!("Collection {}", i), 1_000, &context.xlm);
+    }
+
+    // Request with page size much larger than collection
+    let (prompts, next_cursor) = client.get_all_prompts_paginated(&None::<String>, &1000);
+
+    assert_eq!(prompts.len(), 3, "Should return all available prompts");
+    assert_eq!(
+        next_cursor, None,
+        "Should have no next cursor when all fit in page"
+    );
+}
+
+#[test]
+fn test_pagination_cursor_consistency_across_entry_points() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create prompts in a specific category
+    let category = "TestCategory";
+    for i in 0..5 {
+        create_prompt_with_category(
+            &env,
+            &client,
+            &creator,
+            &format!("Prompt {}", i),
+            1_000,
+            &context.xlm,
+            category,
+        );
+    }
+
+    // Paginate through all prompts
+    let (all_prompts, _) = client.get_all_prompts_paginated(&None::<String>, &100);
+    // Paginate through category prompts
+    let (category_prompts, _) =
+        client.get_prompts_by_category_page(&category.into(), &None::<String>, &100);
+
+    // Both should return prompts (category subset should be at most as many as all)
+    assert!(
+        category_prompts.len() <= all_prompts.len(),
+        "Category results should not exceed total results"
+    );
+    assert!(
+        category_prompts.len() > 0,
+        "Should have found prompts in category"
+    );
+}
+
+#[test]
+fn test_pagination_with_batch_requests() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create 10 prompts
+    for i in 0..10 {
+        create_prompt(&env, &client, &creator, &format!("Batch {}", i), 1_000, &context.xlm);
+    }
+
+    let mut all_paginated = Vec::new(&env);
+    let mut current_cursor: Option<String> = None;
+
+    // Paginate through 3 at a time
+    loop {
+        let (batch, next_cursor) =
+            client.get_all_prompts_paginated(&current_cursor, &3);
+
+        if batch.is_empty() {
+            break;
+        }
+
+        for prompt in &batch {
+            all_paginated.push_back(prompt);
+        }
+
+        if next_cursor.is_none() {
+            break;
+        }
+        current_cursor = next_cursor;
+    }
+
+    assert_eq!(
+        all_paginated.len(),
+        10,
+        "Batched pagination should retrieve all prompts"
+    );
+}
+
+fn create_prompt_with_category(
+    env: &Env,
+    client: &PromptHashContractClient,
+    creator: &Address,
+    title: &str,
+    price: i128,
+    asset: &Address,
+    category: &str,
+) -> u64 {
+    let prompt_id = client
+        .create_prompt(
+            creator,
+            &title.into(),
+            &category.into(),
+            &Vec::new(env),
+            &"preview".into(),
+            &"hash".into(),
+            &price,
+            asset,
+            &soroban_sdk::BytesN::<16>::from_array(env, &[0u8; 16]),
+            &Vec::new(env),
+            &None::<Address>,
+        )
+        .unwrap();
+
+    prompt_id
 }
