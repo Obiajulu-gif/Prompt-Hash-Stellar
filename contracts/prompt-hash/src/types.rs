@@ -169,6 +169,11 @@ pub enum DataKey {
     AccessPassCounter,
     CreatorAccessPasses(Address),
     CatalogPass(Address, Address),
+    /// Access pass escrow for dispute/refund tracking, keyed by (pass_id, buyer)
+    /// to avoid collisions between multiple passes for the same buyer (#564).
+    AccessPassEscrow(u128, Address),
+    /// Access pass dispute record, keyed by (pass_id, buyer).
+    AccessPassPurchaseDispute(u128, Address),
 
     /// Nonce consumed for a signed quote commitment (#565).
     /// Key: (buyer, nonce) — scoped to the buyer so nonces need no global store.
@@ -736,6 +741,16 @@ pub trait PromptHashTrait {
         referrer: Option<Address>,
     ) -> Result<(), Error>;
 
+    /// Dry-run validation for bulk purchases without state mutation.
+    /// Returns per-item validity status so frontend can filter invalid IDs before submitting.
+    /// Does not require auth (read-only check).
+    fn validate_bulk_purchase(
+        env: Env,
+        buyer: Address,
+        prompt_ids: Vec<u64>,
+        payment_amounts: Vec<i128>,
+    ) -> Result<Vec<bool>, Error>;
+
     fn create_bundle(
         env: Env,
         creator: Address,
@@ -891,6 +906,28 @@ pub trait PromptHashTrait {
         buyer: Address,
     ) -> Result<(), Error>;
     fn get_purchase_escrow(env: Env, prompt_id: u64, buyer: Address) -> Option<PurchaseEscrow>;
+    /// Open a dispute against an access pass purchase (#564).
+    fn open_access_pass_dispute(
+        env: Env,
+        buyer: Address,
+        pass_id: u128,
+        reason: DisputeReason,
+    ) -> Result<(), Error>;
+    /// Resolve (approve refund or reject) an access pass dispute (#564).
+    fn resolve_access_pass_dispute(
+        env: Env,
+        admin: Address,
+        pass_id: u128,
+        buyer: Address,
+        refund: bool,
+    ) -> Result<(), Error>;
+    /// Settle (release funds from) a pending access pass purchase escrow (#564).
+    fn settle_access_pass_purchase(
+        env: Env,
+        caller: Address,
+        pass_id: u128,
+        buyer: Address,
+    ) -> Result<(), Error>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;

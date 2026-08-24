@@ -6,10 +6,14 @@ import PriceChange from "../models/PriceChange";
 import Report from "../models/Report";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { validateListingMetadata } from "../services/listingValidation";
 import {
-  validateListingMetadata,
-} from "../services/listingValidation";
-import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CACHE_KEYS } from "../services/cacheService";
+  cacheGet,
+  cacheSet,
+  cacheDel,
+  cacheDelPattern,
+  CACHE_KEYS,
+} from "../services/cacheService";
 import { sendConditionalJson, markPrivate } from "../middleware/etag";
 import { notifyPromptReported } from "../services/emailNotifications";
 import { announceNewPrompt } from "../services/discordNotifications";
@@ -77,7 +81,8 @@ export const GetPrompts = async (
 
     // Fallback to URL parsing if not in req.query
     if (!category && !walletAddress && req.url.includes("?")) {
-      const searchParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      const searchParams = new URL(req.url, `http://${req.headers.host}`)
+        .searchParams;
       category = searchParams.get("category") || "";
       walletAddress = searchParams.get("walletAddress") || "";
     }
@@ -87,11 +92,13 @@ export const GetPrompts = async (
     const cursor = req.query.cursor as string;
 
     // Build a deterministic cache key from the query params
-    const cacheKey = CACHE_KEYS.promptList(`cat=${category ?? ""}&wallet=${walletAddress ?? ""}`);
+    const cacheKey = CACHE_KEYS.promptList(
+      `cat=${category ?? ""}&wallet=${walletAddress ?? ""}`,
+    );
     const cached = await cacheGet(cacheKey);
     if (cached) return sendConditionalJson(req, res, JSON.parse(cached));
 
-    const query: any = { listingStatus: 'published', isActive: true };
+    const query: any = { listingStatus: "published", isActive: true };
 
     if (category) {
       query.category = category;
@@ -130,8 +137,8 @@ export const GetPrompts = async (
       data: prompts,
       metadata: {
         hasNextPage,
-        nextCursor
-      }
+        nextCursor,
+      },
     });
   } catch (error) {
     console.error("Fetch prompts error:", error);
@@ -150,7 +157,7 @@ export const GetOwnedPrompts = async (
     await connectDb();
 
     const { walletAddress } = req.params;
-    
+
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
     }
@@ -184,8 +191,8 @@ export const GetOwnedPrompts = async (
       data: purchases,
       metadata: {
         hasNextPage,
-        nextCursor
-      }
+        nextCursor,
+      },
     });
   } catch (error) {
     console.error("Fetch owned prompts error:", error);
@@ -257,7 +264,8 @@ export const GetUsers = async (
 
     let walletAddress = req.query.walletAddress as string;
     if (!walletAddress && req.url.includes("?")) {
-      const searchParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      const searchParams = new URL(req.url, `http://${req.headers.host}`)
+        .searchParams;
       walletAddress = searchParams.get("walletAddress") || "";
     }
 
@@ -273,7 +281,7 @@ export const GetUsers = async (
       }
       return res.json({
         data: [user],
-        metadata: { hasNextPage: false, nextCursor: null }
+        metadata: { hasNextPage: false, nextCursor: null },
       });
     } else {
       const limitParam = req.query.limit || req.query.pageSize;
@@ -302,8 +310,8 @@ export const GetUsers = async (
         data: users,
         metadata: {
           hasNextPage,
-          nextCursor
-        }
+          nextCursor,
+        },
       });
     }
   } catch (error) {
@@ -335,7 +343,7 @@ export const TestPromptProxy = async (
       model: openai("gpt-4-turbo"), // Can be swapped based on creator preference
       messages: [
         { role: "system", content: systemMessage },
-        { role: "user", content: userInput }
+        { role: "user", content: userInput },
       ],
     });
 
@@ -348,7 +356,6 @@ export const TestPromptProxy = async (
     });
   }
 };
-
 
 /* REPORT CONTROLLERS */
 
@@ -369,7 +376,14 @@ export const SubmitPromptReport = async (
     }
 
     // Validate reason
-    const validReasons = ["quality-issue", "misleading-content", "plagiarism", "harmful-content", "copyright", "other"];
+    const validReasons = [
+      "quality-issue",
+      "misleading-content",
+      "plagiarism",
+      "harmful-content",
+      "copyright",
+      "other",
+    ];
     if (!validReasons.includes(reason)) {
       return res.status(400).json({
         error: "Invalid reason provided",
@@ -426,15 +440,15 @@ export const GetPromptReports = async (
     // (#542) — this handler only runs once that has already succeeded.
     await connectDb();
 
-    const promptId = typeof req.query.promptId === "string" ? req.query.promptId : undefined;
+    const promptId =
+      typeof req.query.promptId === "string" ? req.query.promptId : undefined;
 
     const query: any = {};
     if (promptId) {
       query.promptId = promptId;
     }
 
-    const reports = await Report.find(query)
-      .sort({ createdAt: -1 });
+    const reports = await Report.find(query).sort({ createdAt: -1 });
 
     return res.json(reports);
   } catch (err) {
@@ -703,6 +717,63 @@ export const GetPriceHistory = async (
     console.error("Fetch price history error:", error);
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch price history",
+    });
+  }
+};
+
+/**
+ * Find prompts by content hash.
+ * Used for duplicate detection before listing (anti-plagiarism).
+ * Returns matching prompts without exposing plaintext content.
+ */
+export const GetPromptsByContentHash = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+    const { contentHash } = req.params;
+
+    if (!contentHash) {
+      return res.status(400).json({ error: "contentHash is required." });
+    }
+
+    // Validate hash format (should be hex string, typically 32 or 64 chars)
+    if (!/^[a-f0-9]{32,128}$/i.test(contentHash)) {
+      return res.status(400).json({ error: "Invalid content hash format." });
+    }
+
+    // Query for prompts with matching content hash
+    const matches = await Prompt.find({
+      contentHash: contentHash,
+      listingStatus: "published",
+      isActive: true,
+    }).select("_id onChainId title creator owner salesCount isActive");
+
+    // Hydrate owner wallet addresses
+    const enriched = await Promise.all(
+      matches.map(async (prompt) => {
+        const user = await User.findById(prompt.owner).select("walletAddress");
+        return {
+          id: prompt.onChainId,
+          title: prompt.title,
+          creator: user?.walletAddress || "unknown",
+          salesCount: prompt.salesCount,
+          isActive: prompt.isActive,
+        };
+      }),
+    );
+
+    return res.json({
+      found: enriched.length > 0,
+      matches: enriched,
+      count: enriched.length,
+    });
+  } catch (error) {
+    console.error("Get prompts by content hash error:", error);
+    return res.status(500).json({
+      error:
+        (error as Error).message || "Failed to find prompts by content hash",
     });
   }
 };

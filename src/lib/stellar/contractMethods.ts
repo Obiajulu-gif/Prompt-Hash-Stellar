@@ -538,7 +538,9 @@ export function decodePromptRecord(
     imageUrl: data.image_url || "",
     salesCount: data.sales_count || 0,
     active: data.active || false,
-    contentHash: data.content_hash ? normalizeContentHash(data.content_hash) : "",
+    contentHash: data.content_hash
+      ? normalizeContentHash(data.content_hash)
+      : "",
   };
 }
 
@@ -571,4 +573,50 @@ function decodeAccessPassRecord(
     active: data.active || false,
     salesCount: data.sales_count || 0,
   };
+}
+
+/**
+ * Dry-run validation for bulk purchases without state mutation.
+ * Returns per-item validity status so frontend can filter invalid IDs before submitting.
+ * No auth required (read-only check).
+ *
+ * Issue #438: Per-item error surfacing for bulk purchases.
+ */
+export async function contractValidateBulkPurchase(
+  config: PromptHashConfig,
+  buyerAddress: string,
+  promptIds: bigint[],
+  paymentAmounts: bigint[],
+): Promise<boolean[]> {
+  try {
+    const idsVec = nativeToScVal(promptIds, {
+      type: "vec",
+      innerType: { type: "u64" },
+    });
+    const amountsVec = nativeToScVal(paymentAmounts, {
+      type: "vec",
+      innerType: { type: "i128" },
+    });
+
+    const args: xdr.ScVal[] = [
+      scValArg(new Address(buyerAddress).toScVal()),
+      scValArg(idsVec),
+      scValArg(amountsVec),
+    ];
+
+    const result = await readContract(
+      config as StellarNetworkConfig,
+      config.promptHashContractId,
+      "validate_bulk_purchase",
+      args,
+    );
+
+    // Result is a vec<bool> from the contract
+    const validity = scValToNative(result) as boolean[];
+    return validity;
+  } catch (error) {
+    console.error("Error validating bulk purchase:", error);
+    // Return all false on error (conservative fallback)
+    return promptIds.map(() => false);
+  }
 }
