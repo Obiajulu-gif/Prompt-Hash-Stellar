@@ -27,6 +27,7 @@ import type {
   BundleRecord,
   AccessPassRecord,
 } from "./promptHashClient";
+import { normalizeContentHash } from "../crypto/promptCrypto";
 
 // ============================================================================
 // READ METHODS
@@ -521,7 +522,7 @@ export async function contractAdminSetPromptSaleStatus(
 // DECODERS
 // ============================================================================
 
-function decodePromptRecord(
+export function decodePromptRecord(
   data: Record<string, any>,
   id: bigint,
 ): PromptRecord {
@@ -537,7 +538,7 @@ function decodePromptRecord(
     imageUrl: data.image_url || "",
     salesCount: data.sales_count || 0,
     active: data.active || false,
-    contentHash: data.content_hash || "",
+    contentHash: data.content_hash ? normalizeContentHash(data.content_hash) : "",
   };
 }
 
