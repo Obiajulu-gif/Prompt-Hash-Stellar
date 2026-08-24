@@ -45,6 +45,8 @@ pub enum Error {
     DisputeAlreadyOpen = 35,
     DisputeNotFound = 36,
     DisputeResolved = 37,
+    // #593 – TTL dependency invariant
+    InvalidTtlPolicy = 38,
 }
 
 #[contracttype]
@@ -66,6 +68,17 @@ pub enum DataKey {
     /// Key: (prompt_id, revision_number_before_change)
     ListingRevision(u128, u32),
     PurchaseDispute(u128, Address),
+}
+
+/// Classification of a key's TTL relationship to other keys.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TtlDependency {
+    /// This key has no parent; its TTL is independent of any other key.
+    Independent,
+    /// This key depends on a parent key and must not outlive it.
+    /// The contained `DataKey` is the parent whose TTL is authoritative.
+    DependsOn(DataKey),
 }
 
 #[contracttype]

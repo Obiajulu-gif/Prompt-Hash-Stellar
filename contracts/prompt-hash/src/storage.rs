@@ -1,3 +1,4 @@
+use super::ttl_policy::{topologically_sort_keys, validate_ttl_dependency};
 use super::types::{DataKey, Error, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute};
 use soroban_sdk::{token, Address, BytesN, Env, Vec};
 
@@ -24,6 +25,31 @@ impl Storage {
                 PERSISTENT_BUMP_AMOUNT,
             );
         }
+    }
+
+    /// Validate the TTL dependency for `key` and, if the key exists, extend
+    /// its TTL. Returns `Err(Error::InvalidTtlPolicy)` when a dependent key
+    /// would outlive its parent (#593).
+    pub fn renew_key(env: &Env, key: &DataKey) -> Result<(), Error> {
+        validate_ttl_dependency(env, key)?;
+        Self::extend_key_ttl(env, key);
+        Ok(())
+    }
+
+    /// Batch-renew a list of critical storage keys.
+    ///
+    /// Keys are topologically sorted so that every parent key is renewed
+    /// before its children, guaranteeing the TTL dependency invariant:
+    /// "entitlements don't expire before supporting records."
+    ///
+    /// If any dependent key violates the invariant the entire batch reverts
+    /// with `Error::InvalidTtlPolicy`.
+    pub fn renew_critical_keys(env: &Env, keys: &Vec<DataKey>) -> Result<(), Error> {
+        let sorted = topologically_sort_keys(env, keys);
+        for i in 0..sorted.len() {
+            Self::renew_key(env, &sorted.get(i).unwrap())?;
+        }
+        Ok(())
     }
 
     pub fn save_prompt(env: &Env, prompt: &Prompt) -> Result<(), Error> {
