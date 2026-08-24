@@ -392,6 +392,66 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       break;
     }
 
+    case "DisputeOpened": {
+      const { prompt_id, buyer } = data;
+      const promptId = prompt_id.toString();
+      const buyerWallet = String(buyer).toLowerCase();
+
+      await Purchase.findOneAndUpdate(
+        { promptId, buyerWallet },
+        { $set: { status: "disputed" } },
+      );
+
+      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidatePromptCaches(promptId);
+
+      await notify(
+        buyerWallet,
+        "DisputeOpened",
+        {
+          promptId,
+          buyer: String(buyer),
+          txHash,
+        },
+        event.id,
+      );
+      break;
+    }
+
+    case "DisputeResolved": {
+      const { prompt_id, buyer, refunded } = data;
+      const promptId = prompt_id.toString();
+      const buyerWallet = String(buyer).toLowerCase();
+
+      const resolution = refunded ? "refunded" : "rejected";
+
+      await Purchase.findOneAndUpdate(
+        { promptId, buyerWallet },
+        {
+          $set: {
+            status: "resolved",
+            disputeResolution: resolution,
+          },
+        },
+      );
+
+      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidatePromptCaches(promptId);
+
+      await notify(
+        buyerWallet,
+        "DisputeResolved",
+        {
+          promptId,
+          buyer: String(buyer),
+          refunded,
+          txHash,
+        },
+        event.id,
+      );
+      break;
+    }
+
     default:
       console.log(`Unhandled event topic: ${topic}`);
       break;

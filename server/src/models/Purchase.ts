@@ -26,6 +26,16 @@ const purchaseSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    status: {
+      type: String,
+      enum: ["purchased", "disputed", "resolved"],
+      default: "purchased",
+      index: true,
+    },
+    disputeResolution: {
+      type: String,
+      enum: ["refunded", "rejected"],
+    },
   },
   { timestamps: true },
 );
