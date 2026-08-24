@@ -5060,3 +5060,259 @@ fn test_migrate_asset_liability_is_idempotent() {
     client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
     assert_eq!(client.get_asset_liability(&context.xlm).pending, price);
 }
+
+#[test]
+fn test_split_validation_sum_exactly_at_max_bps_minus_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let co_creator = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    splits.push_back(Split {
+        recipient: co_creator.clone(),
+        bps: 9_500,
+    });
+
+    let prompt_id = create_prompt_with_splits(
+        &env,
+        &client,
+        &creator,
+        "Max Split Prompt",
+        10_000_000,
+        &context.xlm,
+        splits,
+    );
+
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.splits.len(), 1);
+}
+
+#[test]
+fn test_split_validation_rejects_split_exceeding_max_bps() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let co_creator = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    splits.push_back(Split {
+        recipient: co_creator.clone(),
+        bps: 9_501,
+    });
+
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/image.png"),
+        &String::from_str(&env, "Bad Split"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "encrypted"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 1),
+        &ListingConfig {
+            price: 10_000_000,
+            asset: context.xlm.clone(),
+            expires_at: 0,
+            splits,
+            tags: Vec::new(&env),
+            max_supply: 0,
+        },
+    );
+
+    assert_eq!(result, Err(Ok(Error::InvalidSplits)));
+}
+
+#[test]
+fn test_split_validation_rejects_zero_bps_split() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let co_creator = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    splits.push_back(Split {
+        recipient: co_creator.clone(),
+        bps: 0,
+    });
+
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/image.png"),
+        &String::from_str(&env, "Zero BPS Split"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "encrypted"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 2),
+        &ListingConfig {
+            price: 10_000_000,
+            asset: context.xlm.clone(),
+            expires_at: 0,
+            splits,
+            tags: Vec::new(&env),
+            max_supply: 0,
+        },
+    );
+
+    assert_eq!(result, Err(Ok(Error::InvalidSplits)));
+}
+
+#[test]
+fn test_split_validation_rejects_duplicate_recipients() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let co_creator = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    splits.push_back(Split {
+        recipient: co_creator.clone(),
+        bps: 2_500,
+    });
+    splits.push_back(Split {
+        recipient: co_creator.clone(),
+        bps: 2_500,
+    });
+
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/image.png"),
+        &String::from_str(&env, "Duplicate Split"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "encrypted"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 3),
+        &ListingConfig {
+            price: 10_000_000,
+            asset: context.xlm.clone(),
+            expires_at: 0,
+            splits,
+            tags: Vec::new(&env),
+            max_supply: 0,
+        },
+    );
+
+    assert_eq!(result, Err(Ok(Error::DuplicateSplitRecipient)));
+}
+
+#[test]
+fn test_split_validation_rejects_too_many_splits() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    for i in 0..11 {
+        let recipient = Address::generate(&env);
+        splits.push_back(Split {
+            recipient,
+            bps: 500,
+        });
+    }
+
+    let result = client.try_create_prompt(
+        &creator,
+        &String::from_str(&env, "https://example.com/image.png"),
+        &String::from_str(&env, "Too Many Splits"),
+        &String::from_str(&env, "Software Development"),
+        &String::from_str(&env, "preview"),
+        &String::from_str(&env, "encrypted"),
+        &String::from_str(&env, "iv"),
+        &String::from_str(&env, "wrapped-key"),
+        &hash(&env, 4),
+        &ListingConfig {
+            price: 10_000_000,
+            asset: context.xlm.clone(),
+            expires_at: 0,
+            splits,
+            tags: Vec::new(&env),
+            max_supply: 0,
+        },
+    );
+
+    assert_eq!(result, Err(Ok(Error::TooManySplits)));
+}
+
+#[test]
+fn test_split_validation_multiple_splits_sum_within_limits() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let recipient_1 = Address::generate(&env);
+    let recipient_2 = Address::generate(&env);
+    let recipient_3 = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    splits.push_back(Split {
+        recipient: recipient_1.clone(),
+        bps: 2_000,
+    });
+    splits.push_back(Split {
+        recipient: recipient_2.clone(),
+        bps: 3_000,
+    });
+    splits.push_back(Split {
+        recipient: recipient_3.clone(),
+        bps: 4_000,
+    });
+
+    let prompt_id = create_prompt_with_splits(
+        &env,
+        &client,
+        &creator,
+        "Multiple Splits Prompt",
+        10_000_000,
+        &context.xlm,
+        splits,
+    );
+
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.splits.len(), 3);
+}
+
+#[test]
+fn test_split_validation_boundary_fee_plus_splits_equals_max_bps() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let co_creator = Address::generate(&env);
+
+    let mut splits = Vec::<Split>::new(&env);
+    splits.push_back(Split {
+        recipient: co_creator.clone(),
+        bps: 9_500,
+    });
+
+    let prompt_id = create_prompt_with_splits(
+        &env,
+        &client,
+        &creator,
+        "Fee Plus Splits Boundary",
+        10_000_000,
+        &context.xlm,
+        splits,
+    );
+
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.splits.len(), 1);
+    assert_eq!(prompt.splits.get(0).unwrap().bps, 9_500);
+}
