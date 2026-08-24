@@ -2871,6 +2871,242 @@ fn test_buy_prompts_bulk_rejects_duplicate_prompt_ids() {
     assert!(!client.has_access(&buyer, &prompt_a));
 }
 
+// ─── Issue #438: Dry-run validation and per-item error surfacing ──────────────
+
+#[test]
+fn test_validate_bulk_purchase_all_valid_returns_all_true() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt_a = create_prompt(&env, &client, &creator, "Valid A", price, &context.xlm);
+    let prompt_b = create_prompt(&env, &client, &creator, "Valid B", price, &context.xlm);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt_a);
+    ids.push_back(prompt_b);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+    amounts.push_back(price);
+
+    // No auth required, read-only check
+    let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
+
+    assert_eq!(validity.len(), 2);
+    assert!(validity.get(0).unwrap()); // prompt_a is valid
+    assert!(validity.get(1).unwrap()); // prompt_b is valid
+}
+
+#[test]
+fn test_validate_bulk_purchase_marks_invalid_items() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt_valid = create_prompt(&env, &client, &creator, "Valid", price, &context.xlm);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt_valid);
+    ids.push_back(999_999u64); // Does not exist
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+    amounts.push_back(price);
+
+    let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
+
+    assert_eq!(validity.len(), 2);
+    assert!(validity.get(0).unwrap());   // Valid prompt
+    assert!(!validity.get(1).unwrap());  // Non-existent prompt
+}
+
+#[test]
+fn test_validate_bulk_purchase_detects_insufficient_payment() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt = create_prompt(&env, &client, &creator, "Expensive", price, &context.xlm);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price - 1); // Under-pay by 1
+
+    let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
+
+    assert_eq!(validity.len(), 1);
+    assert!(!validity.get(0).unwrap()); // Insufficient payment
+}
+
+#[test]
+fn test_validate_bulk_purchase_detects_already_purchased() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt = create_prompt(&env, &client, &creator, "AlreadyOwned", price, &context.xlm);
+
+    // Buy once
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt, &price);
+
+    // Try to validate a second purchase of the same prompt
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+
+    let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
+
+    assert_eq!(validity.len(), 1);
+    assert!(!validity.get(0).unwrap()); // Already purchased
+}
+
+#[test]
+fn test_validate_bulk_purchase_detects_inactive_prompt() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt = create_prompt(&env, &client, &creator, "Soon Inactive", price, &context.xlm);
+
+    // Set it inactive
+    client.set_prompt_sale_status(&creator, &prompt, &false);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+
+    let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
+
+    assert_eq!(validity.len(), 1);
+    assert!(!validity.get(0).unwrap()); // Inactive
+}
+
+#[test]
+fn test_validate_bulk_purchase_no_auth_required() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt = create_prompt(&env, &client, &creator, "Public", price, &context.xlm);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+
+    // No auth required — this should not panic or error
+    let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
+    assert_eq!(validity.len(), 1);
+}
+
+#[test]
+fn test_atomicity_one_failure_mid_batch_reverts_prior_purchases() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 5_000;
+    let prompt_1 = create_prompt(&env, &client, &creator, "P1", price, &context.xlm);
+    let prompt_2 = create_prompt(&env, &client, &creator, "P2", price, &context.xlm);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(prompt_1);
+    ids.push_back(999_999u64); // Does not exist — will fail mid-batch
+    ids.push_back(prompt_2);
+
+    let mut amounts = Vec::new(&env);
+    amounts.push_back(price);
+    amounts.push_back(price);
+    amounts.push_back(price);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price * 3);
+
+    let result = client.try_buy_prompts_bulk(&buyer, &ids, &amounts, &None::<Address>);
+
+    // Entire transaction should fail
+    assert!(result.is_err());
+
+    // Verify no partial state: buyer should not have access to any prompt
+    assert!(!client.has_access(&buyer, &prompt_1));
+    assert!(!client.has_access(&buyer, &prompt_2));
+
+    // Verify sales counts unchanged
+    assert_eq!(client.get_prompt(&prompt_1).sales_count, 0);
+    assert_eq!(client.get_prompt(&prompt_2).sales_count, 0);
+}
+
+#[test]
+fn test_atomicity_boundary_exactly_max_size_succeeds() {
+    let env: Env = Default::default();
+    env.cost_estimate().disable_resource_limits();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let price: i128 = 1_000;
+
+    // Create exactly MAX_BULK_PURCHASE_SIZE (20) prompts
+    let mut ids = Vec::new(&env);
+    let mut amounts = Vec::new(&env);
+    for _i in 0..20 {
+        let prompt_id = create_prompt(&env, &client, &creator, "Bulk Item", price, &context.xlm);
+        ids.push_back(prompt_id);
+        amounts.push_back(price);
+    }
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price * 20);
+
+    // Should succeed without error
+    client.buy_prompts_bulk(&buyer, &ids, &amounts, &None::<Address>);
+
+    // All prompts should be accessible
+    for i in 0..ids.len() {
+        assert!(client.has_access(&buyer, &ids.get(i).unwrap()));
+    }
+}
+
 // ─── Issue #226: Listing revision tests ─────────────────────────────────────
 
 #[test]
@@ -5317,6 +5553,12 @@ fn test_split_validation_boundary_fee_plus_splits_equals_max_bps() {
     assert_eq!(prompt.splits.get(0).unwrap().bps, 9_500);
 }
 
+// ─── Issue #564: Access Pass Dispute & Escrow Mechanism ─────────────────────
+
+#[test]
+fn test_access_pass_purchase_creates_pending_escrow() {
+    let env: Env = Default::default();
+    env.ledger().with_mut(|ledger| ledger.timestamp = 1_000);
 #[test]
 fn test_renew_critical_keys_batch_resumption_with_cursor() {
     let env: Env = Default::default();

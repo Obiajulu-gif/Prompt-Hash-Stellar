@@ -153,6 +153,25 @@ export class PromptHashClient {
     );
   }
 
+  /**
+   * Validate bulk purchase items without state mutation.
+   * Returns per-item validity so frontend can filter before submitting.
+   * Issue #438: Per-item error surfacing.
+   */
+  static async validateBulkPurchase(
+    config: PromptHashConfig,
+    buyerAddress: string,
+    promptIds: bigint[],
+    paymentAmounts: bigint[],
+  ): Promise<boolean[]> {
+    return contractMethods.contractValidateBulkPurchase(
+      config,
+      buyerAddress,
+      promptIds,
+      paymentAmounts,
+    );
+  }
+
   static async purchaseBundle(
     bundleId: string,
     userAddress: string,
@@ -218,12 +237,44 @@ export class PromptHashClient {
    * Returns matching records without exposing plaintext content.
    */
   static async findPromptByContentHash(
-    _config: PromptHashConfig,
-    _contentHash: string,
+    config: PromptHashConfig,
+    contentHash: string,
   ): Promise<PromptRecord[]> {
-    // TODO: Implement via contract event queries or state search.
-    // For now, return empty to match contract's capability gap.
-    return [];
+    try {
+      // Query the off-chain indexer API for duplicate detection
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:3001";
+      const response = await fetch(`${apiUrl}/api/prompts/hash/${contentHash}`);
+
+      if (!response.ok) {
+        console.error(
+          "Failed to fetch prompts by content hash:",
+          response.status,
+        );
+        return [];
+      }
+
+      const data = await response.json();
+      if (!data.found) {
+        return [];
+      }
+
+      // Transform API response to PromptRecord format
+      return data.matches.map((match: any) => ({
+        id: BigInt(match.id || 0),
+        creator: match.creator,
+        priceStroops: BigInt(0), // Not included in hash lookup response
+        title: match.title,
+        category: "",
+        previewText: "",
+        imageUrl: "",
+        salesCount: match.salesCount || 0,
+        active: match.isActive,
+        contentHash: contentHash,
+      }));
+    } catch (error) {
+      console.error("Error fetching prompts by content hash:", error);
+      return [];
+    }
   }
 
   static async getBundlesByCreator(
@@ -574,3 +625,16 @@ export const findPromptByContentHash = async (
   config: PromptHashConfig,
   contentHash: string,
 ) => PromptHashClient.findPromptByContentHash(config, contentHash);
+
+export const validateBulkPurchase = async (
+  config: PromptHashConfig,
+  buyerAddress: string,
+  promptIds: bigint[],
+  paymentAmounts: bigint[],
+) =>
+  PromptHashClient.validateBulkPurchase(
+    config,
+    buyerAddress,
+    promptIds,
+    paymentAmounts,
+  );
