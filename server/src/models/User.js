@@ -22,6 +22,16 @@ const userSchema = new mongoose.Schema(
       min: 1,
       max: 5,
     },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+    },
+    notificationPreferences: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
   },
   {
     timestamps: true,

@@ -20,6 +20,7 @@ import { checkReplayProtection } from "../../src/lib/observability/replayProtect
 import { metrics } from "../../src/lib/observability/metrics";
 import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
+import { notifyPromptPurchased } from "../../server/src/services/emailNotifications";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
 
@@ -299,6 +300,16 @@ async function handler(req: any, res: any) {
         promptId: prompt.id.toString(),
         buyer: String(address),
         title: prompt.title,
+      }),
+    ).catch(() => {});
+
+    // Fire-and-forget email receipt to the buyer (#426).
+    void Promise.resolve(
+      notifyPromptPurchased(prompt.creator ?? "", {
+        buyerWallet: String(address),
+        promptTitle: prompt.title,
+        promptId: prompt.id.toString(),
+        txHash: undefined,
       }),
     ).catch(() => {});
 

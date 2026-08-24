@@ -1,13 +1,15 @@
 /**
- * emailNotifications.ts — Issue #112
+ * emailNotifications.ts — Issue #112 / #426
  *
  * Email notification service for PromptPurchased and PromptUpdated events.
  * Uses nodemailer with any SMTP provider (SendGrid, Postmark, SES, etc.).
  * Users opt-in/out per notification type via User model preferences.
  *
  * Configuration (env vars):
- *   EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER, EMAIL_SMTP_PASS
+ *   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS  (preferred)
+ *   EMAIL_SMTP_HOST, etc. (legacy fallback)
  *   EMAIL_FROM_ADDRESS (e.g. "PromptHash <noreply@prompthash.io>")
+ *   APP_URL (for links in emails, defaults to https://prompthash.io)
  */
 
 import nodemailer from "nodemailer";
@@ -34,14 +36,16 @@ export interface UpdatePayload {
 // ── Transport ─────────────────────────────────────────────────────────────────
 
 function createTransport() {
+  const host = process.env.SMTP_HOST ?? process.env.EMAIL_SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT ?? process.env.EMAIL_SMTP_PORT ?? 587);
+  const user = process.env.SMTP_USER ?? process.env.EMAIL_SMTP_USER;
+  const pass = process.env.SMTP_PASS ?? process.env.EMAIL_SMTP_PASS;
+
   return nodemailer.createTransport({
-    host: process.env.EMAIL_SMTP_HOST,
-    port: Number(process.env.EMAIL_SMTP_PORT ?? 587),
-    secure: process.env.EMAIL_SMTP_PORT === "465",
-    auth: {
-      user: process.env.EMAIL_SMTP_USER,
-      pass: process.env.EMAIL_SMTP_PASS,
-    },
+    host,
+    port,
+    secure: port === 465,
+    auth: user && pass ? { user, pass } : undefined,
   });
 }
 
@@ -85,7 +89,7 @@ function buildUpdateEmail(payload: UpdatePayload): { subject: string; html: stri
 // ── Core send helper ──────────────────────────────────────────────────────────
 
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  if (!process.env.EMAIL_SMTP_HOST) {
+  if (!process.env.SMTP_HOST && !process.env.EMAIL_SMTP_HOST) {
     console.warn("[email] SMTP not configured — skipping email to", to);
     return;
   }

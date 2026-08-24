@@ -4,6 +4,7 @@ import Prompt from "../models/Prompt";
 import PromptVersion from "../models/PromptVersion";
 import Purchase from "../models/Purchase";
 import User from "../models/User";
+import { notifyPromptPurchased } from "../services/emailNotifications";
 
 export const PostPromptUpdate = async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -81,6 +82,16 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
       versionIndex: prompt.currentVersionIndex ?? 1,
       txHash: txHash ?? "",
     });
+
+    // Fire-and-forget email receipt to the buyer (#426).
+    void Promise.resolve(
+      notifyPromptPurchased(String(prompt.owner ?? ""), {
+        buyerWallet: buyerWallet.toLowerCase(),
+        promptTitle: String(prompt.title ?? "Untitled"),
+        promptId: String(prompt._id),
+        txHash: txHash ?? undefined,
+      }),
+    ).catch(() => {});
 
     return res.status(201).json({ message: "Purchase recorded.", versionIndex: purchase.versionIndex });
   } catch (err) {
