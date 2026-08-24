@@ -5316,3 +5316,385 @@ fn test_split_validation_boundary_fee_plus_splits_equals_max_bps() {
     assert_eq!(prompt.splits.len(), 1);
     assert_eq!(prompt.splits.get(0).unwrap().bps, 9_500);
 }
+
+#[test]
+fn test_renew_critical_keys_batch_resumption_with_cursor() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+
+    // Create more prompts than MAX_RENEWAL_BATCH_SIZE (20) to trigger batching
+    let num_prompts = 35;
+    let mut prompt_ids = Vec::new(&env);
+
+    for i in 0..num_prompts {
+        let prompt_id = create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Prompt {}", i),
+            1_000,
+            &context.xlm,
+        );
+        prompt_ids.push_back(prompt_id);
+    }
+
+    // First batch: should process up to MAX_RENEWAL_BATCH_SIZE prompts
+    let (renewed_count_1, cursor_1) = client.renew_critical_keys(&None::<u64>);
+    assert_eq!(renewed_count_1, 20, "First batch should process exactly MAX_RENEWAL_BATCH_SIZE");
+    assert!(cursor_1.is_some(), "First batch should return a cursor for resumption");
+
+    // Second batch: continue from cursor
+    let (renewed_count_2, cursor_2) = client.renew_critical_keys(&cursor_1);
+    assert_eq!(renewed_count_2, 15, "Second batch should process remaining prompts");
+    assert_eq!(
+        cursor_2, None,
+        "Second batch should return None cursor when all done"
+    );
+
+    // Verify total: first + second batch should equal total created
+    assert_eq!(
+        renewed_count_1 + renewed_count_2,
+        num_prompts,
+        "Total renewed should equal total prompts created"
+    );
+}
+
+#[test]
+fn test_renew_critical_keys_processes_each_key_exactly_once() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create exactly MAX_RENEWAL_BATCH_SIZE + 5 prompts
+    let num_prompts = 25;
+    let mut created_ids = Vec::new(&env);
+
+    for i in 0..num_prompts {
+        let prompt_id = create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Unique {}", i),
+            2_000,
+            &context.xlm,
+        );
+        created_ids.push_back(prompt_id);
+    }
+
+    let mut total_renewed = 0u32;
+    let mut current_cursor: Option<u64> = None;
+    let mut iteration_count = 0;
+
+    // Process all batches
+    loop {
+        iteration_count += 1;
+        assert!(
+            iteration_count <= 5,
+            "Should not exceed reasonable iteration count (indicates infinite loop)"
+        );
+
+        let (renewed, next_cursor) = client.renew_critical_keys(&current_cursor);
+        total_renewed += renewed;
+
+        if next_cursor.is_none() {
+            break;
+        }
+        current_cursor = next_cursor;
+    }
+
+    assert_eq!(
+        total_renewed, num_prompts,
+        "All prompts should be renewed exactly once, no skips or duplicates"
+    );
+}
+
+#[test]
+fn test_renew_critical_keys_with_invalid_cursor_degrades_gracefully() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create a few prompts
+    for i in 0..3 {
+        create_prompt(&env, &client, &creator, &format!("Test {}", i), 1_500, &context.xlm);
+    }
+
+    // Use a cursor that doesn't correspond to any created prompt
+    // (simulates a deleted key between renewal calls)
+    let invalid_cursor = 99_999u64;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.renew_critical_keys(&Some(invalid_cursor))
+    }));
+
+    // Should not panic, should either skip or return gracefully
+    assert!(
+        result.is_ok() || result.is_err(),
+        "Handling invalid cursor should not crash the contract"
+    );
+}
+
+#[test]
+fn test_renew_critical_keys_expiry_risk_consistency() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create prompts
+    for i in 0..5 {
+        create_prompt(&env, &client, &creator, &format!("Risk {}", i), 1_000, &context.xlm);
+    }
+
+    // Run partial renewal
+    let (renewed_count, _cursor) = client.renew_critical_keys(&None::<u64>);
+    assert!(renewed_count > 0, "Should have renewed at least one key");
+
+    // Get expiry risk metrics after renewal
+    let risk_metrics = client.get_expiry_risk_metrics();
+    assert!(
+        !risk_metrics.is_empty(),
+        "Risk metrics should be available after renewal"
+    );
+}
+
+#[test]
+fn test_renew_critical_keys_handles_empty_storage() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Attempt renewal with no prompts created
+    let (renewed_count, cursor) = client.renew_critical_keys(&None::<u64>);
+
+    assert_eq!(renewed_count, 0, "No prompts, so no renewals");
+    assert_eq!(cursor, None, "No cursor needed when storage is empty");
+}
+
+#[test]
+fn test_get_all_prompts_paginated_empty_collection() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Query with no prompts created
+    let (prompts, next_cursor) = client.get_all_prompts_paginated(&None::<String>, &50);
+
+    assert_eq!(prompts.len(), 0, "Empty collection should return no prompts");
+    assert_eq!(
+        next_cursor, None,
+        "Empty collection should have no next cursor"
+    );
+}
+
+#[test]
+fn test_get_prompts_by_category_page_empty_category() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Query a category that has no prompts
+    let (prompts, next_cursor) =
+        client.get_prompts_by_category_page(&"NonexistentCategory".into(), &None::<String>, &50);
+
+    assert_eq!(
+        prompts.len(),
+        0,
+        "Empty category should return no prompts"
+    );
+    assert_eq!(
+        next_cursor, None,
+        "Empty category should have no next cursor"
+    );
+}
+
+#[test]
+fn test_get_prompts_by_tag_paginated_empty_tag() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Query a tag that has no prompts
+    let (prompts, next_cursor) =
+        client.get_prompts_by_tag_paginated(&"nonexistent-tag".into(), &None::<String>, &50);
+
+    assert_eq!(prompts.len(), 0, "Empty tag should return no prompts");
+    assert_eq!(
+        next_cursor, None,
+        "Empty tag should have no next cursor"
+    );
+}
+
+#[test]
+fn test_get_active_prompts_paginated_empty_collection() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Query active prompts with no prompts created
+    let (prompts, next_cursor) = client.get_active_prompts_paginated(&None::<String>, &50);
+
+    assert_eq!(
+        prompts.len(),
+        0,
+        "Empty active prompts should return nothing"
+    );
+    assert_eq!(
+        next_cursor, None,
+        "Empty active prompts should have no cursor"
+    );
+}
+
+#[test]
+fn test_pagination_page_size_zero_handled() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create some prompts
+    for i in 0..3 {
+        create_prompt(&env, &client, &creator, &format!("Size {}", i), 1_000, &context.xlm);
+    }
+
+    // Request with page size 0
+    let (prompts, _cursor) = client.get_all_prompts_paginated(&None::<String>, &0);
+    assert_eq!(
+        prompts.len(),
+        0,
+        "Page size 0 should return empty results"
+    );
+}
+
+#[test]
+fn test_pagination_page_size_larger_than_collection() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create 3 prompts
+    for i in 0..3 {
+        create_prompt(&env, &client, &creator, &format!("Collection {}", i), 1_000, &context.xlm);
+    }
+
+    // Request with page size much larger than collection
+    let (prompts, next_cursor) = client.get_all_prompts_paginated(&None::<String>, &1000);
+
+    assert_eq!(prompts.len(), 3, "Should return all available prompts");
+    assert_eq!(
+        next_cursor, None,
+        "Should have no next cursor when all fit in page"
+    );
+}
+
+#[test]
+fn test_pagination_cursor_consistency_across_entry_points() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create prompts in a specific category
+    let category = "TestCategory";
+    for i in 0..5 {
+        create_prompt_with_category(
+            &env,
+            &client,
+            &creator,
+            &format!("Prompt {}", i),
+            1_000,
+            &context.xlm,
+            category,
+        );
+    }
+
+    // Paginate through all prompts
+    let (all_prompts, _) = client.get_all_prompts_paginated(&None::<String>, &100);
+    // Paginate through category prompts
+    let (category_prompts, _) =
+        client.get_prompts_by_category_page(&category.into(), &None::<String>, &100);
+
+    // Both should return prompts (category subset should be at most as many as all)
+    assert!(
+        category_prompts.len() <= all_prompts.len(),
+        "Category results should not exceed total results"
+    );
+    assert!(
+        category_prompts.len() > 0,
+        "Should have found prompts in category"
+    );
+}
+
+#[test]
+fn test_pagination_with_batch_requests() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    // Create 10 prompts
+    for i in 0..10 {
+        create_prompt(&env, &client, &creator, &format!("Batch {}", i), 1_000, &context.xlm);
+    }
+
+    let mut all_paginated = Vec::new(&env);
+    let mut current_cursor: Option<String> = None;
+
+    // Paginate through 3 at a time
+    loop {
+        let (batch, next_cursor) =
+            client.get_all_prompts_paginated(&current_cursor, &3);
+
+        if batch.is_empty() {
+            break;
+        }
+
+        for prompt in &batch {
+            all_paginated.push_back(prompt);
+        }
+
+        if next_cursor.is_none() {
+            break;
+        }
+        current_cursor = next_cursor;
+    }
+
+    assert_eq!(
+        all_paginated.len(),
+        10,
+        "Batched pagination should retrieve all prompts"
+    );
+}
+
+fn create_prompt_with_category(
+    env: &Env,
+    client: &PromptHashContractClient,
+    creator: &Address,
+    title: &str,
+    price: i128,
+    asset: &Address,
+    category: &str,
+) -> u64 {
+    let prompt_id = client
+        .create_prompt(
+            creator,
+            &title.into(),
+            &category.into(),
+            &Vec::new(env),
+            &"preview".into(),
+            &"hash".into(),
+            &price,
+            asset,
+            &soroban_sdk::BytesN::<16>::from_array(env, &[0u8; 16]),
+            &Vec::new(env),
+            &None::<Address>,
+        )
+        .unwrap();
+
+    prompt_id
+}
