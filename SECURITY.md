@@ -77,6 +77,7 @@ Please reach out to the team using GitHub's own security mechanism to submit an 
 3. Changed sales_count to u64 to prevent overflow
 4. Snapshotted fee percentage at purchase start
 5. Added additional overflow checks in arithmetic paths
+6. Backup SHA-256 Checksum Validation & Integrity Protection (#607): Added SHA-256 manifest generation and pre-restore integrity validation (checksum & NDJSON line validation) with dry-run support to prevent corrupted data injection. See [Disaster Recovery Runbook](docs/operations/disaster-recovery.md).
 
 ## 4. Deferred Risks (Future Work)
 
@@ -89,4 +90,5 @@ Please reach out to the team using GitHub's own security mechanism to submit an 
 - [x] Written threat model exists
 - [x] Security findings fixed or documented
 - [x] Purchase, entitlement, admin fee, fee wallet covered
+- [x] Disaster recovery & backup integrity verification documented
 - [x] Review completes before release
