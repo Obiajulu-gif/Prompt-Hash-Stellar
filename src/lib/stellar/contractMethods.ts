@@ -94,6 +94,78 @@ export async function contractGetAllPrompts(
   return result.map((item, idx) => decodePromptRecord(item, BigInt(idx)));
 }
 
+/**
+ * Paginated equivalent of `get_all_prompts`.
+ *
+ * Reads the catalog in bounded batches (one RPC round-trip per `limit` items)
+ * instead of decoding the entire catalog in a single unbounded read. The
+ * `cursor` is an opaque, server-issued `Option<String>` value returned as
+ * `nextCursor` by the previous page; pass `null` to start from the beginning.
+ *
+ * NOTE: the on-chain cursor parameter is an `Option<String>`. This requires a
+ * Soroban SDK that supports the `scvOption` ScVal variant; the encoder below
+ * falls back to a bare string when the SDK cannot represent options.
+ */
+export async function contractGetAllPromptsPaginated(
+  config: PromptHashConfig,
+  cursor?: string | null,
+  limit = 50,
+): Promise<{ prompts: PromptRecord[]; nextCursor: string | null }> {
+  const args = [encodeOptionString(cursor ?? null), scValArg(limit, "u64")];
+
+  const [rawPrompts, nextCursor] = await readContract<
+    [Record<string, any>[], string | null]
+  >(
+    {
+      rpcUrl: config.rpcUrl,
+      networkPassphrase: config.networkPassphrase,
+      allowHttp: config.allowHttp,
+      simulationAccount: config.simulationAccount,
+    },
+    config.promptHashContractId,
+    "get_all_prompts_paginated",
+    args,
+  );
+
+  const prompts = (rawPrompts ?? []).map((item, idx) =>
+    decodePromptRecord(item, BigInt(idx)),
+  );
+
+  return { prompts, nextCursor: nextCursor ?? null };
+}
+
+/**
+ * Encode a `string | null` as a Soroban `Option<String>` ScVal.
+ * Uses the SDK's `scvOption` primitive when available; otherwise encodes the
+ * value as a bare `String` (or `void` when null) so the call still serializes.
+ */
+function encodeOptionString(value: string | null): xdr.ScVal {
+  const ScVal = xdr.ScVal as unknown as {
+    scvOption?: (inner: unknown) => xdr.ScVal;
+  };
+
+  if (value == null) {
+    return nativeToScVal(null);
+  }
+
+  const inner = nativeToScVal(value, { type: "string" });
+
+  if (typeof ScVal.scvOption === "function") {
+    // Some SDK builds require the inner value to be wrapped in an
+    // `ScValOption` enum (scvOptionSome). Fall back to passing the raw value.
+    const ScValOptionEnum = (xdr as unknown as {
+      ScValOption?: { scvOptionSome: (v: unknown) => unknown };
+    }).ScValOption;
+    if (ScValOptionEnum && typeof ScValOptionEnum.scvOptionSome === "function") {
+      return ScVal.scvOption(ScValOptionEnum.scvOptionSome(inner));
+    }
+    return ScVal.scvOption(inner);
+  }
+
+  return inner;
+}
+
+
 export async function contractGetPromptsByCreator(
   config: PromptHashConfig,
   creatorAddress: string,
@@ -526,7 +598,7 @@ function decodePromptRecord(
   id: bigint,
 ): PromptRecord {
   return {
-    id,
+    id: data.id != null ? BigInt(data.id) : id,
     creator: data.creator || "",
     priceStroops: BigInt(data.price || 0),
     title: data.title || "",
