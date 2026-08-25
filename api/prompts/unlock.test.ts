@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { Buffer } from "buffer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   buildChallengeMessage,
@@ -52,6 +52,7 @@ vi.mock("../../src/lib/observability/metrics", () => ({
     trackUnlockSuccess: vi.fn(),
     trackUnlockFailure: vi.fn(),
     trackRateLimitHit: vi.fn(),
+    trackUnlockLatency: vi.fn(),
   },
 }));
 
@@ -579,5 +580,114 @@ describe("unlock API ledger state verification (#545)", () => {
 
     expect(statusCode).toBe(403);
     expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+  });
+});
+
+describe("unlock API challenge-token secret rotation grace period (#609)", () => {
+  const PREVIOUS_SECRET = "rotation-test-previous-secret";
+  const BASE_TIME = 1_700_000_000_000;
+  const LONG_TTL_MS = 10 * 60 * 1000; // outlives every rotation window used below
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS;
+    delete process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP;
+    delete process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS;
+  });
+
+  it("accepts a token signed with the current secret regardless of rotation state", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+  });
+
+  it("accepts a token signed with the previous secret while inside the grace period", async () => {
+    const { buyer, promptId } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const challenge = createChallengeToken(PREVIOUS_SECRET, buyer.publicKey(), promptId, BASE_TIME, LONG_TTL_MS);
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    vi.setSystemTime(BASE_TIME + 500); // 500ms after rotation, inside the 1000ms grace window
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+    expect(responseData.plaintext).toBeDefined();
+  });
+
+  it("rejects a token signed with the previous secret once the grace period has elapsed", async () => {
+    const { buyer, promptId } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const challenge = createChallengeToken(PREVIOUS_SECRET, buyer.publicKey(), promptId, BASE_TIME, LONG_TTL_MS);
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    vi.setSystemTime(BASE_TIME + 1500); // 1500ms after rotation, past the 1000ms grace window
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.TEMPORARY_FAILURE);
+  });
+
+  it("disables the previous-secret fallback entirely when CHALLENGE_TOKEN_ROTATION_TIMESTAMP is missing", async () => {
+    const { buyer, promptId } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    delete process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP;
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const challenge = createChallengeToken(PREVIOUS_SECRET, buyer.publicKey(), promptId, BASE_TIME, LONG_TTL_MS);
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    vi.setSystemTime(BASE_TIME + 10); // well inside what would have been the grace window
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.TEMPORARY_FAILURE);
   });
 });
