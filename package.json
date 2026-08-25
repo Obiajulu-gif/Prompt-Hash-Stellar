@@ -12,7 +12,7 @@
     "dev": "node scripts/check-local-setup.mjs --warn-only && vite",
     "start": "vite",
     "build": "vite build",
-    "prebuild": "node scripts/check-local-setup.mjs",
+    "prebuild": "node scripts/policy-scanner.mjs && node scripts/check-local-setup.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:frontend": "vitest run",
@@ -24,6 +24,7 @@
     "format": "prettier . --write",
     "prepare": "node -e \"try { require('fs').existsSync('.husky/') && process.exit(0) } catch(e) {}\" && husky || true",
     "check:setup": "node scripts/check-local-setup.mjs",
+    "check:policy": "node scripts/policy-scanner.mjs",
     "seed:preview": "node server/scripts/seedPreview.mjs",
     "verify:smoke": "node scripts/smoke-verification.mjs"
   },

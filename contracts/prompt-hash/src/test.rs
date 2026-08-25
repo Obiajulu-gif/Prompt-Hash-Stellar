@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
-use crate::types::{Error, ListingConfig, PromptSaleStatus, Split};
+use crate::types::{DisputeReason, Error, ListingConfig, PromptSaleStatus, Split};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
@@ -5991,4 +5991,559 @@ fn create_prompt_with_category(
             max_supply: 0,
         },
     )
+<<<<<<< HEAD
+=======
+}
+
+#[test]
+fn test_migrate_platform_fee_bound_non_admin_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    env.as_contract(&context.contract, || {
+        crate::storage::InstanceStorage::set_fee_percentage(&env, &5_000u32);
+    });
+
+    let non_admin = Address::generate(&env);
+    let res = client.try_migrate_platform_fee_bound(&non_admin);
+    match res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected Unauthorized for non-admin, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_migrate_platform_fee_bound_already_within_bound() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Fee is already within the bound by default
+    assert_eq!(client.get_fee_percentage(), 500);
+
+    // Migration should be a no-op
+    client.migrate_platform_fee_bound(&context.admin);
+    assert_eq!(client.get_fee_percentage(), 500);
+}
+
+#[test]
+fn test_migrate_asset_liability_pending_case() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 3_000;
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Pending Migrate",
+        price,
+        &context.xlm,
+    );
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Clear liability to simulate pre-#570 state
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_pending_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    assert_eq!(client.get_asset_liability(&context.xlm).pending, 0);
+
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+
+    // Verify liability was migrated
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, price);
+}
+
+#[test]
+fn test_migrate_asset_liability_disputed_case() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 4_000;
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Disputed Migrate",
+        price,
+        &context.xlm,
+    );
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Open dispute
+    client.open_dispute(&buyer, &prompt_id, &DisputeReason::InvalidEncryptedPayload);
+
+    // Clear liability to simulate pre-#570 state
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_disputed_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    assert_eq!(client.get_asset_liability(&context.xlm).disputed, 0);
+
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+
+    // Verify disputed liability was migrated
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.disputed, price);
+}
+
+#[test]
+fn test_migrate_asset_liability_non_admin_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Auth Check", 2_000, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 2_000);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &2_000, &None::<Bytes>);
+
+    let non_admin = Address::generate(&env);
+    let res = client.try_migrate_asset_liability(&non_admin, &prompt_id, &buyer);
+    match res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected Unauthorized for non-admin, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_migrate_asset_liability_with_asset_solvency() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 6_000;
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Solvency Check",
+        price,
+        &context.xlm,
+    );
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Clear liability to simulate pre-#570 state
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_pending_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    // Before migration: liability is zero
+    let before = client.check_asset_solvency(&context.xlm);
+    assert_eq!(before.tracked_liability, 0);
+
+    // After migration: liability should match the escrow amount
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+    let after = client.check_asset_solvency(&context.xlm);
+    assert_eq!(after.tracked_liability, price);
+}
+
+// ─── Issue #594: Comprehensive discount authorization tests ───────────────────
+
+use crate::types::SignedDiscountAuthorization;
+
+fn contract_id_hash(env: &Env, contract: &Address) -> BytesN<32> {
+    env.crypto()
+        .sha256(&contract.to_string().to_bytes())
+        .to_bytes()
+}
+
+#[test]
+fn test_discount_auth_happy_path() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Fund the buyer
+    fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
+
+    // Creator creates a signed discount authorization
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2000, // 20% discount
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce: nonce.clone(),
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Buyer redeems the discount via buy_prompt_with_auth
+    let discounted_price = 8_000; // 10_000 * (10_000 - 2_000) / 10_000 = 8_000
+    client.buy_prompt_with_auth(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &discounted_price,
+        &authorization,
+        &signature,
+    );
+
+    // Verify buyer has access to the prompt
+    assert!(client.has_access(&buyer, &prompt_id));
+}
+
+#[test]
+fn test_discount_auth_domain_mismatch_network_id() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Create authorization with wrong network_id
+    let network_id = BytesN::from_array(&env, &[1u8; 32]); // Wrong network_id
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2000,
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce,
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Should reject due to network ID mismatch
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_domain_mismatch_contract_id() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Create authorization with wrong contract_id
+    let network_id = env.ledger().network_id();
+    let contract_id = BytesN::from_array(&env, &[2u8; 32]); // Wrong contract_id
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2000,
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce,
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Should reject due to contract ID mismatch
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_expired_ledger() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    env.ledger().set_sequence_number(100);
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Create authorization with expiry in the past
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2000,
+        expiry_ledger: 50, // Already expired (current ledger is 100)
+        nonce,
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Should reject due to expired ledger
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_nonce_replay_rejection() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Fund the buyer
+    fund_buyer(&xlm_client, &buyer, &context.contract, 16_000);
+
+    // Create and register first authorization
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id: network_id.clone(),
+        contract_id: contract_id.clone(),
+        discount_bps: 2000,
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce: nonce.clone(),
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Use it once
+    let discounted_price = 8_000;
+    client.buy_prompt_with_auth(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &discounted_price,
+        &authorization,
+        &signature,
+    );
+
+    // Try to reuse the same authorization a second time — should fail because nonce is consumed
+    let result = client.try_buy_prompt_with_auth(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &discounted_price,
+        &authorization,
+        &signature,
+    );
+    // Should reject due to nonce already consumed
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_unauthorized_caller() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let unauthorized_caller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Non-creator tries to add discount auth for creator's prompt
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2000,
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce,
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    let result =
+        client.try_add_signed_discount_auth(&unauthorized_caller, &authorization, &signature);
+
+    // Should reject because unauthorized_caller is not the creator
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_revoke_then_redeem_fails() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Fund the buyer
+    fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
+
+    // Creator creates a signed discount authorization
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2000,
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce: nonce.clone(),
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Creator revokes the authorization
+    client.revoke_discount_auth(&creator, &prompt_id, &nonce);
+
+    // Buyer tries to redeem revoked authorization — should fail
+    let discounted_price = 8_000;
+    let result = client.try_buy_prompt_with_auth(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &discounted_price,
+        &authorization,
+        &signature,
+    );
+
+    // Should fail because authorization was revoked
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_invalid_discount_percentage() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Create authorization with discount_bps > MAX_BPS (10_000)
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 15_000, // > MAX_BPS (10_000)
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce,
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Should reject due to invalid discount percentage
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_discount_auth_max_bps_edge_case() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Create a prompt
+    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+
+    // Fund the buyer
+    fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
+
+    // Create authorization with discount_bps == 2000
+    let network_id = env.ledger().network_id();
+    let contract_id = contract_id_hash(&env, &context.contract);
+    let nonce = BytesN::from_array(&env, &[1u8; 32]);
+    let authorization = SignedDiscountAuthorization {
+        prompt_id,
+        buyer: buyer.clone(),
+        network_id,
+        contract_id,
+        discount_bps: 2_000,
+        expiry_ledger: env.ledger().sequence() + 1000,
+        nonce: nonce.clone(),
+    };
+
+    let signature = BytesN::from_array(&env, &[0u8; 64]);
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
+
+    // Buyer redeems the discounted prompt
+    let discounted_price = 8_000;
+    client.buy_prompt_with_auth(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &discounted_price,
+        &authorization,
+        &signature,
+    );
+
+    // Verify buyer has access
+    assert!(client.has_access(&buyer, &prompt_id));
 }
