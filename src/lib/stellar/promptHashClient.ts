@@ -218,6 +218,19 @@ export class PromptHashClient {
     return contractMethods.contractGetAllPrompts(config);
   }
 
+  /**
+   * Paginated catalog fetch (bounded per-page RPC reads). Accumulate pages on
+   * the caller side for infinite-scroll style loading. See
+   * `contractGetAllPromptsPaginated` for cursor semantics.
+   */
+  static async getAllPromptsPaginated(
+    config: PromptHashConfig,
+    cursor?: string | null,
+    limit = 50,
+  ): Promise<{ prompts: PromptRecord[]; nextCursor: string | null }> {
+    return contractMethods.contractGetAllPromptsPaginated(config, cursor, limit);
+  }
+
   static async getPromptsByBuyer(
     config: PromptHashConfig,
     address: string,
@@ -535,6 +548,11 @@ export const getPrompt = async (config: PromptHashConfig, promptId: bigint) =>
   PromptHashClient.getPrompt(config, promptId);
 export const getAllPrompts = async (config: PromptHashConfig) =>
   PromptHashClient.getAllPrompts(config);
+export const getAllPromptsPaginated = async (
+  config: PromptHashConfig,
+  cursor?: string | null,
+  limit = 50,
+) => PromptHashClient.getAllPromptsPaginated(config, cursor, limit);
 export const getPromptsByBuyer = async (
   config: PromptHashConfig,
   address: string,

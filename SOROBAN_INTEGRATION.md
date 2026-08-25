@@ -146,7 +146,15 @@ For every write operation:
 1. PREPARE
    └─ simulateContractCall()
       └─ Simulation error? → throw, UI catches
-      └─ Restore required? → throw, user must wait for TTL
+       └─ Restore required? → throw, user must wait for TTL
+
+> **Storage TTL / renewal:** persistent contract entries are evicted by the
+> Soroban network once their TTL expires. The contract exposes
+> `renew_critical_keys` (cursor-based, resumable batch renewal) and
+> `get_expiry_risk_metrics` (operator monitoring) for this. These must be
+> driven by an off-chain operator job — see
+> [docs/ttl-renewal-operations.md](docs/ttl-renewal-operations.md) for the
+> cadence, call pattern, and alerting guidance.
       └─ Success → PreparedContractCall {preparedTransaction, simulation, server}
 
 2. SIGN
