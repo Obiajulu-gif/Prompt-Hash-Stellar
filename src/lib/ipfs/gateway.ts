@@ -133,8 +133,10 @@ export class IPFSGatewayPool {
     try {
       const response = await fetch(url, {
         signal: controller.signal,
+        redirect: "error",
         headers: {
           "User-Agent": "PromptHash-IPFS-Client/1.0",
+          "Accept-Encoding": "identity",
         },
       });
 
@@ -144,6 +146,10 @@ export class IPFSGatewayPool {
 
       // Validate content type
       const contentType = response.headers.get("content-type") || "";
+      const contentEncoding = response.headers.get("content-encoding") || "";
+      if (contentEncoding && contentEncoding.toLowerCase() !== "identity") {
+        throw new Error(`Compressed gateway responses are not accepted: ${contentEncoding}`);
+      }
       if (
         contentType.includes("text/html") ||
         contentType.includes("application/json")

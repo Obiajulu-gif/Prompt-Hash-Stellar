@@ -61,6 +61,16 @@ vi.mock("../../server/src/services/auditTrail", () => ({
 
 import handler from "./unlock";
 
+const TEST_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+const TEST_CONTRACT_ID =
+  "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const TEST_CHALLENGE_CONTEXT = {
+  origin: "",
+  networkPassphrase: TEST_NETWORK_PASSPHRASE,
+  contractId: TEST_CONTRACT_ID,
+  action: "unlock",
+};
+
 async function setupUnlockFixture(plaintext = PLAINTEXT) {
   const buyer = Keypair.random();
   const contentHash = CONTENT_HASH;
@@ -68,8 +78,8 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
   process.env.CHALLENGE_TOKEN_SECRET = "integration-test-challenge-secret";
   process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
   process.env.UNLOCK_PRIVATE_KEY = "e".repeat(32);
-  process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID =
-    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+  process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID = TEST_CONTRACT_ID;
+  process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE = TEST_NETWORK_PASSPHRASE;
   process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT = buyer.publicKey();
   process.env.PUBLIC_STELLAR_RPC_URL = "https://soroban-testnet.stellar.org";
 
@@ -78,6 +88,9 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
     process.env.CHALLENGE_TOKEN_SECRET,
     buyer.publicKey(),
     promptId,
+    Date.now(),
+    5 * 60 * 1000,
+    TEST_CHALLENGE_CONTEXT,
   );
   const signedMessage = Buffer.from(
     buyer.sign(Buffer.from(challenge.challenge, "utf8")),
@@ -88,7 +101,7 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
     ledgerSequence: 123456,
     ledgerHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
     networkId: "testnet",
-    contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    contractId: TEST_CONTRACT_ID,
     checkedAt: Date.now(),
   });
   hasAccessMock.mockResolvedValue(true);
@@ -231,10 +244,11 @@ describe("unlock challenge message contract", () => {
       nonce: "nonce-123",
       issuedAt: 1_700_000_000_000,
       expiresAt: 1_700_000_000_000,
+      ...TEST_CHALLENGE_CONTEXT,
     };
 
     expect(buildChallengeMessage(payload)).toBe(
-      "prompt-hash unlock:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:nonce-123:1700000000000:1700000000000",
+      "prompt-hash:unlock::Test SDF Network ; September 2015:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:nonce-123:1700000000000:1700000000000",
     );
   });
 });
@@ -281,6 +295,7 @@ describe("unlock API replay, expiry, and missing-field rejection", () => {
       promptId,
       Date.now() - 60_000, // 1 minute ago
       1000,                 // 1 second TTL
+      TEST_CHALLENGE_CONTEXT,
     );
 
     const { statusCode, responseData } = await invokeUnlock({
@@ -462,6 +477,7 @@ describe("unlock API idempotency", () => {
       promptId,
       Date.now() - 60_000,
       1000,
+      TEST_CHALLENGE_CONTEXT,
     );
 
     // First request — fails with expired challenge
@@ -624,7 +640,14 @@ describe("unlock API challenge-token secret rotation grace period (#609)", () =>
     process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
     process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
 
-    const challenge = createChallengeToken(PREVIOUS_SECRET, buyer.publicKey(), promptId, BASE_TIME, LONG_TTL_MS);
+    const challenge = createChallengeToken(
+      PREVIOUS_SECRET,
+      buyer.publicKey(),
+      promptId,
+      BASE_TIME,
+      LONG_TTL_MS,
+      TEST_CHALLENGE_CONTEXT,
+    );
     const signedMessage = Buffer.from(
       buyer.sign(Buffer.from(challenge.challenge, "utf8")),
     ).toString("base64");
@@ -648,7 +671,14 @@ describe("unlock API challenge-token secret rotation grace period (#609)", () =>
     process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
     process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
 
-    const challenge = createChallengeToken(PREVIOUS_SECRET, buyer.publicKey(), promptId, BASE_TIME, LONG_TTL_MS);
+    const challenge = createChallengeToken(
+      PREVIOUS_SECRET,
+      buyer.publicKey(),
+      promptId,
+      BASE_TIME,
+      LONG_TTL_MS,
+      TEST_CHALLENGE_CONTEXT,
+    );
     const signedMessage = Buffer.from(
       buyer.sign(Buffer.from(challenge.challenge, "utf8")),
     ).toString("base64");
@@ -672,7 +702,14 @@ describe("unlock API challenge-token secret rotation grace period (#609)", () =>
     delete process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP;
     process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
 
-    const challenge = createChallengeToken(PREVIOUS_SECRET, buyer.publicKey(), promptId, BASE_TIME, LONG_TTL_MS);
+    const challenge = createChallengeToken(
+      PREVIOUS_SECRET,
+      buyer.publicKey(),
+      promptId,
+      BASE_TIME,
+      LONG_TTL_MS,
+      TEST_CHALLENGE_CONTEXT,
+    );
     const signedMessage = Buffer.from(
       buyer.sign(Buffer.from(challenge.challenge, "utf8")),
     ).toString("base64");

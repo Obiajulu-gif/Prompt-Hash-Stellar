@@ -8,9 +8,20 @@ const DEFAULT_TTL_MS = 5 * 60 * 1000;
 export interface ChallengePayload {
   address: string;
   promptId: string;
+  origin: string;
+  networkPassphrase: string;
+  contractId: string;
+  action: string;
   nonce: string;
   issuedAt: number;
   expiresAt: number;
+}
+
+export interface ChallengeContext {
+  origin?: string;
+  networkPassphrase?: string;
+  contractId?: string;
+  action?: string;
 }
 
 function base64UrlEncode(value: string) {
@@ -32,7 +43,18 @@ function signPayload(secret: string, body: string) {
 }
 
 export function buildChallengeMessage(payload: ChallengePayload) {
-  return `prompt-hash unlock:${payload.address}:${payload.promptId}:${payload.nonce}:${payload.issuedAt}:${payload.expiresAt}`;
+  return [
+    "prompt-hash",
+    payload.action,
+    payload.origin,
+    payload.networkPassphrase,
+    payload.contractId,
+    payload.address,
+    payload.promptId,
+    payload.nonce,
+    payload.issuedAt,
+    payload.expiresAt,
+  ].join(":");
 }
 
 export function createChallengeToken(
@@ -41,10 +63,15 @@ export function createChallengeToken(
   promptId: string,
   now = Date.now(),
   ttlMs = DEFAULT_TTL_MS,
+  context: ChallengeContext = {},
 ) {
   const payload: ChallengePayload = {
     address,
     promptId,
+    origin: context.origin ?? "*",
+    networkPassphrase: context.networkPassphrase ?? "",
+    contractId: context.contractId ?? "",
+    action: context.action ?? "unlock",
     nonce: randomUUID(),
     issuedAt: now,
     expiresAt: now + ttlMs,
@@ -68,6 +95,7 @@ export function verifyChallengeToken(
   address: string,
   promptId: string,
   now = Date.now(),
+  expectedContext: ChallengeContext = {},
 ) {
   const [encodedPayload, signature] = token.split(".");
   if (!encodedPayload || !signature) {
@@ -96,6 +124,30 @@ export function verifyChallengeToken(
   const payload = JSON.parse(base64UrlDecode(encodedPayload)) as ChallengePayload;
   if (payload.address !== address || payload.promptId !== promptId) {
     throw new Error("Challenge token does not match the requested prompt unlock.");
+  }
+  if (
+    expectedContext.origin !== undefined &&
+    payload.origin !== expectedContext.origin
+  ) {
+    throw new Error("Challenge token origin mismatch.");
+  }
+  if (
+    expectedContext.networkPassphrase !== undefined &&
+    payload.networkPassphrase !== expectedContext.networkPassphrase
+  ) {
+    throw new Error("Challenge token network mismatch.");
+  }
+  if (
+    expectedContext.contractId !== undefined &&
+    payload.contractId !== expectedContext.contractId
+  ) {
+    throw new Error("Challenge token contract mismatch.");
+  }
+  if (
+    expectedContext.action !== undefined &&
+    payload.action !== expectedContext.action
+  ) {
+    throw new Error("Challenge token action mismatch.");
   }
 
   if (payload.expiresAt < now) {

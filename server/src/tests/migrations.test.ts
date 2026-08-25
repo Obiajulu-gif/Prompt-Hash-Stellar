@@ -26,7 +26,11 @@ describe("Database Migration Framework", () => {
       }),
       insertOne: vi.fn().mockResolvedValue({}),
       deleteOne: vi.fn().mockResolvedValue({}),
+      updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1, upsertedCount: 1 }),
       updateMany: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+      findOneAndUpdate: vi.fn((_query, update) =>
+        Promise.resolve({ value: { token: update.$set.token } }),
+      ),
     };
 
     mockDb = {
@@ -94,6 +98,11 @@ describe("Database Migration Framework", () => {
 
     // Expect migrations index creation
     expect(mockCollection.createIndex).toHaveBeenCalledWith({ version: 1 }, { unique: true });
+    expect(mockCollection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "global" }),
+      expect.objectContaining({ $set: expect.objectContaining({ direction: "up" }) }),
+      expect.objectContaining({ upsert: true }),
+    );
 
     // Expect migration application records to be inserted
     expect(mockCollection.insertOne).toHaveBeenCalledTimes(2);
@@ -108,6 +117,20 @@ describe("Database Migration Framework", () => {
 
     // Verify migration functions were run against mock DB
     expect(mockCollection.updateMany).toHaveBeenCalledTimes(2);
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      { version: 1, direction: "up" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: "running" }),
+      }),
+      { upsert: true },
+    );
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      { version: 2, direction: "up" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: "applied" }),
+      }),
+      { upsert: true },
+    );
   });
 
   it("should only apply pending migrations on an existing database", async () => {
@@ -136,10 +159,16 @@ describe("Database Migration Framework", () => {
 
     await runMigrations(tempMigrationsDir, "down");
 
-    // Should call deleteOne for both migrations
-    expect(mockCollection.deleteOne).toHaveBeenCalledTimes(2);
+    // Should call deleteOne for both migrations before releasing the lease
     expect(mockCollection.deleteOne).toHaveBeenNthCalledWith(1, { version: 2 });
     expect(mockCollection.deleteOne).toHaveBeenNthCalledWith(2, { version: 1 });
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      { version: 2, direction: "down" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: "rolled_back" }),
+      }),
+      { upsert: true },
+    );
   });
 
   it("should stop execution and throw error if a migration fails", async () => {
@@ -160,5 +189,34 @@ describe("Database Migration Framework", () => {
 
     // Version 3 should NOT have been recorded as applied
     expect(mockCollection.insertOne).toHaveBeenCalledTimes(2); // only version 1 and 2
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      { version: 3, direction: "up" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: "failed",
+          error: "Simulated migration failure",
+        }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("should reject a concurrent worker when the lease is held", async () => {
+    mockCollection.findOneAndUpdate = vi.fn().mockResolvedValue({
+      value: { token: "other-worker" },
+    });
+
+    await expect(runMigrations(tempMigrationsDir, "up")).rejects.toThrow(
+      "Another migration worker holds the lease",
+    );
+  });
+
+  it("should report a dry-run plan without applying migrations or acquiring a lease", async () => {
+    await runMigrations(tempMigrationsDir, "up", undefined, { dryRun: true });
+
+    expect(mockCollection.findOneAndUpdate).toHaveBeenCalledTimes(0);
+    expect(mockCollection.insertOne).toHaveBeenCalledTimes(0);
+    expect(mockCollection.updateMany).toHaveBeenCalledTimes(0);
+    expect(mockCollection.updateOne).toHaveBeenCalledTimes(0);
   });
 });
