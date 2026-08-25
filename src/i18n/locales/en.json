@@ -121,5 +121,62 @@
   },
   "format": {
     "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "Loading…",
+    "failed": "Failed",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "remove": "Remove",
+    "close": "Close",
+    "submit": "Submit",
+    "continue": "Continue",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "confirm": "Confirm",
+    "retry": "Retry"
+  },
+  "sell_form": {
+    "preview_placeholder": "Add public preview text to show buyers what outcomes they can expect.",
+    "moderation_notes_placeholder": "Add moderation notes...",
+    "failed_create_prompt": "Failed to create prompt.",
+    "failed_update_status": "Failed to update sale status.",
+    "failed_update_price": "Failed to update price.",
+    "failed_unlock_prompt": "Failed to unlock prompt.",
+    "failed_create_bundle": "Failed to create bundle.",
+    "failed_create_access_pass": "Failed to create access pass.",
+    "draft_not_found": "Draft not found.",
+    "failed_fetch_drafts": "Failed to fetch drafts.",
+    "failed_publish_draft": "Failed to publish.",
+    "failed_archive_draft": "Failed to archive.",
+    "draft_restored": "Draft restored from autosave.",
+    "last_saved": "Last saved: {{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "Loading your licensed prompts...",
+    "saved_listing": "Saved listing",
+    "paused_listing": "Paused listing",
+    "failed_update_listing_status": "Failed to update listing status.",
+    "failed_update_listing_price": "Failed to update price.",
+    "failed_update_saved_listings": "Failed to update saved listings.",
+    "failed_unlock": "Failed to unlock prompt.",
+    "payout_settings": "Payout Settings",
+    "failed_save_payout_preferences": "Failed to save payout preferences."
+  },
+  "admin": {
+    "failed_load_contract_state": "Failed to load contract state.",
+    "config_dashboard_title": "Contract Configuration",
+    "reports_title": "Moderation Reports"
+  },
+  "forms": {
+    "error_required": "This field is required.",
+    "error_invalid": "Invalid input.",
+    "error_validation": "Validation failed. Please check the form."
   }
 }

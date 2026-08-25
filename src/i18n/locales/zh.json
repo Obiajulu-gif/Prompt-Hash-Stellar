@@ -121,5 +121,62 @@
   },
   "format": {
     "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "加载中…",
+    "failed": "失败",
+    "error": "错误",
+    "success": "成功",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "add": "添加",
+    "remove": "移除",
+    "close": "关闭",
+    "submit": "提交",
+    "continue": "继续",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "confirm": "确认",
+    "retry": "重试"
+  },
+  "sell_form": {
+    "preview_placeholder": "添加公开预览文本，向买家展示他们可以期待的结果。",
+    "moderation_notes_placeholder": "添加审核备注...",
+    "failed_create_prompt": "创建提示词失败。",
+    "failed_update_status": "更新销售状态失败。",
+    "failed_update_price": "更新价格失败。",
+    "failed_unlock_prompt": "解锁提示词失败。",
+    "failed_create_bundle": "创建捆绑包失败。",
+    "failed_create_access_pass": "创建访问通行证失败。",
+    "draft_not_found": "未找到草稿。",
+    "failed_fetch_drafts": "获取草稿失败。",
+    "failed_publish_draft": "发布失败。",
+    "failed_archive_draft": "存档失败。",
+    "draft_restored": "已从自动保存中恢复草稿。",
+    "last_saved": "最后保存：{{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "加载您的许可提示词...",
+    "saved_listing": "已保存的列表",
+    "paused_listing": "已暂停的列表",
+    "failed_update_listing_status": "更新列表状态失败。",
+    "failed_update_listing_price": "更新价格失败。",
+    "failed_update_saved_listings": "更新已保存列表失败。",
+    "failed_unlock": "解锁提示词失败。",
+    "payout_settings": "支付设置",
+    "failed_save_payout_preferences": "保存支付偏好设置失败。"
+  },
+  "admin": {
+    "failed_load_contract_state": "加载合约状态失败。",
+    "config_dashboard_title": "合约配置",
+    "reports_title": "审核报告"
+  },
+  "forms": {
+    "error_required": "此字段为必填项。",
+    "error_invalid": "输入无效。",
+    "error_validation": "验证失败。请检查表单。"
   }
 }

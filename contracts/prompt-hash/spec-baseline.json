@@ -19,6 +19,15 @@
       "BulkCheckout",
       "ResaleFill"
     ],
+    "AssetLiability": [
+      "pub pending: i128",
+      "pub disputed: i128"
+    ],
+    "AssetSolvency": [
+      "pub tracked_liability: i128",
+      "pub actual_balance: i128",
+      "pub surplus: i128"
+    ],
     "Bundle": [
       "pub id: u128",
       "pub creator: Address",
@@ -76,7 +85,10 @@
       "ResaleOrder(BytesN<32>)",
       "ResaleOrderNonce(Address",
       "BytesN<32>)",
-      "GovernanceProposal(BytesN<32>)"
+      "GovernanceProposal(BytesN<32>)",
+      "AssetLiability(Address)",
+      "EscrowLiabilityMigrated(u64",
+      "Address)"
     ],
     "DisputeReason": [
       "InvalidEncryptedPayload",
@@ -440,7 +452,8 @@
     "PlatformFeeUpdated": [
       "pub old_fee: u32",
       "pub new_fee: u32",
-      "pub admin: Address"
+      "pub admin: Address",
+      "pub effective_ledger: u32"
     ],
     "PromptAdminModerated": [
       "pub prompt_id: u64",
@@ -488,6 +501,11 @@
       "pub creator: Address",
       "pub nonce: BytesN<32>"
     ],
+    "SolvencyViolationDetected": [
+      "pub asset: Address",
+      "pub tracked_liability: i128",
+      "pub actual_balance: i128"
+    ],
     "SplitsUpdated": [
       "pub prompt_id: u64"
     ],
@@ -511,6 +529,7 @@
     "buy_prompt": "fn buy_prompt( env: Env, buyer: Address, prompt_id: u64, referrer: Option<Address>, payment_amount_stroops: i128, voucher: Option<Bytes>, ) -> Result<(), Error>",
     "buy_prompt_with_auth": "fn buy_prompt_with_auth( env: Env, buyer: Address, prompt_id: u64, referrer: Option<Address>, payment_amount_stroops: i128, authorization: SignedDiscountAuthorization, creator_sig: BytesN<64>, ) -> Result<(), Error>",
     "buy_prompts_bulk": "fn buy_prompts_bulk( env: Env, buyer: Address, prompt_ids: Vec<u64>, payment_amounts: Vec<i128>, referrer: Option<Address>, ) -> Result<(), Error>",
+    "check_asset_solvency": "fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error>",
     "create_access_pass": "fn create_access_pass( env: Env, creator: Address, title: String, duration_secs: u64, price_stroops: i128, asset: Address, max_supply: u32, ) -> Result<u128, Error>",
     "create_bundle": "fn create_bundle( env: Env, creator: Address, title: String, prompt_ids: Vec<u64>, price_stroops: i128, asset: Address, expires_at: u64, ) -> Result<u128, Error>",
     "create_prompt": "fn create_prompt( env: Env, creator: Address, image_url: String, title: String, category: String, preview_text: String, encrypted_prompt: String, encryption_iv: String, wrapped_key: String, content_hash: BytesN<32>, listing: ListingConfig, ) -> Result<u64, Error>",
@@ -522,6 +541,8 @@
     "get_active_prompts_paginated": "fn get_active_prompts_paginated( env: Env, cursor: Option<String>, limit: u64, ) -> Result<(Vec<Prompt>, Option<String>), Error>",
     "get_all_prompts": "fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>",
     "get_all_prompts_paginated": "fn get_all_prompts_paginated( env: Env, cursor: Option<String>, limit: u64, ) -> Result<(Vec<Prompt>, Option<String>), Error>",
+    "get_asset_liability": "fn get_asset_liability(env: Env, asset: Address) -> AssetLiability",
+    "get_asset_solvency": "fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency",
     "get_bundle": "fn get_bundle(env: Env, bundle_id: u128) -> Result<Bundle, Error>",
     "get_bundles_by_creator": "fn get_bundles_by_creator(env: Env, creator: Address) -> Result<Vec<Bundle>, Error>",
     "get_dispute": "fn get_dispute(env: Env, prompt_id: u64, buyer: Address) -> Result<PurchaseDispute, Error>",
@@ -544,6 +565,8 @@
     "has_access": "fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error>",
     "is_paused": "fn is_paused(env: Env) -> bool",
     "lease_prompt": "fn lease_prompt( env: Env, buyer: Address, prompt_id: u64, lease_duration_secs: u64, ) -> Result<(), Error>",
+    "migrate_asset_liability": "fn migrate_asset_liability( env: Env, admin: Address, prompt_id: u64, buyer: Address, ) -> Result<(), Error>",
+    "migrate_platform_fee_bound": "fn migrate_platform_fee_bound(env: Env, admin: Address) -> Result<(), Error>",
     "open_dispute": "fn open_dispute( env: Env, buyer: Address, prompt_id: u64, reason: DisputeReason, ) -> Result<(), Error>",
     "remove_voucher": "fn remove_voucher( env: Env, creator: Address, prompt_id: u64, hashed_code: BytesN<32>, ) -> Result<(), Error>",
     "renew_critical_keys": "fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error>",

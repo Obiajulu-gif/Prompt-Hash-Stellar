@@ -27,7 +27,7 @@ Core contract methods:
 - `get_prompts_by_buyer`
 - `update_prompt_price`
 - `set_prompt_sale_status`
-- `set_fee_percentage`
+- `set_fee_percentage` — canonical fee-configuration entrypoint, bounded to `MAX_PLATFORM_FEE` (1,000 bps / 10%). `update_platform_fee` is a deprecated alias that delegates to the same bounded internal path, so neither entrypoint can be used to bypass the other's ceiling.
 - `set_fee_wallet`
 
 ## 2. Frontend Application Layer

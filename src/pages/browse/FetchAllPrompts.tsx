@@ -16,10 +16,10 @@ import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
-  getAllPrompts,
   hasAccess,
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
+import { useCatalogPages } from "./useCatalogPages";
 import {
   fetchSavedPrompts,
   savePromptListing,
@@ -99,13 +99,24 @@ const FetchAllPrompts = ({
     recordPreview(prompt.id.toString());
   };
 
-  const promptsQuery = useQuery({
-    queryKey: ["marketplace-prompts"],
-    queryFn: async () => {
-      if (!isMarketplaceConfigured) return [];
-      return getAllPrompts(browserStellarConfig);
-    },
-  });
+  const catalog = useCatalogPages(
+    isMarketplaceConfigured ? browserStellarConfig : null,
+  );
+  const allPrompts = useMemo(
+    () => catalog.data?.pages.flatMap((page) => page.prompts) ?? [],
+    [catalog.data],
+  );
+
+  // Keep the existing downstream shape (`promptsQuery.data`, `.isLoading`,
+  // etc.) so the rest of the component is unchanged; the data source is now a
+  // paginated, cached, append-only accumulator instead of one unbounded read.
+  const promptsQuery = {
+    data: allPrompts,
+    isLoading: catalog.isLoading,
+    isError: catalog.isError,
+    error: catalog.error,
+    refetch: catalog.refetch,
+  };
 
   const savedPromptsQuery = useQuery({
     queryKey: ["saved-prompts", address],
@@ -143,7 +154,23 @@ const FetchAllPrompts = ({
     const observer = new IntersectionObserver(
       (entries) => {
         const target = entries[0];
-        if (target.isIntersecting && currentPage < totalPages) {
+        if (!target.isIntersecting) return;
+
+        const displayed = currentPage * ITEMS_PER_PAGE;
+
+        // When the user has scrolled through everything we currently hold and
+        // the contract has more pages, fetch the next page (which appends to
+        // the accumulated catalog rather than replacing it).
+        if (
+          displayed >= filteredPrompts.length &&
+          catalog.hasNextPage &&
+          !catalog.isFetchingNextPage
+        ) {
+          void catalog.fetchNextPage();
+          return;
+        }
+
+        if (currentPage < totalPages) {
           setCurrentPage((prev) => prev + 1);
         }
       },
@@ -152,7 +179,14 @@ const FetchAllPrompts = ({
 
     observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [currentPage]);
+  }, [
+    currentPage,
+    totalPages,
+    filteredPrompts.length,
+    catalog.hasNextPage,
+    catalog.isFetchingNextPage,
+    catalog.fetchNextPage,
+  ]);
 
   const accessQueries = useQueries({
     queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
@@ -349,17 +383,18 @@ const FetchAllPrompts = ({
           </motion.div>
 
           {/* Infinite Scroll Trigger */}
-          {ENABLE_INFINITE_SCROLL && currentPage < totalPages && (
-            <div
-              ref={loadMoreRef}
-              className="mt-12 flex items-center justify-center py-8"
-            >
-              <div className="flex items-center gap-3 text-slate-400">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm">Loading more prompts...</span>
+          {ENABLE_INFINITE_SCROLL &&
+            (currentPage < totalPages || catalog.hasNextPage) && (
+              <div
+                ref={loadMoreRef}
+                className="mt-12 flex items-center justify-center py-8"
+              >
+                <div className="flex items-center gap-3 text-slate-400">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span className="text-sm">Loading more prompts...</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Show count indicator for infinite scroll */}
           {ENABLE_INFINITE_SCROLL &&

@@ -161,6 +161,10 @@ export const EVENT_SCHEMAS: Record<string, EventSchema> = {
       { name: "old_fee", type: "u32" },
       { name: "new_fee", type: "u32" },
       { name: "admin", type: "address" },
+      // Ledger sequence the change took effect at (#566). Fields are
+      // decoded by name, so this addition is safe for any consumer still
+      // reading the pre-#566 shape — it simply won't request this field.
+      { name: "effective_ledger", type: "u32" },
     ],
   },
   ListingExtended: {
@@ -177,6 +181,15 @@ export const EVENT_SCHEMAS: Record<string, EventSchema> = {
     fields: [
       { name: "prompt_id", type: "u64" },
       { name: "new_revision", type: "u32" },
+    ],
+  },
+  SolvencyViolationDetected: {
+    name: "SolvencyViolationDetected",
+    version: 1,
+    fields: [
+      { name: "asset", type: "address" },
+      { name: "tracked_liability", type: "i128" },
+      { name: "actual_balance", type: "i128" },
     ],
   },
   SplitsUpdated: {

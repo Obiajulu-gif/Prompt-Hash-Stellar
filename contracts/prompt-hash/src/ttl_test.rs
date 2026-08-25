@@ -86,4 +86,52 @@ mod tests {
             "Batch size must respect Soroban resource limits"
         );
     }
+
+    #[test]
+    fn test_renewal_batch_structure() {
+        let batch = RenewalBatch {
+            cursor: Some(42u64),
+            processed_count: 5,
+            remaining_count: 15,
+        };
+        assert_eq!(batch.cursor, Some(42u64));
+        assert_eq!(batch.processed_count, 5);
+        assert_eq!(batch.remaining_count, 15);
+    }
+
+    #[test]
+    fn test_renewal_batch_with_none_cursor() {
+        let batch = RenewalBatch {
+            cursor: None,
+            processed_count: 0,
+            remaining_count: 20,
+        };
+        assert_eq!(batch.cursor, None);
+        assert_eq!(batch.processed_count, 0);
+    }
+
+    #[test]
+    fn test_expiry_risk_all_safe() {
+        let max_ttl = ONE_YEAR;
+        let current_ledger = 1_000_000u64;
+        // Just extended, lots of time left
+        let last_extended = current_ledger;
+
+        let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
+        assert_eq!(risk.critical_keys, 0);
+        assert_eq!(risk.imminent_keys, 0);
+        assert_eq!(risk.at_risk_keys, 0);
+    }
+
+    #[test]
+    fn test_expiry_risk_imminent() {
+        let max_ttl = ONE_MONTH;
+        let current_ledger = 1_000_000u64;
+        // 85% through TTL, entering imminent zone (30-50%)
+        let last_extended = current_ledger - (max_ttl as u64) * 8 / 10;
+
+        let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
+        assert!(risk.imminent_keys > 0, "Should detect imminent expiry");
+        assert_eq!(risk.critical_keys, 0);
+    }
 }

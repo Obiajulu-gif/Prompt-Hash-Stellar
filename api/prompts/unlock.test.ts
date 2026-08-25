@@ -59,10 +59,6 @@ vi.mock("../../server/src/services/auditTrail", () => ({
   recordAuditEvent: vi.fn(),
 }));
 
-vi.mock("../../server/src/services/webhookDispatcher", () => ({
-  dispatchEvent: vi.fn().mockResolvedValue(undefined),
-}));
-
 import handler from "./unlock";
 
 async function setupUnlockFixture(plaintext = PLAINTEXT) {

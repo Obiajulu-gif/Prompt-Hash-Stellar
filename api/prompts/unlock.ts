@@ -29,7 +29,6 @@ import {
   storeIdempotencyResult,
 } from "../../src/lib/observability/idempotency";
 import { metrics } from "../../src/lib/observability/metrics";
-import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
@@ -417,14 +416,10 @@ async function handler(
       reason: null,
     });
 
-    // Fire-and-forget webhook dispatch so the creator is notified of the sale.
-    void Promise.resolve(
-      dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
-        promptId: prompt.id.toString(),
-        buyer: String(address),
-        title: prompt.title,
-      }),
-    ).catch(() => {});
+    // The Soroban indexer is the sole source of `PromptPurchased` webhook
+    // deliveries (#536) — it has the authoritative on-chain buyer/price/
+    // txHash and a stable per-event dedupe key, so unlock no longer fires a
+    // second, independent notification for the same purchase.
 
     const successResponse: UnlockSuccessResponse = {
       promptId: prompt.id.toString(),
