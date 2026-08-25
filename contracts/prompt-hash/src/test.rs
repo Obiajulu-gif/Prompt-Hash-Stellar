@@ -5941,6 +5941,147 @@ fn create_prompt_with_category(
     prompt_id
 }
 
+#[test]
+fn test_migrate_platform_fee_bound_non_admin_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    env.as_contract(&context.contract, || {
+        crate::storage::InstanceStorage::set_fee_percentage(&env, &5_000u32);
+    });
+
+    let non_admin = Address::generate(&env);
+    let res = client.try_migrate_platform_fee_bound(&non_admin);
+    match res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected Unauthorized for non-admin, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_migrate_platform_fee_bound_already_within_bound() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    // Fee is already within the bound by default
+    assert_eq!(client.get_fee_percentage(), 100);
+
+    // Migration should be a no-op
+    client.migrate_platform_fee_bound(&context.admin);
+    assert_eq!(client.get_fee_percentage(), 100);
+}
+
+#[test]
+fn test_migrate_asset_liability_pending_case() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 3_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Pending Migrate", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Clear liability to simulate pre-#570 state
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_pending_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    assert_eq!(client.get_asset_liability(&context.xlm).pending, 0);
+
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+
+    // Verify liability was migrated
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.pending, price);
+}
+
+#[test]
+fn test_migrate_asset_liability_disputed_case() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 4_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Disputed Migrate", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Open dispute
+    client.open_dispute(&buyer, &prompt_id);
+
+    // Clear liability to simulate pre-#570 state
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_disputed_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    assert_eq!(client.get_asset_liability(&context.xlm).disputed, 0);
+
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+
+    // Verify disputed liability was migrated
+    let liability = client.get_asset_liability(&context.xlm);
+    assert_eq!(liability.disputed, price);
+}
+
+#[test]
+fn test_migrate_asset_liability_non_admin_rejected() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Auth Check", 2_000, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 2_000);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &2_000, &None::<Bytes>);
+
+    let non_admin = Address::generate(&env);
+    let res = client.try_migrate_asset_liability(&non_admin, &prompt_id, &buyer);
+    match res {
+        Err(Ok(Error::Unauthorized)) => {}
+        other => panic!("expected Unauthorized for non-admin, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_migrate_asset_liability_with_asset_solvency() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let price = 6_000;
+    let prompt_id = create_prompt(&env, &client, &creator, "Solvency Check", price, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, price);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
+
+    // Clear liability to simulate pre-#570 state
+    env.as_contract(&context.contract, || {
+        crate::storage::Storage::remove_pending_liability(&env, &context.xlm, price).unwrap();
+    });
+
+    // Before migration: liability is zero
+    let before = client.check_asset_solvency(&context.xlm);
+    assert_eq!(before.tracked_liability, 0);
+
+    // After migration: liability should match the escrow amount
+    client.migrate_asset_liability(&context.admin, &prompt_id, &buyer);
+    let after = client.check_asset_solvency(&context.xlm);
+    assert_eq!(after.tracked_liability, price);
+}
+
 // ─── Issue #594: Comprehensive discount authorization tests ───────────────────
 
 use crate::types::SignedDiscountAuthorization;

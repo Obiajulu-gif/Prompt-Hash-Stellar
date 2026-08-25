@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { RefundRequestModal } from "./RefundRequestModal";
+import { DisputeModal } from "./DisputeModal";
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpenCheck,
@@ -153,7 +154,9 @@ function PromptLibraryCard({
   const isUnlocked = Boolean(plaintext);
   const showExplainer = unlockState !== "idle" && unlockState !== "success";
   const [showRefundModal, setShowRefundModal] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
   const canRequestRefund = unlockState === "failed" && buyerWallet;
+  const canOpenDispute = buyerWallet;
 
   // Licence entitlement status panel (#490) — surfaces the purchase
   // transaction + licence version reference and distinguishes a slow
@@ -291,12 +294,30 @@ function PromptLibraryCard({
               Request Refund
             </Button>
           )}
+          {canOpenDispute && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 border-red-400/30 text-red-300 hover:bg-red-400/10 text-xs font-bold"
+              onClick={() => setShowDisputeModal(true)}
+            >
+              Open Dispute
+            </Button>
+          )}
         </div>
       </div>
       {canRequestRefund && (
         <RefundRequestModal
           isOpen={showRefundModal}
           onClose={() => setShowRefundModal(false)}
+          promptId={prompt.id.toString()}
+          buyerWallet={buyerWallet!}
+        />
+      )}
+      {canOpenDispute && (
+        <DisputeModal
+          isOpen={showDisputeModal}
+          onClose={() => setShowDisputeModal(false)}
           promptId={prompt.id.toString()}
           buyerWallet={buyerWallet!}
         />
