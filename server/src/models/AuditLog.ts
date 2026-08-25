@@ -65,6 +65,15 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    recordHash: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    previousHash: {
+      type: String,
+      required: true,
+    },
     // Sensitive fields are NEVER stored — only stable reason codes above.
     // No plaintext, no keys, no raw signatures, no challenge secrets.
   },
