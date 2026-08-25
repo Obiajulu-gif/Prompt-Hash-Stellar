@@ -336,48 +336,81 @@ export class PromptHashClient {
     return contractMethods.contractGetPromptsByCreator(config, address);
   }
 
-  /**
-   * Find existing prompts whose content hash matches the given hash.
-   * Returns matching records without exposing plaintext content.
-   */
-  static async findPromptByContentHash(
+/**
+ * Error types for prompt client read failures, distinguishing between
+ * empty results and actual failures (RPC outage, malformed data, stale state).
+ */
+export enum PromptHashReadError {
+  Empty = "EMPTY",
+  RPCOutage = "RPC_OUTAGE",
+  MalformedXDR = "MALFORMED_XDR",
+  StaleData = "STALE_DATA",
+  PartialPagination = "PARTIAL_PAGINATION",
+}
+
+export interface ReadErrorResult {
+  error: PromptHashReadError;
+  message: string;
+  retryable: boolean;
+}
+
+/**
+ * Result type that distinguishes between empty results and failure results.
+ */
+export type PromptRecordResult = 
+  | { success: true; records: PromptRecord[] }
+  | { success: false; error: PromptHashReadError; message: string };
+
+/**
+ * Find existing prompts whose content hash matches the given hash.
+ * Returns matching records without exposing plaintext content.
+ * Distinguishes between an truly empty result and a failure to fetch.
+ */
+static async findPromptByContentHash(
     config: PromptHashConfig,
     contentHash: string,
-  ): Promise<PromptRecord[]> {
+  ): Promise<PromptRecordResult> {
     try {
       // Query the off-chain indexer API for duplicate detection
       const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:3001";
       const response = await fetch(`${apiUrl}/api/prompts/hash/${contentHash}`);
 
       if (!response.ok) {
-        console.error(
-          "Failed to fetch prompts by content hash:",
-          response.status,
-        );
-        return [];
+        return {
+          success: false,
+          error: PromptHashReadError.RPCOutage,
+          message: `HTTP ${response.status}: failed to fetch prompts by content hash`,
+        };
       }
 
       const data = await response.json();
       if (!data.found) {
-        return [];
+        // Truly empty - no prompts with this hash exist
+        return { success: true, records: [] };
       }
 
       // Transform API response to PromptRecord format
-      return data.matches.map((match: any) => ({
-        id: BigInt(match.id || 0),
-        creator: match.creator,
-        priceStroops: BigInt(0), // Not included in hash lookup response
-        title: match.title,
-        category: "",
-        previewText: "",
-        imageUrl: "",
-        salesCount: match.salesCount || 0,
-        active: match.isActive,
-        contentHash: contentHash,
-      }));
-    } catch (error) {
-      console.error("Error fetching prompts by content hash:", error);
-      return [];
+      return {
+        success: true,
+        records: data.matches.map((match: any) => ({
+          id: BigInt(match.id || 0),
+          creator: match.creator,
+          priceStroops: BigInt(0), // Not included in hash lookup response
+          title: match.title,
+          category: "",
+          previewText: "",
+          imageUrl: "",
+          salesCount: match.salesCount || 0,
+          active: match.isActive,
+          contentHash: contentHash,
+        })),
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: PromptHashReadError.RPCOutage,
+        message: error.message || "Unknown error fetching prompts by content hash",
+      };
     }
   }
 
