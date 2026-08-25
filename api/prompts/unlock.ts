@@ -232,12 +232,20 @@ async function handler(
   try {
     // Support multiple active secrets during rotation grace period
     const activeSecrets = getActiveSecrets(challengeSecret);
+    const config = getServerConfig();
     
     const payload = verifyChallengeToken(
       activeSecrets,
       String(token),
       String(address),
       String(promptId),
+      Date.now(),
+      {
+        origin: String(req.headers.origin ?? ""),
+        networkPassphrase: config.networkPassphrase,
+        contractId: config.promptHashContractId,
+        action: "unlock",
+      },
     );
     const challengeMessage = buildChallengeMessage(payload);
     const validSignature = verifyChallengeSignature(
@@ -304,7 +312,6 @@ async function handler(
       return;
     }
 
-    const config = getServerConfig();
     const id = BigInt(promptId);
 
     // Verify entitlement against finalized ledger state (#545).
