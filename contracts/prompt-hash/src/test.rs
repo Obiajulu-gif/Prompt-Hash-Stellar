@@ -2,7 +2,6 @@
 
 extern crate std;
 
-use std::format;
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
 use crate::types::{Error, ListingConfig, PromptSaleStatus, Split};
@@ -10,6 +9,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
 };
+use std::format;
 
 #[derive(Clone, Debug, PartialEq)]
 struct PromptHashContext {
@@ -962,8 +962,14 @@ fn test_buy_prompt_with_max_fee() {
 
     client.settle_purchase(&context.admin, &prompt_id, &buyer);
 
-    assert_eq!(xlm_client.balance(&creator), seller_start + price - price / 10);
-    assert_eq!(xlm_client.balance(&context.fee_wallet), fee_start + price / 10);
+    assert_eq!(
+        xlm_client.balance(&creator),
+        seller_start + price - price / 10
+    );
+    assert_eq!(
+        xlm_client.balance(&context.fee_wallet),
+        fee_start + price / 10
+    );
 }
 
 #[test]
@@ -2908,7 +2914,7 @@ fn test_validate_bulk_purchase_marks_invalid_items() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let _xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -2927,8 +2933,8 @@ fn test_validate_bulk_purchase_marks_invalid_items() {
     let validity = client.validate_bulk_purchase(&buyer, &ids, &amounts);
 
     assert_eq!(validity.len(), 2);
-    assert!(validity.get(0).unwrap());   // Valid prompt
-    assert!(!validity.get(1).unwrap());  // Non-existent prompt
+    assert!(validity.get(0).unwrap()); // Valid prompt
+    assert!(!validity.get(1).unwrap()); // Non-existent prompt
 }
 
 #[test]
@@ -2995,7 +3001,14 @@ fn test_validate_bulk_purchase_detects_inactive_prompt() {
     let buyer = Address::generate(&env);
 
     let price: i128 = 5_000;
-    let prompt = create_prompt(&env, &client, &creator, "Soon Inactive", price, &context.xlm);
+    let prompt = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Soon Inactive",
+        price,
+        &context.xlm,
+    );
 
     // Set it inactive
     client.set_prompt_sale_status(&creator, &prompt, &PromptSaleStatus::Paused);
@@ -5455,7 +5468,7 @@ fn test_split_validation_rejects_too_many_splits() {
     let creator = Address::generate(&env);
 
     let mut splits = Vec::<Split>::new(&env);
-    for i in 0..11 {
+    for _i in 0..11 {
         let recipient = Address::generate(&env);
         splits.push_back(Split {
             recipient,
@@ -5560,7 +5573,7 @@ fn test_renew_critical_keys_batch_resumption_with_cursor() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
-    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let _xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
 
     // Create more prompts than MAX_RENEWAL_BATCH_SIZE (20) to trigger batching
@@ -5581,12 +5594,21 @@ fn test_renew_critical_keys_batch_resumption_with_cursor() {
 
     // First batch: should process up to MAX_RENEWAL_BATCH_SIZE prompts
     let (renewed_count_1, cursor_1) = client.renew_critical_keys(&None::<u64>);
-    assert_eq!(renewed_count_1, 20, "First batch should process exactly MAX_RENEWAL_BATCH_SIZE");
-    assert!(cursor_1.is_some(), "First batch should return a cursor for resumption");
+    assert_eq!(
+        renewed_count_1, 20,
+        "First batch should process exactly MAX_RENEWAL_BATCH_SIZE"
+    );
+    assert!(
+        cursor_1.is_some(),
+        "First batch should return a cursor for resumption"
+    );
 
     // Second batch: continue from cursor
     let (renewed_count_2, cursor_2) = client.renew_critical_keys(&cursor_1);
-    assert_eq!(renewed_count_2, 15, "Second batch should process remaining prompts");
+    assert_eq!(
+        renewed_count_2, 15,
+        "Second batch should process remaining prompts"
+    );
     assert_eq!(
         cursor_2, None,
         "Second batch should return None cursor when all done"
@@ -5659,7 +5681,14 @@ fn test_renew_critical_keys_with_invalid_cursor_degrades_gracefully() {
 
     // Create a few prompts
     for i in 0..3 {
-        create_prompt(&env, &client, &creator, &format!("Test {}", i), 1_500, &context.xlm);
+        create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Test {}", i),
+            1_500,
+            &context.xlm,
+        );
     }
 
     // Use a cursor that doesn't correspond to any created prompt
@@ -5685,7 +5714,14 @@ fn test_renew_critical_keys_expiry_risk_consistency() {
 
     // Create prompts
     for i in 0..5 {
-        create_prompt(&env, &client, &creator, &format!("Risk {}", i), 1_000, &context.xlm);
+        create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Risk {}", i),
+            1_000,
+            &context.xlm,
+        );
     }
 
     // Run partial renewal
@@ -5694,7 +5730,11 @@ fn test_renew_critical_keys_expiry_risk_consistency() {
 
     // Get expiry risk metrics after renewal
     let risk_metrics = client.get_expiry_risk_metrics();
-    assert_eq!(risk_metrics.len(), 0, "All renewed keys should be safe from imminent expiry");
+    assert_eq!(
+        risk_metrics.len(),
+        0,
+        "All renewed keys should be safe from imminent expiry"
+    );
 }
 
 #[test]
@@ -5733,14 +5773,13 @@ fn test_get_prompts_by_category_page_empty_category() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     // Query a category that has no prompts
-    let (prompts, next_cursor) =
-        client.get_prompts_by_category_page(&String::from_str(&env, "NonexistentCategory"), &None::<String>, &50);
-
-    assert_eq!(
-        prompts.len(),
-        0,
-        "Empty category should return no prompts"
+    let (prompts, next_cursor) = client.get_prompts_by_category_page(
+        &String::from_str(&env, "NonexistentCategory"),
+        &None::<String>,
+        &50,
     );
+
+    assert_eq!(prompts.len(), 0, "Empty category should return no prompts");
     assert_eq!(
         next_cursor, None,
         "Empty category should have no next cursor"
@@ -5754,14 +5793,14 @@ fn test_get_prompts_by_tag_paginated_empty_tag() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     // Query a tag that has no prompts
-    let (prompts, next_cursor) =
-        client.get_prompts_by_tag_paginated(&String::from_str(&env, "nonexistent-tag"), &None::<String>, &50);
+    let (prompts, next_cursor) = client.get_prompts_by_tag_paginated(
+        &String::from_str(&env, "nonexistent-tag"),
+        &None::<String>,
+        &50,
+    );
 
     assert_eq!(prompts.len(), 0, "Empty tag should return no prompts");
-    assert_eq!(
-        next_cursor, None,
-        "Empty tag should have no next cursor"
-    );
+    assert_eq!(next_cursor, None, "Empty tag should have no next cursor");
 }
 
 #[test]
@@ -5793,16 +5832,19 @@ fn test_pagination_page_size_zero_handled() {
 
     // Create some prompts
     for i in 0..3 {
-        create_prompt(&env, &client, &creator, &format!("Size {}", i), 1_000, &context.xlm);
+        create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Size {}", i),
+            1_000,
+            &context.xlm,
+        );
     }
 
     // Request with page size 0
     let (prompts, _cursor) = client.get_all_prompts_paginated(&None::<String>, &0);
-    assert_eq!(
-        prompts.len(),
-        0,
-        "Page size 0 should return empty results"
-    );
+    assert_eq!(prompts.len(), 0, "Page size 0 should return empty results");
 }
 
 #[test]
@@ -5814,7 +5856,14 @@ fn test_pagination_page_size_larger_than_collection() {
 
     // Create 3 prompts
     for i in 0..3 {
-        create_prompt(&env, &client, &creator, &format!("Collection {}", i), 1_000, &context.xlm);
+        create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Collection {}", i),
+            1_000,
+            &context.xlm,
+        );
     }
 
     // Request with page size much larger than collection
@@ -5848,8 +5897,11 @@ fn test_pagination_cursor_consistency_across_entry_points() {
     // Paginate through all prompts
     let (all_prompts, _) = client.get_all_prompts_paginated(&None::<String>, &100);
     // Paginate through category prompts
-    let (category_prompts, _) =
-        client.get_prompts_by_category_page(&String::from_str(&env, category), &None::<String>, &100);
+    let (category_prompts, _) = client.get_prompts_by_category_page(
+        &String::from_str(&env, category),
+        &None::<String>,
+        &100,
+    );
 
     // Both should return prompts (category subset should be at most as many as all)
     assert!(
@@ -5857,7 +5909,7 @@ fn test_pagination_cursor_consistency_across_entry_points() {
         "Category results should not exceed total results"
     );
     assert!(
-        category_prompts.len() > 0,
+        !category_prompts.is_empty(),
         "Should have found prompts in category"
     );
 }
@@ -5871,7 +5923,14 @@ fn test_pagination_with_batch_requests() {
 
     // Create 10 prompts
     for i in 0..10 {
-        create_prompt(&env, &client, &creator, &format!("Batch {}", i), 1_000, &context.xlm);
+        create_prompt(
+            &env,
+            &client,
+            &creator,
+            &format!("Batch {}", i),
+            1_000,
+            &context.xlm,
+        );
     }
 
     let mut all_paginated = Vec::new(&env);
@@ -5879,8 +5938,7 @@ fn test_pagination_with_batch_requests() {
 
     // Paginate through 3 at a time
     loop {
-        let (batch, next_cursor) =
-            client.get_all_prompts_paginated(&current_cursor, &3);
+        let (batch, next_cursor) = client.get_all_prompts_paginated(&current_cursor, &3);
 
         if batch.is_empty() {
             break;
