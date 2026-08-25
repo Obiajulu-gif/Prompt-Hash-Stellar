@@ -35,30 +35,38 @@ const fallback = {
   PUBLIC_UNLOCK_PUBLIC_KEY: "",
 };
 
+const isProduction =
+  (typeof process !== "undefined" && process?.env?.NODE_ENV === "production") ||
+  import.meta.env.MODE === "production";
+
 const env = envSchema.parse({
   PUBLIC_STELLAR_NETWORK:
-    import.meta.env.PUBLIC_STELLAR_NETWORK ?? fallback.PUBLIC_STELLAR_NETWORK,
+    import.meta.env.PUBLIC_STELLAR_NETWORK ??
+    (isProduction ? undefined : fallback.PUBLIC_STELLAR_NETWORK),
   PUBLIC_STELLAR_NETWORK_PASSPHRASE:
     import.meta.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ??
-    fallback.PUBLIC_STELLAR_NETWORK_PASSPHRASE,
+    (isProduction ? undefined : fallback.PUBLIC_STELLAR_NETWORK_PASSPHRASE),
   PUBLIC_STELLAR_RPC_URL:
-    import.meta.env.PUBLIC_STELLAR_RPC_URL ?? fallback.PUBLIC_STELLAR_RPC_URL,
+    import.meta.env.PUBLIC_STELLAR_RPC_URL ??
+    (isProduction ? undefined : fallback.PUBLIC_STELLAR_RPC_URL),
   PUBLIC_STELLAR_HORIZON_URL:
     import.meta.env.PUBLIC_STELLAR_HORIZON_URL ??
-    fallback.PUBLIC_STELLAR_HORIZON_URL,
+    (isProduction ? undefined : fallback.PUBLIC_STELLAR_HORIZON_URL),
   PUBLIC_PROMPT_HASH_CONTRACT_ID:
     import.meta.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ??
-    fallback.PUBLIC_PROMPT_HASH_CONTRACT_ID,
+    (isProduction ? undefined : fallback.PUBLIC_PROMPT_HASH_CONTRACT_ID),
   PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID:
     import.meta.env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID ??
-    fallback.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID,
+    (isProduction ? undefined : fallback.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID),
   PUBLIC_STELLAR_SIMULATION_ACCOUNT:
     import.meta.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ??
-    fallback.PUBLIC_STELLAR_SIMULATION_ACCOUNT,
+    (isProduction ? undefined : fallback.PUBLIC_STELLAR_SIMULATION_ACCOUNT),
   PUBLIC_CHAT_API_BASE:
-    import.meta.env.PUBLIC_CHAT_API_BASE ?? fallback.PUBLIC_CHAT_API_BASE,
+    import.meta.env.PUBLIC_CHAT_API_BASE ??
+    (isProduction ? undefined : fallback.PUBLIC_CHAT_API_BASE),
   PUBLIC_UNLOCK_PUBLIC_KEY:
-    import.meta.env.PUBLIC_UNLOCK_PUBLIC_KEY ?? fallback.PUBLIC_UNLOCK_PUBLIC_KEY,
+    import.meta.env.PUBLIC_UNLOCK_PUBLIC_KEY ??
+    (isProduction ? undefined : fallback.PUBLIC_UNLOCK_PUBLIC_KEY),
 });
 
 export const stellarNetwork =

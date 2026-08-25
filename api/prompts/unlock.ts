@@ -85,18 +85,7 @@ function getActiveSecrets(primarySecret: string): string[] {
 }
 
 function getServerConfig(): PromptHashConfig {
-  const rpcUrl =
-    process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
-  const networkPassphrase =
-    process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ??
-    "Test SDF Network ; September 2015";
-  const promptHashContractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ?? "";
-  const nativeAssetContractId =
-    process.env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID ??
-    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-  const simulationAccount =
-    process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ?? process.env.UNLOCK_PUBLIC_KEY ?? "";
-
+  const manifest = getServerDeploymentManifest();
   return {
     rpcUrl,
     rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")

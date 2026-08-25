@@ -52,6 +52,7 @@ vi.mock("../../src/lib/observability/metrics", () => ({
     trackUnlockSuccess: vi.fn(),
     trackUnlockFailure: vi.fn(),
     trackRateLimitHit: vi.fn(),
+    trackUnlockLatency: vi.fn(),
   },
 }));
 
