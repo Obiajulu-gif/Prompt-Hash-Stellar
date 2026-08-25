@@ -5760,10 +5760,7 @@ fn test_get_all_prompts_paginated_empty_collection() {
     let (prompts, next_cursor) = client.get_all_prompts_paginated(&None::<String>, &50);
 
     assert_eq!(prompts.len(), 0, "Empty storage should return no prompts");
-    assert_eq!(
-        next_cursor, None,
-        "No next cursor for empty collection"
-    );
+    assert_eq!(next_cursor, None, "No next cursor for empty collection");
 }
 
 #[test]
