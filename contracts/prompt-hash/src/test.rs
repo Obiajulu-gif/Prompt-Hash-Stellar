@@ -5991,8 +5991,6 @@ fn create_prompt_with_category(
             max_supply: 0,
         },
     )
-<<<<<<< HEAD
-=======
 }
 
 #[test]
