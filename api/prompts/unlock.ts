@@ -87,12 +87,18 @@ function getActiveSecrets(primarySecret: string): string[] {
 function getServerConfig(): PromptHashConfig {
   const manifest = getServerDeploymentManifest();
   return {
-    rpcUrl: manifest.rpcUrl,
-    networkPassphrase: manifest.networkPassphrase,
-    promptHashContractId: manifest.promptHashContractId,
-    nativeAssetContractId: manifest.nativeAssetContractId,
-    simulationAccount: manifest.simulationAccount,
-    allowHttp: new URL(manifest.rpcUrl).hostname === "localhost",
+    rpcUrl,
+    rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
+    entitlementQuorum: process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM
+      ? Number(process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM)
+      : undefined,
+    networkPassphrase,
+    promptHashContractId,
+    nativeAssetContractId,
+    simulationAccount,
+    allowHttp: new URL(rpcUrl).hostname === "localhost",
   };
 }
 

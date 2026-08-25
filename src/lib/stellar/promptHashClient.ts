@@ -10,6 +10,8 @@ import { getSourcePromptId } from "../prompts/remixAttribution";
 
 export interface PromptHashConfig {
   rpcUrl: string;
+  rpcUrls?: string[];
+  entitlementQuorum?: number;
   networkPassphrase: string;
   allowHttp?: boolean;
   promptHashContractId: string;
@@ -29,9 +31,98 @@ export interface LedgerVerifiedEntitlement {
   networkId: string;
   contractId: string;
   checkedAt: number;
+  providerCount?: number;
+  quorum?: number;
+  divergenceReason?: string;
 }
 
 export const DEFAULT_MAX_LEDGER_AGE = 5;
+
+export interface EntitlementProviderSample {
+  providerUrl: string;
+  hasAccess: boolean;
+  ledgerSequence: number;
+  ledgerHash: string;
+  ledgerClosedAt?: number;
+}
+
+function getEntitlementRpcUrls(config: PromptHashConfig): string[] {
+  const envUrls =
+    typeof process !== "undefined"
+      ? process.env.PUBLIC_STELLAR_RPC_URLS?.split(",").map((url) => url.trim()).filter(Boolean)
+      : undefined;
+  const configured = config.rpcUrls?.length
+    ? config.rpcUrls
+    : envUrls;
+  return Array.from(new Set([...(configured?.length ? configured : [config.rpcUrl]), config.rpcUrl]));
+}
+
+export function evaluateEntitlementQuorum(
+  samples: EntitlementProviderSample[],
+  policy: {
+    quorum: number;
+    maxLedgerAge: number;
+    networkId: string;
+    contractId: string;
+    checkedAt: number;
+  },
+): LedgerVerifiedEntitlement {
+  const latest = samples.reduce<EntitlementProviderSample | null>(
+    (current, sample) =>
+      !current || sample.ledgerSequence > current.ledgerSequence ? sample : current,
+    null,
+  );
+  const base = {
+    hasAccess: false,
+    ledgerSequence: latest?.ledgerSequence ?? 0,
+    ledgerHash: latest?.ledgerHash ?? "",
+    networkId: policy.networkId,
+    contractId: policy.contractId,
+    checkedAt: policy.checkedAt,
+    providerCount: samples.length,
+    quorum: policy.quorum,
+  };
+
+  if (samples.length < policy.quorum) {
+    return { ...base, divergenceReason: "insufficient_providers" };
+  }
+
+  const maxAgeSecs = policy.maxLedgerAge * 5;
+  const freshSamples = samples.filter(
+    (sample) =>
+      sample.ledgerClosedAt === undefined ||
+      policy.checkedAt - sample.ledgerClosedAt <= maxAgeSecs,
+  );
+  if (freshSamples.length < policy.quorum) {
+    return { ...base, divergenceReason: "stale_ledger" };
+  }
+
+  const groups = new Map<string, EntitlementProviderSample[]>();
+  for (const sample of freshSamples) {
+    const identity = JSON.stringify({
+      hasAccess: sample.hasAccess,
+      ledgerHash: sample.ledgerHash,
+      ledgerSequence: sample.ledgerSequence,
+    });
+    groups.set(identity, [...(groups.get(identity) ?? []), sample]);
+  }
+
+  const winner = Array.from(groups.values()).find((group) => group.length >= policy.quorum);
+  if (!winner) {
+    return { ...base, divergenceReason: "provider_divergence" };
+  }
+
+  return {
+    hasAccess: winner[0].hasAccess,
+    ledgerSequence: winner[0].ledgerSequence,
+    ledgerHash: winner[0].ledgerHash,
+    networkId: policy.networkId,
+    contractId: policy.contractId,
+    checkedAt: policy.checkedAt,
+    providerCount: samples.length,
+    quorum: policy.quorum,
+  };
+}
 
 // Added the missing interface required by the UI
 export interface PromptRecord {
@@ -495,52 +586,48 @@ export const verifyEntitlement = async (
   maxLedgerAge: number = DEFAULT_MAX_LEDGER_AGE,
 ): Promise<LedgerVerifiedEntitlement> => {
   const promptId = typeof itemId === "bigint" ? itemId : BigInt(itemId);
-
-  const server = new Server(config.rpcUrl, { allowHttp: config.allowHttp });
   const networkId = hashKey(config.networkPassphrase);
-
-  // Get the latest ledger state
-  const latestLedger = await server.getLatestLedger();
-  const latestSequence = latestLedger.sequence;
-  const ledgerHash = latestLedger.hash?.toString() ?? "";
-
-  // Verify the RPC response is fresh (not lagging)
   const now = Math.floor(Date.now() / 1000);
-  if (latestLedger.lastLedgerCloseTimestamp) {
-    const ledgerAge = now - latestLedger.lastLedgerCloseTimestamp;
-    const maxAgeSecs = maxLedgerAge * 5; // ~5 seconds per ledger
-    if (ledgerAge > maxAgeSecs) {
-      return {
-        hasAccess: false,
-        ledgerSequence: latestSequence,
-        ledgerHash,
-        networkId,
-        contractId: config.promptHashContractId,
-        checkedAt: now,
-      };
-    }
-  }
+  const rpcUrls = getEntitlementRpcUrls(config);
+  const quorum = Math.min(config.entitlementQuorum ?? Math.min(2, rpcUrls.length), rpcUrls.length);
 
   try {
-    // Dual verification: query two independent RPC endpoints if available
-    const access = await PromptHashClient.checkAccess(config, address, itemId);
-    return {
-      hasAccess: access,
-      ledgerSequence: latestSequence,
-      ledgerHash,
+    const samples = await Promise.all(
+      rpcUrls.map(async (rpcUrl) => {
+        const providerConfig = { ...config, rpcUrl };
+        const server = new Server(rpcUrl, { allowHttp: config.allowHttp });
+        const [latestLedger, access] = await Promise.all([
+          server.getLatestLedger(),
+          PromptHashClient.checkAccess(providerConfig, address, promptId),
+        ]);
+        return {
+          providerUrl: rpcUrl,
+          hasAccess: access,
+          ledgerSequence: latestLedger.sequence,
+          ledgerHash: latestLedger.hash?.toString() ?? "",
+          ledgerClosedAt: latestLedger.lastLedgerCloseTimestamp,
+        } satisfies EntitlementProviderSample;
+      }),
+    );
+    return evaluateEntitlementQuorum(samples, {
+      quorum,
+      maxLedgerAge,
       networkId,
       contractId: config.promptHashContractId,
       checkedAt: now,
-    };
+    });
   } catch {
     // Fail-closed: RPC error = denied
     return {
       hasAccess: false,
-      ledgerSequence: latestSequence,
-      ledgerHash,
+      ledgerSequence: 0,
+      ledgerHash: "",
       networkId,
       contractId: config.promptHashContractId,
       checkedAt: now,
+      providerCount: rpcUrls.length,
+      quorum,
+      divergenceReason: "provider_error",
     };
   }
 };

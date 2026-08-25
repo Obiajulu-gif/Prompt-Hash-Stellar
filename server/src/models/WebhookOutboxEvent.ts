@@ -10,6 +10,10 @@ const webhookOutboxEventSchema = new mongoose.Schema(
     // event exactly one durable delivery row per subscriber, regardless of
     // how many times the projecting code path runs.
     dedupeKey: { type: String, required: true },
+    eventId: { type: String, required: true, index: true },
+    deliveryId: { type: String, required: true },
+    sequence: { type: Number, required: true, min: 1 },
+    payloadHash: { type: String, required: true },
     event: { type: String, required: true },
     payload: { type: mongoose.Schema.Types.Mixed, required: true },
     status: {
@@ -33,6 +37,15 @@ const webhookOutboxEventSchema = new mongoose.Schema(
 );
 
 webhookOutboxEventSchema.index({ subscriptionId: 1, dedupeKey: 1 }, { unique: true });
+webhookOutboxEventSchema.index(
+  { deliveryId: 1 },
+  { unique: true, partialFilterExpression: { deliveryId: { $exists: true } } },
+);
+webhookOutboxEventSchema.index(
+  { subscriptionId: 1, sequence: 1 },
+  { unique: true, partialFilterExpression: { sequence: { $exists: true } } },
+);
+webhookOutboxEventSchema.index({ subscriptionId: 1, status: 1, sequence: 1 });
 
 const WebhookOutboxEvent =
   mongoose.models.WebhookOutboxEvent ||
