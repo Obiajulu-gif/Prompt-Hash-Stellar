@@ -4990,10 +4990,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@stellar/js-xdr@npm:4.0.0, @stellar/js-xdr@npm:^4.0.0":
+"@stellar/js-xdr@npm:^4.0.0":
   version: 4.0.0
   resolution: "@stellar/js-xdr@npm:4.0.0"
   checksum: 10c0/617bb3d7fa9fbdb607e5cb42cc032a15ad1c111440c6d7ede40fcecde204e88ed351aebc80ce1e4eedac6c1d949c3da5722696611e2b00569e7edbd5a0634c37
+  languageName: node
+  linkType: hard
+
+"@stellar/js-xdr@npm:^5.0.0":
+  version: 5.0.0
+  resolution: "@stellar/js-xdr@npm:5.0.0"
+  checksum: 10c0/c61b1e0ed2d74ec523d306437318f63d639889cc853fe7db7e7b2bb923da0c4d1ea568060ca6ed542546a3ef4943f150a385318fcc5723dc820b2efd511130be
   languageName: node
   linkType: hard
 
@@ -5011,17 +5018,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@stellar/stellar-sdk@npm:16.1.0":
-  version: 16.1.0
-  resolution: "@stellar/stellar-sdk@npm:16.1.0"
+"@stellar/stellar-sdk@npm:17.0.0":
+  version: 17.0.0
+  resolution: "@stellar/stellar-sdk@npm:17.0.0"
   dependencies:
+    "@exodus/bytes": "npm:^1.15.1"
     "@noble/ed25519": "npm:^3.1.0"
     "@noble/hashes": "npm:^2.2.0"
-    "@stellar/js-xdr": "npm:4.0.0"
+    "@stellar/js-xdr": "npm:^5.0.0"
+    "@types/json-schema": "npm:^7.0.15"
     axios: "npm:1.18.0"
-    base32.js: "npm:^0.1.0"
     bignumber.js: "npm:^11.1.4"
-    buffer: "npm:^6.0.3"
     commander: "npm:^14.0.3"
     eventsource: "npm:^4.1.0"
     feaxios: "npm:^0.0.23"
@@ -5029,7 +5036,7 @@ __metadata:
     uint8array-extras: "npm:^1.5.0"
   bin:
     stellar-js: bin/stellar-js
-  checksum: 10c0/82b7c9490e5c6dd6b459bf97bb61c3e1d10820adc50d7b1746e687c4aec2f7c471ddbbf1398aa0dfde26439cd99454d32d8ada817b826ff55ef632a87923558b
+  checksum: 10c0/ceec5e102cfc3e48c46de36e9c577b48f9921a16a7f573d1cf332ba7cd97c327659ee6718d03f707e62f846813c816a2261d025022dddc2632eef64cc815ab49
   languageName: node
   linkType: hard
 
@@ -12160,7 +12167,7 @@ __metadata:
     "@sentry/vite-plugin": "npm:^5.3.0"
     "@stellar/design-system": "npm:^4.0.2"
     "@stellar/stellar-base": "npm:^15.0.0"
-    "@stellar/stellar-sdk": "npm:^16.1.0"
+    "@stellar/stellar-sdk": "npm:^17.0.0"
     "@tailwindcss/postcss": "npm:^4.3.3"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@tanstack/react-query": "npm:^5.101.4"
