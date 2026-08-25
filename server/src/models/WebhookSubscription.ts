@@ -44,6 +44,11 @@ const webhookSubscriptionSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    nextDeliverySequence: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
   },
   { timestamps: true },
 );

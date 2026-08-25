@@ -10,11 +10,31 @@
  * worker to pick up on restart.
  */
 
-import { randomBytes } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import WebhookSubscription from "../models/WebhookSubscription";
 import WebhookOutboxEvent, { WebhookOutboxStatus } from "../models/WebhookOutboxEvent";
 
 const SECRET_ROTATION_GRACE_MS = 24 * 60 * 60 * 1000; // 24h for a subscriber to switch over.
+
+function canonicalPayload(value: Record<string, unknown>): string {
+  const sortDeep = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(sortDeep);
+    if (input && typeof input === "object") {
+      return Object.keys(input as Record<string, unknown>)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          acc[key] = sortDeep((input as Record<string, unknown>)[key]);
+          return acc;
+        }, {});
+    }
+    return input;
+  };
+  return JSON.stringify(sortDeep(value));
+}
+
+function payloadHash(value: Record<string, unknown>): string {
+  return createHash("sha256").update(canonicalPayload(value)).digest("hex");
+}
 
 /**
  * Persists one outbox row per active subscriber for `event`. `dedupeKey`
@@ -40,15 +60,39 @@ export async function enqueue(
 
   await Promise.all(
     subscriptions.map(async (sub) => {
+      let allocatedSequence = false;
       try {
+        const existing = await WebhookOutboxEvent.findOne({
+          subscriptionId: sub._id,
+          dedupeKey,
+        });
+        if (existing) return;
+        const sequencedSub = await WebhookSubscription.findByIdAndUpdate(
+          sub._id,
+          { $inc: { nextDeliverySequence: 1 } },
+          { new: false },
+        );
+        allocatedSequence = true;
+        const sequence = sequencedSub?.nextDeliverySequence ?? sub.nextDeliverySequence ?? 1;
         await WebhookOutboxEvent.create({
           subscriptionId: sub._id,
           dedupeKey,
+          eventId: dedupeKey,
+          deliveryId: randomUUID(),
+          sequence,
+          payloadHash: payloadHash(data),
           event,
           payload: data,
         });
       } catch (err: unknown) {
-        if ((err as { code?: number }).code === 11000) return; // already enqueued
+        if ((err as { code?: number }).code === 11000) {
+          if (allocatedSequence) {
+            await WebhookSubscription.findByIdAndUpdate(sub._id, {
+              $inc: { nextDeliverySequence: -1 },
+            });
+          }
+          return; // already enqueued
+        }
         throw err;
       }
     }),

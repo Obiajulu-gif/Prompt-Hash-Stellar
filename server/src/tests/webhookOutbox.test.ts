@@ -9,6 +9,7 @@ vi.mock("../models/WebhookOutboxEvent", () => ({
   default: {
     create: vi.fn(),
     find: vi.fn(),
+    findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
     findByIdAndUpdate: vi.fn(),
   },
@@ -36,7 +37,14 @@ describe("webhookOutbox.enqueue", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("creates one durable row per active matching subscription", async () => {
-    (WebhookSubscription.find as any).mockResolvedValue([{ _id: "sub-1" }, { _id: "sub-2" }]);
+    (WebhookSubscription.find as any).mockResolvedValue([
+      { _id: "sub-1" },
+      { _id: "sub-2" },
+    ]);
+    (WebhookOutboxEvent.findOne as any).mockResolvedValue(null);
+    (WebhookSubscription.findByIdAndUpdate as any)
+      .mockResolvedValueOnce({ _id: "sub-1", nextDeliverySequence: 7 })
+      .mockResolvedValueOnce({ _id: "sub-2", nextDeliverySequence: 3 });
     (WebhookOutboxEvent.create as any).mockResolvedValue({ _id: "row" });
 
     await enqueue("0xCREATOR", "PromptPurchased", { promptId: "1" }, "event-42");
@@ -45,10 +53,23 @@ describe("webhookOutbox.enqueue", () => {
     expect(WebhookOutboxEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ subscriptionId: "sub-1", dedupeKey: "event-42" }),
     );
+    expect(WebhookOutboxEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "event-42",
+        deliveryId: expect.any(String),
+        sequence: 7,
+        payloadHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    );
   });
 
   it("swallows a duplicate-key error so a repeat enqueue is a no-op", async () => {
     (WebhookSubscription.find as any).mockResolvedValue([{ _id: "sub-1" }]);
+    (WebhookOutboxEvent.findOne as any).mockResolvedValue(null);
+    (WebhookSubscription.findByIdAndUpdate as any).mockResolvedValue({
+      _id: "sub-1",
+      nextDeliverySequence: 2,
+    });
     const dup = new Error("duplicate") as any;
     dup.code = 11000;
     (WebhookOutboxEvent.create as any).mockRejectedValueOnce(dup);
@@ -60,6 +81,11 @@ describe("webhookOutbox.enqueue", () => {
 
   it("re-throws a non-duplicate-key error", async () => {
     (WebhookSubscription.find as any).mockResolvedValue([{ _id: "sub-1" }]);
+    (WebhookOutboxEvent.findOne as any).mockResolvedValue(null);
+    (WebhookSubscription.findByIdAndUpdate as any).mockResolvedValue({
+      _id: "sub-1",
+      nextDeliverySequence: 2,
+    });
     (WebhookOutboxEvent.create as any).mockRejectedValueOnce(new Error("db down"));
 
     await expect(
@@ -94,6 +120,10 @@ describe("webhookOutboxWorker.deliverRow", () => {
   const baseRow = () => ({
     _id: "row-1",
     subscriptionId: "sub-1",
+    eventId: "event-42",
+    deliveryId: "delivery-42",
+    sequence: 1,
+    payloadHash: "a".repeat(64),
     event: "PromptPurchased",
     payload: { promptId: "1" },
     attempts: 0,
@@ -107,6 +137,7 @@ describe("webhookOutboxWorker.deliverRow", () => {
       secret: "s3cret",
     });
     (postSignedWebhook as any).mockResolvedValue({ status: 200, body: "ok", headers: {} });
+    (WebhookOutboxEvent.findOne as any).mockResolvedValue(null);
 
     await deliverRow(baseRow() as any);
 
@@ -117,6 +148,55 @@ describe("webhookOutboxWorker.deliverRow", () => {
     expect(WebhookSubscription.findByIdAndUpdate).toHaveBeenCalledWith(
       "sub-1",
       expect.objectContaining({ $set: expect.objectContaining({ failureCount: 0 }) }),
+    );
+  });
+
+  it("sends stable delivery identity, sequence, and payload hash on every retry", async () => {
+    (WebhookSubscription.findById as any).mockResolvedValue({
+      _id: "sub-1",
+      active: true,
+      url: "https://example.com/hook",
+      secret: "s3cret",
+    });
+    (postSignedWebhook as any).mockResolvedValue({ status: 503, body: "", headers: {} });
+    (WebhookOutboxEvent.findOne as any).mockResolvedValue(null);
+
+    await deliverRow({ ...baseRow(), attempts: 1 } as any);
+
+    const [, headers, body] = (postSignedWebhook as any).mock.calls[0];
+    expect(headers).toMatchObject({
+      "X-PromptHash-Delivery": "delivery-42",
+      "X-PromptHash-Event-Id": "event-42",
+      "X-PromptHash-Sequence": "1",
+      "X-PromptHash-Payload-Hash": "a".repeat(64),
+    });
+    expect(JSON.parse(body)).toMatchObject({
+      eventId: "event-42",
+      deliveryId: "delivery-42",
+      sequence: 1,
+      payloadHash: "a".repeat(64),
+    });
+  });
+
+  it("does not deliver a later sequence while an earlier row is still undelivered", async () => {
+    (WebhookSubscription.findById as any).mockResolvedValue({
+      _id: "sub-1",
+      active: true,
+      url: "https://example.com/hook",
+      secret: "s3cret",
+    });
+    (WebhookOutboxEvent.findOne as any).mockResolvedValue({ _id: "row-previous" });
+
+    await deliverRow({ ...baseRow(), sequence: 2 } as any);
+
+    expect(postSignedWebhook).not.toHaveBeenCalled();
+    expect(WebhookOutboxEvent.findByIdAndUpdate).toHaveBeenCalledWith(
+      "row-1",
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          lastError: "Waiting for earlier subscription delivery sequence.",
+        }),
+      }),
     );
   });
 

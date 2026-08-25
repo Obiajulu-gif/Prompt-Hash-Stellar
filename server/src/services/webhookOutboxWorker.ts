@@ -57,7 +57,7 @@ export async function claimRow(now: Date) {
       $or: [{ leaseExpiresAt: null }, { leaseExpiresAt: { $lt: now } }],
     },
     { $set: { leaseHolder: REPLICA_ID, leaseExpiresAt: new Date(now.getTime() + LEASE_TTL_MS) } },
-    { new: true },
+    { new: true, sort: { subscriptionId: 1, sequence: 1, createdAt: 1 } },
   );
 }
 
@@ -123,18 +123,40 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
     await scheduleRetry(row._id, row.attempts, POLL_INTERVAL_MS * 6, "Subscription is inactive.");
     return;
   }
+  if (row.sequence > 1) {
+    const earlierUndelivered = await WebhookOutboxEvent.findOne({
+      subscriptionId: row.subscriptionId,
+      sequence: { $lt: row.sequence },
+      status: { $ne: "delivered" },
+    });
+    if (earlierUndelivered) {
+      await scheduleRetry(
+        row._id,
+        row.attempts,
+        POLL_INTERVAL_MS,
+        "Waiting for earlier subscription delivery sequence.",
+      );
+      return;
+    }
+  }
 
   const attempt = row.attempts + 1;
   const body = JSON.stringify({
     event: row.event,
-    deliveryId: String(row._id),
+    eventId: row.eventId ?? row.dedupeKey,
+    deliveryId: row.deliveryId ?? String(row._id),
+    sequence: row.sequence,
+    payloadHash: row.payloadHash,
     timestamp: new Date().toISOString(),
     data: row.payload,
   });
   const headers = {
     "Content-Type": "application/json",
     "X-PromptHash-Signature": signPayload(sub.secret, body),
-    "X-PromptHash-Delivery": String(row._id),
+    "X-PromptHash-Delivery": row.deliveryId ?? String(row._id),
+    "X-PromptHash-Event-Id": row.eventId ?? row.dedupeKey,
+    "X-PromptHash-Sequence": String(row.sequence),
+    "X-PromptHash-Payload-Hash": row.payloadHash,
     "X-PromptHash-Event": row.event,
   };
 

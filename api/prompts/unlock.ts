@@ -99,6 +99,12 @@ function getServerConfig(): PromptHashConfig {
 
   return {
     rpcUrl,
+    rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
+    entitlementQuorum: process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM
+      ? Number(process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM)
+      : undefined,
     networkPassphrase,
     promptHashContractId,
     nativeAssetContractId,

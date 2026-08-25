@@ -27,6 +27,7 @@ export interface BuiltReceipt {
   receipt: Record<string, unknown>;
   signature: string;
   signerPublicKey: string;
+  signerKeyId: string;
 }
 
 const PURCHASE_EVENT_TOPICS = new Set(["PromptPurchased", "LicenseTransferred"]);
@@ -50,12 +51,25 @@ export function canonicalizeReceipt(receipt: Record<string, unknown>): string {
 }
 
 export interface ReceiptSigningKeys {
+  keyId: string;
   publicKey: string;
   privateKey: string;
+  notBefore?: string;
+  notAfter?: string;
+  issueBefore?: string;
+  revokedAt?: string;
 }
 
-/** Reads the Ed25519 receipt-signing keypair from the environment. Throws if unconfigured. */
-export function getReceiptSigningKeys(): ReceiptSigningKeys {
+function parseReceiptSigningKeys(): ReceiptSigningKeys[] {
+  const keySetJson = process.env.RECEIPT_SIGNING_KEYS_JSON;
+  if (keySetJson) {
+    const parsed = JSON.parse(keySetJson) as ReceiptSigningKeys[];
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("RECEIPT_SIGNING_KEYS_JSON must be a non-empty array.");
+    }
+    return parsed;
+  }
+
   const publicKey = process.env.RECEIPT_SIGNING_PUBLIC_KEY;
   const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY;
   if (!publicKey || !privateKey) {
@@ -63,7 +77,42 @@ export function getReceiptSigningKeys(): ReceiptSigningKeys {
       "RECEIPT_SIGNING_PUBLIC_KEY / RECEIPT_SIGNING_PRIVATE_KEY are not configured.",
     );
   }
-  return { publicKey, privateKey };
+  return [{
+    keyId: process.env.RECEIPT_SIGNING_KEY_ID ?? "default",
+    publicKey,
+    privateKey,
+  }];
+}
+
+function isAfter(value: string | undefined, now: Date) {
+  return value !== undefined && now.getTime() >= Date.parse(value);
+}
+
+function isBefore(value: string | undefined, now: Date) {
+  return value !== undefined && now.getTime() < Date.parse(value);
+}
+
+export function selectReceiptSigningKey(now = new Date()): ReceiptSigningKeys {
+  const keyId = process.env.RECEIPT_SIGNING_ACTIVE_KEY_ID;
+  const candidates = parseReceiptSigningKeys().filter((key) => !keyId || key.keyId === keyId);
+  const active = candidates.find(
+    (key) =>
+      key.privateKey &&
+      !key.revokedAt &&
+      !isBefore(key.notBefore, now) &&
+      !isAfter(key.notAfter, now) &&
+      !isAfter(key.issueBefore, now),
+  );
+
+  if (!active) {
+    throw new Error("No active receipt signing key is available under the configured policy.");
+  }
+  return active;
+}
+
+/** Reads the active Ed25519 receipt-signing keypair from the environment. Throws if unconfigured. */
+export function getReceiptSigningKeys(): ReceiptSigningKeys {
+  return selectReceiptSigningKey();
 }
 
 /**
@@ -141,9 +190,12 @@ export async function buildAndSignReceipt(input: BuildReceiptInput): Promise<Bui
     },
     event: { topic, index: matchIndex },
     issuedAt: new Date().toISOString(),
+    expiresAt: new Date(
+      Date.now() + Number(process.env.RECEIPT_TTL_MS ?? 365 * 24 * 60 * 60 * 1000),
+    ).toISOString(),
   };
 
-  const { publicKey, privateKey } = getReceiptSigningKeys();
+  const { keyId, publicKey, privateKey } = getReceiptSigningKeys();
   await sodium.ready;
   const message = sodium.from_string(canonicalizeReceipt(receipt));
   const secretKeyBytes = sodium.from_base64(privateKey, sodium.base64_variants.ORIGINAL);
@@ -153,5 +205,6 @@ export async function buildAndSignReceipt(input: BuildReceiptInput): Promise<Bui
     receipt,
     signature: sodium.to_base64(signatureBytes, sodium.base64_variants.ORIGINAL),
     signerPublicKey: publicKey,
+    signerKeyId: keyId,
   };
 }
