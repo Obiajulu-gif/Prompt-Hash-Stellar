@@ -17,18 +17,12 @@ const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 
 let tickInFlight = false; // single-flight guard for the current process
 
-// Entitlement decision cache — invalidated on settlement events (#545).
-// Short TTL balances freshness with RPC load.
-const entitlementCache = new Map<string, { decision: boolean; cachedAt: number }>();
-const ENTITLEMENT_CACHE_TTL_MS = 30_000;
+// Entitlement decision cache — invalidated on settlement events (#545, #602).
+// Uses Redis for multi-instance deployments; short TTL balances freshness with RPC load.
+const ENTITLEMENT_CACHE_TTL_SECS = 30;
 
-function invalidateEntitlementCacheForPrompt(promptId: string): void {
-  const prefix = `entitlement:${promptId}:`;
-  for (const key of entitlementCache.keys()) {
-    if (key.startsWith(prefix)) {
-      entitlementCache.delete(key);
-    }
-  }
+async function invalidateEntitlementCacheForPrompt(promptId: string): Promise<void> {
+  await cacheDelPattern(CACHE_KEYS.entitlementDecisionPattern(promptId));
 }
 
 /**
@@ -325,7 +319,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       );
       await invalidatePromptCaches(promptId);
       // Invalidate entitlement cache on settlement (refund/transfer)
-      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidateEntitlementCacheForPrompt(promptId);
       break;
     }
 
