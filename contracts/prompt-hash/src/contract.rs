@@ -1,9 +1,9 @@
 use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
-    AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey,
-    DisputeReason, DisputeStatus, Error, ListingConfig, ListingRevisionRecord, Prompt,
-    PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
+    AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey, DisputeReason,
+    DisputeStatus, Error, ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait,
+    PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
     SignedDiscountAuthorization, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
@@ -1569,11 +1569,7 @@ impl PromptHashTrait for PromptHashContract {
         if refund {
             // Refund to the buyer
             let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
-            asset_client.transfer(
-                &env.current_contract_address(),
-                &buyer,
-                &escrow.amount,
-            );
+            asset_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
 
             dispute.status = DisputeStatus::Refunded;
 
@@ -1581,12 +1577,13 @@ impl PromptHashTrait for PromptHashContract {
             Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
 
             // Revoke the catalog pass grant so buyer can't use it anymore
-            Storage::get_catalog_pass_purchase(&env, &escrow.payout_plan.creator, &buyer)
-                .map(|_| {
-                    // Clear the catalog pass by removing it
-                    let key = DataKey::CatalogPass(escrow.payout_plan.creator.clone(), buyer.clone());
-                    env.storage().persistent().remove(&key);
-                });
+            if Storage::get_catalog_pass_purchase(&env, &escrow.payout_plan.creator, &buyer)
+                .is_some()
+            {
+                // Clear the catalog pass by removing it
+                let key = DataKey::CatalogPass(escrow.payout_plan.creator.clone(), buyer.clone());
+                env.storage().persistent().remove(&key);
+            }
 
             // Update escrow to Refunded
             let mut updated_escrow = escrow.clone();
@@ -2418,26 +2415,17 @@ fn validate_bulk_purchase_items(
         let payment_amount = payment_amounts.get(i).unwrap();
 
         // Check each condition independently; record true if all pass
-        let is_valid = 
-            // Prompt must exist
-            Storage::get_prompt(env, prompt_id).is_some() &&
-            // If found, validate purchase eligibility
-            if let Some(prompt) = Storage::get_prompt(env, prompt_id) {
-                // Must be active
-                prompt.status == PromptSaleStatus::Active &&
-                // Buyer cannot be creator
-                prompt.creator != *buyer &&
-                // Must not already own
-                !Storage::has_active_purchase(env, prompt_id, buyer, now) &&
-                // Check expiry if set
-                (prompt.expires_at == 0 || prompt.expires_at >= now) &&
-                // Payment must meet price
-                payment_amount >= prompt.price_stroops &&
-                // Supply must have room
-                reserve_supply(prompt.sales_count, prompt.max_supply).is_ok()
-            } else {
-                false
-            };
+        let is_valid = match Storage::get_prompt(env, prompt_id) {
+            Some(prompt) => {
+                prompt.status == PromptSaleStatus::Active
+                    && prompt.creator != *buyer
+                    && !Storage::has_active_purchase(env, prompt_id, buyer, now)
+                    && (prompt.expires_at == 0 || prompt.expires_at >= now)
+                    && payment_amount >= prompt.price_stroops
+                    && reserve_supply(prompt.sales_count, prompt.max_supply).is_ok()
+            }
+            None => false,
+        };
 
         validity.push_back(is_valid);
     }
