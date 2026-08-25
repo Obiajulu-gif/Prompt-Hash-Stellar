@@ -165,6 +165,12 @@ pub enum DataKey {
     Bundle(u128),
     BundleCounter,
     CreatorBundles(Address),
+    /// Bundle purchase prompt IDs for refund processing, keyed by (buyer, bundle_id)
+    /// Stores the list of prompt_ids in a bundle purchase for proper refund handling (#595).
+    BundlePurchasePrompts(Address, u128),
+    /// Maps a bundle escrow (prompt_id=0) to its bundle_id for refund processing (#595).
+    /// Keyed by (buyer, timestamp) to uniquely identify the escrow.
+    BundleEscrowBundleId(Address, u64),
     AccessPass(u128),
     AccessPassCounter,
     CreatorAccessPasses(Address),
