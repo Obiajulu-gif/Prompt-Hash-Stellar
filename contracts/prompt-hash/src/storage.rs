@@ -427,11 +427,7 @@ impl Storage {
 
     /// An escrow settled or a rejected dispute closed with no open dispute:
     /// `amount` leaves the pending bucket entirely.
-    pub fn remove_pending_liability(
-        env: &Env,
-        asset: &Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn remove_pending_liability(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
         let mut liability = Self::get_asset_liability(env, asset);
         liability.pending = liability
             .pending
@@ -443,11 +439,7 @@ impl Storage {
 
     /// A dispute was opened against a pending escrow: move `amount` from
     /// pending into disputed.
-    pub fn move_pending_to_disputed(
-        env: &Env,
-        asset: &Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn move_pending_to_disputed(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
         let mut liability = Self::get_asset_liability(env, asset);
         liability.pending = liability
             .pending
@@ -463,11 +455,7 @@ impl Storage {
 
     /// A dispute was rejected without a refund: the escrow remains Pending,
     /// so `amount` moves back from disputed into pending.
-    pub fn move_disputed_to_pending(
-        env: &Env,
-        asset: &Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn move_disputed_to_pending(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
         let mut liability = Self::get_asset_liability(env, asset);
         liability.disputed = liability
             .disputed
@@ -749,7 +737,12 @@ impl Storage {
     // Separate from PurchaseEscrow to avoid key collisions and enable independent
     // dispute/refund tracking for each access pass purchase (#564).
 
-    pub fn save_access_pass_escrow(env: &Env, pass_id: u128, buyer: &Address, escrow: &PurchaseEscrow) {
+    pub fn save_access_pass_escrow(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        escrow: &PurchaseEscrow,
+    ) {
         let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
         env.storage().persistent().set(&key, escrow);
         Self::extend_key_ttl(env, &key);
@@ -781,7 +774,12 @@ impl Storage {
         env.storage().persistent().remove(&key);
     }
 
-    pub fn save_access_pass_dispute(env: &Env, pass_id: u128, buyer: &Address, dispute: &PurchaseDispute) {
+    pub fn save_access_pass_dispute(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        dispute: &PurchaseDispute,
+    ) {
         let key = DataKey::AccessPassPurchaseDispute(pass_id, buyer.clone());
         env.storage().persistent().set(&key, dispute);
         Self::extend_key_ttl(env, &key);

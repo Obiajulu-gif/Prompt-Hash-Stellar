@@ -112,6 +112,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn test_max_page_size_constraint() {
         assert!(MAX_PAGE_SIZE > 0, "MAX_PAGE_SIZE must be positive");
         assert!(

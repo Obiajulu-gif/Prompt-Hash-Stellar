@@ -1,8 +1,9 @@
-use soroban_sdk::{contract, contractimpl, Address, Env, MuxedAddress, String};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, MuxedAddress, String};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_tokens::fungible::{Base, FungibleToken};
 
 /// Instance data key for reentrancy test flag
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MockTokenDataKey {
     /// Flag to trigger a reentrant callback during next transfer.
@@ -37,26 +38,17 @@ impl FungibleTokenContract {
     /// This is used for testing reentrancy guards.
     /// If set, the token contract will attempt to call back into the specified
     /// contract function during a transfer operation.
-    pub fn set_reentrant_callback(
-        e: &Env,
-        contract_to_call: Address,
-        function_name: String,
-    ) {
+    pub fn set_reentrant_callback(e: &Env, contract_to_call: Address, function_name: String) {
         let key = MockTokenDataKey::TriggerReentrant(contract_to_call.clone(), function_name);
         e.storage().instance().set(&key, &());
         e.storage().instance().extend_ttl(0, 1);
     }
 
     /// Clear the reentrant callback flag
-    pub fn clear_reentrant_callback(e: &Env) {
-        // Clear by removing the flag (we can't easily clear all variants, so test will set a new one)
-        e.storage().instance().bump(0, 1);
-    }
+    pub fn clear_reentrant_callback(_e: &Env) {}
 
     /// Check if reentrant callback is set and return the callback details
-    pub fn get_reentrant_callback(
-        e: &Env,
-    ) -> Option<(Address, String)> {
+    pub fn get_reentrant_callback(_e: &Env) -> Option<(Address, String)> {
         // Since we can't iterate DataKey enum variants, we store a simpler indicator
         // The test will manage this through the env
         None // For now, handled via test harness directly
