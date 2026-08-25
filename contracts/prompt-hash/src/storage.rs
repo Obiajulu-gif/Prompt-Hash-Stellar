@@ -584,6 +584,45 @@ impl Storage {
         bundles
     }
 
+    pub fn save_bundle_purchase_prompts(
+        env: &Env,
+        buyer: &Address,
+        bundle_id: u128,
+        prompt_ids: &Vec<u64>,
+    ) {
+        let key = DataKey::BundlePurchasePrompts(buyer.clone(), bundle_id);
+        env.storage().persistent().set(&key, prompt_ids);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle_purchase_prompts(
+        env: &Env,
+        buyer: &Address,
+        bundle_id: u128,
+    ) -> Option<Vec<u64>> {
+        let key = DataKey::BundlePurchasePrompts(buyer.clone(), bundle_id);
+        let result: Option<Vec<u64>> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        result
+    }
+
+    pub fn save_bundle_escrow_id(env: &Env, buyer: &Address, created_at: u64, bundle_id: u128) {
+        let key = DataKey::BundleEscrowBundleId(buyer.clone(), created_at);
+        env.storage().persistent().set(&key, &bundle_id);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle_escrow_id(env: &Env, buyer: &Address, created_at: u64) -> Option<u128> {
+        let key = DataKey::BundleEscrowBundleId(buyer.clone(), created_at);
+        let result: Option<u128> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        result
+    }
+
     pub fn save_access_pass(env: &Env, access_pass: &AccessPass) -> Result<(), Error> {
         let key = DataKey::AccessPass(access_pass.id);
         env.storage().persistent().set(&key, access_pass);

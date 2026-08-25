@@ -690,6 +690,8 @@ impl PromptHashTrait for PromptHashContract {
         Storage::update_bundle(&env, &bundle);
 
         // Create escrow with payout plan for unified dispute/settlement (#564)
+        // Bundles now have the same Pending/dispute_deadline escrow lifecycle as individual
+        // purchases (#595), giving buyers the full dispute window before settlement.
         let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
         let payout_plan = super::types::PayoutPlan {
             creator: bundle.creator.clone(),
@@ -700,23 +702,30 @@ impl PromptHashTrait for PromptHashContract {
             splits: payout_splits,
             creator_amount,
         };
+        let dispute_deadline = now
+            .checked_add(DISPUTE_WINDOW_SECS)
+            .ok_or(Error::ArithmeticOverflow)?;
         let escrow = PurchaseEscrow {
             prompt_id: 0, // Bundles don't have a single prompt ID
             buyer: buyer.clone(),
             amount: payment_amount_stroops,
             asset: bundle.asset.clone(),
             referrer: None,
-            status: SettlementStatus::Settled,
+            status: SettlementStatus::Pending,
             created_at: now,
-            settled_at: now,
-            // Bundle funds settle immediately — there is no pending window (#541).
-            dispute_deadline: now,
+            settled_at: 0, // Not yet settled
+            dispute_deadline,
             creator_amount,
             fee_amount,
             referral_amount: 0,
             payout_plan,
         };
         Storage::save_purchase_escrow(&env, &escrow);
+        // Track the escrowed bundle funds as pending liability (#570)
+        Storage::add_pending_liability(&env, &bundle.asset, payment_amount_stroops)?;
+        // Store bundle prompt IDs and mapping for later refund processing (#595)
+        Storage::save_bundle_purchase_prompts(&env, &buyer, bundle_id, &bundle.prompt_ids);
+        Storage::save_bundle_escrow_id(&env, &buyer, now, bundle_id);
 
         InstanceStorage::clear_reentrancy_guard(&env);
 
@@ -1265,11 +1274,17 @@ impl PromptHashTrait for PromptHashContract {
         buyer.require_auth();
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let now = env.ledger().timestamp();
-        Storage::require_purchase(&env, prompt_id, &buyer)?;
-        // Purchases with a pending escrow (direct/bulk buys) may only be
+
+        // Bundle disputes (#595) have prompt_id == 0 and no individual purchase record
+        let is_bundle_dispute = prompt_id == 0;
+        if !is_bundle_dispute {
+            Storage::require_purchase(&env, prompt_id, &buyer)?;
+        }
+
+        // Purchases with a pending escrow (direct/bulk buys, now bundles #595) may only be
         // disputed within the purchase-relative window; once it closes the
         // escrow is eligible for permissionless settlement (#541). Purchases
-        // without a pending escrow (leases, bundles, passes) are unaffected.
+        // without a pending escrow (leases, access passes) are unaffected.
         let mut escrow_liability_move: Option<(Address, i128)> = None;
         if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
             if escrow.status == SettlementStatus::Pending {
@@ -1279,6 +1294,9 @@ impl PromptHashTrait for PromptHashContract {
                 // Already settled or refunded — nothing left to dispute.
                 return Err(Error::DisputeWindowClosed);
             }
+        } else if !is_bundle_dispute {
+            // Non-bundle purchases without an escrow shouldn't be disputed
+            return Err(Error::DisputeWindowClosed);
         }
         if let Some(dispute) = Storage::get_dispute(&env, prompt_id, &buyer) {
             ensure(
@@ -1324,44 +1342,92 @@ impl PromptHashTrait for PromptHashContract {
 
         InstanceStorage::set_reentrancy_guard(&env)?;
 
-        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        let purchase = Storage::require_purchase(&env, prompt_id, &buyer)?;
+        // Bundle disputes (#595) have prompt_id == 0 and require special refund handling
+        let is_bundle_dispute = prompt_id == 0;
+
         let mut dispute = Storage::require_dispute(&env, prompt_id, &buyer)?;
         ensure(
             dispute.status == DisputeStatus::Open,
             Error::DisputeResolved,
         )?;
         dispute.resolved_at = env.ledger().timestamp();
+
         if refund {
-            let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
-            // Refund from the contract's escrowed balance (#454).  The
-            // funds were routed to the contract during purchase so that
-            // a refund is always possible without additional auth.
-            asset_client.transfer(
-                &env.current_contract_address(),
-                &buyer,
-                &purchase.original_price,
-            );
+            if is_bundle_dispute {
+                // Handle bundle dispute refund (#595)
+                if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                    let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
+                    // Refund the full bundle amount to the buyer
+                    asset_client.transfer(
+                        &env.current_contract_address(),
+                        &buyer,
+                        &escrow.amount,
+                    );
 
-            // Mark the purchase as revoked so the buyer can no longer claim access.
-            Storage::remove_purchase(&env, prompt_id, &buyer);
-            Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
-            dispute.status = DisputeStatus::Refunded;
+                    // Look up the bundle ID to access its prompts
+                    if let Some(bundle_id) = Storage::get_bundle_escrow_id(&env, &buyer, escrow.created_at) {
+                        if let Some(bundle_prompts) =
+                            Storage::get_bundle_purchase_prompts(&env, &buyer, bundle_id)
+                        {
+                            // Revoke access and release supply for each prompt in the bundle
+                            for index in 0..bundle_prompts.len() {
+                                let prompt_in_bundle = bundle_prompts.get(index).unwrap();
+                                Storage::remove_purchase(&env, prompt_in_bundle, &buyer);
+                                Storage::remove_prompt_from_buyer(&env, &buyer, prompt_in_bundle);
 
-            // Release the reserved supply unit back to the pool so another
-            // buyer can acquire it (#538).
-            prompt.sales_count = prompt.sales_count.saturating_sub(1);
-            Storage::update_prompt(&env, &prompt);
+                                if let Some(mut prompt) = Storage::get_prompt(&env, prompt_in_bundle) {
+                                    prompt.sales_count = prompt.sales_count.saturating_sub(1);
+                                    Storage::update_prompt(&env, &prompt);
+                                }
+                            }
+                        }
+                    }
 
-            // Update the escrow record so the settlement admin knows
-            // the funds were already returned to the buyer.
-            if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
-                // The disputed amount was just paid out to the buyer — it's
-                // no longer anyone's liability (#570).
-                Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
-                escrow.status = SettlementStatus::Refunded;
-                escrow.settled_at = env.ledger().timestamp();
-                Storage::save_purchase_escrow(&env, &escrow);
+                    // Also remove the purchase record for prompt_id == 0
+                    Storage::remove_purchase(&env, prompt_id, &buyer);
+                    dispute.status = DisputeStatus::Refunded;
+
+                    // Update the escrow record
+                    let mut escrow_updated = escrow;
+                    Storage::remove_disputed_liability(&env, &escrow_updated.asset, escrow_updated.amount)?;
+                    escrow_updated.status = SettlementStatus::Refunded;
+                    escrow_updated.settled_at = env.ledger().timestamp();
+                    Storage::save_purchase_escrow(&env, &escrow_updated);
+                }
+            } else {
+                // Handle single prompt dispute refund
+                let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+                let purchase = Storage::require_purchase(&env, prompt_id, &buyer)?;
+                let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
+                // Refund from the contract's escrowed balance (#454).  The
+                // funds were routed to the contract during purchase so that
+                // a refund is always possible without additional auth.
+                asset_client.transfer(
+                    &env.current_contract_address(),
+                    &buyer,
+                    &purchase.original_price,
+                );
+
+                // Mark the purchase as revoked so the buyer can no longer claim access.
+                Storage::remove_purchase(&env, prompt_id, &buyer);
+                Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
+                dispute.status = DisputeStatus::Refunded;
+
+                // Release the reserved supply unit back to the pool so another
+                // buyer can acquire it (#538).
+                prompt.sales_count = prompt.sales_count.saturating_sub(1);
+                Storage::update_prompt(&env, &prompt);
+
+                // Update the escrow record so the settlement admin knows
+                // the funds were already returned to the buyer.
+                if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                    // The disputed amount was just paid out to the buyer — it's
+                    // no longer anyone's liability (#570).
+                    Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+                    escrow.status = SettlementStatus::Refunded;
+                    escrow.settled_at = env.ledger().timestamp();
+                    Storage::save_purchase_escrow(&env, &escrow);
+                }
             }
         } else {
             dispute.status = DisputeStatus::Rejected;
@@ -1402,7 +1468,10 @@ impl PromptHashTrait for PromptHashContract {
         InstanceStorage::set_reentrancy_guard(&env)?;
 
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
-        let prompt = Storage::require_prompt(&env, prompt_id)?;
+
+        // Bundle settlements (#595) have prompt_id == 0 and cannot use creator auth
+        let is_bundle_settle = prompt_id == 0;
+        let prompt_option = Storage::get_prompt(&env, prompt_id);
 
         let mut escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
         ensure(
@@ -1420,7 +1489,8 @@ impl PromptHashTrait for PromptHashContract {
         }
 
         let now = env.ledger().timestamp();
-        let is_privileged = caller == owner || caller == prompt.creator;
+        let is_privileged = caller == owner
+            || (!is_bundle_settle && prompt_option.is_some() && caller == prompt_option.unwrap().creator);
         if !is_privileged {
             // Permissionless fallback: once the dispute window has closed
             // with no open dispute, anyone may finalize the escrow — this
