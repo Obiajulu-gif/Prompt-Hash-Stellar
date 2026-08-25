@@ -596,6 +596,45 @@ impl Storage {
         bundles
     }
 
+    pub fn save_bundle_purchase_prompts(
+        env: &Env,
+        buyer: &Address,
+        bundle_id: u128,
+        prompt_ids: &Vec<u64>,
+    ) {
+        let key = DataKey::BundlePurchasePrompts(buyer.clone(), bundle_id);
+        env.storage().persistent().set(&key, prompt_ids);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle_purchase_prompts(
+        env: &Env,
+        buyer: &Address,
+        bundle_id: u128,
+    ) -> Option<Vec<u64>> {
+        let key = DataKey::BundlePurchasePrompts(buyer.clone(), bundle_id);
+        let result: Option<Vec<u64>> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        result
+    }
+
+    pub fn save_bundle_escrow_id(env: &Env, buyer: &Address, created_at: u64, bundle_id: u128) {
+        let key = DataKey::BundleEscrowBundleId(buyer.clone(), created_at);
+        env.storage().persistent().set(&key, &bundle_id);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle_escrow_id(env: &Env, buyer: &Address, created_at: u64) -> Option<u128> {
+        let key = DataKey::BundleEscrowBundleId(buyer.clone(), created_at);
+        let result: Option<u128> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        result
+    }
+
     pub fn save_access_pass(env: &Env, access_pass: &AccessPass) -> Result<(), Error> {
         let key = DataKey::AccessPass(access_pass.id);
         env.storage().persistent().set(&key, access_pass);
@@ -704,6 +743,69 @@ impl Storage {
         purchase
             .map(|catalog_pass| catalog_pass.expires_at >= now)
             .unwrap_or(false)
+    }
+
+    // ─── Access Pass Escrow & Dispute Storage ──────────────────────────────────
+    // Separate from PurchaseEscrow to avoid key collisions and enable independent
+    // dispute/refund tracking for each access pass purchase (#564).
+
+    pub fn save_access_pass_escrow(env: &Env, pass_id: u128, buyer: &Address, escrow: &PurchaseEscrow) {
+        let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
+        env.storage().persistent().set(&key, escrow);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_pass_escrow(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Option<PurchaseEscrow> {
+        let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
+        let escrow = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        escrow
+    }
+
+    pub fn require_access_pass_escrow(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Result<PurchaseEscrow, Error> {
+        Self::get_access_pass_escrow(env, pass_id, buyer).ok_or(Error::LicenseNotFound)
+    }
+
+    pub fn remove_access_pass_escrow(env: &Env, pass_id: u128, buyer: &Address) {
+        let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
+        env.storage().persistent().remove(&key);
+    }
+
+    pub fn save_access_pass_dispute(env: &Env, pass_id: u128, buyer: &Address, dispute: &PurchaseDispute) {
+        let key = DataKey::AccessPassPurchaseDispute(pass_id, buyer.clone());
+        env.storage().persistent().set(&key, dispute);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_pass_dispute(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Option<PurchaseDispute> {
+        let key = DataKey::AccessPassPurchaseDispute(pass_id, buyer.clone());
+        let dispute = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        dispute
+    }
+
+    pub fn require_access_pass_dispute(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Result<PurchaseDispute, Error> {
+        Self::get_access_pass_dispute(env, pass_id, buyer).ok_or(Error::DisputeNotFound)
     }
 
     pub fn save_dispute(env: &Env, dispute: &PurchaseDispute) {
