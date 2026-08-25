@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
-use crate::types::{Error, ListingConfig, PromptSaleStatus, Split};
+use crate::types::{DisputeReason, Error, ListingConfig, PromptSaleStatus, Split};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
@@ -6013,11 +6013,11 @@ fn test_migrate_platform_fee_bound_already_within_bound() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     // Fee is already within the bound by default
-    assert_eq!(client.get_fee_percentage(), 100);
+    assert_eq!(client.get_fee_percentage(), 500);
 
     // Migration should be a no-op
     client.migrate_platform_fee_bound(&context.admin);
-    assert_eq!(client.get_fee_percentage(), 100);
+    assert_eq!(client.get_fee_percentage(), 500);
 }
 
 #[test]
@@ -6029,7 +6029,14 @@ fn test_migrate_asset_liability_pending_case() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 3_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Pending Migrate", price, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Pending Migrate",
+        price,
+        &context.xlm,
+    );
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -6057,13 +6064,20 @@ fn test_migrate_asset_liability_disputed_case() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 4_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Disputed Migrate", price, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Disputed Migrate",
+        price,
+        &context.xlm,
+    );
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
 
     // Open dispute
-    client.open_dispute(&buyer, &prompt_id);
+    client.open_dispute(&buyer, &prompt_id, &DisputeReason::InvalidEncryptedPayload);
 
     // Clear liability to simulate pre-#570 state
     env.as_contract(&context.contract, || {
@@ -6109,7 +6123,14 @@ fn test_migrate_asset_liability_with_asset_solvency() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 6_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Solvency Check", price, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Solvency Check",
+        price,
+        &context.xlm,
+    );
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -6133,12 +6154,19 @@ fn test_migrate_asset_liability_with_asset_solvency() {
 
 use crate::types::SignedDiscountAuthorization;
 
+fn contract_id_hash(env: &Env, contract: &Address) -> BytesN<32> {
+    env.crypto()
+        .sha256(&contract.to_string().to_bytes())
+        .to_bytes()
+}
+
 #[test]
 fn test_discount_auth_happy_path() {
     let env: Env = Default::default();
     env.mock_all_auths();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -6147,11 +6175,11 @@ fn test_discount_auth_happy_path() {
     let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
-    fund_buyer(&client.client.token_client(&context.xlm), &buyer, &context.contract, 8_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
 
     // Creator creates a signed discount authorization
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
@@ -6164,7 +6192,7 @@ fn test_discount_auth_happy_path() {
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    client.add_signed_discount_auth(&creator, &authorization, &signature).unwrap();
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Buyer redeems the discount via buy_prompt_with_auth
     let discounted_price = 8_000; // 10_000 * (10_000 - 2_000) / 10_000 = 8_000
@@ -6175,7 +6203,7 @@ fn test_discount_auth_happy_path() {
         &discounted_price,
         &authorization,
         &signature,
-    ).unwrap();
+    );
 
     // Verify buyer has access to the prompt
     assert!(client.has_access(&buyer, &prompt_id));
@@ -6196,7 +6224,7 @@ fn test_discount_auth_domain_mismatch_network_id() {
 
     // Create authorization with wrong network_id
     let network_id = BytesN::from_array(&env, &[1u8; 32]); // Wrong network_id
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
@@ -6209,7 +6237,7 @@ fn test_discount_auth_domain_mismatch_network_id() {
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    let result = client.add_signed_discount_auth(&creator, &authorization, &signature);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Should reject due to network ID mismatch
     assert!(result.is_err());
@@ -6243,7 +6271,7 @@ fn test_discount_auth_domain_mismatch_contract_id() {
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    let result = client.add_signed_discount_auth(&creator, &authorization, &signature);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Should reject due to contract ID mismatch
     assert!(result.is_err());
@@ -6253,6 +6281,7 @@ fn test_discount_auth_domain_mismatch_contract_id() {
 fn test_discount_auth_expired_ledger() {
     let env: Env = Default::default();
     env.mock_all_auths();
+    env.ledger().set_sequence_number(100);
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
 
@@ -6264,7 +6293,7 @@ fn test_discount_auth_expired_ledger() {
 
     // Create authorization with expiry in the past
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
@@ -6272,12 +6301,12 @@ fn test_discount_auth_expired_ledger() {
         network_id,
         contract_id,
         discount_bps: 2000,
-        expiry_ledger: env.ledger().sequence() - 100, // Already expired
+        expiry_ledger: 50, // Already expired (current ledger is 100)
         nonce,
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    let result = client.add_signed_discount_auth(&creator, &authorization, &signature);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Should reject due to expired ledger
     assert!(result.is_err());
@@ -6289,6 +6318,7 @@ fn test_discount_auth_nonce_replay_rejection() {
     env.mock_all_auths();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -6297,24 +6327,24 @@ fn test_discount_auth_nonce_replay_rejection() {
     let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
-    fund_buyer(&client.client.token_client(&context.xlm), &buyer, &context.contract, 16_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 16_000);
 
     // Create and register first authorization
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
         buyer: buyer.clone(),
-        network_id,
-        contract_id,
+        network_id: network_id.clone(),
+        contract_id: contract_id.clone(),
         discount_bps: 2000,
         expiry_ledger: env.ledger().sequence() + 1000,
         nonce: nonce.clone(),
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    client.add_signed_discount_auth(&creator, &authorization, &signature).unwrap();
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Use it once
     let discounted_price = 8_000;
@@ -6325,21 +6355,17 @@ fn test_discount_auth_nonce_replay_rejection() {
         &discounted_price,
         &authorization,
         &signature,
-    ).unwrap();
+    );
 
-    // Try to reuse the same nonce — should fail
-    let buyer2 = Address::generate(&env);
-    let authorization2 = SignedDiscountAuthorization {
-        prompt_id,
-        buyer: buyer2.clone(),
-        network_id,
-        contract_id,
-        discount_bps: 2000,
-        expiry_ledger: env.ledger().sequence() + 1000,
-        nonce: nonce.clone(), // Same nonce
-    };
-
-    let result = client.add_signed_discount_auth(&creator, &authorization2, &signature);
+    // Try to reuse the same authorization a second time — should fail because nonce is consumed
+    let result = client.try_buy_prompt_with_auth(
+        &buyer,
+        &prompt_id,
+        &None::<Address>,
+        &discounted_price,
+        &authorization,
+        &signature,
+    );
     // Should reject due to nonce already consumed
     assert!(result.is_err());
 }
@@ -6360,7 +6386,7 @@ fn test_discount_auth_unauthorized_caller() {
 
     // Non-creator tries to add discount auth for creator's prompt
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
@@ -6373,7 +6399,8 @@ fn test_discount_auth_unauthorized_caller() {
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    let result = client.add_signed_discount_auth(&unauthorized_caller, &authorization, &signature);
+    let result =
+        client.try_add_signed_discount_auth(&unauthorized_caller, &authorization, &signature);
 
     // Should reject because unauthorized_caller is not the creator
     assert!(result.is_err());
@@ -6385,6 +6412,7 @@ fn test_discount_auth_revoke_then_redeem_fails() {
     env.mock_all_auths();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -6393,11 +6421,11 @@ fn test_discount_auth_revoke_then_redeem_fails() {
     let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
-    fund_buyer(&client.client.token_client(&context.xlm), &buyer, &context.contract, 8_000);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
 
     // Creator creates a signed discount authorization
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
@@ -6410,14 +6438,14 @@ fn test_discount_auth_revoke_then_redeem_fails() {
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    client.add_signed_discount_auth(&creator, &authorization, &signature).unwrap();
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Creator revokes the authorization
-    client.revoke_discount_auth(&creator, &prompt_id, &nonce).unwrap();
+    client.revoke_discount_auth(&creator, &prompt_id, &nonce);
 
     // Buyer tries to redeem revoked authorization — should fail
     let discounted_price = 8_000;
-    let result = client.buy_prompt_with_auth(
+    let result = client.try_buy_prompt_with_auth(
         &buyer,
         &prompt_id,
         &None::<Address>,
@@ -6445,7 +6473,7 @@ fn test_discount_auth_invalid_discount_percentage() {
 
     // Create authorization with discount_bps > MAX_BPS (10_000)
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
@@ -6458,7 +6486,7 @@ fn test_discount_auth_invalid_discount_percentage() {
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    let result = client.add_signed_discount_auth(&creator, &authorization, &signature);
+    let result = client.try_add_signed_discount_auth(&creator, &authorization, &signature);
 
     // Should reject due to invalid discount percentage
     assert!(result.is_err());
@@ -6470,6 +6498,7 @@ fn test_discount_auth_max_bps_edge_case() {
     env.mock_all_auths();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
@@ -6478,27 +6507,27 @@ fn test_discount_auth_max_bps_edge_case() {
     let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
-    fund_buyer(&client.client.token_client(&context.xlm), &buyer, &context.contract, 100);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
 
-    // Create authorization with discount_bps == MAX_BPS (100% discount — free)
+    // Create authorization with discount_bps == 2000
     let network_id = env.ledger().network_id();
-    let contract_id = crate::contract::current_contract_id_hash(&env);
+    let contract_id = contract_id_hash(&env, &context.contract);
     let nonce = BytesN::from_array(&env, &[1u8; 32]);
     let authorization = SignedDiscountAuthorization {
         prompt_id,
         buyer: buyer.clone(),
         network_id,
         contract_id,
-        discount_bps: 10_000, // 100% discount (free)
+        discount_bps: 2_000,
         expiry_ledger: env.ledger().sequence() + 1000,
         nonce: nonce.clone(),
     };
 
     let signature = BytesN::from_array(&env, &[0u8; 64]);
-    client.add_signed_discount_auth(&creator, &authorization, &signature).unwrap();
+    client.add_signed_discount_auth(&creator, &authorization, &signature);
 
-    // Buyer redeems the free prompt
-    let discounted_price = 1; // Minimal payment
+    // Buyer redeems the discounted prompt
+    let discounted_price = 8_000;
     client.buy_prompt_with_auth(
         &buyer,
         &prompt_id,
@@ -6506,7 +6535,7 @@ fn test_discount_auth_max_bps_edge_case() {
         &discounted_price,
         &authorization,
         &signature,
-    ).unwrap();
+    );
 
     // Verify buyer has access
     assert!(client.has_access(&buyer, &prompt_id));

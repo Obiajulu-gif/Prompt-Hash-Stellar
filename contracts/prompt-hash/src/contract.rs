@@ -1276,7 +1276,7 @@ impl PromptHashTrait for PromptHashContract {
         let now = env.ledger().timestamp();
 
         // Bundle disputes (#595) have prompt_id == 0 and no individual purchase record
-        let is_bundle_dispute = prompt_id == 0;
+        let is_bundle_dispute = prompt_id == 0 && Storage::get_prompt(&env, 0).is_none();
         if !is_bundle_dispute {
             Storage::require_purchase(&env, prompt_id, &buyer)?;
         }
@@ -1343,8 +1343,7 @@ impl PromptHashTrait for PromptHashContract {
         InstanceStorage::set_reentrancy_guard(&env)?;
 
         // Bundle disputes (#595) have prompt_id == 0 and require special refund handling
-        let is_bundle_dispute = prompt_id == 0;
-
+        let is_bundle_dispute = prompt_id == 0 && Storage::get_prompt(&env, 0).is_none();
         let mut dispute = Storage::require_dispute(&env, prompt_id, &buyer)?;
         ensure(
             dispute.status == DisputeStatus::Open,
@@ -1358,14 +1357,12 @@ impl PromptHashTrait for PromptHashContract {
                 if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
                     let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
                     // Refund the full bundle amount to the buyer
-                    asset_client.transfer(
-                        &env.current_contract_address(),
-                        &buyer,
-                        &escrow.amount,
-                    );
+                    asset_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
 
                     // Look up the bundle ID to access its prompts
-                    if let Some(bundle_id) = Storage::get_bundle_escrow_id(&env, &buyer, escrow.created_at) {
+                    if let Some(bundle_id) =
+                        Storage::get_bundle_escrow_id(&env, &buyer, escrow.created_at)
+                    {
                         if let Some(bundle_prompts) =
                             Storage::get_bundle_purchase_prompts(&env, &buyer, bundle_id)
                         {
@@ -1375,7 +1372,9 @@ impl PromptHashTrait for PromptHashContract {
                                 Storage::remove_purchase(&env, prompt_in_bundle, &buyer);
                                 Storage::remove_prompt_from_buyer(&env, &buyer, prompt_in_bundle);
 
-                                if let Some(mut prompt) = Storage::get_prompt(&env, prompt_in_bundle) {
+                                if let Some(mut prompt) =
+                                    Storage::get_prompt(&env, prompt_in_bundle)
+                                {
                                     prompt.sales_count = prompt.sales_count.saturating_sub(1);
                                     Storage::update_prompt(&env, &prompt);
                                 }
@@ -1389,7 +1388,11 @@ impl PromptHashTrait for PromptHashContract {
 
                     // Update the escrow record
                     let mut escrow_updated = escrow;
-                    Storage::remove_disputed_liability(&env, &escrow_updated.asset, escrow_updated.amount)?;
+                    Storage::remove_disputed_liability(
+                        &env,
+                        &escrow_updated.asset,
+                        escrow_updated.amount,
+                    )?;
                     escrow_updated.status = SettlementStatus::Refunded;
                     escrow_updated.settled_at = env.ledger().timestamp();
                     Storage::save_purchase_escrow(&env, &escrow_updated);
@@ -1414,15 +1417,15 @@ impl PromptHashTrait for PromptHashContract {
                 dispute.status = DisputeStatus::Refunded;
 
                 // Release the reserved supply unit back to the pool so another
-                // buyer can acquire it (#538).
-                prompt.sales_count = prompt.sales_count.saturating_sub(1);
-                Storage::update_prompt(&env, &prompt);
+                // buyer may purchase it (#541).
+                if prompt.sales_count > 0 {
+                    prompt.sales_count -= 1;
+                    Storage::update_prompt(&env, &prompt);
+                }
 
-                // Update the escrow record so the settlement admin knows
-                // the funds were already returned to the buyer.
+                // If this purchase had an escrow, transition it to `Refunded`
+                // and clear the tracked disputed liability (#541, #570).
                 if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
-                    // The disputed amount was just paid out to the buyer — it's
-                    // no longer anyone's liability (#570).
                     Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
                     escrow.status = SettlementStatus::Refunded;
                     escrow.settled_at = env.ledger().timestamp();
@@ -1442,6 +1445,7 @@ impl PromptHashTrait for PromptHashContract {
         }
         Storage::save_dispute(&env, &dispute);
         InstanceStorage::clear_reentrancy_guard(&env);
+
         Events::emit_dispute_resolved(&env, prompt_id, buyer, refund);
         Ok(())
     }
@@ -1470,7 +1474,7 @@ impl PromptHashTrait for PromptHashContract {
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
 
         // Bundle settlements (#595) have prompt_id == 0 and cannot use creator auth
-        let is_bundle_settle = prompt_id == 0;
+        let is_bundle_settle = prompt_id == 0 && Storage::get_prompt(&env, 0).is_none();
         let prompt_option = Storage::get_prompt(&env, prompt_id);
 
         let mut escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
@@ -1490,7 +1494,9 @@ impl PromptHashTrait for PromptHashContract {
 
         let now = env.ledger().timestamp();
         let is_privileged = caller == owner
-            || (!is_bundle_settle && prompt_option.is_some() && caller == prompt_option.unwrap().creator);
+            || (!is_bundle_settle
+                && prompt_option.is_some()
+                && caller == prompt_option.unwrap().creator);
         if !is_privileged {
             // Permissionless fallback: once the dispute window has closed
             // with no open dispute, anyone may finalize the escrow — this
@@ -1546,7 +1552,7 @@ impl PromptHashTrait for PromptHashContract {
             &env,
             prompt_id,
             buyer,
-            prompt.creator,
+            plan.creator.clone(),
             escrow.amount,
             escrow.referrer,
         );
@@ -2531,7 +2537,7 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
 /// (#540/#565). There is no plain-build API for a contract's raw identity
 /// hash, so this hashes the current contract address's string encoding —
 /// available without enabling the SDK's `hazmat-address` feature.
-fn current_contract_id_hash(env: &Env) -> BytesN<32> {
+pub fn current_contract_id_hash(env: &Env) -> BytesN<32> {
     env.crypto()
         .sha256(&env.current_contract_address().to_string().to_bytes())
         .to_bytes()
