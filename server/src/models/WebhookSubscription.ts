@@ -17,6 +17,17 @@ const webhookSubscriptionSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Signing-key rotation (#536): the prior secret stays valid for
+    // verification purposes until `previousSecretExpiresAt` so a subscriber
+    // has time to switch over; new deliveries always sign with `secret`.
+    previousSecret: {
+      type: String,
+      default: null,
+    },
+    previousSecretExpiresAt: {
+      type: Date,
+      default: null,
+    },
     events: {
       type: [String],
       default: ["PromptPurchased"],

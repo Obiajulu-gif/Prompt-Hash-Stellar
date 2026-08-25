@@ -16,6 +16,7 @@ import { notificationRouter } from "./routes/notificationRoutes";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
+import { startWebhookOutboxWorker } from "./services/webhookOutboxWorker";
 import connectDb from "./db/connectDb";
 import { runMigrations } from "./db/migrationRunner";
 import {
@@ -105,8 +106,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 
-app.listen(port, () => {
-  console.log(`Listening on port ${port}`);
 async function start() {
   try {
     // Only attempt database connection and migrations if not in test environment
@@ -125,6 +124,9 @@ async function start() {
       startIndexer().catch((err: unknown) => {
         console.error("Failed to start Soroban Indexer:", err);
       });
+
+      // Start the durable webhook outbox delivery worker (#536).
+      startWebhookOutboxWorker();
 
       // DAILY AUTOMATED BACKUP — runs immediately on startup then every 24 h.
       // Use BACKUP_S3_BUCKET env var to enable; silently skips if not configured.

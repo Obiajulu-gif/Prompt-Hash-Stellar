@@ -11,6 +11,7 @@ import {
   SavePrompt,
   UnsavePrompt,
   GetPriceHistory,
+  GetPromptsByContentHash,
 } from "../controllers/controllers";
 import {
   GetCreatorSalesAnalytics,
@@ -51,8 +52,14 @@ promptRouter.get("/buyer/:walletAddress/owned", GetOwnedPrompts);
 promptRouter.get("/buyer/:walletAddress/saved", GetSavedPrompts);
 promptRouter.get("/buyer/:walletAddress/transactions", GetPurchaseTransactions);
 promptRouter.get("/creator/:walletAddress/analytics", GetCreatorSalesAnalytics);
-promptRouter.get("/creator/:walletAddress/payout-statement", GetCreatorPayoutStatement);
+promptRouter.get(
+  "/creator/:walletAddress/payout-statement",
+  GetCreatorPayoutStatement,
+);
 promptRouter.get("/creator/:walletAddress/drafts", GetDraftPrompts);
+
+// Content hash lookup for duplicate detection (#333)
+promptRouter.get("/hash/:contentHash", GetPromptsByContentHash);
 
 // Preview analytics (#257)
 promptRouter.post("/preview", RecordPreview);
@@ -62,7 +69,11 @@ promptRouter.get("/preview/stats", GetPreviewStats);
 // Submission is public (anyone can flag a listing); reading the queue is a
 // moderation action and requires an admin token (#542).
 promptRouter.post("/reports", SubmitPromptReport);
-promptRouter.get("/reports", requireAdminScope("reports:read"), GetPromptReports);
+promptRouter.get(
+  "/reports",
+  requireAdminScope("reports:read"),
+  GetPromptReports,
+);
 
 // Price history — derived from indexed PromptPriceUpdated events
 promptRouter.get("/:onChainId/price-history", GetPriceHistory);
@@ -73,7 +84,8 @@ promptRouter.get(
   requireAdminScope("integrity:read"),
   GetIntegrityReport,
 );
-promptRouter.post("/admin/integrity-check",
+promptRouter.post(
+  "/admin/integrity-check",
   requireAdminScope("integrity:write"),
   TriggerIntegrityCheck,
 );
