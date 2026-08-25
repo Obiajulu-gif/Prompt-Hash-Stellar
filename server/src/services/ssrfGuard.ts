@@ -25,7 +25,7 @@ export class UnsafeWebhookUrlError extends Error {
   }
 }
 
-function isDisallowedIPv4(address: string): boolean {
+export function isDisallowedIPv4(address: string): boolean {
   const parts = address.split(".").map(Number);
   if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return true;
   const [a, b] = parts;
@@ -40,7 +40,7 @@ function isDisallowedIPv4(address: string): boolean {
   return false;
 }
 
-function isDisallowedIPv6(address: string): boolean {
+export function isDisallowedIPv6(address: string): boolean {
   const normalized = address.toLowerCase();
   if (normalized === "::1" || normalized === "::") return true;
   if (/^fe[89ab]/.test(normalized)) return true; // link-local (fe80::/10)
@@ -51,7 +51,7 @@ function isDisallowedIPv6(address: string): boolean {
   return false;
 }
 
-function isDisallowedAddress(address: string): boolean {
+export function isDisallowedAddress(address: string): boolean {
   const family = net.isIP(address);
   if (family === 4) return isDisallowedIPv4(address);
   if (family === 6) return isDisallowedIPv6(address);
