@@ -70,7 +70,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies for ABI conformance tests
-        run: npm ci
+        run: npm install --legacy-peer-deps --no-audit --ignore-scripts
         working-directory: ./
 
       - name: Generate ABI fixtures from contract spec
