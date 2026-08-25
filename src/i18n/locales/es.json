@@ -121,5 +121,62 @@
   },
   "format": {
     "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "failed": "Error",
+    "error": "Error",
+    "success": "Éxito",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "add": "Añadir",
+    "remove": "Remover",
+    "close": "Cerrar",
+    "submit": "Enviar",
+    "continue": "Continuar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "confirm": "Confirmar",
+    "retry": "Reintentar"
+  },
+  "sell_form": {
+    "preview_placeholder": "Añade texto de vista previa pública para mostrar a los compradores qué resultados pueden esperar.",
+    "moderation_notes_placeholder": "Añade notas de moderación...",
+    "failed_create_prompt": "Error al crear prompt.",
+    "failed_update_status": "Error al actualizar el estado de venta.",
+    "failed_update_price": "Error al actualizar el precio.",
+    "failed_unlock_prompt": "Error al desbloquear el prompt.",
+    "failed_create_bundle": "Error al crear paquete.",
+    "failed_create_access_pass": "Error al crear pase de acceso.",
+    "draft_not_found": "Borrador no encontrado.",
+    "failed_fetch_drafts": "Error al obtener borradores.",
+    "failed_publish_draft": "Error al publicar.",
+    "failed_archive_draft": "Error al archivar.",
+    "draft_restored": "Borrador restaurado desde autoguardado.",
+    "last_saved": "Último guardado: {{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "Cargando tus prompts licenciados...",
+    "saved_listing": "Publicación guardada",
+    "paused_listing": "Publicación pausada",
+    "failed_update_listing_status": "Error al actualizar el estado de la publicación.",
+    "failed_update_listing_price": "Error al actualizar el precio.",
+    "failed_update_saved_listings": "Error al actualizar publicaciones guardadas.",
+    "failed_unlock": "Error al desbloquear prompt.",
+    "payout_settings": "Configuración de Pagos",
+    "failed_save_payout_preferences": "Error al guardar preferencias de pago."
+  },
+  "admin": {
+    "failed_load_contract_state": "Error al cargar el estado del contrato.",
+    "config_dashboard_title": "Configuración del Contrato",
+    "reports_title": "Reportes de Moderación"
+  },
+  "forms": {
+    "error_required": "Este campo es obligatorio.",
+    "error_invalid": "Entrada inválida.",
+    "error_validation": "La validación falló. Por favor, verifica el formulario."
   }
 }

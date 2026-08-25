@@ -14,52 +14,8 @@ interface StoredReview {
   verified: boolean;
 }
 
-// Mock storage - in production, use database
+// Storage for reviews
 const reviewStorage = new Map<string, StoredReview[]>();
-
-// Seed some mock data for testing
-const seedMockReviews = () => {
-  const mockReviews: StoredReview[] = [
-    {
-      id: "review_1",
-      promptId: "1",
-      userAddress: "GABC123XYZ456DEF789GHI012JKL345MNO678PQR901STU234VWX567YZ",
-      rating: 5,
-      text: "Excellent prompt! Helped me generate high-quality technical documentation in minutes. The structure and clarity are outstanding.",
-      createdAt: Date.now() - 86400000 * 2, // 2 days ago
-      verified: true,
-    },
-    {
-      id: "review_2",
-      promptId: "1",
-      userAddress: "GBCD234ABC567EFG890HIJ123KLM456NOP789QRS012TUV345WXY678ZA",
-      rating: 4,
-      text: "Very useful for system design work. Could use a bit more detail on edge cases, but overall a solid prompt.",
-      createdAt: Date.now() - 86400000 * 5, // 5 days ago
-      verified: true,
-    },
-    {
-      id: "review_3",
-      promptId: "2",
-      userAddress: "GCDE345BCD678FGH901IJK234LMN567OPQ890RST123UVW456XYZ789AB",
-      rating: 5,
-      text: "Amazing for creative writing! The narrative structures it generates are incredibly detailed and engaging. Worth every XLM.",
-      createdAt: Date.now() - 86400000 * 1, // 1 day ago
-      verified: true,
-    },
-  ];
-
-  mockReviews.forEach(review => {
-    const existing = reviewStorage.get(review.promptId) || [];
-    existing.push(review);
-    reviewStorage.set(review.promptId, existing);
-  });
-};
-
-// Seed on first load
-if (reviewStorage.size === 0) {
-  seedMockReviews();
-}
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "GET") {

@@ -2,21 +2,32 @@ import { trim } from "../../util/trim";
 import { xdr as stellarXDR } from "@stellar/stellar-sdk";
 
 import { XdrType } from "../../types/types";
+import type { ValidatorResult } from "../contract";
 
-const validateBase64 = (value: string) => {
+/**
+ * Validate that the input is well-formed base64. Returns `false` when valid
+ * (matching the shared `ValidatorResult` contract) or an error string.
+ */
+const validateBase64 = (value: string): ValidatorResult => {
   if (value.match(/^[-A-Za-z0-9+/=]*$/) === null) {
-    return {
-      result: "error",
-      message: "The input is not valid base64 (a-zA-Z0-9+/=).",
-    };
+    return "The input is not valid base64 (a-zA-Z0-9+/=).";
   }
 
-  return { result: "success", message: "Valid Base64" };
+  return false;
 };
 
-export const getXdrError = (value: string, type?: XdrType) => {
+/**
+ * Validate that `value` is a parseable Stellar XDR of `type`
+ * ("TransactionEnvelope" by default, or "LedgerKey").
+ *
+ * Conforms to the shared validator contract (`string | false`): `false` means
+ * the XDR is valid, a `string` is the parse error. This matches every other
+ * simple validator in `src/debug/validate/methods/` so it is handled
+ * identically by consumers such as `handleValidate`.
+ */
+export const getXdrError = (value: string, type?: XdrType): ValidatorResult => {
   if (!value) {
-    return undefined;
+    return false;
   }
 
   const defaultType = "Transaction Envelope";
@@ -25,7 +36,7 @@ export const getXdrError = (value: string, type?: XdrType) => {
   const sanitizedXdr = trim(value);
   const base64Validation = validateBase64(sanitizedXdr);
 
-  if (base64Validation.result !== "success") {
+  if (base64Validation !== false) {
     return base64Validation;
   }
 
@@ -36,18 +47,8 @@ export const getXdrError = (value: string, type?: XdrType) => {
       stellarXDR.TransactionEnvelope.fromXDR(sanitizedXdr, "base64");
     }
 
-    // TODO: See, if we can make this response match all the other validations.
-    // This is the only exception and might cause issues if we don't remember to
-    // handle it.
-    return {
-      result: "success",
-      message: `Valid ${selectedType} XDR`,
-    };
-  } catch (e) {
-    return {
-      result: "error",
-      message: `Unable to parse input XDR into ${selectedType}`,
-      originalError: e,
-    };
+    return false;
+  } catch {
+    return `Unable to parse input XDR into ${selectedType}`;
   }
 };

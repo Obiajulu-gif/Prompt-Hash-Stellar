@@ -121,5 +121,62 @@
   },
   "format": {
     "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "failed": "Échec",
+    "error": "Erreur",
+    "success": "Succès",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "add": "Ajouter",
+    "remove": "Retirer",
+    "close": "Fermer",
+    "submit": "Envoyer",
+    "continue": "Continuer",
+    "back": "Retour",
+    "next": "Suivant",
+    "previous": "Précédent",
+    "confirm": "Confirmer",
+    "retry": "Réessayer"
+  },
+  "sell_form": {
+    "preview_placeholder": "Ajoutez un texte d'aperçu public pour montrer aux acheteurs les résultats qu'ils peuvent attendre.",
+    "moderation_notes_placeholder": "Ajouter des notes de modération...",
+    "failed_create_prompt": "Échec de la création du prompt.",
+    "failed_update_status": "Échec de la mise à jour du statut de vente.",
+    "failed_update_price": "Échec de la mise à jour du prix.",
+    "failed_unlock_prompt": "Échec du déverrouillage du prompt.",
+    "failed_create_bundle": "Échec de la création du paquet.",
+    "failed_create_access_pass": "Échec de la création du laissez-passer d'accès.",
+    "draft_not_found": "Brouillon introuvable.",
+    "failed_fetch_drafts": "Échec de la récupération des brouillons.",
+    "failed_publish_draft": "Échec de la publication.",
+    "failed_archive_draft": "Échec de l'archivage.",
+    "draft_restored": "Brouillon restauré à partir de la sauvegarde automatique.",
+    "last_saved": "Dernière sauvegarde : {{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "Chargement de vos prompts sous licence...",
+    "saved_listing": "Annonce enregistrée",
+    "paused_listing": "Annonce en pause",
+    "failed_update_listing_status": "Échec de la mise à jour du statut de l'annonce.",
+    "failed_update_listing_price": "Échec de la mise à jour du prix.",
+    "failed_update_saved_listings": "Échec de la mise à jour des annonces enregistrées.",
+    "failed_unlock": "Échec du déverrouillage du prompt.",
+    "payout_settings": "Paramètres de Paiement",
+    "failed_save_payout_preferences": "Échec de l'enregistrement des préférences de paiement."
+  },
+  "admin": {
+    "failed_load_contract_state": "Échec du chargement de l'état du contrat.",
+    "config_dashboard_title": "Configuration du Contrat",
+    "reports_title": "Rapports de Modération"
+  },
+  "forms": {
+    "error_required": "Ce champ est obligatoire.",
+    "error_invalid": "Entrée invalide.",
+    "error_validation": "La validation a échoué. Veuillez vérifier le formulaire."
   }
 }
