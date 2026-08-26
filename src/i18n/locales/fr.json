@@ -1,0 +1,182 @@
+{
+  "nav": {
+    "browse": "Parcourir",
+    "sell": "Vendre",
+    "chat": "Chat",
+    "profile": "Profil",
+    "status": "Statut",
+    "create": "Créer",
+    "dashboard": "Tableau de bord",
+    "connect": "Connecter le portefeuille",
+    "disconnect": "Déconnecter"
+  },
+  "home": {
+    "hero_title": "Découvrez et échangez des Prompts IA",
+    "hero_subtitle": "Achetez, vendez et licenciez des prompts IA premium sur la blockchain Stellar.",
+    "browse_prompts": "Parcourir les Prompts",
+    "create_prompt": "Créer un Prompt"
+  },
+  "marketplace": {
+    "title": "Marché",
+    "subtitle": "Parcourez et déverrouillez des prompts IA. Les achats sont réglés sur le réseau Stellar.",
+    "listings_count_one": "{{count}} annonce",
+    "listings_count_other": "{{count}} annonces",
+    "load_error": "Échec du chargement des annonces du marché.",
+    "load_error_hint": "Vérifiez votre connexion et rechargez la page.",
+    "empty_title": "Aucun prompt publié pour l'instant",
+    "empty_body": "Soyez le premier à publier un prompt ! Rendez-vous sur la page de vente pour publier votre prompt IA et commencer à gagner des XLM.",
+    "sell_link": "Vendre",
+    "owned": "Possédé",
+    "buy": "Acheter",
+    "purchasing": "Achat en cours…",
+    "network_wait": "En attente de la confirmation du réseau Stellar…",
+    "pending_message": "Traitement de l'achat sur le réseau Stellar…",
+    "success_message": "Achat terminé ! Article déverrouillé."
+  },
+  "prompt": {
+    "buy": "Acheter le Prompt",
+    "lease": "Louer le Prompt",
+    "price": "Prix",
+    "creator": "Créateur",
+    "category": "Catégorie",
+    "sales": "Ventes",
+    "content_hash": "Hash du contenu",
+    "quality_score": "Score de qualité",
+    "preview": "Aperçu",
+    "no_ratings": "Aucune note pour l'instant — soyez le premier à évaluer.",
+    "purchase_success": "Prompt acheté avec succès !",
+    "lease_success": "Prompt loué avec succès !",
+    "already_owned": "Vous possédez déjà ce prompt.",
+    "max_supply_reached": "L'offre maximale pour ce prompt est atteinte.",
+    "acquire_license": "Acquérir une licence",
+    "acquire_license_subtitle": "Déverrouillez du contenu premium via contrat intelligent Stellar.",
+    "secure_purchase": "Achat sécurisé",
+    "secure_purchase_body": "Les fonds sont conservés par le contrat jusqu'à ce que les droits d'accès soient créés. La commission de la plateforme est incluse dans le prix.",
+    "confirm_purchase": "Confirmer & Acheter",
+    "offline": "Hors ligne",
+    "license_verified": "Licence vérifiée",
+    "license_verified_body": "Propriété détectée sur la chaîne. Signez la demande de déverrouillage pour déchiffrer.",
+    "decrypt": "Déchiffrer le contenu",
+    "unlocking": "Déverrouillage…",
+    "copy_content": "Copier le contenu",
+    "copied": "Copié",
+    "store_securely": "Conservez ce prompt en toute sécurité. Ne le partagez pas publiquement ni avec des utilisateurs non autorisés.",
+    "go_to_library": "Aller à ma bibliothèque",
+    "back_to_marketplace": "Retour au marché",
+    "share_link": "Copier le lien de partage",
+    "share_link_copied": "Lien copié",
+    "report": "Signaler le prompt",
+    "write_review": "Écrire un avis",
+    "share_experience": "Partagez votre expérience"
+  },
+  "receipt": {
+    "title": "Reçu d'achat",
+    "pending_indexing": "Indexation en attente…",
+    "pending_indexing_body": "Votre transaction a réussi sur le réseau Stellar, mais notre système indexe encore la mise à jour. Vous pourrez déverrouiller le prompt sous peu.",
+    "prompt_label": "Prompt",
+    "creator_label": "Créateur",
+    "amount_label": "Montant",
+    "fee_label": "Frais réseau",
+    "tx_hash_label": "Hash de transaction",
+    "prompt_id_label": "ID du prompt",
+    "content_hash_label": "Hash du contenu",
+    "details_heading": "Détails de la transaction",
+    "buyer_status": "Statut de l'acheteur",
+    "buyer_label": "Acheteur",
+    "licensed": "Licencié"
+  },
+  "sell": {
+    "title": "Publier un nouveau prompt",
+    "name_label": "Nom du prompt",
+    "price_label": "Prix (XLM)",
+    "description_label": "Description",
+    "submit": "Publier l'actif",
+    "submitting": "Traitement en cours…",
+    "offline": "Hors ligne"
+  },
+  "create": {
+    "title": "Créer un Prompt",
+    "prompt_title": "Titre",
+    "category": "Catégorie",
+    "preview": "Texte d'aperçu",
+    "price": "Prix (stroops)",
+    "max_supply": "Offre maximale (0 = illimité)",
+    "submit": "Publier le Prompt",
+    "success": "Prompt publié avec succès !"
+  },
+  "errors": {
+    "not_found": "Prompt introuvable.",
+    "unauthorized": "Vous n'êtes pas autorisé.",
+    "paused": "La place de marché est actuellement en pause.",
+    "load_failed": "Échec du chargement des données.",
+    "network_error": "Une erreur réseau s'est produite. Veuillez réessayer."
+  },
+  "offline": {
+    "banner": "Vous êtes actuellement hors ligne. Affichage des annonces publiques mises en cache. Les actions de portefeuille et les achats sont désactivés.",
+    "last_refreshed": "Données actualisées pour la dernière fois : {{time}}",
+    "reconnect": "Reconnecter"
+  },
+  "language": {
+    "select": "Langue"
+  },
+  "format": {
+    "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "failed": "Échec",
+    "error": "Erreur",
+    "success": "Succès",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "add": "Ajouter",
+    "remove": "Retirer",
+    "close": "Fermer",
+    "submit": "Envoyer",
+    "continue": "Continuer",
+    "back": "Retour",
+    "next": "Suivant",
+    "previous": "Précédent",
+    "confirm": "Confirmer",
+    "retry": "Réessayer"
+  },
+  "sell_form": {
+    "preview_placeholder": "Ajoutez un texte d'aperçu public pour montrer aux acheteurs les résultats qu'ils peuvent attendre.",
+    "moderation_notes_placeholder": "Ajouter des notes de modération...",
+    "failed_create_prompt": "Échec de la création du prompt.",
+    "failed_update_status": "Échec de la mise à jour du statut de vente.",
+    "failed_update_price": "Échec de la mise à jour du prix.",
+    "failed_unlock_prompt": "Échec du déverrouillage du prompt.",
+    "failed_create_bundle": "Échec de la création du paquet.",
+    "failed_create_access_pass": "Échec de la création du laissez-passer d'accès.",
+    "draft_not_found": "Brouillon introuvable.",
+    "failed_fetch_drafts": "Échec de la récupération des brouillons.",
+    "failed_publish_draft": "Échec de la publication.",
+    "failed_archive_draft": "Échec de l'archivage.",
+    "draft_restored": "Brouillon restauré à partir de la sauvegarde automatique.",
+    "last_saved": "Dernière sauvegarde : {{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "Chargement de vos prompts sous licence...",
+    "saved_listing": "Annonce enregistrée",
+    "paused_listing": "Annonce en pause",
+    "failed_update_listing_status": "Échec de la mise à jour du statut de l'annonce.",
+    "failed_update_listing_price": "Échec de la mise à jour du prix.",
+    "failed_update_saved_listings": "Échec de la mise à jour des annonces enregistrées.",
+    "failed_unlock": "Échec du déverrouillage du prompt.",
+    "payout_settings": "Paramètres de Paiement",
+    "failed_save_payout_preferences": "Échec de l'enregistrement des préférences de paiement."
+  },
+  "admin": {
+    "failed_load_contract_state": "Échec du chargement de l'état du contrat.",
+    "config_dashboard_title": "Configuration du Contrat",
+    "reports_title": "Rapports de Modération"
+  },
+  "forms": {
+    "error_required": "Ce champ est obligatoire.",
+    "error_invalid": "Entrée invalide.",
+    "error_validation": "La validation a échoué. Veuillez vérifier le formulaire."
+  }
+}

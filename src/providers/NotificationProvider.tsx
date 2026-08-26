@@ -22,7 +22,7 @@ interface Notification {
 }
 
 interface NotificationContextType {
-  addNotification: (message: string, type: NotificationType) => void;
+  addNotification: (_message: string, _type: NotificationType) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(

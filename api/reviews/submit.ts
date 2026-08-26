@@ -1,13 +1,19 @@
 /**
  * Review Submission Endpoint
  * 
- * Allows verified buyers to submit ratings and reviews for purchased prompts.
- * Verifies wallet ownership and purchase access before accepting reviews.
+ * Allows verified buyers to submit wallet-signed ratings and reviews for purchased prompts.
+ * Verifies domain-separated signature and finalized purchase access before persisting reviews.
  */
 
+import { Keypair } from "@stellar/stellar-sdk";
+import { Buffer } from "buffer";
+import connectDb from "../../server/src/db/connectDb";
+import Review from "../../server/src/models/Review";
+import Purchase from "../../server/src/models/Purchase";
 import { hasAccess, type PromptHashConfig } from "../../src/lib/stellar/promptHashClient";
+import { cacheDel, CACHE_KEYS } from "../../server/src/services/cacheService";
 
-interface ReviewSubmission {
+export interface ReviewSubmission {
   promptId: string;
   userAddress: string;
   rating: number;
@@ -15,25 +21,41 @@ interface ReviewSubmission {
   signature: string;
 }
 
-interface StoredReview {
-  id: string;
-  promptId: string;
-  userAddress: string;
-  rating: number;
-  text: string;
-  createdAt: number;
-  verified: boolean;
+export function buildReviewMessage(userAddress: string, promptId: string, rating: number, text: string): string {
+  return `prompt-hash review:${userAddress}:${promptId}:${rating}:${text.trim()}`;
 }
 
-// Mock storage - in production, use database
-const reviewStorage = new Map<string, StoredReview[]>();
+export function verifyReviewSignature(
+  userAddress: string,
+  promptId: string,
+  rating: number,
+  text: string,
+  signature: string,
+): boolean {
+  try {
+    const message = buildReviewMessage(userAddress, promptId, rating, text);
+    const keypair = Keypair.fromPublicKey(userAddress);
+    
+    // Accept base64 or hex signature
+    let sigBuffer: Buffer;
+    if (/^[0-9a-fA-F]+$/.test(signature)) {
+      sigBuffer = Buffer.from(signature, "hex");
+    } else {
+      sigBuffer = Buffer.from(signature, "base64");
+    }
+
+    return keypair.verify(Buffer.from(message, "utf8"), sigBuffer);
+  } catch (err) {
+    return false;
+  }
+}
 
 function getServerConfig(): PromptHashConfig {
   const rpcUrl = process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
   const networkPassphrase = process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015";
   const promptHashContractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ?? "";
-  const nativeAssetContractId = process.env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID ?? "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-  const simulationAccount = process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ?? process.env.UNLOCK_PUBLIC_KEY ?? "";
+  const nativeAssetContractId = process.env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID ?? "";
+  const simulationAccount = process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ?? "";
 
   return {
     rpcUrl,
@@ -51,16 +73,21 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { promptId, userAddress, rating, text, signature }: ReviewSubmission = req.body;
+  const { promptId, userAddress, rating, text, signature }: ReviewSubmission = req.body || {};
 
-  // Validation
-  if (!promptId || !userAddress || !rating || !text) {
-    res.status(400).json({ error: "Missing required fields" });
+  // Input Validation
+  if (!promptId || !userAddress || !rating || text === undefined) {
+    res.status(400).json({ error: "promptId, userAddress, rating, and text are required" });
     return;
   }
 
-  if (rating < 1 || rating > 5) {
-    res.status(400).json({ error: "Rating must be between 1 and 5" });
+  if (!signature) {
+    res.status(401).json({ error: "Wallet signature is required to submit a review" });
+    return;
+  }
+
+  if (rating < 1 || rating > 5 || !Number.isInteger(rating)) {
+    res.status(400).json({ error: "Rating must be an integer between 1 and 5" });
     return;
   }
 
@@ -74,52 +101,82 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  // Signature verification
+  const isValidSig = verifyReviewSignature(userAddress, promptId, rating, text, signature);
+  if (!isValidSig) {
+    res.status(401).json({ error: "Invalid domain-separated wallet signature for review" });
+    return;
+  }
+
   try {
-    // Verify user has purchased the prompt
-    const config = getServerConfig();
-    const access = await hasAccess(config, userAddress, promptId);
+    // Connect DB if available
+    await connectDb();
 
-    if (!access) {
-      res.status(403).json({ 
-        error: "Only verified buyers can submit reviews",
-        verified: false 
+    // Verify finalized access / purchase evidence
+    let hasPurchased = false;
+    try {
+      const dbPurchase = await Purchase.findOne({
+        promptId,
+        buyerWallet: userAddress.toLowerCase(),
+        status: { $ne: "refunded" },
       });
-      return;
+      if (dbPurchase) {
+        hasPurchased = true;
+      }
+    } catch {
+      // Fallback to contract check if DB query not connected
     }
 
-    // Check if user already reviewed this prompt
-    const existingReviews = reviewStorage.get(promptId) || [];
-    const hasReviewed = existingReviews.some(r => r.userAddress === userAddress);
-
-    if (hasReviewed) {
-      res.status(409).json({ error: "You have already reviewed this prompt" });
-      return;
+    if (!hasPurchased) {
+      const config = getServerConfig();
+      const onChainAccess = await hasAccess(config, userAddress, promptId);
+      if (!onChainAccess) {
+        res.status(403).json({
+          error: "Only verified buyers with finalized entitlement can submit reviews",
+          verified: false,
+        });
+        return;
+      }
     }
 
-    // Create review
-    const review: StoredReview = {
-      id: `review_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    // Check for existing review (support update or single review constraint)
+    const existing = await Review.findOne({
       promptId,
-      userAddress,
-      rating,
-      text: text.trim(),
-      createdAt: Date.now(),
-      verified: true,
-    };
+      userAddress: userAddress.toLowerCase(),
+    });
 
-    // Store review (mock - use database in production)
-    const reviews = reviewStorage.get(promptId) || [];
-    reviews.push(review);
-    reviewStorage.set(promptId, reviews);
+    let reviewRecord;
+    if (existing) {
+      existing.rating = rating;
+      existing.text = text.trim();
+      existing.signature = signature;
+      existing.verified = true;
+      existing.updatedAt = new Date();
+      reviewRecord = await existing.save();
+    } else {
+      reviewRecord = await Review.create({
+        promptId,
+        userAddress: userAddress.toLowerCase(),
+        rating,
+        text: text.trim(),
+        signature,
+        verified: true,
+      });
+    }
 
-    console.log(`✓ Review submitted for prompt ${promptId} by ${userAddress.slice(0, 8)}...`);
+    // Invalidate cached detail
+    await cacheDel(CACHE_KEYS.promptDetail(promptId));
 
     res.status(201).json({
       success: true,
       review: {
-        id: review.id,
-        rating: review.rating,
-        createdAt: review.createdAt,
+        id: reviewRecord._id || reviewRecord.id,
+        promptId: reviewRecord.promptId,
+        userAddress: reviewRecord.userAddress,
+        rating: reviewRecord.rating,
+        text: reviewRecord.text,
+        createdAt: reviewRecord.createdAt,
+        verified: reviewRecord.verified,
       },
     });
   } catch (error) {

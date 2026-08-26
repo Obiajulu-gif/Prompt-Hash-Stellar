@@ -21,10 +21,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 interface ConversationDetailsProps {
   isOpen: boolean;
   activeTab: "parameters" | "engineer" | "settings";
-  onTabChange: (tab: "parameters" | "engineer" | "settings") => void;
+  onTabChange: (_tab: "parameters" | "engineer" | "settings") => void;
   customerName: string;
   onClose: () => void;
 }
+ 
 
 export function ConversationDetails({
   isOpen,

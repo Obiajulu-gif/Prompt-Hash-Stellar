@@ -13,10 +13,11 @@ export interface TransactionState {
 
 interface TransactionContextType {
   transactions: TransactionState[];
-  addTransaction: (tx: TransactionState) => void;
-  updateTransaction: (id: string, updates: Partial<TransactionState>) => void;
-  removeTransaction: (id: string) => void;
+  addTransaction: (_tx: TransactionState) => void;
+  updateTransaction: (_id: string, _updates: Partial<TransactionState>) => void;
+  removeTransaction: (_id: string) => void;
 }
+ 
 
 const TransactionContext = createContext<TransactionContextType | undefined>(undefined);
 

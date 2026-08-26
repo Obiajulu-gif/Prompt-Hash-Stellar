@@ -1,4 +1,4 @@
-import LRUCache from "lru-cache";
+import { LRUCache } from "lru-cache";
 import { getRedisClient } from "./redisClient";
 
 interface RateLimitConfig {

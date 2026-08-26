@@ -7,9 +7,13 @@
  */
 
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "crypto";
+import { isPlaceholder } from "../../src/lib/validation/envValidator";
+import { AdminTokenError, verifyAdminToken } from "../../server/src/services/adminToken";
+import { recordAuditEvent } from "../../server/src/services/auditTrail";
 
 const ALGORITHM = "aes-256-gcm";
 const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
+const ROTATE_SECRET_SCOPE = "secrets:rotate";
 
 interface SecretVersion {
   version: number;
@@ -66,17 +70,13 @@ function saveConfig(config: RotationConfig): void {
 
 // ── Core rotation logic ─────────────────────────────────────────────
 
-function getVersion(config: RotationConfig, version: number): SecretVersion | undefined {
-  return config.versions.find((v) => v.version === version);
-}
-
 function getDecryptedSecret(config: RotationConfig, version: SecretVersion, passphrase: string): string {
   return decryptSecret(version.encryptedSecret, version.iv, version.authTag, passphrase);
 }
 
 /**
  * Compare-and-swap rotation: only succeeds if `expectedVersion` matches the current active version.
- * Returns the new version number on success, or -1 on conflict.
+ * Returns the new version number on success, or a conflict result.
  */
 export function rotateSecretCAS(
   expectedVersion: number,
@@ -113,7 +113,6 @@ export function rotateSecretCAS(
 
 /**
  * Get all currently active secrets (current + any within grace period).
- * Returns decrypted secrets for HMAC verification.
  */
 export function getActiveSecrets(passphrase: string): string[] {
   const config = loadConfig();
@@ -144,6 +143,12 @@ export function cleanupExpiredVersions(): void {
   saveConfig(config);
 }
 
+function activeAdminSecrets(): string[] {
+  return [process.env.ADMIN_TOKEN_SECRET, process.env.ADMIN_TOKEN_SECRET_PREVIOUS].filter(
+    (value): value is string => Boolean(value) && value.length >= 16,
+  );
+}
+
 /**
  * HTTP endpoint handler for manual rotation.
  * POST /api/auth/rotateSecret
@@ -154,9 +159,12 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const authHeader = req.headers.authorization;
-  const adminToken = process.env.ADMIN_ROTATION_TOKEN;
-  if (!adminToken || authHeader !== `Bearer ${adminToken}`) {
+  const secrets = activeAdminSecrets();
+  const authHeader = req.headers.authorization as string | undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined;
+  const clientIp = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
+
+  if (secrets.length === 0 || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -166,6 +174,36 @@ export default async function handler(req: any, res: any) {
     res.status(500).json({ error: "Server configuration error" });
     return;
   }
+
+  try {
+    verifyAdminToken(secrets, token, {
+      audience: process.env.ADMIN_TOKEN_AUDIENCE || "prompt-hash-admin",
+      requiredScope: ROTATE_SECRET_SCOPE,
+    });
+  } catch (err) {
+    const code = err instanceof AdminTokenError ? err.code : "unknown_error";
+    void recordAuditEvent({
+      action: "admin_auth_denied",
+      result: "blocked",
+      promptId: null,
+      walletAddress: null,
+      requestId: null,
+      clientIp,
+      reason: `scope=${ROTATE_SECRET_SCOPE} route=POST /auth/rotateSecret error=${code}`,
+    });
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  void recordAuditEvent({
+    action: "admin_auth_success",
+    result: "success",
+    promptId: null,
+    walletAddress: null,
+    requestId: null,
+    clientIp,
+    reason: `scope=${ROTATE_SECRET_SCOPE} route=POST /auth/rotateSecret`,
+  });
 
   try {
     const config = loadConfig();

@@ -21,7 +21,7 @@ export function ChatInterface() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    "parameters" | "engineer" | "history"
+    "parameters" | "engineer" | "settings"
   >("parameters");
 
   const [conversation, setConversation] = useState<Message[]>([
@@ -38,7 +38,7 @@ export function ChatInterface() {
     },
   ]);
 
-  const [engineerName, _setEngineerName] = useState("Francis");
+  const [engineerName] = useState("Francis");
   const [isTyping, setIsTyping] = useState(false);
   const [selectedModel, setSelectedModel] =
     useState<AIModel>("gemini-2.5-flash");
@@ -109,7 +109,7 @@ export function ChatInterface() {
         return record.improved || record.response || content;
       }
       return typeof result === "string" ? result : content;
-    } catch (error) {
+  } catch {
       return content;
     }
   };
@@ -162,7 +162,7 @@ export function ChatInterface() {
           activeTab={
             activeTab === "parameters" ||
             activeTab === "engineer" ||
-            activeTab === "history"
+            activeTab === "settings"
               ? activeTab
               : "parameters"
           }

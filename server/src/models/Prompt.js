@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
 
 const promptSchema = new mongoose.Schema(
   {
@@ -11,14 +12,35 @@ const promptSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      minLength: 3,
-      maxLength: 100,
+      minLength: PROMPT_METADATA_LIMITS.title.min,
+      maxLength: PROMPT_METADATA_LIMITS.title.max,
     },
     content: {
       type: String,
       required: true,
       trim: true,
       minLength: 10,
+    },
+    // Off-chain rich metadata (#333)
+    description: {
+      type: String,
+      trim: true,
+      maxLength: 4000,
+      default: "",
+    },
+    tags: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (v) => v.length <= 10,
+        message: "A prompt may have at most 10 tags",
+      },
+    },
+    // References the on-chain listing so the two data stores stay in sync
+    onChainReference: {
+      type: String,
+      trim: true,
+      default: "",
     },
     rating: {
       type: Number,
@@ -39,20 +61,99 @@ const promptSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: [
-        "Marketing",
-        "Creative Writing",
-        "Programming",
-        "Music",
-        "Gaming",
-        "Other",
-      ],
+      enum: PROMPT_CATEGORIES,
       default: "Other",
     },
     currentVersionIndex: {
       type: Number,
       default: 1,
       min: 1,
+    },
+    // Anti-plagiarism fields (Issue #133)
+    similarityFlag: {
+      type: String,
+      enum: ["clean", "suspicious", "highly_similar"],
+      default: "clean",
+      index: true,
+    },
+    similarityScore: {
+      type: Number,
+      default: null,
+      min: 0,
+      max: 1,
+    },
+    similarTo: {
+      // onChainId of the most similar existing prompt, if flagged.
+      type: String,
+      default: null,
+    },
+    similarityCheckedAt: {
+      type: Date,
+      default: null,
+    },
+    onChainId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+    listingStatus: {
+      type: String,
+      enum: ['draft', 'ready', 'published', 'archived'],
+      default: 'draft',
+      index: true,
+    },
+    savedPrompts: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: 'User',
+      default: [],
+    },
+    salesCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    previewCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    currentRevision: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    revisionNotes: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    // Content integrity recheck fields (#460)
+    encryptedPrompt: {
+      type: String,
+      default: null,
+    },
+    contentHash: {
+      type: String,
+      default: null,
+    },
+    integrityStatus: {
+      type: String,
+      enum: ["pending", "ok", "corrupted", "missing", "unreachable"],
+      default: "pending",
+      index: true,
+    },
+    integrityCheckedAt: {
+      type: Date,
+      default: null,
+    },
+    integrityError: {
+      type: String,
+      default: null,
     },
   },
   {

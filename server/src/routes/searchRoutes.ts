@@ -1,71 +1,100 @@
-import { Router } from "express";
-import Prompt from "../models/Prompt.js";
+import express, { Request, Response } from "express";
+import asyncHandler from "express-async-handler";
+import {
+  searchPrompts,
+  getSearchSuggestions,
+  getCategoriesWithCounts,
+  getFeaturedPrompts,
+} from "../controllers/searchController";
 
-const searchRouter = Router();
+const router = express.Router();
 
 /**
- * GET /api/marketplace/search
- * Query params: q (text), category, minPrice, maxPrice, sort, page, limit
+ * GET /api/search/prompts
+ * Search prompts with advanced filtering and pagination
+ * Query params:
+ * - query: search string
+ * - category: filter by category
+ * - minPrice: minimum price
+ * - maxPrice: maximum price
+ * - sortBy: sort order (recent, price-low, price-high, sales, rating)
+ * - page: page number
+ * - limit: items per page
  */
-searchRouter.get("/", async (req, res) => {
-  const {
-    q,
-    category,
-    minPrice,
-    maxPrice,
-    sort = "newest",
-    page = "1",
-    limit = "20",
-  } = req.query;
+router.get(
+  "/prompts",
+  asyncHandler(async (req: Request, res: Response) => {
+    const {
+      query,
+      category,
+      minPrice,
+      maxPrice,
+      sortBy,
+      page = "1",
+      limit = "20",
+    } = req.query;
 
-  const filter: Record<string, unknown> = { isActive: true };
+    const result = await searchPrompts({
+      query: query as string,
+      category: category as string,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      sortBy: sortBy as any,
+      page: Number(page),
+      limit: Number(limit),
+    });
 
-  if (q && typeof q === "string") {
-    filter.$text = { $search: q };
-  }
+    res.json(result);
+  })
+);
 
-  if (category && typeof category === "string") {
-    filter.category = category;
-  }
+/**
+ * GET /api/search/suggestions
+ * Get search suggestions based on query
+ * Query params:
+ * - query: search string
+ * - limit: number of suggestions to return
+ */
+router.get(
+  "/suggestions",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { query, limit = "5" } = req.query;
 
-  if (minPrice || maxPrice) {
-    filter.price = {};
-    if (minPrice) (filter.price as Record<string, number>).$gte = Number(minPrice);
-    if (maxPrice) (filter.price as Record<string, number>).$lte = Number(maxPrice);
-  }
+    const result = await getSearchSuggestions(
+      query as string,
+      Number(limit)
+    );
 
-  const sortOption: Record<string, 1 | -1> =
-    sort === "price_asc"
-      ? { price: 1 }
-      : sort === "price_desc"
-        ? { price: -1 }
-        : sort === "popular"
-          ? { salesCount: -1 }
-          : { createdAt: -1 };
+    res.json(result);
+  })
+);
 
-  const pageNum = Math.max(1, Number(page));
-  const limitNum = Math.min(100, Math.max(1, Number(limit)));
-  const skip = (pageNum - 1) * limitNum;
+/**
+ * GET /api/search/categories
+ * Get available categories with counts
+ */
+router.get(
+  "/categories",
+  asyncHandler(async (req: Request, res: Response) => {
+    const categories = await getCategoriesWithCounts();
+    res.json(categories);
+  })
+);
 
-  const [prompts, total] = await Promise.all([
-    Prompt.find(filter)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(limitNum)
-      .populate("owner", "username walletAddress")
-      .lean(),
-    Prompt.countDocuments(filter),
-  ]);
+/**
+ * GET /api/search/featured
+ * Get featured/top prompts
+ * Query params:
+ * - limit: number of prompts to return
+ */
+router.get(
+  "/featured",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { limit = "6" } = req.query;
 
-  res.json({
-    prompts,
-    pagination: {
-      page: pageNum,
-      limit: limitNum,
-      total,
-      pages: Math.ceil(total / limitNum),
-    },
-  });
-});
+    const prompts = await getFeaturedPrompts(Number(limit));
+    res.json(prompts);
+  })
+);
 
-export default searchRouter;
+export default router;

@@ -1,18 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { checkRateLimit } from "../lib/observability/rateLimiter";
 import { logger } from "../lib/observability/logger";
 
 describe("Observability Utilities", () => {
   describe("Rate Limiter", () => {
-    it("should allow requests within limit", () => {
-      const result = checkRateLimit("challenge", "test-ip-1", { max: 2, windowMs: 1000 });
+    it("should allow requests within limit", async () => {
+      const result = await checkRateLimit("challenge", "test-ip-1", false);
       expect(result.success).toBe(true);
-      expect(result.remaining).toBe(1);
+      expect(result.remaining).toBe(4); // max (5) - 1
     });
 
-    it("should block requests exceeding limit", () => {
-      checkRateLimit("challenge", "test-ip-2", { max: 1, windowMs: 1000 });
-      const result = checkRateLimit("challenge", "test-ip-2", { max: 1, windowMs: 1000 });
+    it("should block requests exceeding limit", async () => {
+      // Send 5 requests to consume the limit
+      for (let i = 0; i < 5; i++) {
+        await checkRateLimit("challenge", "test-ip-2", false);
+      }
+      const result = await checkRateLimit("challenge", "test-ip-2", false);
       expect(result.success).toBe(false);
       expect(result.remaining).toBe(0);
     });

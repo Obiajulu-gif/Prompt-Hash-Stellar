@@ -32,12 +32,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.89.0
+          toolchain: 1.91.0
           targets: wasm32v1-none
           components: rustfmt, clippy
 
@@ -45,7 +45,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt --all --check
+        run: cargo fmt --all -- --check
 
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -55,3 +55,38 @@ jobs:
 
       - name: Build release Wasm artifacts
         run: cargo build --workspace --release --target wasm32v1-none --locked
+        env:
+          # soroban-sdk 27's spec-shaking feature otherwise requires building
+          # through `stellar contract build` (stellar-cli v25.2.0+); this is
+          # the same flag that CLI sets internally.
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
+
+      - name: Upgrade preflight self-check (#435)
+        run: python3 scripts/preflight_upgrade.py check --self-check
+
+      - name: Set up Node.js for ABI conformance tests
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Install dependencies for ABI conformance tests
+        run: npm install --legacy-peer-deps --no-audit --ignore-scripts
+        working-directory: ./
+
+      - name: Generate ABI fixtures from contract spec
+        run: node tests/abi-conformance/scripts/generate-fixtures.ts
+
+      - name: Run ABI conformance tests
+        run: npm test -- tests/abi-conformance/validators/
+
+      - name: Generate compatibility report
+        run: node tests/abi-conformance/scripts/compatibility-report.ts
+
+      - name: Check for uncommitted fixture changes
+        run: |
+          if [ -n "$(git diff --name-only tests/abi-conformance/fixtures/)" ]; then
+            echo "❌ ABI fixtures have changed. Please regenerate and commit the updated fixtures."
+            echo "Run: node tests/abi-conformance/scripts/generate-fixtures.ts"
+            git diff tests/abi-conformance/fixtures/
+            exit 1
+          fi

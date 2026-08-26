@@ -13,17 +13,19 @@ vi.mock('@creit.tech/stellar-wallets-kit', async (importOriginal) => {
     freighter: vi.fn(),
     albedo: vi.fn(),
     xbull: vi.fn(),
-    StellarWalletsKit: vi.fn().mockImplementation(() => ({
-      setWallet: vi.fn(),
-      getAddress: vi.fn().mockResolvedValue({ address: 'GABC123' }),
-      getNetwork: vi.fn().mockResolvedValue({ 
-        network: 'TESTNET', 
-        networkPassphrase: 'Test SDF Network ; September 2015' 
-      }),
-      signTransaction: vi.fn(),
-      signMessage: vi.fn(),
-      disconnect: vi.fn().mockResolvedValue(undefined), // Add this!
-    })),
+    StellarWalletsKit: vi.fn().mockImplementation(function() {
+      return {
+        setWallet: vi.fn(),
+        getAddress: vi.fn().mockResolvedValue({ address: 'GABC123' }),
+        getNetwork: vi.fn().mockResolvedValue({ 
+          network: 'TESTNET', 
+          networkPassphrase: 'Test SDF Network ; September 2015' 
+        }),
+        signTransaction: vi.fn(),
+        signMessage: vi.fn(),
+        disconnect: vi.fn().mockResolvedValue(undefined)
+      };
+    }),
   };
 });
 
@@ -34,7 +36,7 @@ describe('WalletProvider Session Persistence', () => {
       storage.clear();
     } else {
       ['walletId', 'walletAddress', 'walletNetwork', 'networkPassphrase']
-        .forEach(key => storage.removeItem(key));
+        .forEach(key => storage.removeItem(key as any));
     }
   });
 

@@ -4,6 +4,7 @@ import { useWallet } from "@/hooks/useWallet";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
 import { shortenAddress } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { UserAvatar } from "./UserAvatar";
 
 const DisplayWallet = () => {
   const { address, status, error, connect, disconnect } = useWallet();
@@ -42,7 +43,7 @@ const DisplayWallet = () => {
         </Button>
       )}
 
-      {(status === "selecting" || status === "connecting") && (
+      {(status === "connecting") && (
         <Button disabled className="border border-amber-300/30 bg-amber-500/50 text-slate-950 cursor-not-allowed min-w-[150px]">
           <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" />
           Opening Wallet...
@@ -61,8 +62,9 @@ const DisplayWallet = () => {
           <div className="hidden rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs text-slate-100 md:block">
             {isLoading ? "Loading balance..." : `${xlm} XLM`}
           </div>
-          <div className="rounded-full border border-white/15 bg-slate-950/50 px-3 py-2 text-sm text-slate-100">
-            {shortenAddress(address)}
+          <div className="flex items-center gap-2 rounded-full border border-white/15 bg-slate-950/50 pl-1 pr-3 py-1 text-sm text-slate-100">
+            <UserAvatar address={address} size={24} />
+            <span>{shortenAddress(address)}</span>
           </div>
           <Button
             type="button"

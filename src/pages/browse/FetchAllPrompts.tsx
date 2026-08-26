@@ -1,61 +1,149 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { useQueries, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { motion } from "framer-motion";
+import {
+  useQueries,
+  useQuery,
+  useQueryClient,
+  useMutation,
+} from "@tanstack/react-query";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import {
   ChevronLeft,
   ChevronRight,
-  PackageSearch,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
-  getAllPrompts,
   hasAccess,
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
+import { useCatalogPages } from "./useCatalogPages";
+import {
+  fetchSavedPrompts,
+  savePromptListing,
+  unsavePromptListing,
+} from "@/lib/prompts/library";
 import { stroopsToXlmString } from "@/lib/stellar/format";
-import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { PromptCard } from "./PromptCard";
 import { PromptModal } from "./PromptModal";
+import { PromptGridSkeleton } from "@/components/skeletons";
+import { NoResultsSuggestions } from "./NoResultsSuggestions";
+import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
+import { rankPrompts } from "@/lib/search/rankingEngine";
+import { recordPreview } from "@/lib/prompts/previewAnalytics";
 
 const ITEMS_PER_PAGE = 9;
 const ENABLE_INFINITE_SCROLL = true;
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&
-    browserStellarConfig.simulationAccount &&
-    browserStellarConfig.rpcUrl,
+  browserStellarConfig.simulationAccount &&
+  browserStellarConfig.rpcUrl,
 );
 
 const parseXlmNumber = (value: bigint) => Number(stroopsToXlmString(value));
 
 export interface FetchAllPromptsProps {
   selectedCategory: string;
+  selectedTag?: string;
   priceRange: number[];
   searchQuery: string;
   sortBy: string;
+  comparedIds?: string[];
+  onToggleCompare?: (_prompt: PromptRecord) => void;
+  onSetCategory?: (_category: string) => void;
+  onSetTag?: (_tag: string) => void;
+  onClearFilters?: () => void;
 }
+
+const gridVariants = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.07,
+    },
+  },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: "easeOut" as const } },
+};
 
 const FetchAllPrompts = ({
   selectedCategory,
+  selectedTag = "",
   priceRange,
   searchQuery,
   sortBy,
+  comparedIds = [],
+  onToggleCompare,
+  onSetCategory,
+  onSetTag,
+  onClearFilters,
 }: FetchAllPromptsProps) => {
   const queryClient = useQueryClient();
   const { address } = useWallet();
+  const reducedMotion = useReducedMotion();
   const [selectedPrompt, setSelectedPrompt] = useState<PromptRecord | null>(
     null,
   );
   const [currentPage, setCurrentPage] = useState(1);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
 
-  const promptsQuery = useQuery({
-    queryKey: ["marketplace-prompts"],
-    queryFn: async () => {
-      if (!isMarketplaceConfigured) return [];
-      return getAllPrompts(browserStellarConfig);
+  const handleOpenModal = (prompt: PromptRecord) => {
+    setSelectedPrompt(prompt);
+    recordPreview(prompt.id.toString());
+  };
+
+  const catalog = useCatalogPages(
+    isMarketplaceConfigured ? browserStellarConfig : null,
+  );
+  const allPrompts = useMemo(
+    () => catalog.data?.pages.flatMap((page) => page.prompts) ?? [],
+    [catalog.data],
+  );
+
+  // Keep the existing downstream shape (`promptsQuery.data`, `.isLoading`,
+  // etc.) so the rest of the component is unchanged; the data source is now a
+  // paginated, cached, append-only accumulator instead of one unbounded read.
+  const promptsQuery = {
+    data: allPrompts,
+    isLoading: catalog.isLoading,
+    isError: catalog.isError,
+    error: catalog.error,
+    refetch: catalog.refetch,
+  };
+
+  const savedPromptsQuery = useQuery({
+    queryKey: ["saved-prompts", address],
+    queryFn: async () => (address ? fetchSavedPrompts(address) : []),
+    enabled: Boolean(address),
+  });
+
+  const savePromptMutation = useMutation({
+    mutationFn: async ({
+      promptId,
+      saved,
+    }: {
+      promptId: string;
+      saved: boolean;
+    }) => {
+      if (!address) {
+        throw new Error("Connect your wallet before saving listings.");
+      }
+
+      if (saved) {
+        await unsavePromptListing(address, promptId);
+      } else {
+        await savePromptListing(address, promptId);
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["saved-prompts"] });
     },
   });
 
@@ -66,16 +154,39 @@ const FetchAllPrompts = ({
     const observer = new IntersectionObserver(
       (entries) => {
         const target = entries[0];
-        if (target.isIntersecting && currentPage < totalPages) {
+        if (!target.isIntersecting) return;
+
+        const displayed = currentPage * ITEMS_PER_PAGE;
+
+        // When the user has scrolled through everything we currently hold and
+        // the contract has more pages, fetch the next page (which appends to
+        // the accumulated catalog rather than replacing it).
+        if (
+          displayed >= filteredPrompts.length &&
+          catalog.hasNextPage &&
+          !catalog.isFetchingNextPage
+        ) {
+          void catalog.fetchNextPage();
+          return;
+        }
+
+        if (currentPage < totalPages) {
           setCurrentPage((prev) => prev + 1);
         }
       },
-      { threshold: 0.1, rootMargin: "100px" }
+      { threshold: 0.1, rootMargin: "100px" },
     );
 
     observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [currentPage]);
+  }, [
+    currentPage,
+    totalPages,
+    filteredPrompts.length,
+    catalog.hasNextPage,
+    catalog.isFetchingNextPage,
+    catalog.fetchNextPage,
+  ]);
 
   const accessQueries = useQueries({
     queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
@@ -97,21 +208,64 @@ const FetchAllPrompts = ({
     );
   }, [accessQueries, address, promptsQuery.data]);
 
+  const savedPromptIds = useMemo(() => {
+    return new Set((savedPromptsQuery.data ?? []).map((item) => item.promptId));
+  }, [savedPromptsQuery.data]);
+
+  const handleToggleSave = async (prompt: PromptRecord) => {
+    if (!address) {
+      return;
+    }
+
+    const promptId = prompt.id.toString();
+    setSavingPromptId(promptId);
+    try {
+      await savePromptMutation.mutateAsync({
+        promptId,
+        saved: savedPromptIds.has(promptId),
+      });
+    } finally {
+      setSavingPromptId(null);
+    }
+  };
+
   const filteredPrompts = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
-    const prompts = (promptsQuery.data ?? []).filter((prompt) => {
+    let prompts = (promptsQuery.data ?? []).filter((prompt) => {
       const promptPrice = parseXlmNumber(prompt.priceStroops);
       const matchesCategory =
         !selectedCategory || prompt.category === selectedCategory;
+      const matchesTag =
+        !selectedTag ||
+        prompt.tags?.some(
+          (tag) => tag.toLowerCase() === selectedTag.toLowerCase(),
+        );
       const matchesSearch =
         !normalizedSearch ||
         prompt.title.toLowerCase().includes(normalizedSearch) ||
-        prompt.category.toLowerCase().includes(normalizedSearch);
+        prompt.category.toLowerCase().includes(normalizedSearch) ||
+        prompt.previewText.toLowerCase().includes(normalizedSearch) ||
+        (prompt.description ?? "").toLowerCase().includes(normalizedSearch) ||
+        prompt.creator.toLowerCase().includes(normalizedSearch) ||
+        prompt.tags?.some((tag) =>
+          tag.toLowerCase().includes(normalizedSearch),
+        );
       const matchesPrice =
         promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
 
-      return prompt.active && matchesCategory && matchesSearch && matchesPrice;
+      return (
+        prompt.active &&
+        matchesCategory &&
+        matchesTag &&
+        matchesSearch &&
+        matchesPrice
+      );
     });
+
+    // Apply ranking engine for improved search relevance when search query exists
+    if (normalizedSearch) {
+      prompts = rankPrompts(prompts, searchQuery, selectedCategory);
+    }
 
     switch (sortBy) {
       case "price-low":
@@ -127,13 +281,20 @@ const FetchAllPrompts = ({
       default:
         return [...prompts].sort((a, b) => Number(b.id - a.id));
     }
-  }, [priceRange, promptsQuery.data, searchQuery, selectedCategory, sortBy]);
+  }, [
+    priceRange,
+    promptsQuery.data,
+    searchQuery,
+    selectedCategory,
+    sortBy,
+    selectedTag,
+  ]);
 
   const totalPages = Math.max(
     1,
     Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
   );
-  
+
   // For infinite scroll, show all items up to current page
   const currentPrompts = ENABLE_INFINITE_SCROLL
     ? filteredPrompts.slice(0, currentPage * ITEMS_PER_PAGE)
@@ -144,18 +305,14 @@ const FetchAllPrompts = ({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [priceRange, searchQuery, selectedCategory, sortBy]);
+  }, [priceRange, searchQuery, selectedCategory, selectedTag, sortBy]);
 
   if (promptsQuery.isLoading) {
     return (
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {[...Array(6)].map((_, i) => (
-          <div
-            key={i}
-            className="h-[400px] rounded-3xl border border-white/5 bg-white/[0.02] animate-pulse"
-          />
-        ))}
-      </div>
+      <PromptGridSkeleton
+        count={6}
+        gridClassName="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3"
+      />
     );
   }
 
@@ -189,53 +346,73 @@ const FetchAllPrompts = ({
       )}
 
       {filteredPrompts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-          <div className="p-4 rounded-full bg-slate-900 border border-white/5">
-            <PackageSearch className="h-8 w-8 text-slate-500" />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-lg font-semibold">No prompts found</h3>
-            <p className="text-slate-500 max-w-[280px]">
-              Try adjusting your filters or search terms to find what you're
-              looking for.
-            </p>
-          </div>
-        </div>
+        <NoResultsSuggestions
+          allPrompts={promptsQuery.data ?? []}
+          searchQuery={searchQuery}
+          selectedCategory={selectedCategory}
+          selectedTag={selectedTag}
+          onCategoryClick={onSetCategory || (() => {})}
+          onTagClick={onSetTag || (() => {})}
+          onClearFilters={onClearFilters || (() => {})}
+        />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
+          <motion.div
+            className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3"
+            variants={reducedMotion ? undefined : gridVariants}
+            initial={reducedMotion ? undefined : "hidden"}
+            animate={reducedMotion ? undefined : "visible"}
+          >
             {currentPrompts.map((prompt) => (
-              <PromptCard
+              <motion.div
                 key={prompt.id.toString()}
-                prompt={prompt}
-                hasAccess={accessMap.get(prompt.id.toString()) ?? false}
-                openModal={setSelectedPrompt}
-              />
+                variants={reducedMotion ? undefined : cardVariants}
+              >
+                <PromptCard
+                  prompt={prompt}
+                  hasAccess={accessMap.get(prompt.id.toString()) ?? false}
+                  openModal={handleOpenModal}
+                  isSaved={savedPromptIds.has(prompt.id.toString())}
+                  isSaving={savingPromptId === prompt.id.toString()}
+                  onToggleSave={handleToggleSave}
+                  isCompared={comparedIds.includes(prompt.id.toString())}
+                  onToggleCompare={onToggleCompare}
+                />
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
 
           {/* Infinite Scroll Trigger */}
-          {ENABLE_INFINITE_SCROLL && currentPage < totalPages && (
-            <div
-              ref={loadMoreRef}
-              className="mt-12 flex items-center justify-center py-8"
-            >
-              <div className="flex items-center gap-3 text-slate-400">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm">Loading more prompts...</span>
+          {ENABLE_INFINITE_SCROLL &&
+            (currentPage < totalPages || catalog.hasNextPage) && (
+              <div
+                ref={loadMoreRef}
+                className="mt-12 flex items-center justify-center py-8"
+              >
+                <div className="flex items-center gap-3 text-slate-400">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span className="text-sm">Loading more prompts...</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Show count indicator for infinite scroll */}
-          {ENABLE_INFINITE_SCROLL && filteredPrompts.length > ITEMS_PER_PAGE && (
-            <div className="mt-8 text-center">
-              <p className="text-sm text-slate-500">
-                Showing <span className="text-white font-semibold">{currentPrompts.length}</span> of{" "}
-                <span className="text-white font-semibold">{filteredPrompts.length}</span> prompts
-              </p>
-            </div>
-          )}
+          {ENABLE_INFINITE_SCROLL &&
+            filteredPrompts.length > ITEMS_PER_PAGE && (
+              <div className="mt-8 text-center">
+                <p className="text-sm text-slate-500">
+                  Showing{" "}
+                  <span className="text-white font-semibold">
+                    {currentPrompts.length}
+                  </span>{" "}
+                  of{" "}
+                  <span className="text-white font-semibold">
+                    {filteredPrompts.length}
+                  </span>{" "}
+                  prompts
+                </p>
+              </div>
+            )}
         </>
       )}
 

@@ -16,9 +16,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^13.0.0"
+    "@stellar/stellar-sdk": "^13.0.0",
+    "libsodium-wrappers": "^0.8.4"
   },
   "devDependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0"
   }

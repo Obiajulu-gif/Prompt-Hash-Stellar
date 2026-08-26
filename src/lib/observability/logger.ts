@@ -18,6 +18,12 @@ const redactFields = [
   "body.privateKey",
   "body.signedMessage",
   "res.body.plaintext",
+  // Wallet addresses are hashed before structured audit logs; raw values
+  // must not appear in log output (#224).
+  "walletAddress",
+  "address",
+  "body.address",
+  "body.walletAddress",
 ];
 
 export const logger = pino({

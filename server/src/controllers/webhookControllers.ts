@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import connectDb from "../db/connectDb";
 import WebhookSubscription from "../models/WebhookSubscription";
+import { listDeadLetters, replayDeadLetter, rotateSigningKey } from "../services/webhookOutbox";
 
 export const RegisterWebhook = async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -19,7 +20,7 @@ export const RegisterWebhook = async (req: Request, res: Response): Promise<Resp
     }
 
     const secret = randomBytes(32).toString("hex");
-    const allowedEvents = ["PromptPurchased"];
+    const allowedEvents = ["PromptPurchased", "PromptOwnershipTransferred"];
     const resolvedEvents = Array.isArray(events)
       ? events.filter((e: string) => allowedEvents.includes(e))
       : ["PromptPurchased"];
@@ -83,6 +84,58 @@ export const DeleteWebhook = async (req: Request, res: Response): Promise<Respon
 
     await WebhookSubscription.deleteOne({ walletAddress: walletAddress.toLowerCase() });
     return res.status(200).json({ message: "Webhook removed." });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
+/**
+ * GET /api/webhooks/dead-letters?subscriptionId=&limit=
+ * Admin inspection of deliveries that exhausted retries (#536).
+ */
+export const ListWebhookDeadLetters = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    await connectDb();
+    const { subscriptionId, limit } = req.query;
+    const rows = await listDeadLetters({
+      subscriptionId: subscriptionId ? String(subscriptionId) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    return res.status(200).json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
+/**
+ * POST /api/webhooks/dead-letters/:id/replay
+ * Admin-triggered redelivery of a single dead-lettered event (#536).
+ */
+export const ReplayWebhookDeadLetter = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    await connectDb();
+    const replayed = await replayDeadLetter(req.params.id);
+    if (!replayed) {
+      return res.status(404).json({ error: "No dead-lettered event found with that id." });
+    }
+    return res.status(200).json({ message: "Queued for redelivery." });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
+/**
+ * POST /api/webhooks/:id/rotate-secret
+ * Admin-triggered signing-key rotation for one subscription (#536).
+ */
+export const RotateWebhookSecret = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    await connectDb();
+    const newSecret = await rotateSigningKey(req.params.id);
+    if (!newSecret) {
+      return res.status(404).json({ error: "No webhook subscription found with that id." });
+    }
+    return res.status(200).json({ message: "Signing key rotated.", secret: newSecret });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

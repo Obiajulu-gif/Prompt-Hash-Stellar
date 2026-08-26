@@ -31,12 +31,13 @@ export const useWalletBalance = () => {
     if (!address) return;
     try {
       setState((prev) => ({ ...prev, isLoading: true }));
-      const balances = await fetchBalance(address);
-      const isFunded = checkFunding(balances);
-      const native = balances.find(({ asset_type }) => asset_type === "native");
+      const response = await fetchBalance(address) as any;
+      const balancesArray = Array.isArray(response) ? response : (response.balances || []);
+      const isFunded = checkFunding(balancesArray);
+      const native = balancesArray.find((b: any) => b.asset_type === "native");
       setState({
         isLoading: false,
-        balances,
+        balances: balancesArray,
         xlm: native?.balance ? formatter.format(Number(native.balance)) : "-",
         isFunded,
         error: null,
