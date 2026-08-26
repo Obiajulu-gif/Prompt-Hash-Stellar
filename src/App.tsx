@@ -1,16 +1,25 @@
-import { Outlet, Route, Routes } from "react-router-dom";
+import { Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import Home from "./pages/Home";
 import BrowsePage from "./pages/browse/page.jsx";
 import SellPage from "./pages/sell/page.tsx";
 import ChatHome from "./pages/chat/page.tsx";
 import ProfilePage from "./pages/profile/page.tsx";
 import StatusPage from "./pages/status/page.tsx";
+import PageTransition from "./components/PageTransition";
 
-const AppLayout = () => (
-  <main className="min-h-screen bg-slate-950 text-white">
-    <Outlet />
-  </main>
-);
+const AppLayout = () => {
+  const location = useLocation();
+  return (
+    <main className="min-h-screen bg-slate-950 text-white">
+      <AnimatePresence mode="wait">
+        <PageTransition key={location.pathname}>
+          <Outlet />
+        </PageTransition>
+      </AnimatePresence>
+    </main>
+  );
+};
 
 function App() {
   return (
