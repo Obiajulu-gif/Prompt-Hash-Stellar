@@ -17,6 +17,7 @@ import {
 import { sendConditionalJson, markPrivate } from "../middleware/etag";
 import { notifyPromptReported } from "../services/emailNotifications";
 import { announceNewPrompt } from "../services/discordNotifications";
+import { logger } from "../services/structuredLogger";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -29,7 +30,7 @@ export const ImproveProxy = async (
   try {
     const promptText = req.body;
 
-    console.log("Improve prompt request: ", promptText);
+    logger.info("Improve prompt request received", { action: "improveProxy" });
 
     const response = await fetch(`${API_BASE_URL}/api/improve-prompt`, {
       method: "POST",
@@ -44,9 +45,10 @@ export const ImproveProxy = async (
     const responseData = await response.json().catch(() => {});
     const responseText = await response.text().catch(() => {});
 
-    // Log the response for debugging
-    console.log("Improve prompt response status:", response.status);
-    console.log("Improve prompt response data:", responseData || responseText);
+    logger.debug("Improve prompt response", {
+      action: "improveProxy",
+      status: response.status,
+    });
 
     // If the response is not OK, return the error details
     if (!response.ok) {
@@ -58,7 +60,7 @@ export const ImproveProxy = async (
 
     return res.json(responseData);
   } catch (err) {
-    console.error("Error in improve-proxy:", err);
+    logger.error("Improve proxy error", { action: "improveProxy", error: err });
     return res.status(500).json({
       error: "Internal Server Error",
       message: err instanceof Error ? err.message : String(err),
@@ -141,7 +143,7 @@ export const GetPrompts = async (
       },
     });
   } catch (error) {
-    console.error("Fetch prompts error:", error);
+    logger.error("Fetch prompts error", { action: "getPrompts", error });
 
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch prompts",
@@ -195,7 +197,7 @@ export const GetOwnedPrompts = async (
       },
     });
   } catch (error) {
-    console.error("Fetch owned prompts error:", error);
+    logger.error("Fetch owned prompts error", { action: "getOwnedPrompts", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch owned prompts",
     });
@@ -225,7 +227,7 @@ export const CreateUser = async (
     });
 
     if (existingUser) {
-      console.log("User already exists:", existingUser);
+      logger.info("User already exists", { action: "createUser" });
       return res.status(200).json({
         message: "Login successful",
       });
@@ -248,7 +250,7 @@ export const CreateUser = async (
       user: newUser,
     });
   } catch (error) {
-    console.error("Registration error:", error);
+    logger.error("Registration error", { action: "createUser", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to register user",
     });
@@ -315,7 +317,7 @@ export const GetUsers = async (
       });
     }
   } catch (error) {
-    console.error("Fetch users error:", error);
+    logger.error("Fetch users error", { action: "getUsers", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch users",
     });
@@ -349,7 +351,7 @@ export const TestPromptProxy = async (
 
     result.pipeTextStreamToResponse(res);
   } catch (err) {
-    console.error("Error in TestPromptProxy:", err);
+    logger.error("Test prompt proxy error", { action: "testPromptProxy", error: err });
     res.status(500).json({
       error: "Internal Server Error",
       message: err instanceof Error ? err.message : String(err),
@@ -423,7 +425,7 @@ export const SubmitPromptReport = async (
       reportId: newReport._id,
     });
   } catch (err) {
-    console.error("Submit report error:", err);
+    logger.error("Submit report error", { action: "submitPromptReport", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to submit report",
     });
@@ -452,7 +454,7 @@ export const GetPromptReports = async (
 
     return res.json(reports);
   } catch (err) {
-    console.error("Get reports error:", err);
+    logger.error("Get reports error", { action: "getPromptReports", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch reports",
     });
@@ -478,7 +480,7 @@ export const RecordPreview = async (
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error("Record preview error:", err);
+    logger.error("Record preview error", { action: "recordPreview", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to record preview",
     });
@@ -519,7 +521,7 @@ export const GetPreviewStats = async (
       prompts,
     });
   } catch (err) {
-    console.error("Get preview stats error:", err);
+    logger.error("Get preview stats error", { action: "getPreviewStats", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch preview stats",
     });
@@ -556,7 +558,7 @@ export const GetSavedPrompts = async (
 
     return res.json(prompts);
   } catch (err) {
-    console.error("Get saved prompts error:", err);
+    logger.error("Get saved prompts error", { action: "getSavedPrompts", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch saved prompts",
     });
@@ -596,7 +598,7 @@ export const SavePrompt = async (
 
     return res.json({ success: true, authoritative: false });
   } catch (err) {
-    console.error("Save prompt error:", err);
+    logger.error("Save prompt error", { action: "savePrompt", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to save prompt",
     });
@@ -636,7 +638,7 @@ export const UnsavePrompt = async (
 
     return res.json({ success: true, authoritative: false });
   } catch (err) {
-    console.error("Unsave prompt error:", err);
+    logger.error("Unsave prompt error", { action: "unsavePrompt", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to unsave prompt",
     });
@@ -672,7 +674,7 @@ export const GetDraftPrompts = async (
 
     return res.json(drafts);
   } catch (err) {
-    console.error("Get draft prompts error:", err);
+    logger.error("Get draft prompts error", { action: "getDraftPrompts", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch drafts",
     });
@@ -714,7 +716,7 @@ export const GetPriceHistory = async (
       metadata: { hasNextPage, nextCursor },
     });
   } catch (error) {
-    console.error("Fetch price history error:", error);
+    logger.error("Fetch price history error", { action: "getPriceHistory", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch price history",
     });
@@ -770,7 +772,7 @@ export const GetPromptsByContentHash = async (
       count: enriched.length,
     });
   } catch (error) {
-    console.error("Get prompts by content hash error:", error);
+    logger.error("Get prompts by content hash error", { action: "getPromptsByContentHash", error });
     return res.status(500).json({
       error:
         (error as Error).message || "Failed to find prompts by content hash",

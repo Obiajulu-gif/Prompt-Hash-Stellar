@@ -10,6 +10,7 @@ import { scanForSimilarity } from "./similarityDetection";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
+import { logger } from "./structuredLogger";
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -70,7 +71,7 @@ async function notify(
   try {
     await enqueueWebhookEvent(wallet, event, data, dedupeKey);
   } catch (err) {
-    console.error(`[indexer] Webhook enqueue failed for ${event}:`, err);
+    logger.error("Webhook enqueue failed", { action: "indexer", event, error: err });
   }
 }
 
@@ -87,9 +88,7 @@ export async function startIndexer(): Promise<void> {
   const contractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
 
   if (!rpcUrl || !contractId) {
-    console.warn(
-      "[indexer] PUBLIC_STELLAR_RPC_URL or PUBLIC_PROMPT_HASH_CONTRACT_ID not set — Soroban indexer disabled.",
-    );
+    logger.warn("Soroban indexer disabled - missing configuration", { action: "startIndexer" });
     return;
   }
 
@@ -101,12 +100,12 @@ export async function startIndexer(): Promise<void> {
     { upsert: true, new: true },
   );
 
-  console.log("[indexer] Soroban event indexer started.", { replicaId: REPLICA_ID });
+  logger.info("Soroban event indexer started", { action: "startIndexer", replicaId: REPLICA_ID });
 
   setInterval(async () => {
     // Single-flight: skip this tick if the previous one is still running.
     if (tickInFlight) {
-      console.warn("[indexer] Tick skipped — previous tick still in flight.");
+      logger.warn("Tick skipped - previous tick still in flight", { action: "indexerTick" });
       return;
     }
 
@@ -156,7 +155,7 @@ export async function startIndexer(): Promise<void> {
       for (const event of response.events) {
         // Skip provisional events — only process finalized transactions
         if (event.inSuccessfulContractInvocation === false) {
-          console.log(`[indexer] Skipping provisional event from ledger ${event.ledger}`);
+          logger.debug("Skipping provisional event", { action: "processEvent", ledger: event.ledger });
           continue;
         }
         await processEvent(event);
@@ -167,7 +166,7 @@ export async function startIndexer(): Promise<void> {
       // A stale replica that woke up after expiry is rejected here.
       const current = await IndexerState.findOne({ key: "prompt_hash_contract" });
       if (!current || current.fencingToken !== myToken) {
-        console.warn("[indexer] Fencing token mismatch — checkpoint discarded.");
+        logger.warn("Fencing token mismatch - checkpoint discarded", { action: "indexerTick" });
         return;
       }
 
@@ -179,7 +178,7 @@ export async function startIndexer(): Promise<void> {
       }
       await state.save();
     } catch (err) {
-      console.error("Indexer Error:", err);
+      logger.error("Indexer error", { action: "indexerTick", error: err });
     } finally {
       tickInFlight = false;
     }
@@ -206,7 +205,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
     });
   } catch (err: any) {
     if (err.code === 11000) {
-      console.log(`[indexer] Skipping duplicate event ${event.id}`);
+      logger.debug("Skipping duplicate event", { action: "processEvent", eventId: event.id });
       return;
     }
     throw err;
@@ -214,14 +213,14 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
 
   const decoded = decodeEvent(String(rawTopic), rawData);
   if (!decoded.recognized) {
-    console.log(`[indexer] Unrecognized event: ${rawTopic} (reason: ${decoded.reason})`, rawData);
+    logger.debug("Unrecognized event", { action: "processEvent", topic: rawTopic, reason: decoded.reason });
     return;
   }
 
   const topic = decoded.type;
   const data = decoded.data as Record<string, any>;
 
-  console.log(`Processing Event: ${topic} (v${decoded.version})`, data);
+  logger.info("Processing event", { action: "processEvent", topic, version: decoded.version });
 
   switch (topic) {
     case "PromptCreated": {
@@ -264,7 +263,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       if (upserted?.content) {
         const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
         scanForSimilarity(promptId, combinedText, upserted.category).catch((err) =>
-          console.error("[similarity] Scan error for prompt", promptId, err),
+          logger.error("Similarity scan error", { action: "similarityScan", promptId, error: err }),
         );
       }
       await invalidatePromptCaches(promptId);
@@ -447,7 +446,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
     }
 
     default:
-      console.log(`Unhandled event topic: ${topic}`);
+      logger.debug("Unhandled event topic", { action: "processEvent", topic });
       break;
   }
 }
