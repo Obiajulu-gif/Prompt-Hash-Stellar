@@ -1,13 +1,6 @@
 import { createHash } from "crypto";
 import { AuditLog, AuditAction, AuditResult } from "../models/AuditLog";
-
-// Simple fallback logger object to handle logging without cross-boundary imports
-// Simple fallback logger object to handle logging without cross-boundary imports
-const logger = {
-  info: (logFields: any, msg: string) => console.log(msg, logFields),
-  warn: (logFields: any, msg: string) => console.warn(msg, logFields),
-  error: (logFields: any, msg: string) => console.error(msg, logFields)
-};
+import { logger } from "./structuredLogger";
 
 /**
  * One-way SHA-256 hash of a Stellar wallet address.
@@ -19,6 +12,31 @@ const logger = {
  */
 export function hashWalletAddress(address: string): string {
   return createHash("sha256").update(address.toLowerCase()).digest("hex");
+}
+
+/**
+ * Compute a SHA-256 hash of an audit record for tamper evidence.
+ * The hash includes the previous record's hash to form a chain.
+ */
+function computeRecordHash(record: {
+  action: string;
+  result: string;
+  promptId: string | null;
+  walletAddress: string | null;
+  requestId: string | null;
+  createdAt: Date;
+  previousHash: string;
+}): string {
+  const data = JSON.stringify({
+    action: record.action,
+    result: record.result,
+    promptId: record.promptId,
+    walletAddress: record.walletAddress,
+    requestId: record.requestId,
+    createdAt: record.createdAt.toISOString(),
+    previousHash: record.previousHash,
+  });
+  return createHash("sha256").update(data).digest("hex");
 }
 
 /**
@@ -82,6 +100,21 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
   }
 
   try {
+    // Get the last audit record to compute hash chain
+    const lastRecord = await AuditLog.findOne().sort({ createdAt: -1 }).lean();
+    const previousHash = lastRecord?.recordHash || "0".repeat(64);
+
+    const now = new Date();
+    const recordHash = computeRecordHash({
+      action: params.action,
+      result: params.result,
+      promptId: params.promptId ?? null,
+      walletAddress: walletHash,
+      requestId: params.requestId ?? null,
+      createdAt: now,
+      previousHash,
+    });
+
     await AuditLog.create({
       action: params.action,
       result: params.result,
@@ -91,6 +124,8 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
       requestId: params.requestId ?? null,
       clientIp: params.clientIp ?? null,
       reason: params.reason ?? null,
+      recordHash,
+      previousHash,
     });
   } catch (err) {
     // Do not let audit failures surface to callers.
@@ -133,4 +168,62 @@ export async function queryAuditEvents(filter: {
     .sort({ createdAt: -1 })
     .limit(filter.limit ?? 100)
     .lean();
+}
+
+/**
+ * Verify the integrity of the audit trail hash chain.
+ * Returns an object with the verification result and any errors found.
+ * Can be run offline to detect tampering.
+ */
+export async function verifyAuditTrail(): Promise<{
+  valid: boolean;
+  totalRecords: number;
+  errors: string[];
+}> {
+  const errors: string[] = [];
+  let previousHash = "0".repeat(64);
+  let totalRecords = 0;
+
+  // Get all records in chronological order
+  const records = await AuditLog.find()
+    .sort({ createdAt: 1 })
+    .lean();
+
+  totalRecords = records.length;
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+
+    // Verify previous hash chain
+    if (record.previousHash !== previousHash) {
+      errors.push(
+        `Record ${i + 1} (${record._id}): previous hash mismatch. Expected ${previousHash}, got ${record.previousHash}`
+      );
+    }
+
+    // Verify record hash
+    const expectedHash = computeRecordHash({
+      action: record.action,
+      result: record.result,
+      promptId: record.promptId,
+      walletAddress: record.walletAddress,
+      requestId: record.requestId,
+      createdAt: new Date(record.createdAt),
+      previousHash: record.previousHash,
+    });
+
+    if (record.recordHash !== expectedHash) {
+      errors.push(
+        `Record ${i + 1} (${record._id}): hash mismatch. Record may have been tampered with.`
+      );
+    }
+
+    previousHash = record.recordHash;
+  }
+
+  return {
+    valid: errors.length === 0,
+    totalRecords,
+    errors,
+  };
 }
