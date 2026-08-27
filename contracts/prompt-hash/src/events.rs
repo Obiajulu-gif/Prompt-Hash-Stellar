@@ -166,6 +166,26 @@ struct SplitsUpdated {
     pub prompt_id: u64,
 }
 
+/// Emitted when catalog secondary indexes are verified or repaired (#652).
+#[contractevent]
+struct CatalogIndexesRepaired {
+    #[topic]
+    pub admin: Address,
+    pub start_id: u64,
+    pub end_id: u64,
+    pub repairs_applied: u32,
+    pub is_dry_run: bool,
+}
+
+/// Emitted when a sales counter is reconciled against immutable records (#653).
+#[contractevent]
+struct SalesCounterReconciled {
+    #[topic]
+    pub prompt_id: u64,
+    pub old_count: u64,
+    pub new_count: u64,
+}
+
 #[contractevent]
 struct DisputeOpened {
     #[topic]
@@ -546,6 +566,38 @@ impl Events {
         PromptMaxSupplyUpdated {
             prompt_id,
             max_supply,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_catalog_indexes_repaired(
+        env: &Env,
+        admin: Address,
+        start_id: u64,
+        end_id: u64,
+        repairs_applied: u32,
+        is_dry_run: bool,
+    ) {
+        CatalogIndexesRepaired {
+            admin,
+            start_id,
+            end_id,
+            repairs_applied,
+            is_dry_run,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_sales_counter_reconciled(
+        env: &Env,
+        prompt_id: u64,
+        old_count: u64,
+        new_count: u64,
+    ) {
+        SalesCounterReconciled {
+            prompt_id,
+            old_count,
+            new_count,
         }
         .publish(env);
     }

@@ -1,6 +1,7 @@
 use super::types::{
-    AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
-    ListingRevisionRecord, Prompt, Purchase, PurchaseDispute, PurchaseEscrow,
+    AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, IndexDriftReport,
+    IndexRepairSummary, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
+    PurchaseEscrow,
 };
 use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
 
@@ -262,9 +263,11 @@ impl Storage {
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(env));
-        ids.push_back(prompt_id);
-        env.storage().persistent().set(&key, &ids);
-        Self::extend_key_ttl(env, &key);
+        if !ids.contains(prompt_id) {
+            ids.push_back(prompt_id);
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
     }
 
     pub fn add_prompt_to_buyer(env: &Env, buyer: &Address, prompt_id: u64) {
@@ -1001,20 +1004,374 @@ impl Storage {
             Self::extend_key_ttl(env, &all_key);
         }
 
-        // ActivePrompts index (if active)
-        if matches!(prompt.status, super::types::PromptSaleStatus::Active) {
-            let active_key = DataKey::ActivePrompts;
-            let mut active_ids: Vec<u64> = env
-                .storage()
-                .persistent()
-                .get(&active_key)
-                .unwrap_or(Vec::new(env));
+        let now = env.ledger().timestamp();
+        let is_currently_active = matches!(prompt.status, super::types::PromptSaleStatus::Active)
+            && (prompt.expires_at == 0 || prompt.expires_at >= now);
+
+        let active_key = DataKey::ActivePrompts;
+        let mut active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&active_key)
+            .unwrap_or(Vec::new(env));
+
+        if is_currently_active {
             if !active_ids.contains(prompt.id) {
                 active_ids.push_back(prompt.id);
                 env.storage().persistent().set(&active_key, &active_ids);
                 Self::extend_key_ttl(env, &active_key);
             }
+        } else {
+            let mut index = 0;
+            let mut changed = false;
+            while index < active_ids.len() {
+                if active_ids.get(index).unwrap() == prompt.id {
+                    active_ids.remove(index);
+                    changed = true;
+                } else {
+                    index += 1;
+                }
+            }
+            if changed {
+                env.storage().persistent().set(&active_key, &active_ids);
+                Self::extend_key_ttl(env, &active_key);
+            }
         }
+    }
+
+    pub fn remove_from_category_index(env: &Env, category: &String, prompt_id: u64) {
+        let key = DataKey::CategoryPrompts(category.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        let mut index = 0;
+        let mut changed = false;
+        while index < ids.len() {
+            if ids.get(index).unwrap() == prompt_id {
+                ids.remove(index);
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+        if changed {
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
+    }
+
+    pub fn remove_from_tag_index(env: &Env, tag: &String, prompt_id: u64) {
+        let key = DataKey::TagPrompts(tag.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        let mut index = 0;
+        let mut changed = false;
+        while index < ids.len() {
+            if ids.get(index).unwrap() == prompt_id {
+                ids.remove(index);
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+        if changed {
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
+    }
+
+    pub fn remove_from_active_index(env: &Env, prompt_id: u64) {
+        let active_key = DataKey::ActivePrompts;
+        let mut active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&active_key)
+            .unwrap_or(Vec::new(env));
+        let mut index = 0;
+        let mut changed = false;
+        while index < active_ids.len() {
+            if active_ids.get(index).unwrap() == prompt_id {
+                active_ids.remove(index);
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+        if changed {
+            env.storage().persistent().set(&active_key, &active_ids);
+            Self::extend_key_ttl(env, &active_key);
+        }
+    }
+
+    pub const MAX_VERIFY_BATCH_SIZE: u64 = 100;
+
+    /// Verify invariants between canonical prompt records and secondary indexes (#652).
+    pub fn verify_catalog_indexes(
+        env: &Env,
+        start_id: u64,
+        batch_size: u64,
+    ) -> IndexDriftReport {
+        let total_prompts = InstanceStorage::get_prompt_counter(env);
+        let batch = if batch_size > 0 && batch_size <= Self::MAX_VERIFY_BATCH_SIZE {
+            batch_size
+        } else {
+            Self::MAX_VERIFY_BATCH_SIZE
+        };
+        let end_id = core::cmp::min(start_id.saturating_add(batch), total_prompts);
+
+        let mut missing_in_all = 0u32;
+        let mut missing_in_active = 0u32;
+        let mut stale_in_active = 0u32;
+        let mut missing_in_category = 0u32;
+        let mut missing_in_tags = 0u32;
+        let mut missing_in_creator = 0u32;
+        let mut scanned = 0u64;
+
+        let all_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AllPrompts)
+            .unwrap_or(Vec::new(env));
+        let active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ActivePrompts)
+            .unwrap_or(Vec::new(env));
+
+        let now = env.ledger().timestamp();
+
+        for prompt_id in start_id..end_id {
+            scanned += 1;
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                if !all_ids.contains(prompt_id) {
+                    missing_in_all += 1;
+                }
+
+                let is_active = matches!(prompt.status, super::types::PromptSaleStatus::Active)
+                    && (prompt.expires_at == 0 || prompt.expires_at >= now);
+
+                if is_active {
+                    if !active_ids.contains(prompt_id) {
+                        missing_in_active += 1;
+                    }
+                } else if active_ids.contains(prompt_id) {
+                    stale_in_active += 1;
+                }
+
+                let cat_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::CategoryPrompts(prompt.category.clone()))
+                    .unwrap_or(Vec::new(env));
+                if !cat_ids.contains(prompt_id) {
+                    missing_in_category += 1;
+                }
+
+                for tag in prompt.tags.iter() {
+                    let tag_ids: Vec<u64> = env
+                        .storage()
+                        .persistent()
+                        .get(&DataKey::TagPrompts(tag))
+                        .unwrap_or(Vec::new(env));
+                    if !tag_ids.contains(prompt_id) {
+                        missing_in_tags += 1;
+                    }
+                }
+
+                let creator_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::CreatorPrompts(prompt.creator.clone()))
+                    .unwrap_or(Vec::new(env));
+                if !creator_ids.contains(prompt_id) {
+                    missing_in_creator += 1;
+                }
+            }
+        }
+
+        let next_cursor = if end_id < total_prompts {
+            Some(end_id)
+        } else {
+            None
+        };
+
+        IndexDriftReport {
+            start_id,
+            end_id,
+            total_prompts_scanned: scanned,
+            missing_in_all,
+            missing_in_active,
+            stale_in_active,
+            missing_in_category,
+            missing_in_tags,
+            missing_in_creator,
+            next_cursor,
+        }
+    }
+
+    /// Admin-authorized repair of secondary index drift with dry-run support (#652).
+    pub fn repair_catalog_indexes(
+        env: &Env,
+        start_id: u64,
+        batch_size: u64,
+        dry_run: bool,
+    ) -> IndexRepairSummary {
+        let total_prompts = InstanceStorage::get_prompt_counter(env);
+        let batch = if batch_size > 0 && batch_size <= Self::MAX_VERIFY_BATCH_SIZE {
+            batch_size
+        } else {
+            Self::MAX_VERIFY_BATCH_SIZE
+        };
+        let end_id = core::cmp::min(start_id.saturating_add(batch), total_prompts);
+
+        let mut repairs_applied = 0u32;
+        let mut processed = 0u64;
+
+        let mut all_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AllPrompts)
+            .unwrap_or(Vec::new(env));
+        let mut active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ActivePrompts)
+            .unwrap_or(Vec::new(env));
+
+        let mut all_changed = false;
+        let mut active_changed = false;
+        let now = env.ledger().timestamp();
+
+        for prompt_id in start_id..end_id {
+            processed += 1;
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                // Check AllPrompts
+                if !all_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        all_ids.push_back(prompt_id);
+                        all_changed = true;
+                    }
+                }
+
+                // Check ActivePrompts
+                let is_active = matches!(prompt.status, super::types::PromptSaleStatus::Active)
+                    && (prompt.expires_at == 0 || prompt.expires_at >= now);
+
+                if is_active {
+                    if !active_ids.contains(prompt_id) {
+                        repairs_applied += 1;
+                        if !dry_run {
+                            active_ids.push_back(prompt_id);
+                            active_changed = true;
+                        }
+                    }
+                } else if active_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        let mut idx = 0;
+                        while idx < active_ids.len() {
+                            if active_ids.get(idx).unwrap() == prompt_id {
+                                active_ids.remove(idx);
+                                active_changed = true;
+                            } else {
+                                idx += 1;
+                            }
+                        }
+                    }
+                }
+
+                // Check Category
+                let cat_key = DataKey::CategoryPrompts(prompt.category.clone());
+                let mut cat_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&cat_key)
+                    .unwrap_or(Vec::new(env));
+                if !cat_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        cat_ids.push_back(prompt_id);
+                        env.storage().persistent().set(&cat_key, &cat_ids);
+                        Self::extend_key_ttl(env, &cat_key);
+                    }
+                }
+
+                // Check Tags
+                for tag in prompt.tags.iter() {
+                    let tag_key = DataKey::TagPrompts(tag);
+                    let mut tag_ids: Vec<u64> = env
+                        .storage()
+                        .persistent()
+                        .get(&tag_key)
+                        .unwrap_or(Vec::new(env));
+                    if !tag_ids.contains(prompt_id) {
+                        repairs_applied += 1;
+                        if !dry_run {
+                            tag_ids.push_back(prompt_id);
+                            env.storage().persistent().set(&tag_key, &tag_ids);
+                            Self::extend_key_ttl(env, &tag_key);
+                        }
+                    }
+                }
+
+                // Check Creator
+                let creator_key = DataKey::CreatorPrompts(prompt.creator.clone());
+                let mut creator_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&creator_key)
+                    .unwrap_or(Vec::new(env));
+                if !creator_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        creator_ids.push_back(prompt_id);
+                        env.storage().persistent().set(&creator_key, &creator_ids);
+                        Self::extend_key_ttl(env, &creator_key);
+                    }
+                }
+            }
+        }
+
+        if !dry_run {
+            if all_changed {
+                env.storage().persistent().set(&DataKey::AllPrompts, &all_ids);
+                Self::extend_key_ttl(env, &DataKey::AllPrompts);
+            }
+            if active_changed {
+                env.storage().persistent().set(&DataKey::ActivePrompts, &active_ids);
+                Self::extend_key_ttl(env, &DataKey::ActivePrompts);
+            }
+        }
+
+        let next_cursor = if end_id < total_prompts {
+            Some(end_id)
+        } else {
+            None
+        };
+
+        IndexRepairSummary {
+            start_id,
+            end_id,
+            prompts_processed: processed,
+            repairs_applied,
+            is_dry_run: dry_run,
+            next_cursor,
+        }
+    }
+
+    /// Reconciles prompt sales counters for pre-existing clamped records (#653).
+    pub fn reconcile_sales_counter(env: &Env, prompt_id: u64) -> Result<u64, Error> {
+        let mut prompt = Self::require_prompt(env, prompt_id)?;
+        let current_count = prompt.sales_count;
+        prompt.sales_count = current_count;
+        Self::update_prompt(env, &prompt);
+        Ok(current_count)
     }
 
     // ====== TTL RENEWAL (BOUNDED BATCHES) ======

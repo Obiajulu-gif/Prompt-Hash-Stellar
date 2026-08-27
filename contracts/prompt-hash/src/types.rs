@@ -612,11 +612,6 @@ pub enum GovernanceAction {
     SetReferralPercentage(u32),
 }
 
-/// A proposed governance action awaiting its observation window (#569).
-///
-/// `expected_state_hash` pins the configuration the proposal was written
-/// against, so execution fails if the current configuration has since drifted.
-/// Cancellable by the governance role and queryable while pending.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GovernanceProposal {
@@ -629,6 +624,34 @@ pub struct GovernanceProposal {
     pub expiry_ledger: u32,
     pub expected_state_hash: BytesN<32>,
     pub nonce: BytesN<32>,
+}
+
+/// Report describing detected drift between canonical prompt records and secondary indexes (#652).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndexDriftReport {
+    pub start_id: u64,
+    pub end_id: u64,
+    pub total_prompts_scanned: u64,
+    pub missing_in_all: u32,
+    pub missing_in_active: u32,
+    pub stale_in_active: u32,
+    pub missing_in_category: u32,
+    pub missing_in_tags: u32,
+    pub missing_in_creator: u32,
+    pub next_cursor: Option<u64>,
+}
+
+/// Result of an admin-authorized catalog secondary index repair operation (#652).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndexRepairSummary {
+    pub start_id: u64,
+    pub end_id: u64,
+    pub prompts_processed: u64,
+    pub repairs_applied: u32,
+    pub is_dry_run: bool,
+    pub next_cursor: Option<u64>,
 }
 
 pub trait PromptHashTrait {
@@ -886,6 +909,39 @@ pub trait PromptHashTrait {
         cursor: Option<String>,
         limit: u64,
     ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_prompts_by_creator_paginated(
+        env: Env,
+        creator: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_prompts_by_buyer_paginated(
+        env: Env,
+        buyer: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+
+    // Secondary index drift verification and admin repair (#652).
+    fn verify_catalog_indexes(
+        env: Env,
+        start_id: u64,
+        batch_size: u64,
+    ) -> Result<IndexDriftReport, Error>;
+    fn repair_catalog_indexes(
+        env: Env,
+        admin: Address,
+        start_id: u64,
+        batch_size: u64,
+        dry_run: bool,
+    ) -> Result<IndexRepairSummary, Error>;
+
+    // Checked accounting counter reconciliation (#653).
+    fn reconcile_sales_counter(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+    ) -> Result<u64, Error>;
 
     // TTL maintenance (operator utilities).
     fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error>;
