@@ -13,6 +13,7 @@ mod tests {
             IndexType::Tag,
             IndexType::Active,
             IndexType::All,
+            IndexType::Buyer,
         ];
 
         for index_type in types {
@@ -61,12 +62,14 @@ mod tests {
         let cursor_tag = encode_cursor(&env, id, IndexType::Tag);
         let cursor_active = encode_cursor(&env, id, IndexType::Active);
         let cursor_all = encode_cursor(&env, id, IndexType::All);
+        let cursor_buyer = encode_cursor(&env, id, IndexType::Buyer);
 
         let decoded_creator = decode_cursor(&env, &cursor_creator).unwrap();
         let decoded_category = decode_cursor(&env, &cursor_category).unwrap();
         let decoded_tag = decode_cursor(&env, &cursor_tag).unwrap();
         let decoded_active = decode_cursor(&env, &cursor_active).unwrap();
         let decoded_all = decode_cursor(&env, &cursor_all).unwrap();
+        let decoded_buyer = decode_cursor(&env, &cursor_buyer).unwrap();
 
         // All have same ID but different types
         assert_eq!(decoded_creator.last_id, id);
@@ -74,6 +77,7 @@ mod tests {
         assert_eq!(decoded_tag.last_id, id);
         assert_eq!(decoded_active.last_id, id);
         assert_eq!(decoded_all.last_id, id);
+        assert_eq!(decoded_buyer.last_id, id);
 
         // Each type should be preserved correctly
         assert!(decoded_creator.index_type == IndexType::Creator);
@@ -81,6 +85,7 @@ mod tests {
         assert!(decoded_tag.index_type == IndexType::Tag);
         assert!(decoded_active.index_type == IndexType::Active);
         assert!(decoded_all.index_type == IndexType::All);
+        assert!(decoded_buyer.index_type == IndexType::Buyer);
     }
 
     #[test]

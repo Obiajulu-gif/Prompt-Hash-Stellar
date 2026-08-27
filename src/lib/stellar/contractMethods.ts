@@ -188,15 +188,144 @@ export async function contractGetPromptsByCreator(
   return result.map((item, idx) => decodePromptRecord(item, BigInt(idx)));
 }
 
+/**
+ * Paginated query for creator prompts (#651).
+ */
+export async function contractGetPromptsByCreatorPaginated(
+  config: PromptHashConfig,
+  creatorAddress: string,
+  cursor?: string | null,
+  limit = 50,
+): Promise<{ prompts: PromptRecord[]; nextCursor: string | null }> {
+  const args = [
+    scValArg(new Address(creatorAddress).toScVal()),
+    encodeOptionString(cursor ?? null),
+    scValArg(limit, "u64"),
+  ];
+
+  const [rawPrompts, nextCursor] = await readContract<
+    [Record<string, any>[], string | null]
+  >(
+    {
+      rpcUrl: config.rpcUrl,
+      networkPassphrase: config.networkPassphrase,
+      allowHttp: config.allowHttp,
+      simulationAccount: config.simulationAccount,
+    },
+    config.promptHashContractId,
+    "get_prompts_by_creator_paginated",
+    args,
+  );
+
+  const prompts = (rawPrompts ?? []).map((item, idx) =>
+    decodePromptRecord(item, BigInt(idx)),
+  );
+
+  return { prompts, nextCursor: nextCursor ?? null };
+}
+
 export async function contractGetPromptsByBuyer(
   config: PromptHashConfig,
   buyerAddress: string,
 ): Promise<PromptRecord[]> {
-  // Note: The contract doesn't have get_prompts_by_buyer directly.
-  // We need to query all prompts and filter by buyer access.
-  // For now, return empty to match mock behavior, but mark as TODO for real implementation.
-  // TODO: Implement by querying purchase history events or state.
-  return [];
+  const args = [scValArg(new Address(buyerAddress).toScVal())];
+
+  const result = await readContract<Record<string, any>[]>(
+    {
+      rpcUrl: config.rpcUrl,
+      networkPassphrase: config.networkPassphrase,
+      allowHttp: config.allowHttp,
+      simulationAccount: config.simulationAccount,
+    },
+    config.promptHashContractId,
+    "get_prompts_by_buyer",
+    args,
+  );
+
+  return (result ?? []).map((item, idx) => decodePromptRecord(item, BigInt(idx)));
+}
+
+/**
+ * Paginated query for buyer entitlements (#651).
+ */
+export async function contractGetPromptsByBuyerPaginated(
+  config: PromptHashConfig,
+  buyerAddress: string,
+  cursor?: string | null,
+  limit = 50,
+): Promise<{ prompts: PromptRecord[]; nextCursor: string | null }> {
+  const args = [
+    scValArg(new Address(buyerAddress).toScVal()),
+    encodeOptionString(cursor ?? null),
+    scValArg(limit, "u64"),
+  ];
+
+  const [rawPrompts, nextCursor] = await readContract<
+    [Record<string, any>[], string | null]
+  >(
+    {
+      rpcUrl: config.rpcUrl,
+      networkPassphrase: config.networkPassphrase,
+      allowHttp: config.allowHttp,
+      simulationAccount: config.simulationAccount,
+    },
+    config.promptHashContractId,
+    "get_prompts_by_buyer_paginated",
+    args,
+  );
+
+  const prompts = (rawPrompts ?? []).map((item, idx) =>
+    decodePromptRecord(item, BigInt(idx)),
+  );
+
+  return { prompts, nextCursor: nextCursor ?? null };
+}
+
+/**
+ * Verify secondary index consistency across catalog (#652).
+ */
+export async function contractVerifyCatalogIndexes(
+  config: PromptHashConfig,
+  startId = 0,
+  batchSize = 50,
+): Promise<{
+  startId: bigint;
+  endId: bigint;
+  totalPromptsScanned: bigint;
+  missingInAll: number;
+  missingInActive: number;
+  staleInActive: number;
+  missingInCategory: number;
+  missingInTags: number;
+  missingInCreator: number;
+  nextCursor: bigint | null;
+}> {
+  const args = [scValArg(startId, "u64"), scValArg(batchSize, "u64")];
+
+  const result = await readContract<Record<string, any>>(
+    {
+      rpcUrl: config.rpcUrl,
+      networkPassphrase: config.networkPassphrase,
+      allowHttp: config.allowHttp,
+      simulationAccount: config.simulationAccount,
+    },
+    config.promptHashContractId,
+    "verify_catalog_indexes",
+    args,
+  );
+
+  return {
+    startId: BigInt(result.start_id ?? 0),
+    endId: BigInt(result.end_id ?? 0),
+    totalPromptsScanned: BigInt(result.total_prompts_scanned ?? 0),
+    missingInAll: Number(result.missing_in_all ?? 0),
+    missingInActive: Number(result.missing_in_active ?? 0),
+    staleInActive: Number(result.stale_in_active ?? 0),
+    missingInCategory: Number(result.missing_in_category ?? 0),
+    missingInTags: Number(result.missing_in_tags ?? 0),
+    missingInCreator: Number(result.missing_in_creator ?? 0),
+    nextCursor: result.next_cursor != null ? BigInt(result.next_cursor) : null,
+  };
 }
 
 export async function contractGetBundlesByCreator(

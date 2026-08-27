@@ -5991,8 +5991,6 @@ fn create_prompt_with_category(
             max_supply: 0,
         },
     )
-<<<<<<< HEAD
-=======
 }
 
 #[test]
@@ -6546,4 +6544,228 @@ fn test_discount_auth_max_bps_edge_case() {
 
     // Verify buyer has access
     assert!(client.has_access(&buyer, &prompt_id));
+}
+
+// ============================================================================
+// ISSUE #651: Cursor Pagination for Creator and Buyer Ownership Indexes
+// ============================================================================
+
+#[test]
+fn test_get_prompts_by_creator_paginated_empty_and_multi_page() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let other_creator = Address::generate(&env);
+
+    // Empty list
+    let (prompts, next_cursor) = client.get_prompts_by_creator_paginated(&creator, &None, &10);
+    assert_eq!(prompts.len(), 0);
+    assert!(next_cursor.is_none());
+
+    // Create 7 prompts for creator and 3 for other_creator
+    for i in 0..7 {
+        let title = String::from_str(&env, "Creator Prompt");
+        client.create_prompt(
+            &creator,
+            &String::from_str(&env, "https://example.com/img.png"),
+            &title,
+            &String::from_str(&env, "AI"),
+            &String::from_str(&env, "Preview"),
+            &String::from_str(&env, "Encrypted"),
+            &String::from_str(&env, "iv"),
+            &String::from_str(&env, "key"),
+            &hash(&env, i as u8 + 1),
+            &ListingConfig {
+                price: 1_000,
+                asset: context.xlm.clone(),
+                expires_at: 0,
+                splits: Vec::new(&env),
+                tags: Vec::new(&env),
+                max_supply: 0,
+            },
+        );
+    }
+    for i in 0..3 {
+        let title = String::from_str(&env, "Other Creator Prompt");
+        client.create_prompt(
+            &other_creator,
+            &String::from_str(&env, "https://example.com/img.png"),
+            &title,
+            &String::from_str(&env, "Art"),
+            &String::from_str(&env, "Preview"),
+            &String::from_str(&env, "Encrypted"),
+            &String::from_str(&env, "iv"),
+            &String::from_str(&env, "key"),
+            &hash(&env, i as u8 + 10),
+            &ListingConfig {
+                price: 2_000,
+                asset: context.xlm.clone(),
+                expires_at: 0,
+                splits: Vec::new(&env),
+                tags: Vec::new(&env),
+                max_supply: 0,
+            },
+        );
+    }
+
+    // Paginate creator's prompts with limit = 3
+    let (page1, cursor1) = client.get_prompts_by_creator_paginated(&creator, &None, &3);
+    assert_eq!(page1.len(), 3);
+    assert!(cursor1.is_some());
+
+    let (page2, cursor2) = client.get_prompts_by_creator_paginated(&creator, &cursor1, &3);
+    assert_eq!(page2.len(), 3);
+    assert!(cursor2.is_some());
+
+    let (page3, cursor3) = client.get_prompts_by_creator_paginated(&creator, &cursor2, &3);
+    assert_eq!(page3.len(), 1);
+    assert!(cursor3.is_some());
+
+    // Page past end
+    let (page4, cursor4) = client.get_prompts_by_creator_paginated(&creator, &cursor3, &3);
+    assert_eq!(page4.len(), 0);
+    assert!(cursor4.is_none());
+}
+
+#[test]
+fn test_get_prompts_by_buyer_paginated_multi_page() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // Empty list
+    let (prompts, next_cursor) = client.get_prompts_by_buyer_paginated(&buyer, &None, &10);
+    assert_eq!(prompts.len(), 0);
+    assert!(next_cursor.is_none());
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 50_000);
+
+    let mut created_ids = Vec::new(&env);
+    for i in 0..5 {
+        let p_id = create_prompt(&env, &client, &creator, "Prompt", 1_000, &context.xlm);
+        created_ids.push_back(p_id);
+        client.buy_prompt(&buyer, &p_id, &None, &1_000, &None);
+    }
+
+    // Paginate buyer entitlements with limit = 2
+    let (page1, cursor1) = client.get_prompts_by_buyer_paginated(&buyer, &None, &2);
+    assert_eq!(page1.len(), 2);
+    assert!(cursor1.is_some());
+
+    let (page2, cursor2) = client.get_prompts_by_buyer_paginated(&buyer, &cursor1, &2);
+    assert_eq!(page2.len(), 2);
+    assert!(cursor2.is_some());
+
+    let (page3, cursor3) = client.get_prompts_by_buyer_paginated(&buyer, &cursor2, &2);
+    assert_eq!(page3.len(), 1);
+    assert!(cursor3.is_some());
+
+    let (page4, cursor4) = client.get_prompts_by_buyer_paginated(&buyer, &cursor3, &2);
+    assert_eq!(page4.len(), 0);
+    assert!(cursor4.is_none());
+}
+
+// ============================================================================
+// ISSUE #652: Catalog Secondary Index Drift Detection and Repair
+// ============================================================================
+
+#[test]
+fn test_catalog_secondary_index_verification_and_repair() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Indexed Prompt", 1_000, &context.xlm);
+
+    // Initial state: healthy indexes
+    let report = client.verify_catalog_indexes(&0, &50);
+    assert_eq!(report.total_prompts_scanned, 1);
+    assert_eq!(report.missing_in_all, 0);
+    assert_eq!(report.missing_in_active, 0);
+    assert_eq!(report.missing_in_category, 0);
+    assert_eq!(report.missing_in_creator, 0);
+
+    // Fault injection: simulate drift by clearing AllPrompts and ActivePrompts
+    env.as_contract(&context.contract, || {
+        let empty_vec: Vec<u64> = Vec::new(&env);
+        env.storage().persistent().set(&DataKey::AllPrompts, &empty_vec);
+        env.storage().persistent().set(&DataKey::ActivePrompts, &empty_vec);
+    });
+
+    // Detect drift
+    let drift_report = client.verify_catalog_indexes(&0, &50);
+    assert_eq!(drift_report.missing_in_all, 1);
+    assert_eq!(drift_report.missing_in_active, 1);
+
+    // Dry-run repair: should report repairs without mutating
+    let dry_run_summary = client.repair_catalog_indexes(&context.admin, &0, &50, &true);
+    assert_eq!(dry_run_summary.repairs_applied, 2);
+    assert!(dry_run_summary.is_dry_run);
+
+    // Verify still drifting after dry run
+    let post_dry_run_report = client.verify_catalog_indexes(&0, &50);
+    assert_eq!(post_dry_run_report.missing_in_all, 1);
+
+    // Live repair
+    let live_summary = client.repair_catalog_indexes(&context.admin, &0, &50, &false);
+    assert_eq!(live_summary.repairs_applied, 2);
+    assert!(!live_summary.is_dry_run);
+
+    // Verify clean healthy state after live repair
+    let post_repair_report = client.verify_catalog_indexes(&0, &50);
+    assert_eq!(post_repair_report.missing_in_all, 0);
+    assert_eq!(post_repair_report.missing_in_active, 0);
+
+    // Idempotency: repeated repair run is a no-op (0 repairs applied)
+    let second_run_summary = client.repair_catalog_indexes(&context.admin, &0, &50, &false);
+    assert_eq!(second_run_summary.repairs_applied, 0);
+}
+
+// ============================================================================
+// ISSUE #653: Checked Accounting Invariant Enforcement
+// ============================================================================
+
+#[test]
+fn test_checked_accounting_invariant_on_double_refund_and_counters() {
+    let env: Env = Default::default();
+    env.mock_all_auths();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let prompt_id = create_prompt(&env, &client, &creator, "Unique Prompt", 2_000, &context.xlm);
+    fund_buyer(&xlm_client, &buyer, &context.contract, 10_000);
+
+    client.buy_prompt(&buyer, &prompt_id, &None, &2_000, &None);
+
+    let prompt_after_buy = client.get_prompt(&prompt_id);
+    assert_eq!(prompt_after_buy.sales_count, 1);
+
+    // Open dispute and refund
+    client.open_dispute(&buyer, &prompt_id, &DisputeReason::FailedIntegrityVerification);
+    client.resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+
+    let prompt_after_refund = client.get_prompt(&prompt_id);
+    assert_eq!(prompt_after_refund.sales_count, 0);
+
+    // Attempting a second refund / dispute resolution on an already resolved dispute must fail
+    let double_resolve_result = client.try_resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+    assert!(double_resolve_result.is_err());
+
+    // Reconcile sales counter
+    let reconciled = client.reconcile_sales_counter(&context.admin, &prompt_id);
+    assert_eq!(reconciled, 0);
 }

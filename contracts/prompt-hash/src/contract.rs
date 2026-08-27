@@ -2,8 +2,8 @@ use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
     AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey, DisputeReason,
-    DisputeStatus, Error, ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait,
-    PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
+    DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig, ListingRevisionRecord,
+    Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
     SignedDiscountAuthorization, Split,
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
@@ -150,6 +150,7 @@ impl PromptHashTrait for PromptHashContract {
 
         prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
+        Storage::update_status_indexes(&env, &prompt);
         Events::emit_prompt_sale_status_updated(&env, prompt_id, status);
         Ok(())
     }
@@ -174,6 +175,7 @@ impl PromptHashTrait for PromptHashContract {
 
         prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
+        Storage::update_status_indexes(&env, &prompt);
         Events::emit_prompt_admin_moderated(&env, prompt_id, admin, status);
         Ok(())
     }
@@ -1067,8 +1069,9 @@ impl PromptHashTrait for PromptHashContract {
         };
         Storage::save_listing_revision(&env, &snapshot);
 
+        let old_category = prompt.category.clone();
         prompt.title = title;
-        prompt.category = category;
+        prompt.category = category.clone();
         prompt.preview_text = preview_text;
         prompt.image_url = image_url;
         prompt.price_stroops = price_stroops;
@@ -1078,6 +1081,10 @@ impl PromptHashTrait for PromptHashContract {
             .ok_or(Error::ArithmeticOverflow)?;
 
         Storage::update_prompt(&env, &prompt);
+        if old_category != category {
+            Storage::remove_from_category_index(&env, &old_category, prompt_id);
+            Storage::update_category_index(&env, &prompt);
+        }
         Events::emit_listing_revised(&env, prompt_id, prompt.revision);
         Ok(prompt.revision)
     }
@@ -1253,6 +1260,116 @@ impl PromptHashTrait for PromptHashContract {
         Ok((prompts, next_cursor))
     }
 
+    fn get_prompts_by_creator_paginated(
+        env: Env,
+        creator: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::CreatorPrompts(creator.clone());
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(&env, last_id, IndexType::Creator))
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    fn get_prompts_by_buyer_paginated(
+        env: Env,
+        buyer: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::BuyerPrompts(buyer.clone());
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(&env, last_id, IndexType::Buyer))
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    // ====== SECONDARY INDEX VERIFICATION AND REPAIR (#652) ======
+
+    fn verify_catalog_indexes(
+        env: Env,
+        start_id: u64,
+        batch_size: u64,
+    ) -> Result<IndexDriftReport, Error> {
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        Ok(Storage::verify_catalog_indexes(&env, start_id, batch_size))
+    }
+
+    #[only_owner]
+    fn repair_catalog_indexes(
+        env: Env,
+        admin: Address,
+        start_id: u64,
+        batch_size: u64,
+        dry_run: bool,
+    ) -> Result<IndexRepairSummary, Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        let summary = Storage::repair_catalog_indexes(&env, start_id, batch_size, dry_run);
+        Events::emit_catalog_indexes_repaired(
+            &env,
+            admin,
+            summary.start_id,
+            summary.end_id,
+            summary.repairs_applied,
+            summary.is_dry_run,
+        );
+        Ok(summary)
+    }
+
+    // ====== ACCOUNTING INVARIANT RECONCILIATION (#653) ======
+
+    #[only_owner]
+    fn reconcile_sales_counter(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+    ) -> Result<u64, Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        let count = Storage::reconcile_sales_counter(&env, prompt_id)?;
+        Events::emit_sales_counter_reconciled(&env, prompt_id, count, count);
+        Ok(count)
+    }
+
     // ====== TTL MAINTENANCE (OPERATOR UTILITIES) ======
 
     fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error> {
@@ -1375,7 +1492,10 @@ impl PromptHashTrait for PromptHashContract {
                                 if let Some(mut prompt) =
                                     Storage::get_prompt(&env, prompt_in_bundle)
                                 {
-                                    prompt.sales_count = prompt.sales_count.saturating_sub(1);
+                                    prompt.sales_count = prompt
+                                        .sales_count
+                                        .checked_sub(1)
+                                        .ok_or(Error::ArithmeticOverflow)?;
                                     Storage::update_prompt(&env, &prompt);
                                 }
                             }
@@ -1418,10 +1538,12 @@ impl PromptHashTrait for PromptHashContract {
 
                 // Release the reserved supply unit back to the pool so another
                 // buyer may purchase it (#541).
-                if prompt.sales_count > 0 {
-                    prompt.sales_count -= 1;
-                    Storage::update_prompt(&env, &prompt);
-                }
+                ensure(prompt.sales_count > 0, Error::ArithmeticOverflow)?;
+                prompt.sales_count = prompt
+                    .sales_count
+                    .checked_sub(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                Storage::update_prompt(&env, &prompt);
 
                 // If this purchase had an escrow, transition it to `Refunded`
                 // and clear the tracked disputed liability (#541, #570).
@@ -2083,12 +2205,18 @@ fn set_platform_fee_internal(env: &Env, actor: Address, new_fee: u32) -> Result<
 /// and goes negative only if the balance no longer covers tracked liability.
 fn compute_asset_solvency(env: &Env, asset: &Address) -> AssetSolvency {
     let liability = Storage::get_asset_liability(env, asset);
-    let tracked_liability = liability.pending.saturating_add(liability.disputed);
+    let tracked_liability = liability
+        .pending
+        .checked_add(liability.disputed)
+        .unwrap_or(i128::MAX);
     let actual_balance = token::Client::new(env, asset).balance(&env.current_contract_address());
+    let surplus = actual_balance
+        .checked_sub(tracked_liability)
+        .unwrap_or(i128::MIN);
     AssetSolvency {
         tracked_liability,
         actual_balance,
-        surplus: actual_balance.saturating_sub(tracked_liability),
+        surplus,
     }
 }
 

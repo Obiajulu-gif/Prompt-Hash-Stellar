@@ -6,6 +6,7 @@ import Purchase from "../models/Purchase";
 import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
 import ProcessedEvent from "../models/ProcessedEvent";
+import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
@@ -186,15 +187,76 @@ export async function startIndexer(): Promise<void> {
 }
 
 /**
+ * Persists raw undecodable or unsupported contract events into quarantine with full metadata (#654).
+ * Emits alerts and updates indexer quarantine state without advancing a lossy checkpoint.
+ */
+export async function quarantineEvent(
+  event: StellarRpc.Api.EventResponse,
+  reason: "unknown_type" | "unsupported_version" | "malformed_xdr" | "decoder_error" | "processing_error",
+  errorDetails?: string,
+  rawTopic?: unknown,
+  rawData?: unknown,
+): Promise<void> {
+  const topicStr = rawTopic !== undefined ? String(rawTopic) : "unknown";
+  logger.warn("Quarantining unsupported or malformed contract event", {
+    action: "quarantineEvent",
+    eventId: event.id,
+    ledger: event.ledger,
+    topic: topicStr,
+    reason,
+    error: errorDetails,
+  });
+
+  await QuarantinedEvent.findOneAndUpdate(
+    { eventId: event.id },
+    {
+      $set: {
+        eventId: event.id,
+        ledger: event.ledger,
+        txHash: event.txHash || "",
+        contractId: event.contractId,
+        topic: topicStr,
+        rawTopic,
+        rawValue: rawData,
+        reason,
+        status: "quarantined",
+        errorDetails,
+        quarantinedAt: new Date(),
+      },
+      $inc: { retryCount: 1 },
+    },
+    { upsert: true, new: true },
+  );
+
+  await IndexerState.findOneAndUpdate(
+    { key: "prompt_hash_contract" },
+    {
+      $inc: { quarantinedCount: 1 },
+      $addToSet: { quarantinedLedgers: event.ledger },
+    },
+  );
+}
+
+/**
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
 export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
-  // Decode the topic and value from XDR to native JS types.
-  const rawTopic = scValToNative(event.topic[0]);
-  const rawData = scValToNative(event.value);
+  let rawTopic: unknown;
+  let rawData: unknown;
+
+  // 1. Defensively decode XDR to native types. If malformed, quarantine immediately.
+  try {
+    rawTopic = scValToNative(event.topic[0]);
+    rawData = scValToNative(event.value);
+  } catch (err: any) {
+    await quarantineEvent(event, "malformed_xdr", err?.message || String(err));
+    return;
+  }
+
   const txHash = event.txHash;
 
+  // 2. Mark event processed for idempotency
   try {
     await ProcessedEvent.create({
       eventId: event.id,
@@ -211,16 +273,39 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
     throw err;
   }
 
-  const decoded = decodeEvent(String(rawTopic), rawData);
-  if (!decoded.recognized) {
-    logger.debug("Unrecognized event", { action: "processEvent", topic: rawTopic, reason: decoded.reason });
+  // 3. Decode event against schema
+  let decoded;
+  try {
+    decoded = decodeEvent(String(rawTopic), rawData);
+  } catch (err: any) {
+    await quarantineEvent(event, "decoder_error", err?.message || String(err), rawTopic, rawData);
     return;
   }
 
-  const topic = decoded.type;
-  const data = decoded.data as Record<string, any>;
+  if (!decoded.recognized) {
+    await quarantineEvent(event, decoded.reason, undefined, rawTopic, rawData);
+    return;
+  }
 
-  logger.info("Processing event", { action: "processEvent", topic, version: decoded.version });
+  // 4. Route decoded event to database projections
+  try {
+    await routeDecodedEvent(decoded.type, decoded.data as Record<string, any>, event.id, txHash, event.ledger);
+  } catch (err: any) {
+    await quarantineEvent(event, "processing_error", err?.message || String(err), rawTopic, rawData);
+  }
+}
+
+/**
+ * Executes projections for recognized decoded contract events.
+ */
+export async function routeDecodedEvent(
+  topic: string,
+  data: Record<string, any>,
+  eventId: string,
+  txHash?: string,
+  ledger?: number,
+): Promise<void> {
+  logger.info("Processing event", { action: "processEvent", topic });
 
   switch (topic) {
     case "PromptCreated": {
@@ -271,9 +356,6 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
     }
 
     case "PromptPurchased": {
-      // The contract event always carries the prompt id; buyer / version /
-      // price fields are parsed defensively so a record is created whenever the
-      // chain provides them.
       const { prompt_id, buyer, version_index, price_stroops } = data;
       const promptId = prompt_id.toString();
 
@@ -283,9 +365,6 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         { new: true },
       ).populate("owner", "walletAddress");
 
-      // Record the individual purchase so it surfaces in buyer transaction
-      // history. De-duplicated on (promptId, buyerWallet, txHash) to keep the
-      // poll loop idempotent if the same ledger range is re-scanned.
       if (buyer) {
         const buyerWallet = String(buyer).toLowerCase();
         await Purchase.findOneAndUpdate(
@@ -314,10 +393,9 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
           priceStroops: price_stroops ? String(price_stroops) : undefined,
           txHash,
         },
-        event.id,
+        eventId,
       );
       await invalidatePromptCaches(promptId);
-      // Invalidate entitlement cache on settlement (refund/transfer)
       await invalidateEntitlementCacheForPrompt(promptId);
       break;
     }
@@ -334,15 +412,14 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         );
       }
 
-      // Notify both the previous and the new owner of the transfer.
       const payload = {
         promptId,
         from: from ? String(from) : undefined,
         to: to ? String(to) : undefined,
         txHash,
       };
-      await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload, event.id);
-      await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload, event.id);
+      await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload, eventId);
+      await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload, eventId);
       await invalidatePromptCaches(promptId);
       break;
     }
@@ -352,7 +429,6 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       const promptId = prompt_id.toString();
       const newPrice = Number(price_stroops) / 10_000_000;
 
-      // Read the current price before updating so we can record the delta.
       const current = await Prompt.findOne({ onChainId: promptId });
       const previousPrice = current?.price ?? null;
 
@@ -366,7 +442,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
           previousPrice,
           newPrice,
           asset: "XLM",
-          ledgerSeq: event.ledger ?? null,
+          ledgerSeq: ledger ?? null,
           txHash: txHash ?? "",
         }),
       ]);
@@ -406,7 +482,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
           buyer: String(buyer),
           txHash,
         },
-        event.id,
+        eventId,
       );
       break;
     }
@@ -440,7 +516,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
           refunded,
           txHash,
         },
-        event.id,
+        eventId,
       );
       break;
     }
@@ -449,4 +525,67 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       logger.debug("Unhandled event topic", { action: "processEvent", topic });
       break;
   }
+}
+
+/**
+ * Replays quarantined events after an event decoder schema upgrade (#654).
+ * Replay is idempotent, ordered by ledger sequence, and closes checkpoint gaps.
+ */
+export async function replayQuarantinedEvents(options?: {
+  maxEvents?: number;
+  filterTopic?: string;
+}): Promise<{ replayed: number; failed: number; remaining: number }> {
+  const query: Record<string, any> = { status: "quarantined" };
+  if (options?.filterTopic) {
+    query.topic = options.filterTopic;
+  }
+
+  const limit = options?.maxEvents || 100;
+  const items = await QuarantinedEvent.find(query).sort({ ledger: 1, createdAt: 1 }).limit(limit);
+
+  let replayed = 0;
+  let failed = 0;
+
+  for (const item of items) {
+    try {
+      const decoded = decodeEvent(item.topic, item.rawValue);
+      if (decoded.recognized) {
+        await routeDecodedEvent(
+          decoded.type,
+          decoded.data as Record<string, any>,
+          item.eventId,
+          item.txHash,
+          item.ledger,
+        );
+
+        item.status = "replayed";
+        item.replayedAt = new Date();
+        await item.save();
+        replayed++;
+
+        // Decrement quarantine metric on indexer state
+        await IndexerState.findOneAndUpdate(
+          { key: "prompt_hash_contract" },
+          {
+            $inc: { quarantinedCount: -1 },
+            $pull: { quarantinedLedgers: item.ledger },
+          },
+        );
+      } else {
+        item.retryCount += 1;
+        await item.save();
+        failed++;
+      }
+    } catch (err: any) {
+      item.retryCount += 1;
+      item.errorDetails = err?.message || String(err);
+      await item.save();
+      failed++;
+    }
+  }
+
+  const remaining = await QuarantinedEvent.countDocuments({ status: "quarantined" });
+  logger.info("Quarantined events replay finished", { action: "replayQuarantinedEvents", replayed, failed, remaining });
+
+  return { replayed, failed, remaining };
 }
