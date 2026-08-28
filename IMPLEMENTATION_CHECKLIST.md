@@ -35,17 +35,12 @@
 
 ### Functional Gaps (Acceptable for MVP)
 
-1. **contractGetPromptsByBuyer()** — Returns empty array
-   - Requires querying purchase history via events or state
-   - TODO: Implement via event decoding or state queries
-   - Impact: User library on profile page shows empty if not creator
-
-2. **findPromptByContentHash()** — Returns empty array
+1. **findPromptByContentHash()** — Returns empty array
    - Contract method exists but complex state querying required
    - TODO: Implement via state iteration or events
    - Impact: Duplicate detection on listing creation doesn't work (non-critical)
 
-3. **Event decoding in getRecentPurchases()**
+2. **Event decoding in getRecentPurchases()**
    - Fetches events from RPC but doesn't decode XDR
    - TODO: Full XDR → event struct decoding
    - Impact: Recent purchases timeline shows limited data

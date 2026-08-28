@@ -18,7 +18,7 @@ Typed contract method wrappers for every contract invocation:
 - `contractGetPromptsByCreator()` — Calls `get_prompts_by_creator`
 - `contractGetBundlesByCreator()` — Calls `get_bundles_by_creator`
 - `contractGetAccessPassesByCreator()` — Calls `get_access_passes_by_creator`
-- `contractGetPromptsByBuyer()` — Placeholder (TODO: implement via event queries)
+- `contractGetPromptsByBuyer()` — Calls `get_prompts_by_buyer`
 
 **Write Methods:**
 
@@ -255,24 +255,19 @@ Before production release:
 
 ## Future Work
 
-1. **Implement `contractGetPromptsByBuyer()`**
-   - Currently returns empty array (TODO in contractMethods.ts)
-   - Requires querying purchase history via events or state
-   - Consider caching purchase list on-client to reduce RPC calls
-
-2. **Event decoding**
+1. **Event decoding**
    - `getRecentPurchases()` currently fetches events but doesn't decode XDR
    - Implement full XDR → event struct decoding for event list
 
-3. **Batch operations**
+2. **Batch operations**
    - `contractGetPromptsByIds()` exists in contract but not yet exposed
    - Consider for homepage "featured" listings
 
-4. **Dispute & settlement flows**
+3. **Dispute & settlement flows**
    - Contract has `open_dispute`, `resolve_dispute`, `settle_purchase`
    - UI doesn't yet support these (accept criteria may not require them for MVP)
 
-5. **Lease prompt logic**
+4. **Lease prompt logic**
    - Contract has `lease_prompt` method
    - UI hasn't integrated leasing yet
 

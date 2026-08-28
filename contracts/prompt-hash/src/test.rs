@@ -3168,6 +3168,130 @@ fn test_buy_bundle_grants_access_to_all_prompts() {
     assert_eq!(client.get_prompt(&prompt_b).sales_count, 1);
 }
 
+// ─── Issue #596: Bundle price dust-loss regression ───────────────────────────
+//
+// When the bundle price does not divide evenly by the number of prompts,
+// integer division previously silently dropped the remainder ("dust").  The
+// stored original_price values must now sum exactly to the total payment.
+
+#[test]
+fn test_buy_bundle_price_allocation_no_dust_loss_three_prompts() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // 10_001 stroops / 3 prompts = 3_333 each with integer division → only
+    // 9_999 recorded, 2 stroops lost.  With the fix the first prompt receives
+    // 3_335 (= 3_333 + 2) and the rest receive 3_333, summing to 10_001.
+    let bundle_price: i128 = 10_001;
+    let prompt_a = create_prompt(&env, &client, &creator, "Dust A", 3_000, &context.xlm);
+    let prompt_b = create_prompt(&env, &client, &creator, "Dust B", 3_000, &context.xlm);
+    let prompt_c = create_prompt(&env, &client, &creator, "Dust C", 3_000, &context.xlm);
+
+    let mut prompt_ids = Vec::new(&env);
+    prompt_ids.push_back(prompt_a);
+    prompt_ids.push_back(prompt_b);
+    prompt_ids.push_back(prompt_c);
+
+    let bundle_id = client.create_bundle(
+        &creator,
+        &String::from_str(&env, "Dust Bundle"),
+        &prompt_ids,
+        &bundle_price,
+        &context.xlm,
+        &0,
+    );
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, bundle_price);
+    client.buy_bundle(&buyer, &bundle_id, &bundle_price);
+
+    assert!(client.has_access(&buyer, &prompt_a));
+    assert!(client.has_access(&buyer, &prompt_b));
+    assert!(client.has_access(&buyer, &prompt_c));
+
+    // Read back the stored purchase records via the internal storage layer and
+    // verify that the sum of original_price values equals the full payment.
+    let (price_a, price_b, price_c) = env.as_contract(&context.contract, || {
+        let pa = crate::storage::Storage::get_purchase(&env, prompt_a, &buyer)
+            .unwrap()
+            .original_price;
+        let pb = crate::storage::Storage::get_purchase(&env, prompt_b, &buyer)
+            .unwrap()
+            .original_price;
+        let pc = crate::storage::Storage::get_purchase(&env, prompt_c, &buyer)
+            .unwrap()
+            .original_price;
+        (pa, pb, pc)
+    });
+
+    // The sum must be lossless — no stroops dust dropped.
+    assert_eq!(
+        price_a + price_b + price_c,
+        bundle_price,
+        "sum of stored original_price values must equal total payment (no dust loss)"
+    );
+
+    // The remainder (10_001 % 3 = 2) goes to the first prompt; the rest get
+    // the base share (10_001 / 3 = 3_333).
+    let base = bundle_price / 3;
+    let rem = bundle_price % 3;
+    assert_eq!(price_a, base + rem, "first prompt absorbs the remainder");
+    assert_eq!(price_b, base, "second prompt gets base share");
+    assert_eq!(price_c, base, "third prompt gets base share");
+}
+
+#[test]
+fn test_buy_bundle_price_allocation_evenly_divisible_unchanged() {
+    // Regression guard: bundles whose price divides evenly must not be
+    // affected — behaviour is identical to before the fix.
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    // 12_000 / 2 = 6_000 exactly — no remainder.
+    let bundle_price: i128 = 12_000;
+    let prompt_a = create_prompt(&env, &client, &creator, "Even A", 5_000, &context.xlm);
+    let prompt_b = create_prompt(&env, &client, &creator, "Even B", 7_000, &context.xlm);
+
+    let mut prompt_ids = Vec::new(&env);
+    prompt_ids.push_back(prompt_a);
+    prompt_ids.push_back(prompt_b);
+
+    let bundle_id = client.create_bundle(
+        &creator,
+        &String::from_str(&env, "Even Bundle"),
+        &prompt_ids,
+        &bundle_price,
+        &context.xlm,
+        &0,
+    );
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, bundle_price);
+    client.buy_bundle(&buyer, &bundle_id, &bundle_price);
+
+    let (price_a, price_b) = env.as_contract(&context.contract, || {
+        let pa = crate::storage::Storage::get_purchase(&env, prompt_a, &buyer)
+            .unwrap()
+            .original_price;
+        let pb = crate::storage::Storage::get_purchase(&env, prompt_b, &buyer)
+            .unwrap()
+            .original_price;
+        (pa, pb)
+    });
+
+    assert_eq!(price_a + price_b, bundle_price, "evenly-split prices must sum to bundle price");
+    assert_eq!(price_a, 6_000, "first prompt gets equal share");
+    assert_eq!(price_b, 6_000, "second prompt gets equal share");
+}
+
 #[test]
 fn test_access_pass_grants_time_bound_catalog_access() {
     let env: Env = Default::default();
