@@ -161,6 +161,8 @@ impl PromptHashTrait for PromptHashContract {
         admin: Address,
         prompt_id: u64,
         status: PromptSaleStatus,
+        reason: super::types::ModerationReason,
+        policy_reference: soroban_sdk::String,
     ) -> Result<(), Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
@@ -173,10 +175,25 @@ impl PromptHashTrait for PromptHashContract {
         )?;
         ensure(prompt.status != status, Error::InvalidStatusTransition)?;
 
+        let now = env.ledger().timestamp();
+        
+        // Store moderation audit record
+        let moderation_record = super::types::ModerationRecord {
+            prompt_id,
+            moderator: admin.clone(),
+            action: status.clone(),
+            reason: reason.clone(),
+            policy_reference: policy_reference.clone(),
+            timestamp: now,
+        };
+        let key = super::types::DataKey::ModerationRecord(prompt_id, now);
+        env.storage().persistent().set(&key, &moderation_record);
+        Storage::extend_key_ttl(&env, &key);
+
         prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
         Storage::update_status_indexes(&env, &prompt);
-        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, status);
+        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, status, reason, policy_reference);
         Ok(())
     }
 

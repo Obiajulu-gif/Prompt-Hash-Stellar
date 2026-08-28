@@ -155,6 +155,31 @@ const promptSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Moderation fields for content policy enforcement
+    moderationStatus: {
+      type: String,
+      enum: ["none", "restricted", "retired"],
+      default: "none",
+      index: true,
+    },
+    moderatedAt: {
+      type: Date,
+      default: null,
+    },
+    moderatedBy: {
+      type: String,
+      default: null,
+    },
+    moderationReason: {
+      type: String,
+      enum: ["copyright", "abuse", "malware", "policy_violation", "other"],
+      default: null,
+    },
+    moderationNotes: {
+      type: String,
+      default: "",
+      trim: true,
+    },
   },
   {
     timestamps: true,

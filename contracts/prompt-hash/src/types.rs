@@ -118,6 +118,9 @@ pub enum PromptSaleStatus {
     Active,
     Paused,
     Retired,
+    /// Restricted for policy violation (copyright, abuse, malware).
+    /// Hidden from public marketplace but preserves buyer access records.
+    Restricted,
 }
 
 /// Instance storage keys — contract-level configuration stored in
@@ -211,6 +214,10 @@ pub enum DataKey {
     /// Marks that `migrate_asset_liability` has already backfilled the given
     /// escrow into `AssetLiability`, so a repeat call is a safe no-op (#570).
     EscrowLiabilityMigrated(u64, Address),
+    
+    /// Moderation audit record, keyed by (prompt_id, moderation_timestamp).
+    /// Preserves complete history of policy actions for compliance.
+    ModerationRecord(u64, u64),
 }
 
 #[contracttype]
@@ -227,6 +234,29 @@ pub enum DisputeReason {
     InvalidEncryptedPayload,
     MissingMetadata,
     FailedIntegrityVerification,
+}
+
+/// Reason for content moderation action.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModerationReason {
+    Copyright,
+    Abuse,
+    Malware,
+    PolicyViolation,
+    Other,
+}
+
+/// Moderation audit record preserving complete policy action history.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModerationRecord {
+    pub prompt_id: u64,
+    pub moderator: Address,
+    pub action: PromptSaleStatus,
+    pub reason: ModerationReason,
+    pub policy_reference: String,
+    pub timestamp: u64,
 }
 
 #[contracttype]
@@ -689,6 +719,8 @@ pub trait PromptHashTrait {
         admin: Address,
         prompt_id: u64,
         status: PromptSaleStatus,
+        reason: ModerationReason,
+        policy_reference: String,
     ) -> Result<(), Error>;
 
     fn set_prompt_max_supply(

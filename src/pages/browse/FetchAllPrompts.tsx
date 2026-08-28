@@ -252,9 +252,14 @@ const FetchAllPrompts = ({
         );
       const matchesPrice =
         promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
+      
+      // Filter out restricted prompts from public marketplace view
+      // Restricted prompts are hidden for policy violations but preserve buyer records
+      const isNotRestricted = prompt.status !== "Restricted";
 
       return (
         prompt.active &&
+        isNotRestricted &&
         matchesCategory &&
         matchesTag &&
         matchesSearch &&
