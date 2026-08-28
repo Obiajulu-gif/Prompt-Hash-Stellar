@@ -10,6 +10,9 @@ export type AuditAction =
   | "unlock_integrity_failure"
   | "unlock_error"
   | "unlock_rate_limited"
+  | "unlock_replay_detected"
+  | "unlock_ledger_failure"
+  | "unlock_stale_quote"
   | "admin_auth_success"
   | "admin_auth_denied";
 
@@ -30,6 +33,9 @@ const auditLogSchema = new mongoose.Schema(
         "unlock_integrity_failure",
         "unlock_error",
         "unlock_rate_limited",
+        "unlock_replay_detected",
+        "unlock_ledger_failure",
+        "unlock_stale_quote",
         "admin_auth_success",
         "admin_auth_denied",
       ] as AuditAction[],

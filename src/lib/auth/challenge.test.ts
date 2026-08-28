@@ -55,6 +55,8 @@ describe("unlock challenge verification", () => {
     ["network", { networkPassphrase: "Public Global Stellar Network ; September 2015" }, "network mismatch"],
     ["contract", { contractId: "CNEWCONTRACT" }, "contract mismatch"],
     ["action", { action: "webhook" }, "action mismatch"],
+    ["prompt version", { promptVersion: "v2" }, "prompt version mismatch"],
+    ["prompt price", { expectedPriceStroops: "2000" }, "prompt price mismatch"],
   ])("rejects cross-%s challenge replay", (_label, override, expected) => {
     const address = Keypair.random().publicKey();
     const context = {
@@ -62,6 +64,8 @@ describe("unlock challenge verification", () => {
       networkPassphrase: "Test SDF Network ; September 2015",
       contractId: "CPROMPTHASH",
       action: "unlock",
+      promptVersion: "v1",
+      expectedPriceStroops: "1000",
     };
     const challenge = createChallengeToken(
       SECRET,

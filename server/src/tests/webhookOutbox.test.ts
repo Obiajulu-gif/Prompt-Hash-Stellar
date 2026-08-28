@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import WebhookOutboxEvent from "../models/WebhookOutboxEvent";
 import WebhookSubscription from "../models/WebhookSubscription";
 import { enqueue, listDeadLetters, replayDeadLetter, rotateSigningKey } from "../services/webhookOutbox";
-import { claimRow, deliverRow } from "../services/webhookOutboxWorker";
+import { claimRow, deliverRow, verifyWebhookSignature } from "../services/webhookOutboxWorker";
 import { postSignedWebhook, UnsafeWebhookUrlError, assertSafeWebhookUrlShape } from "../services/ssrfGuard";
 
 vi.mock("../models/WebhookOutboxEvent", () => ({
@@ -167,15 +167,43 @@ describe("webhookOutboxWorker.deliverRow", () => {
     expect(headers).toMatchObject({
       "X-PromptHash-Delivery": "delivery-42",
       "X-PromptHash-Event-Id": "event-42",
+      "X-PromptHash-Event-Version": "1",
+      "X-PromptHash-Timestamp": expect.any(String),
       "X-PromptHash-Sequence": "1",
       "X-PromptHash-Payload-Hash": "a".repeat(64),
     });
     expect(JSON.parse(body)).toMatchObject({
+      schemaVersion: 1,
       eventId: "event-42",
       deliveryId: "delivery-42",
       sequence: 1,
       payloadHash: "a".repeat(64),
     });
+    expect(
+      verifyWebhookSignature("s3cret", headers["X-PromptHash-Signature"], {
+        body,
+        timestamp: headers["X-PromptHash-Timestamp"],
+        eventId: "event-42",
+        deliveryId: "delivery-42",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects webhook signature verification outside the replay window", () => {
+    const body = JSON.stringify({ event: "PromptPurchased" });
+    const timestamp = new Date("2026-01-01T00:00:00.000Z").toISOString();
+    const signature = "sha256=bad";
+
+    expect(
+      verifyWebhookSignature("s3cret", signature, {
+        body,
+        timestamp,
+        eventId: "event-42",
+        deliveryId: "delivery-42",
+        now: Date.parse("2026-01-01T00:10:01.000Z"),
+        replayWindowMs: 5 * 60 * 1000,
+      }),
+    ).toBe(false);
   });
 
   it("does not deliver a later sequence while an earlier row is still undelivered", async () => {

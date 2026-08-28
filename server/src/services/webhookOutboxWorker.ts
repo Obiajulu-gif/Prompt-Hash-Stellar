@@ -25,11 +25,37 @@ const MAX_FAILURES_BEFORE_DISABLE = 10;
 const BASE_BACKOFF_MS = 2_000;
 const MAX_BACKOFF_MS = 30 * 60 * 1000;
 const REPLICA_ID = `${process.pid}@${os.hostname()}`;
+const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
 let tickInFlight = false;
 
-function signPayload(secret: string, body: string): string {
-  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+function canonicalSignaturePayload(input: {
+  body: string;
+  timestamp: string;
+  eventId: string;
+  deliveryId: string;
+}): string {
+  return [input.timestamp, input.eventId, input.deliveryId, input.body].join(".");
+}
+
+export function signWebhookPayload(
+  secret: string,
+  input: { body: string; timestamp: string; eventId: string; deliveryId: string },
+): string {
+  return `sha256=${createHmac("sha256", secret).update(canonicalSignaturePayload(input)).digest("hex")}`;
+}
+
+export function verifyWebhookSignature(
+  secret: string,
+  signature: string,
+  input: { body: string; timestamp: string; eventId: string; deliveryId: string; now?: number; replayWindowMs?: number },
+): boolean {
+  const issuedAt = Date.parse(input.timestamp);
+  if (!Number.isFinite(issuedAt)) return false;
+  const now = input.now ?? Date.now();
+  const windowMs = input.replayWindowMs ?? WEBHOOK_REPLAY_WINDOW_MS;
+  if (Math.abs(now - issuedAt) > windowMs) return false;
+  return signWebhookPayload(secret, input) === signature;
 }
 
 /** Exponential backoff with full jitter, capped at MAX_BACKOFF_MS. */
@@ -141,20 +167,27 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
   }
 
   const attempt = row.attempts + 1;
+  const timestamp = new Date().toISOString();
+  const eventId = row.eventId ?? row.dedupeKey;
+  const deliveryId = row.deliveryId ?? String(row._id);
+  const schemaVersion = row.schemaVersion ?? 1;
   const body = JSON.stringify({
+    schemaVersion,
     event: row.event,
-    eventId: row.eventId ?? row.dedupeKey,
-    deliveryId: row.deliveryId ?? String(row._id),
+    eventId,
+    deliveryId,
     sequence: row.sequence,
     payloadHash: row.payloadHash,
-    timestamp: new Date().toISOString(),
+    timestamp,
     data: row.payload,
   });
   const headers = {
     "Content-Type": "application/json",
-    "X-PromptHash-Signature": signPayload(sub.secret, body),
-    "X-PromptHash-Delivery": row.deliveryId ?? String(row._id),
-    "X-PromptHash-Event-Id": row.eventId ?? row.dedupeKey,
+    "X-PromptHash-Signature": signWebhookPayload(sub.secret, { body, timestamp, eventId, deliveryId }),
+    "X-PromptHash-Delivery": deliveryId,
+    "X-PromptHash-Event-Id": eventId,
+    "X-PromptHash-Event-Version": String(schemaVersion),
+    "X-PromptHash-Timestamp": timestamp,
     "X-PromptHash-Sequence": String(row.sequence),
     "X-PromptHash-Payload-Hash": row.payloadHash,
     "X-PromptHash-Event": row.event,

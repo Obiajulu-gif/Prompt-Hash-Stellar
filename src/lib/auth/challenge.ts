@@ -12,6 +12,8 @@ export interface ChallengePayload {
   networkPassphrase: string;
   contractId: string;
   action: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
   nonce: string;
   issuedAt: number;
   expiresAt: number;
@@ -22,6 +24,8 @@ export interface ChallengeContext {
   networkPassphrase?: string;
   contractId?: string;
   action?: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
 }
 
 function base64UrlEncode(value: string) {
@@ -51,6 +55,8 @@ export function buildChallengeMessage(payload: ChallengePayload) {
     payload.contractId,
     payload.address,
     payload.promptId,
+    payload.promptVersion ?? "",
+    payload.expectedPriceStroops ?? "",
     payload.nonce,
     payload.issuedAt,
     payload.expiresAt,
@@ -72,6 +78,8 @@ export function createChallengeToken(
     networkPassphrase: context.networkPassphrase ?? "",
     contractId: context.contractId ?? "",
     action: context.action ?? "unlock",
+    promptVersion: context.promptVersion,
+    expectedPriceStroops: context.expectedPriceStroops,
     nonce: randomUUID(),
     issuedAt: now,
     expiresAt: now + ttlMs,
@@ -148,6 +156,18 @@ export function verifyChallengeToken(
     payload.action !== expectedContext.action
   ) {
     throw new Error("Challenge token action mismatch.");
+  }
+  if (
+    expectedContext.promptVersion !== undefined &&
+    payload.promptVersion !== expectedContext.promptVersion
+  ) {
+    throw new Error("Challenge token prompt version mismatch.");
+  }
+  if (
+    expectedContext.expectedPriceStroops !== undefined &&
+    payload.expectedPriceStroops !== expectedContext.expectedPriceStroops
+  ) {
+    throw new Error("Challenge token prompt price mismatch.");
   }
 
   if (payload.expiresAt < now) {

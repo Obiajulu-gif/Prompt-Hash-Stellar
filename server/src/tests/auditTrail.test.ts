@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { verifyAuditTrail, hashWalletAddress, recordAuditEvent } from "../services/auditTrail";
+import {
+  buildUnlockSupportTimelineFromRows,
+  verifyAuditTrail,
+  hashWalletAddress,
+  recordAuditEvent,
+} from "../services/auditTrail";
 import { AuditLog } from "../models/AuditLog";
 
 describe("auditTrail", () => {
@@ -48,6 +53,45 @@ describe("auditTrail", () => {
 
       const result = await verifyAuditTrail();
       expect(result.totalRecords).toBe(1);
+    });
+  });
+
+  describe("buildUnlockSupportTimelineFromRows", () => {
+    it("exports a deterministic redacted support timeline for unlock disputes", () => {
+      const walletAddress = "GDXSEH3V6V7K4J3L5M6N";
+      const walletHash = hashWalletAddress(walletAddress);
+      const timeline = buildUnlockSupportTimelineFromRows(
+        [
+          {
+            createdAt: new Date("2026-01-01T00:02:00.000Z"),
+            action: "unlock_success",
+            result: "success",
+            promptId: "42",
+            walletAddress: walletHash,
+            requestId: "req-2",
+            reason: null,
+            recordHash: "b".repeat(64),
+            previousHash: "a".repeat(64),
+          },
+          {
+            createdAt: new Date("2026-01-01T00:01:00.000Z"),
+            action: "challenge_issued",
+            result: "success",
+            promptId: "42",
+            walletAddress: walletHash,
+            requestId: "req-1",
+            reason: null,
+            recordHash: "a".repeat(64),
+            previousHash: "0".repeat(64),
+          },
+        ],
+        { walletAddress, promptId: "42" },
+      );
+
+      expect(timeline.walletHash).toBe(walletHash);
+      expect(timeline.decision).toBe("allowed");
+      expect(timeline.entries.map((entry) => entry.sequence)).toEqual([1, 2]);
+      expect(JSON.stringify(timeline)).not.toContain(walletAddress);
     });
   });
 });
