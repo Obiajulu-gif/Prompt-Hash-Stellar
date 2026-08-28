@@ -668,18 +668,44 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &bundle.creator, &creator_amount);
         }
 
-        // Update prompt sales counts and grant access for newly purchased prompts
+        // Update prompt sales counts and grant access for newly purchased prompts.
+        //
+        // Split payment_amount_stroops evenly across the prompts that actually
+        // need a new purchase record.  Integer division would silently drop the
+        // remainder ("dust"), so we give any leftover stroops to the first
+        // prompt — the sum of all stored original_price values then equals the
+        // total payment exactly (#596).
+        let new_count = prompts
+            .iter()
+            .filter(|p| !Storage::has_active_purchase(&env, p.id, &buyer, now))
+            .count() as i128;
+        ensure(new_count > 0, Error::AlreadyPurchased)?;
+        let per_prompt = payment_amount_stroops
+            .checked_div(new_count)
+            .ok_or(Error::InvalidPaymentAmount)?;
+        let remainder = payment_amount_stroops
+            .checked_rem(new_count)
+            .ok_or(Error::InvalidPaymentAmount)?;
+        let mut first_new = true;
         for index in 0..prompts.len() {
             let prompt = prompts.get(index).unwrap();
             if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
                 Storage::update_prompt(&env, &prompt);
+                // Give the dust remainder to the first new prompt so the
+                // recorded prices sum exactly to payment_amount_stroops.
+                let this_price = if first_new {
+                    first_new = false;
+                    per_prompt
+                        .checked_add(remainder)
+                        .ok_or(Error::ArithmeticOverflow)?
+                } else {
+                    per_prompt
+                };
                 Storage::grant_purchase(
                     &env,
                     &prompt,
                     &buyer,
-                    payment_amount_stroops
-                        .checked_div(prompts.len() as i128)
-                        .ok_or(Error::InvalidPaymentAmount)?,
+                    this_price,
                     MAX_ACCESS_EXPIRY,
                 );
             }

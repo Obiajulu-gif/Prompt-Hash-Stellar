@@ -185,7 +185,7 @@ export async function contractGetPromptsByCreator(
     args,
   );
 
-  return result.map((item, idx) => decodePromptRecord(item, BigInt(idx)));
+  return (result ?? []).map((item, idx) => decodePromptRecord(item, BigInt(idx)));
 }
 
 /**
