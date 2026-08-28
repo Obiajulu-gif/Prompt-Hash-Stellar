@@ -29,6 +29,12 @@ interface RotationConfig {
   gracePeriodMs: number;
 }
 
+interface RotationApproval {
+  expectedVersion: number;
+  operators: Set<string>;
+  createdAt: number;
+}
+
 // ── Encryption helpers ──────────────────────────────────────────────
 
 function deriveKey(passphrase: string): Buffer {
@@ -59,6 +65,7 @@ let rotationStore: RotationConfig = {
   versions: [],
   gracePeriodMs: GRACE_PERIOD_MS,
 };
+const rotationApprovals = new Map<string, RotationApproval>();
 
 function loadConfig(): RotationConfig {
   return rotationStore;
@@ -66,6 +73,24 @@ function loadConfig(): RotationConfig {
 
 function saveConfig(config: RotationConfig): void {
   rotationStore = config;
+}
+
+export function __resetRotationStateForTests(): void {
+  rotationStore = {
+    activeVersion: 0,
+    versions: [],
+    gracePeriodMs: GRACE_PERIOD_MS,
+  };
+  rotationApprovals.clear();
+}
+
+function approvalKey(expectedVersion: number): string {
+  return `secret-rotation:${expectedVersion}`;
+}
+
+function requiredApprovalCount(): number {
+  const configured = Number(process.env.SECRET_ROTATION_REQUIRED_APPROVALS ?? "2");
+  return Number.isFinite(configured) && configured > 0 ? Math.ceil(configured) : 2;
 }
 
 // ── Core rotation logic ─────────────────────────────────────────────
@@ -109,6 +134,63 @@ export function rotateSecretCAS(
   saveConfig(config);
 
   return { ok: true, newVersion: newVersionNum };
+}
+
+export function approveSecretRotation(
+  expectedVersion: number,
+  operatorId: string,
+): { approved: false; requiredApprovals: number; receivedApprovals: number } | { approved: true } {
+  const operator = operatorId.trim();
+  if (!operator) {
+    throw new Error("operatorId is required for secret rotation approval.");
+  }
+  const required = requiredApprovalCount();
+  const key = approvalKey(expectedVersion);
+  const approval = rotationApprovals.get(key) ?? {
+    expectedVersion,
+    operators: new Set<string>(),
+    createdAt: Date.now(),
+  };
+  approval.operators.add(operator);
+  rotationApprovals.set(key, approval);
+
+  if (approval.operators.size < required) {
+    return {
+      approved: false,
+      requiredApprovals: required,
+      receivedApprovals: approval.operators.size,
+    };
+  }
+  return { approved: true };
+}
+
+export function rotateSecretWithApprovals(
+  expectedVersion: number,
+  passphrase: string,
+  operatorId: string,
+): { ok: true; newVersion: number } | { ok: false; conflictVersion?: number; pending?: true; requiredApprovals?: number; receivedApprovals?: number } {
+  const approval = approveSecretRotation(expectedVersion, operatorId);
+  if (!approval.approved) return { ok: false, pending: true, ...approval };
+
+  const before = loadConfig();
+  const snapshot: RotationConfig = {
+    activeVersion: before.activeVersion,
+    gracePeriodMs: before.gracePeriodMs,
+    versions: [...before.versions],
+  };
+  const result = rotateSecretCAS(expectedVersion, passphrase);
+  if (!result.ok) return result;
+
+  try {
+    if (getActiveSecrets(passphrase).length === 0) {
+      throw new Error("Rotated secret set failed verification.");
+    }
+    rotationApprovals.delete(approvalKey(expectedVersion));
+    return result;
+  } catch (err) {
+    saveConfig(snapshot);
+    throw err;
+  }
 }
 
 /**
@@ -207,7 +289,18 @@ export default async function handler(req: any, res: any) {
 
   try {
     const config = loadConfig();
-    const result = rotateSecretCAS(config.activeVersion, passphrase);
+    const operatorId = String(req.body?.operatorId ?? req.headers["x-operator-id"] ?? "");
+    const result = rotateSecretWithApprovals(config.activeVersion, passphrase, operatorId);
+
+    if (!result.ok && result.pending) {
+      res.status(202).json({
+        pending: true,
+        expectedVersion: config.activeVersion,
+        requiredApprovals: result.requiredApprovals,
+        receivedApprovals: result.receivedApprovals,
+      });
+      return;
+    }
 
     if (!result.ok) {
       res.status(409).json({

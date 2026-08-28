@@ -48,6 +48,22 @@ export interface UnlockSuccessResponse {
   plaintext: string;
 }
 
+function promptVersionClaim(prompt: { sourcePromptId?: string; salesCount?: number }): string {
+  return String(prompt.sourcePromptId ?? prompt.salesCount ?? "");
+}
+
+function promptTermsChanged(
+  payload: { promptVersion?: string; expectedPriceStroops?: string },
+  prompt: { priceStroops?: bigint | string | number; sourcePromptId?: string; salesCount?: number },
+): boolean {
+  const currentPrice = prompt.priceStroops === undefined ? "" : String(prompt.priceStroops);
+  const currentVersion = promptVersionClaim(prompt);
+  return (
+    (payload.expectedPriceStroops !== undefined && payload.expectedPriceStroops !== currentPrice) ||
+    (payload.promptVersion !== undefined && payload.promptVersion !== currentVersion)
+  );
+}
+
 // Fail-fast module load validation
 try {
   validateUnlockSecrets();
@@ -378,6 +394,26 @@ async function handler(
     );
 
     const prompt = await getPrompt(config, id);
+    if (promptTermsChanged(payload, prompt)) {
+      req.logger.warn({ address, promptId }, "Prompt terms changed after challenge issuance");
+      metrics.trackUnlockFailure(String(address), String(promptId), "stale_prompt_terms");
+      void recordAuditEvent({
+        action: "unlock_stale_quote",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "prompt_terms_changed",
+      });
+      res.status(409).json(
+        apiError(
+          ErrorCode.STALE_PROMPT_TERMS,
+          "Prompt price or version changed. Refresh before signing.",
+        ),
+      );
+      return;
+    }
     const keyBytes = await unwrapPromptKey(
       prompt.wrappedKey,
       unlockPublicKey,

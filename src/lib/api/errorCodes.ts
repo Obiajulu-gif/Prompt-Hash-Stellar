@@ -28,6 +28,9 @@ export const ErrorCode = {
   /** The wallet has not purchased access to this prompt. */
   ACCESS_NOT_PURCHASED: "ACCESS_NOT_PURCHASED",
 
+  /** The prompt price or version changed after the wallet challenge was issued. */
+  STALE_PROMPT_TERMS: "STALE_PROMPT_TERMS",
+
   // ── Rate limiting (429) ───────────────────────────────────────────────────
 
   /** Too many requests from this IP address. */
@@ -92,6 +95,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CHALLENGE_INVALID: "The unlock session is no longer valid. Click Decrypt Content to start over.",
   INVALID_SIGNATURE: "Wallet signature did not match. Open your wallet and try signing again.",
   ACCESS_NOT_PURCHASED: "You have not purchased access to this prompt. Complete a purchase first.",
+  STALE_PROMPT_TERMS: "This prompt changed since you opened it. Refresh the prompt and sign again.",
   RATE_LIMIT_IP: "Too many requests. Please wait a moment, then try again.",
   RATE_LIMIT_WALLET: "Too many unlock attempts for this wallet. Please wait a minute and try again.",
   CONFIGURATION_ERROR: "Something went wrong on our end. Please try again later.",

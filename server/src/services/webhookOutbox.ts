@@ -81,6 +81,7 @@ export async function enqueue(
           deliveryId: randomUUID(),
           sequence,
           payloadHash: payloadHash(data),
+          schemaVersion: 1,
           event,
           payload: data,
         });

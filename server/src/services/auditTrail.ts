@@ -170,6 +170,82 @@ export async function queryAuditEvents(filter: {
     .lean();
 }
 
+export interface UnlockSupportTimelineEntry {
+  sequence: number;
+  createdAt: Date;
+  action: AuditAction;
+  result: AuditResult;
+  promptId: string | null;
+  walletHash: string | null;
+  requestId: string | null;
+  reason: string | null;
+  recordHash: string;
+  previousHash: string;
+}
+
+type UnlockSupportTimeline = {
+  generatedAt: string;
+  promptId: string;
+  walletHash: string;
+  decision: "allowed" | "denied" | "blocked" | "indeterminate";
+  indexerStatus: "observed" | "missing";
+  entries: UnlockSupportTimelineEntry[];
+};
+
+export function buildUnlockSupportTimelineFromRows(
+  rows: any[],
+  filter: { walletAddress: string; promptId: string },
+): UnlockSupportTimeline {
+  const walletHash = hashWalletAddress(filter.walletAddress);
+  const entries = [...rows]
+    .reverse()
+    .map((row: any, index) => ({
+      sequence: index + 1,
+      createdAt: new Date(row.createdAt),
+      action: row.action,
+      result: row.result,
+      promptId: row.promptId ?? null,
+      walletHash: row.walletAddress ?? null,
+      requestId: row.requestId ?? null,
+      reason: row.reason ?? null,
+      recordHash: row.recordHash,
+      previousHash: row.previousHash,
+    }));
+  const lastUnlock = [...entries].reverse().find((entry) => entry.action.startsWith("unlock_"));
+  const decision =
+    lastUnlock?.action === "unlock_success"
+      ? "allowed"
+      : lastUnlock?.result === "blocked"
+        ? "blocked"
+        : lastUnlock?.result === "failure"
+          ? "denied"
+          : "indeterminate";
+
+  return {
+    generatedAt: new Date().toISOString(),
+    promptId: filter.promptId,
+    walletHash,
+    decision,
+    indexerStatus: entries.some((entry) => entry.action === "unlock_ledger_failure")
+      ? "missing"
+      : "observed",
+    entries,
+  };
+}
+
+export async function buildUnlockSupportTimeline(filter: {
+  walletAddress: string;
+  promptId: string;
+  limit?: number;
+}): Promise<UnlockSupportTimeline> {
+  const rows = await queryAuditEvents({
+    walletAddress: filter.walletAddress,
+    promptId: filter.promptId,
+    limit: filter.limit ?? 100,
+  });
+  return buildUnlockSupportTimelineFromRows(rows, filter);
+}
+
 /**
  * Verify the integrity of the audit trail hash chain.
  * Returns an object with the verification result and any errors found.

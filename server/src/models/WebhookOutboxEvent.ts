@@ -14,6 +14,7 @@ const webhookOutboxEventSchema = new mongoose.Schema(
     deliveryId: { type: String, required: true },
     sequence: { type: Number, required: true, min: 1 },
     payloadHash: { type: String, required: true },
+    schemaVersion: { type: Number, required: true, default: 1, min: 1 },
     event: { type: String, required: true },
     payload: { type: mongoose.Schema.Types.Mixed, required: true },
     status: {
