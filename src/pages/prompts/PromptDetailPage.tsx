@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -30,7 +29,6 @@ import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { useWallet } from "@/hooks/useWallet";
 import { copyToClipboard } from "@/lib/clipboard/secureClipboard";
 import { PriceHistoryCard } from "@/components/PriceHistoryCard";
-import { useWallet } from "@/hooks/useWallet";
 import { useClipboardAutoClear } from "@/hooks/useClipboardAutoClear";
 import { ClipboardAutoClearBanner } from "@/components/ClipboardAutoClearBanner";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -50,6 +48,7 @@ export default function PromptDetailPage() {
   const { id = "" } = useParams();
   const isValidId = /^\d+$/.test(id);
   const { address } = useWallet();
+  const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
   // Restores the filtered marketplace view the buyer navigated from, instead
@@ -74,9 +73,50 @@ export default function PromptDetailPage() {
     queryKey: ["prompt-detail", id],
     queryFn: () => getPrompt(browserStellarConfig, BigInt(id)),
     enabled: isValidId,
+    // Moderation decisions must not be served from a stale cache. Refetch on
+    // every mount/focus so a hidden or restricted listing is reflected quickly.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
   });
 
+  // Moderation state is owned by the DB-backed marketplace API. We never serve it
+  // from a long-lived cache: it is re-fetched on every mount and on focus.
+  const {
+    data: moderation,
+  } = useQuery({
+    queryKey: ["prompt-moderation", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/prompts/index?onChainId=${encodeURIComponent(id)}`);
+      if (!res.ok) return null;
+      const list = (await res.json()) as Array<Record<string, unknown>>;
+      return (list && list[0]) || null;
+    },
+    enabled: isValidId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
+  });
+
+  const moderationStatus =
+    moderation && typeof moderation.moderationStatus === "string"
+      ? moderation.moderationStatus
+      : "none";
+  const moderationReason =
+    moderation && typeof moderation.moderationReason === "string"
+      ? moderation.moderationReason
+      : null;
+  const isModerated =
+    moderationStatus === "restricted" || moderationStatus === "retired";
+
   const { recordView } = useRecentlyViewed();
+
+  // Drop any persisted/ cached detail + moderation entries as soon as the page
+  // mounts so a moderation change is never served from a stale cache.
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ["prompt-detail", id] });
+    queryClient.invalidateQueries({ queryKey: ["prompt-moderation", id] });
+  }, [queryClient, id]);
 
   // Record the view when the prompt loads
   useEffect(() => {
@@ -177,6 +217,23 @@ export default function PromptDetailPage() {
           </div>
         ) : (
           <article className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f1419]">
+            {isModerated ? (
+              <div className="flex items-start gap-3 border-b border-amber-400/30 bg-amber-500/10 px-6 py-4 text-sm text-amber-100 sm:px-8">
+                <Flag className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-semibold">
+                    {moderationStatus === "retired"
+                      ? "This listing has been retired by a moderator."
+                      : "This listing is currently restricted by a moderator."}
+                  </p>
+                  {moderationReason ? (
+                    <p className="mt-1 text-amber-200/80">
+                      Reason: {String(moderationReason).replace(/_/g, " ")}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {jsonLd && (
               <script
                 type="application/ld+json"
@@ -203,9 +260,9 @@ export default function PromptDetailPage() {
                 {reputation ? (
                   <CreatorVerifiedBadge reputation={reputation} compact />
                 ) : null}
-                {!prompt.active && (
-                  <Badge className="border-white/10 bg-white/[0.04] text-slate-300">
-                    Unavailable
+                {(!prompt.active || isModerated) && (
+                  <Badge className="border-amber-400/30 bg-amber-500/10 text-amber-200">
+                    {isModerated ? "Moderated" : "Unavailable"}
                   </Badge>
                 )}
                 <span
