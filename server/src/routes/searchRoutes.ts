@@ -97,4 +97,19 @@ router.get(
   })
 );
 
+/**
+ * POST /api/search/rebuild-index
+ * Deterministically rebuilds search indexing across published listings (#681)
+ */
+router.post(
+  "/rebuild-index",
+  asyncHandler(async (_req: Request, res: Response) => {
+    const { rebuildSearchIndex } = await import(
+      "../controllers/searchController"
+    );
+    const result = await rebuildSearchIndex();
+    res.json(result);
+  })
+);
+
 export default router;
