@@ -1,0 +1,133 @@
+name: SBOM & Provenance
+
+on:
+  push:
+    branches: ["main"]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write       # required for OIDC provenance attestation
+  attestations: write   # required for actions/attest-build-provenance
+
+jobs:
+  sbom-cargo:
+    name: Cargo SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+
+      - name: Generate Cargo SBOM
+        run: cargo cyclonedx --format json --all --output-cdx sbom-cargo.cdx.json
+
+      - name: Build WASM artifact
+        run: cargo build --release --target wasm32v1-none
+        env:
+          # soroban-sdk 27's spec-shaking feature otherwise requires building
+          # through `stellar contract build` (stellar-cli v25.2.0+); this is
+          # the same flag that CLI sets internally.
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
+
+      - name: Attest WASM provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            target/wasm32v1-none/release/*.wasm
+            sbom-cargo.cdx.json
+
+      - name: Upload Cargo SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cargo
+          path: sbom-cargo.cdx.json
+          retention-days: 90
+
+  sbom-npm:
+    name: Node.js SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install @cyclonedx/cyclonedx-npm
+        run: yarn global add @cyclonedx/cyclonedx-npm
+
+      - name: Generate root SBOM
+        run: cyclonedx-npm --output-format JSON --output-file sbom-root.cdx.json
+
+      - name: Generate server SBOM
+        run: cyclonedx-npm --package-lock-only --output-format JSON --output-file sbom-server.cdx.json
+        working-directory: server
+
+      - name: Attest Node.js provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            sbom-root.cdx.json
+            sbom-server.cdx.json
+
+      - name: Upload Node.js SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-npm
+          path: |
+            sbom-root.cdx.json
+            sbom-server.cdx.json
+          retention-days: 90
+
+  verify-attestations:
+    name: Verify attestations
+    runs-on: ubuntu-latest
+    needs: [sbom-cargo, sbom-npm]
+    if: github.event_name == 'release'
+    steps:
+      - name: Install gh CLI attestation verifier
+        run: |
+          type -p gh >/dev/null || (sudo apt-get install -y gh)
+
+      - name: Download all SBOMs
+        uses: actions/download-artifact@v4
+        with:
+          path: sboms
+
+      - name: Verify provenance attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in sboms/**/*.cdx.json sboms/**/*.wasm; do
+            [ -f "$f" ] || continue
+            echo "Verifying $f"
+            gh attestation verify "$f" \
+              --repo ${{ github.repository }} \
+              --signer-workflow sbom.yml
+          done

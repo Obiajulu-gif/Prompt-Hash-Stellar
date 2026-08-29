@@ -6,13 +6,18 @@ import PriceChange from "../models/PriceChange";
 import Report from "../models/Report";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { validateListingMetadata } from "../services/listingValidation";
 import {
-  validateListingMetadata,
-} from "../services/listingValidation";
-import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CACHE_KEYS } from "../services/cacheService";
+  cacheGet,
+  cacheSet,
+  cacheDel,
+  cacheDelPattern,
+  CACHE_KEYS,
+} from "../services/cacheService";
 import { sendConditionalJson, markPrivate } from "../middleware/etag";
 import { notifyPromptReported } from "../services/emailNotifications";
 import { announceNewPrompt } from "../services/discordNotifications";
+import { logger } from "../services/structuredLogger";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -25,7 +30,7 @@ export const ImproveProxy = async (
   try {
     const promptText = req.body;
 
-    console.log("Improve prompt request: ", promptText);
+    logger.info("Improve prompt request received", { action: "improveProxy" });
 
     const response = await fetch(`${API_BASE_URL}/api/improve-prompt`, {
       method: "POST",
@@ -40,9 +45,10 @@ export const ImproveProxy = async (
     const responseData = await response.json().catch(() => {});
     const responseText = await response.text().catch(() => {});
 
-    // Log the response for debugging
-    console.log("Improve prompt response status:", response.status);
-    console.log("Improve prompt response data:", responseData || responseText);
+    logger.debug("Improve prompt response", {
+      action: "improveProxy",
+      status: response.status,
+    });
 
     // If the response is not OK, return the error details
     if (!response.ok) {
@@ -54,7 +60,7 @@ export const ImproveProxy = async (
 
     return res.json(responseData);
   } catch (err) {
-    console.error("Error in improve-proxy:", err);
+    logger.error("Improve proxy error", { action: "improveProxy", error: err });
     return res.status(500).json({
       error: "Internal Server Error",
       message: err instanceof Error ? err.message : String(err),
@@ -64,103 +70,6 @@ export const ImproveProxy = async (
 };
 
 /* PROMPTS CONTROLLERS */
-
-export const CreatePrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-
-    const promptData = await req.body;
-    const { image, title, content, walletAddress, price, category } =
-      promptData;
-
-    // Validate required fields with specific messages
-    const missingFields = [];
-    if (!image) missingFields.push("Image URL");
-    if (!title) missingFields.push("Title");
-    if (!content) missingFields.push("Content");
-    if (!walletAddress) missingFields.push("Wallet Address");
-    if (!price) missingFields.push("Price");
-
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-      });
-    }
-
-    const { normalized, errors } = validateListingMetadata({
-      image,
-      title,
-      content,
-      price,
-      category,
-    });
-
-    if (Object.keys(errors).length > 0) {
-      return res.status(422).json({
-        error: "Invalid listing metadata",
-        fields: errors,
-      });
-    }
-
-    // Find the user by wallet address
-    const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        error: "User not found. Please connect your wallet first.",
-      });
-    }
-
-    const newPrompt = new Prompt({
-      image: normalized.image,
-      title: normalized.title,
-      content: normalized.content,
-      owner: user._id, // Set the owner as the user's ObjectId
-      price: normalized.price,
-      category: normalized.category,
-      rating: 3,
-    });
-
-    await newPrompt.save();
-
-    // Bust every listing cache variant since a new prompt was created
-    await cacheDelPattern("prompts:list:*");
-
-    // Announce new prompt to Discord (non-blocking)
-    announceNewPrompt({
-      title: newPrompt.title,
-      price: newPrompt.price,
-      promptId: newPrompt._id.toString(),
-      category: newPrompt.category,
-      description: newPrompt.content,
-      imageUrl: newPrompt.image,
-      creator: walletAddress,
-    }).catch((err) => {
-      console.error("[discord] Failed to announce new prompt:", err);
-    });
-
-    // Populate the owner details in the response
-    const populatedPrompt = await newPrompt.populate(
-      "owner",
-      "username walletAddress",
-    );
-
-    return res.status(201).json({
-      message: "Prompt created successfully",
-      prompt: populatedPrompt,
-    });
-  } catch (err) {
-    console.error("Create prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to create prompt",
-    });
-  }
-};
 
 export const GetPrompts = async (
   req: Request,
@@ -174,7 +83,8 @@ export const GetPrompts = async (
 
     // Fallback to URL parsing if not in req.query
     if (!category && !walletAddress && req.url.includes("?")) {
-      const searchParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      const searchParams = new URL(req.url, `http://${req.headers.host}`)
+        .searchParams;
       category = searchParams.get("category") || "";
       walletAddress = searchParams.get("walletAddress") || "";
     }
@@ -184,11 +94,13 @@ export const GetPrompts = async (
     const cursor = req.query.cursor as string;
 
     // Build a deterministic cache key from the query params
-    const cacheKey = CACHE_KEYS.promptList(`cat=${category ?? ""}&wallet=${walletAddress ?? ""}`);
+    const cacheKey = CACHE_KEYS.promptList(
+      `cat=${category ?? ""}&wallet=${walletAddress ?? ""}`,
+    );
     const cached = await cacheGet(cacheKey);
     if (cached) return sendConditionalJson(req, res, JSON.parse(cached));
 
-    const query: any = { listingStatus: 'published', isActive: true };
+    const query: any = { listingStatus: "published", isActive: true };
 
     if (category) {
       query.category = category;
@@ -227,11 +139,11 @@ export const GetPrompts = async (
       data: prompts,
       metadata: {
         hasNextPage,
-        nextCursor
-      }
+        nextCursor,
+      },
     });
   } catch (error) {
-    console.error("Fetch prompts error:", error);
+    logger.error("Fetch prompts error", { action: "getPrompts", error });
 
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch prompts",
@@ -247,7 +159,7 @@ export const GetOwnedPrompts = async (
     await connectDb();
 
     const { walletAddress } = req.params;
-    
+
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
     }
@@ -281,11 +193,11 @@ export const GetOwnedPrompts = async (
       data: purchases,
       metadata: {
         hasNextPage,
-        nextCursor
-      }
+        nextCursor,
+      },
     });
   } catch (error) {
-    console.error("Fetch owned prompts error:", error);
+    logger.error("Fetch owned prompts error", { action: "getOwnedPrompts", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch owned prompts",
     });
@@ -315,7 +227,7 @@ export const CreateUser = async (
     });
 
     if (existingUser) {
-      console.log("User already exists:", existingUser);
+      logger.info("User already exists", { action: "createUser" });
       return res.status(200).json({
         message: "Login successful",
       });
@@ -338,7 +250,7 @@ export const CreateUser = async (
       user: newUser,
     });
   } catch (error) {
-    console.error("Registration error:", error);
+    logger.error("Registration error", { action: "createUser", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to register user",
     });
@@ -354,7 +266,8 @@ export const GetUsers = async (
 
     let walletAddress = req.query.walletAddress as string;
     if (!walletAddress && req.url.includes("?")) {
-      const searchParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      const searchParams = new URL(req.url, `http://${req.headers.host}`)
+        .searchParams;
       walletAddress = searchParams.get("walletAddress") || "";
     }
 
@@ -370,7 +283,7 @@ export const GetUsers = async (
       }
       return res.json({
         data: [user],
-        metadata: { hasNextPage: false, nextCursor: null }
+        metadata: { hasNextPage: false, nextCursor: null },
       });
     } else {
       const limitParam = req.query.limit || req.query.pageSize;
@@ -399,12 +312,12 @@ export const GetUsers = async (
         data: users,
         metadata: {
           hasNextPage,
-          nextCursor
-        }
+          nextCursor,
+        },
       });
     }
   } catch (error) {
-    console.error("Fetch users error:", error);
+    logger.error("Fetch users error", { action: "getUsers", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch users",
     });
@@ -432,20 +345,19 @@ export const TestPromptProxy = async (
       model: openai("gpt-4-turbo"), // Can be swapped based on creator preference
       messages: [
         { role: "system", content: systemMessage },
-        { role: "user", content: userInput }
+        { role: "user", content: userInput },
       ],
     });
 
     result.pipeTextStreamToResponse(res);
   } catch (err) {
-    console.error("Error in TestPromptProxy:", err);
+    logger.error("Test prompt proxy error", { action: "testPromptProxy", error: err });
     res.status(500).json({
       error: "Internal Server Error",
       message: err instanceof Error ? err.message : String(err),
     });
   }
 };
-
 
 /* REPORT CONTROLLERS */
 
@@ -466,7 +378,14 @@ export const SubmitPromptReport = async (
     }
 
     // Validate reason
-    const validReasons = ["quality-issue", "misleading-content", "plagiarism", "harmful-content", "copyright", "other"];
+    const validReasons = [
+      "quality-issue",
+      "misleading-content",
+      "plagiarism",
+      "harmful-content",
+      "copyright",
+      "other",
+    ];
     if (!validReasons.includes(reason)) {
       return res.status(400).json({
         error: "Invalid reason provided",
@@ -506,7 +425,7 @@ export const SubmitPromptReport = async (
       reportId: newReport._id,
     });
   } catch (err) {
-    console.error("Submit report error:", err);
+    logger.error("Submit report error", { action: "submitPromptReport", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to submit report",
     });
@@ -518,30 +437,24 @@ export const GetPromptReports = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    // Admin authentication and authorization is enforced by the
+    // `requireAdminScope("reports:read")` middleware mounted on this route
+    // (#542) — this handler only runs once that has already succeeded.
     await connectDb();
 
-    // Check admin authentication (placeholder)
-    const adminToken = req.headers.authorization?.split(" ")[1];
-    if (!adminToken) {
-      return res.status(401).json({
-        error: "Unauthorized: Admin token required",
-      });
-    }
-
-    const { searchParams } = new URL(req.url);
-    const promptId = searchParams.get("promptId");
+    const promptId =
+      typeof req.query.promptId === "string" ? req.query.promptId : undefined;
 
     const query: any = {};
     if (promptId) {
       query.promptId = promptId;
     }
 
-    const reports = await Report.find(query)
-      .sort({ createdAt: -1 });
+    const reports = await Report.find(query).sort({ createdAt: -1 });
 
     return res.json(reports);
   } catch (err) {
-    console.error("Get reports error:", err);
+    logger.error("Get reports error", { action: "getPromptReports", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch reports",
     });
@@ -567,7 +480,7 @@ export const RecordPreview = async (
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error("Record preview error:", err);
+    logger.error("Record preview error", { action: "recordPreview", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to record preview",
     });
@@ -608,47 +521,16 @@ export const GetPreviewStats = async (
       prompts,
     });
   } catch (err) {
-    console.error("Get preview stats error:", err);
+    logger.error("Get preview stats error", { action: "getPreviewStats", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch preview stats",
     });
   }
 };
 
-// ─── Prompt lifecycle controllers ────────────────────────────────────────────
-
-export const GetOwnedPrompts = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    markPrivate(res);
-    await connectDb();
-    const { walletAddress } = req.params;
-
-    if (!walletAddress) {
-      return res.status(400).json({ error: "walletAddress is required." });
-    }
-
-    const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
-    });
-    if (!user) {
-      return res.status(404).json({ error: "User not found." });
-    }
-
-    const prompts = await Prompt.find({ owner: user._id })
-      .populate("owner", "username walletAddress")
-      .sort({ createdAt: -1 });
-
-    return res.json(prompts);
-  } catch (err) {
-    console.error("Get owned prompts error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to fetch owned prompts",
-    });
-  }
-};
+// ─── User Preference Controllers (non-authoritative) ─────────────────────────
+// These are client-side preferences, not authoritative state.
+// They require a valid wallet signature to prevent unauthorized modification.
 
 export const GetSavedPrompts = async (
   req: Request,
@@ -676,7 +558,7 @@ export const GetSavedPrompts = async (
 
     return res.json(prompts);
   } catch (err) {
-    console.error("Get saved prompts error:", err);
+    logger.error("Get saved prompts error", { action: "getSavedPrompts", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch saved prompts",
     });
@@ -689,12 +571,18 @@ export const SavePrompt = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { promptId, walletAddress } = req.body;
+    const { promptId, walletAddress, signature } = req.body;
 
     if (!promptId || !walletAddress) {
       return res
         .status(400)
         .json({ error: "promptId and walletAddress are required." });
+    }
+
+    if (!signature) {
+      return res
+        .status(401)
+        .json({ error: "Wallet signature required for preference changes." });
     }
 
     const user = await User.findOne({
@@ -708,9 +596,9 @@ export const SavePrompt = async (
       $addToSet: { savedPrompts: user._id },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, authoritative: false });
   } catch (err) {
-    console.error("Save prompt error:", err);
+    logger.error("Save prompt error", { action: "savePrompt", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to save prompt",
     });
@@ -723,12 +611,18 @@ export const UnsavePrompt = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { promptId, walletAddress } = req.body;
+    const { promptId, walletAddress, signature } = req.body;
 
     if (!promptId || !walletAddress) {
       return res
         .status(400)
         .json({ error: "promptId and walletAddress are required." });
+    }
+
+    if (!signature) {
+      return res
+        .status(401)
+        .json({ error: "Wallet signature required for preference changes." });
     }
 
     const user = await User.findOne({
@@ -742,9 +636,9 @@ export const UnsavePrompt = async (
       $pull: { savedPrompts: user._id },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, authoritative: false });
   } catch (err) {
-    console.error("Unsave prompt error:", err);
+    logger.error("Unsave prompt error", { action: "unsavePrompt", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to unsave prompt",
     });
@@ -780,73 +674,9 @@ export const GetDraftPrompts = async (
 
     return res.json(drafts);
   } catch (err) {
-    console.error("Get draft prompts error:", err);
+    logger.error("Get draft prompts error", { action: "getDraftPrompts", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch drafts",
-    });
-  }
-};
-
-export const PublishPrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-    const { id } = req.params;
-
-    const prompt = await Prompt.findByIdAndUpdate(
-      id,
-      { listingStatus: "published", isActive: true },
-      { new: true },
-    );
-
-    if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found." });
-    }
-
-    await Promise.all([
-      cacheDelPattern("prompts:list:*"),
-      cacheDel(CACHE_KEYS.promptDetail(id)),
-    ]);
-
-    return res.json({ success: true, prompt });
-  } catch (err) {
-    console.error("Publish prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to publish prompt",
-    });
-  }
-};
-
-export const ArchivePrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-    const { id } = req.params;
-
-    const prompt = await Prompt.findByIdAndUpdate(
-      id,
-      { listingStatus: "archived", isActive: false },
-      { new: true },
-    );
-
-    if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found." });
-    }
-
-    await Promise.all([
-      cacheDelPattern("prompts:list:*"),
-      cacheDel(CACHE_KEYS.promptDetail(id)),
-    ]);
-
-    return res.json({ success: true, prompt });
-  } catch (err) {
-    console.error("Archive prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to archive prompt",
     });
   }
 };
@@ -886,9 +716,66 @@ export const GetPriceHistory = async (
       metadata: { hasNextPage, nextCursor },
     });
   } catch (error) {
-    console.error("Fetch price history error:", error);
+    logger.error("Fetch price history error", { action: "getPriceHistory", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch price history",
+    });
+  }
+};
+
+/**
+ * Find prompts by content hash.
+ * Used for duplicate detection before listing (anti-plagiarism).
+ * Returns matching prompts without exposing plaintext content.
+ */
+export const GetPromptsByContentHash = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+    const { contentHash } = req.params;
+
+    if (!contentHash) {
+      return res.status(400).json({ error: "contentHash is required." });
+    }
+
+    // Validate hash format (should be hex string, typically 32 or 64 chars)
+    if (!/^[a-f0-9]{32,128}$/i.test(contentHash)) {
+      return res.status(400).json({ error: "Invalid content hash format." });
+    }
+
+    // Query for prompts with matching content hash
+    const matches = await Prompt.find({
+      contentHash: contentHash,
+      listingStatus: "published",
+      isActive: true,
+    }).select("_id onChainId title creator owner salesCount isActive");
+
+    // Hydrate owner wallet addresses
+    const enriched = await Promise.all(
+      matches.map(async (prompt) => {
+        const user = await User.findById(prompt.owner).select("walletAddress");
+        return {
+          id: prompt.onChainId,
+          title: prompt.title,
+          creator: user?.walletAddress || "unknown",
+          salesCount: prompt.salesCount,
+          isActive: prompt.isActive,
+        };
+      }),
+    );
+
+    return res.json({
+      found: enriched.length > 0,
+      matches: enriched,
+      count: enriched.length,
+    });
+  } catch (error) {
+    logger.error("Get prompts by content hash error", { action: "getPromptsByContentHash", error });
+    return res.status(500).json({
+      error:
+        (error as Error).message || "Failed to find prompts by content hash",
     });
   }
 };

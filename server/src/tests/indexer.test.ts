@@ -24,6 +24,24 @@ vi.mock("../models/User", () => ({
   },
 }));
 
+vi.mock("../models/Purchase", () => ({
+  default: {
+    findOneAndUpdate: vi.fn(),
+  },
+}));
+
+vi.mock("../services/webhookOutbox", () => ({
+  enqueue: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../services/cacheService", () => ({
+  cacheDel: vi.fn(),
+  cacheDelPattern: vi.fn(),
+  CACHE_KEYS: {
+    promptDetail: (id: string) => `prompt:${id}`,
+  },
+}));
+
 vi.mock("../../../packages/sdk/src/events/decode.js", () => ({
   decodeEvent: vi.fn(() => ({ recognized: false })),
 }));

@@ -5,7 +5,9 @@ import {
   base64ToBytes,
   bytesToBase64,
   bytesToHex,
+  decryptPromptEnvelope,
   decryptPromptCiphertext,
+  encryptPromptEnvelope,
   encryptPromptPlaintext,
   hashPromptPlaintext,
   normalizeContentHash,
@@ -237,6 +239,55 @@ describe("promptCrypto — random-key roundtrip (existing coverage)", () => {
     const hash = await hashPromptPlaintext("Prompt body for integrity checks.");
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(await hashPromptPlaintext("Prompt body for integrity checks.")).toBe(hash);
+  });
+});
+
+describe("promptCrypto — versioned encrypted envelopes", () => {
+  const metadata = {
+    promptId: "42",
+    creator: "GCREATORACCOUNT",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    keyId: "content-key-2026-08",
+  };
+
+  it("roundtrips a v2 envelope with authenticated marketplace metadata", async () => {
+    const key = hexToBytes(AES_KEY_HEX);
+    const { envelope } = await encryptPromptEnvelope(PLAINTEXT, metadata, key);
+
+    expect(envelope.version).toBe(2);
+    expect(envelope.algorithm).toBe("AES-256-GCM");
+    expect(envelope.contentHash).toBe(CONTENT_HASH);
+    await expect(
+      decryptPromptEnvelope(envelope, key, {
+        promptId: metadata.promptId,
+        creator: metadata.creator,
+        networkPassphrase: metadata.networkPassphrase,
+        contentHash: CONTENT_HASH,
+      }),
+    ).resolves.toBe(PLAINTEXT);
+  });
+
+  it.each([
+    ["promptId", "43"],
+    ["creator", "GOTHERCREATOR"],
+    ["networkPassphrase", "Public Global Stellar Network ; September 2015"],
+    ["contentHash", "0".repeat(64)],
+    ["keyId", "rotated-key"],
+  ])("fails decryption when %s is swapped", async (field, value) => {
+    const key = hexToBytes(AES_KEY_HEX);
+    const { envelope } = await encryptPromptEnvelope(PLAINTEXT, metadata, key);
+    const tampered = { ...envelope, [field]: value };
+
+    await expect(decryptPromptEnvelope(tampered, key)).rejects.toThrow();
+  });
+
+  it("fails explicitly for unsupported envelope versions", async () => {
+    const key = hexToBytes(AES_KEY_HEX);
+    const { envelope } = await encryptPromptEnvelope(PLAINTEXT, metadata, key);
+
+    await expect(
+      decryptPromptEnvelope({ ...envelope, version: 99 as 2 }, key),
+    ).rejects.toThrow(/Unsupported encrypted prompt envelope version/);
   });
 });
 

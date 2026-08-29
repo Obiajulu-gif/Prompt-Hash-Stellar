@@ -8,19 +8,130 @@ export interface CreatorProfile {
   websiteUrl: string;
   avatarUrl: string;
   twitterHandle: string;
+  verified: boolean; // Verification badge status
+  verifiedAt?: string; // When verification was granted
+  verifiedBy?: string; // Admin who granted verification
   metadataUri?: string;
   updatedAt: string;
 }
 
 export type CreatorProfileInput = Omit<
   CreatorProfile,
-  "address" | "metadataUri" | "updatedAt"
+  "address" | "verified" | "verifiedAt" | "verifiedBy" | "metadataUri" | "updatedAt"
 >;
 
 export const CREATOR_PROFILE_LIMITS = {
   displayName: 50,
   bio: 280,
 };
+
+// SSRF Protection: Blocked IP ranges and domains
+const BLOCKED_IP_PATTERNS = [
+  /^127\./,          // localhost
+  /^10\./,           // Private network 10.0.0.0/8
+  /^172\.(1[6-9]|2[0-9]|3[01])\./,  // Private network 172.16.0.0/12
+  /^192\.168\./,     // Private network 192.168.0.0/16
+  /^169\.254\./,     // Link-local
+  /^0\./,            // Reserved
+  /^::1$/,           // IPv6 localhost
+  /^fe80:/i,         // IPv6 link-local
+  /^fc00:/i,         // IPv6 private
+  /^fd00:/i,         // IPv6 private
+];
+
+const BLOCKED_DOMAINS = [
+  "localhost",
+  "metadata.google.internal",
+  "169.254.169.254", // Cloud metadata endpoints
+  "metadata.aws",
+  "metadata.azure",
+];
+
+/**
+ * Validates URL to prevent SSRF attacks
+ * Returns validation error or null if valid
+ */
+export function validateUrlSafety(url: string): string | null {
+  if (!url || !url.trim()) {
+    return null; // Empty URLs are handled by other validation
+  }
+
+  const trimmed = url.trim();
+
+  // Must use http or https
+  if (!/^https?:\/\/.+/.test(trimmed)) {
+    return "URL must start with http:// or https://";
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+
+    // Check protocol (only http/https allowed)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "Only HTTP and HTTPS protocols are allowed";
+    }
+
+    // Extract hostname for validation
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost and variations
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "Localhost URLs are not allowed";
+    }
+
+    // Block known cloud metadata endpoints
+    if (BLOCKED_DOMAINS.includes(hostname)) {
+      return "This domain is not allowed";
+    }
+
+    // Block internal/private IP ranges
+    for (const pattern of BLOCKED_IP_PATTERNS) {
+      if (pattern.test(hostname)) {
+        return "Internal/private IP addresses are not allowed";
+      }
+    }
+
+    // Block URLs with credentials (username:password@host)
+    if (parsed.username || parsed.password) {
+      return "URLs with credentials are not allowed";
+    }
+
+    // Block non-standard ports that might target internal services
+    if (parsed.port) {
+      const port = parseInt(parsed.port, 10);
+      // Allow standard web ports
+      if (![80, 443, 8080, 8443].includes(port)) {
+        return "Only standard web ports are allowed (80, 443, 8080, 8443)";
+      }
+    }
+
+    return null; // Valid
+  } catch (error) {
+    return "Invalid URL format";
+  }
+}
+
+/**
+ * Enhanced URL validation with SSRF protection
+ */
+function validateUrl(url: string, fieldName: string): string | null {
+  if (!url || !url.trim()) {
+    return null; // Empty is okay, handled elsewhere
+  }
+
+  // Check basic format
+  if (!/^https?:\/\/.+/.test(url.trim())) {
+    return `${fieldName} must start with http:// or https://`;
+  }
+
+  // Check for SSRF vulnerabilities
+  const ssrfError = validateUrlSafety(url);
+  if (ssrfError) {
+    return `${fieldName}: ${ssrfError}`;
+  }
+
+  return null;
+}
 
 const PROFILE_STORAGE_PREFIX = "prompt-hash:profile:";
 const PROFILE_INDEX_KEY = "prompt-hash:profiles:index";
@@ -83,12 +194,19 @@ export function validateCreatorProfile(
     errors.bio = `Bio must be ${CREATOR_PROFILE_LIMITS.bio} characters or fewer.`;
   }
 
-  if (data.websiteUrl && !/^https?:\/\/.+/.test(data.websiteUrl.trim())) {
-    errors.websiteUrl = "Website must start with http:// or https://";
+  // Enhanced URL validation with SSRF protection
+  if (data.websiteUrl) {
+    const websiteError = validateUrl(data.websiteUrl, "Website URL");
+    if (websiteError) {
+      errors.websiteUrl = websiteError;
+    }
   }
 
-  if (data.avatarUrl && !/^https?:\/\/.+/.test(data.avatarUrl.trim())) {
-    errors.avatarUrl = "Avatar URL must start with http:// or https://";
+  if (data.avatarUrl) {
+    const avatarError = validateUrl(data.avatarUrl, "Avatar URL");
+    if (avatarError) {
+      errors.avatarUrl = avatarError;
+    }
   }
 
   if (
@@ -106,6 +224,9 @@ export function normalizeCreatorProfile(
   address: string,
   data: CreatorProfileInput,
   metadataUri?: string,
+  verified = false,
+  verifiedAt?: string,
+  verifiedBy?: string,
 ): CreatorProfile {
   return {
     address,
@@ -114,6 +235,9 @@ export function normalizeCreatorProfile(
     websiteUrl: data.websiteUrl.trim(),
     avatarUrl: data.avatarUrl.trim(),
     twitterHandle: data.twitterHandle.trim().replace(/^([^@])/, "@$1"),
+    verified,
+    verifiedAt,
+    verifiedBy,
     metadataUri,
     updatedAt: new Date().toISOString(),
   };

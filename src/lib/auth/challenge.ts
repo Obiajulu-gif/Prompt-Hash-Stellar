@@ -1,15 +1,31 @@
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { Buffer } from "buffer";
 import { Keypair } from "@stellar/stellar-sdk";
+import { hashKey, nonceStore } from "../observability/sharedStore";
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
 export interface ChallengePayload {
   address: string;
   promptId: string;
+  origin: string;
+  networkPassphrase: string;
+  contractId: string;
+  action: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
   nonce: string;
   issuedAt: number;
   expiresAt: number;
+}
+
+export interface ChallengeContext {
+  origin?: string;
+  networkPassphrase?: string;
+  contractId?: string;
+  action?: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
 }
 
 function base64UrlEncode(value: string) {
@@ -31,7 +47,20 @@ function signPayload(secret: string, body: string) {
 }
 
 export function buildChallengeMessage(payload: ChallengePayload) {
-  return `prompt-hash unlock:${payload.address}:${payload.promptId}:${payload.nonce}:${payload.issuedAt}:${payload.expiresAt}`;
+  return [
+    "prompt-hash",
+    payload.action,
+    payload.origin,
+    payload.networkPassphrase,
+    payload.contractId,
+    payload.address,
+    payload.promptId,
+    payload.promptVersion ?? "",
+    payload.expectedPriceStroops ?? "",
+    payload.nonce,
+    payload.issuedAt,
+    payload.expiresAt,
+  ].join(":");
 }
 
 export function createChallengeToken(
@@ -40,10 +69,17 @@ export function createChallengeToken(
   promptId: string,
   now = Date.now(),
   ttlMs = DEFAULT_TTL_MS,
+  context: ChallengeContext = {},
 ) {
   const payload: ChallengePayload = {
     address,
     promptId,
+    origin: context.origin ?? "*",
+    networkPassphrase: context.networkPassphrase ?? "",
+    contractId: context.contractId ?? "",
+    action: context.action ?? "unlock",
+    promptVersion: context.promptVersion,
+    expectedPriceStroops: context.expectedPriceStroops,
     nonce: randomUUID(),
     issuedAt: now,
     expiresAt: now + ttlMs,
@@ -67,6 +103,7 @@ export function verifyChallengeToken(
   address: string,
   promptId: string,
   now = Date.now(),
+  expectedContext: ChallengeContext = {},
 ) {
   const [encodedPayload, signature] = token.split(".");
   if (!encodedPayload || !signature) {
@@ -96,6 +133,42 @@ export function verifyChallengeToken(
   if (payload.address !== address || payload.promptId !== promptId) {
     throw new Error("Challenge token does not match the requested prompt unlock.");
   }
+  if (
+    expectedContext.origin !== undefined &&
+    payload.origin !== expectedContext.origin
+  ) {
+    throw new Error("Challenge token origin mismatch.");
+  }
+  if (
+    expectedContext.networkPassphrase !== undefined &&
+    payload.networkPassphrase !== expectedContext.networkPassphrase
+  ) {
+    throw new Error("Challenge token network mismatch.");
+  }
+  if (
+    expectedContext.contractId !== undefined &&
+    payload.contractId !== expectedContext.contractId
+  ) {
+    throw new Error("Challenge token contract mismatch.");
+  }
+  if (
+    expectedContext.action !== undefined &&
+    payload.action !== expectedContext.action
+  ) {
+    throw new Error("Challenge token action mismatch.");
+  }
+  if (
+    expectedContext.promptVersion !== undefined &&
+    payload.promptVersion !== expectedContext.promptVersion
+  ) {
+    throw new Error("Challenge token prompt version mismatch.");
+  }
+  if (
+    expectedContext.expectedPriceStroops !== undefined &&
+    payload.expectedPriceStroops !== expectedContext.expectedPriceStroops
+  ) {
+    throw new Error("Challenge token prompt price mismatch.");
+  }
 
   if (payload.expiresAt < now) {
     throw new Error("Challenge token has expired.");
@@ -118,61 +191,38 @@ export function verifyChallengeSignature(
 }
 
 /**
- * In-process nonce ledger for tracking consumed challenge nonces.
- * One nonce corresponds to exactly one unlock request; consuming it a second
- * time indicates a replay attack. Entries are evicted once their TTL expires
- * (matching the challenge expiry) so memory stays bounded.
+ * Shared nonce ledger backed by an atomic SETNX store (Redis).
  *
- * Production deployments running multiple server instances should back this
- * with a shared store (Redis); for single-instance deploys and tests the
- * in-memory ledger is sufficient.
+ * Replaces the previous in-memory Map-based implementation to provide
+ * consistent replay protection across multi-replica deployments.
+ *
+ * Fail-closed: if the shared store (Redis) is unreachable in production,
+ * consumption requests are *rejected* — they do NOT fall back to
+ * in-process memory.
  */
 export class NonceLedger {
-  private readonly used = new Map<string, number>();
-
   /**
    * Attempt to consume a nonce. Returns `true` the first time a given nonce
    * is seen, `false` on any subsequent call with the same nonce (replay).
-   * Expired entries are pruned before each check to keep memory bounded.
+   * Fail-closed: throws in production if shared store is unreachable.
    */
-  consume(nonce: string, expiresAt: number): boolean {
-    const now = Date.now();
-    this.prune(now);
-
-    if (this.used.has(nonce)) {
-      return false;
-    }
-
-    this.used.set(nonce, expiresAt);
-    return true;
+  async consume(nonce: string, expiresAt: number): Promise<boolean> {
+    const ttlMs = Math.max(expiresAt - Date.now(), 60_000);
+    return nonceStore.consume(hashKey(nonce), ttlMs);
   }
 
   /**
    * Check whether a nonce has already been consumed without consuming it.
    * Useful for diagnostics and tests.
    */
-  isConsumed(nonce: string): boolean {
-    this.prune(Date.now());
-    return this.used.has(nonce);
-  }
-
-  /** Number of non-expired nonces currently tracked. */
-  get size(): number {
-    this.prune(Date.now());
-    return this.used.size;
+  async isConsumed(nonce: string): Promise<boolean> {
+    return nonceStore.isConsumed(hashKey(nonce));
   }
 
   /** Remove all tracked nonces (intended for test teardown). */
   clear(): void {
-    this.used.clear();
-  }
-
-  private prune(now: number): void {
-    for (const [nonce, expiresAt] of this.used) {
-      if (expiresAt < now) {
-        this.used.delete(nonce);
-      }
-    }
+    // Shared store cannot be cleared from a single instance.
+    // Tests should use a dedicated nonce namespace (e.g., unique test prefix).
   }
 }
 

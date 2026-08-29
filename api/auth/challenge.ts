@@ -20,6 +20,9 @@ type ExtendedRequest = VercelRequest & {
 export interface ChallengeRequest {
   address: string;
   promptId: string;
+  action?: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
 }
 
 export interface ChallengeResponse {
@@ -53,7 +56,13 @@ async function handler(
   const clientIp = String(
     req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
   );
-  const { address, promptId }: Partial<ChallengeRequest> = req.body ?? {};
+  const {
+    address,
+    promptId,
+    action = "unlock",
+    promptVersion,
+    expectedPriceStroops,
+  }: Partial<ChallengeRequest> = req.body ?? {};
 
   const isAuthenticated = Boolean(address);
 
@@ -107,7 +116,15 @@ async function handler(
   // unreasonably long-lived tokens.
   const MAX_TTL_MS = 10 * 60 * 1000;
   const ttlMs = Math.min(5 * 60 * 1000, MAX_TTL_MS);
-  const challenge = createChallengeToken(secret, String(address), String(promptId), Date.now(), ttlMs);
+  const challenge = createChallengeToken(secret, String(address), String(promptId), Date.now(), ttlMs, {
+    origin: String(req.headers.origin ?? ""),
+    networkPassphrase:
+      process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015",
+    contractId: process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ?? "",
+    action: String(action),
+    promptVersion: promptVersion === undefined ? undefined : String(promptVersion),
+    expectedPriceStroops: expectedPriceStroops === undefined ? undefined : String(expectedPriceStroops),
+  });
 
   const response: ChallengeResponse = {
     token: challenge.token,

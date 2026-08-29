@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { X, ChevronRight } from "lucide-react";
 
 const STORAGE_KEY = "prompthash_onboarding_done";
@@ -53,6 +53,9 @@ export function OnboardingTour() {
   const [step, setStep] = useState(0);
   const [active, setActive] = useState(false);
   const [rect, setRect] = useState<Rect | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const liveRegionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (localStorage.getItem(STORAGE_KEY)) return;
@@ -75,6 +78,68 @@ export function OnboardingTour() {
       window.removeEventListener("scroll", updateRect);
     };
   }, [updateRect]);
+
+  const setPageInert = useCallback((inert: boolean) => {
+    const mainContent = document.body;
+    if (inert) {
+      mainContent.setAttribute("inert", "true");
+      mainContent.setAttribute("aria-hidden", "true");
+    } else {
+      mainContent.removeAttribute("inert");
+      mainContent.removeAttribute("aria-hidden");
+    }
+  }, []);
+
+  const announceStep = useCallback(() => {
+    if (liveRegionRef.current) {
+      const currentStep = STEPS[step];
+      liveRegionRef.current.textContent = `Step ${step + 1} of ${STEPS.length}: ${currentStep.title}. ${currentStep.description}`;
+    }
+  }, [step]);
+
+  useEffect(() => {
+    if (active) {
+      announceStep();
+      setPageInert(true);
+      closeButtonRef.current?.focus();
+    } else {
+      setPageInert(false);
+    }
+  }, [active, step, announceStep, setPageInert]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!active) return;
+
+      switch (e.key) {
+        case "Escape":
+          e.preventDefault();
+          finish();
+          break;
+        case "ArrowRight":
+        case "Tab":
+          e.preventDefault();
+          next();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (step > 0) {
+            setStep((s) => s - 1);
+          }
+          break;
+      }
+    },
+    [active, step],
+  );
+
+  useEffect(() => {
+    if (active) {
+      document.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [active, handleKeyDown]);
 
   function finish() {
     localStorage.setItem(STORAGE_KEY, "1");
@@ -143,6 +208,15 @@ export function OnboardingTour() {
         )}
       </div>
 
+      {/* Live region for screen reader announcements */}
+      <div
+        ref={liveRegionRef}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      />
+
       {/* Tooltip card */}
       <div
         className="fixed z-[100] w-72 rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl"
@@ -151,6 +225,9 @@ export function OnboardingTour() {
             ? { top: cardTop, left: cardLeft }
             : { top: "50%", left: "50%", transform: "translate(-50%,-50%)" }
         }
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Tour step ${step + 1} of ${STEPS.length}: ${currentStep.title}`}
       >
         {/* Step indicator + close */}
         <div className="mb-3 flex items-center justify-between">
@@ -158,9 +235,11 @@ export function OnboardingTour() {
             Step {step + 1} of {STEPS.length}
           </span>
           <button
+            ref={closeButtonRef}
             onClick={finish}
-            className="rounded-full p-1 text-slate-500 hover:text-white"
-            aria-label="Skip tour"
+            className="rounded-full p-1 text-slate-500 hover:text-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+            aria-label="Skip tour (press Escape)"
+            type="button"
           >
             <X className="h-4 w-4" />
           </button>
@@ -176,13 +255,21 @@ export function OnboardingTour() {
         <div className="mt-4 flex items-center justify-between">
           <button
             onClick={finish}
-            className="text-xs text-slate-500 hover:text-slate-300 underline"
+            className="text-xs text-slate-500 hover:text-slate-300 underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-amber-400"
+            type="button"
           >
             Skip tour
           </button>
           <button
+            ref={nextButtonRef}
             onClick={next}
-            className="inline-flex items-center gap-1 rounded-full bg-amber-400 px-4 py-1.5 text-sm font-medium text-slate-950 hover:bg-amber-300"
+            className="inline-flex items-center gap-1 rounded-full bg-amber-400 px-4 py-1.5 text-sm font-medium text-slate-950 hover:bg-amber-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-amber-600"
+            type="button"
+            aria-label={
+              step < STEPS.length - 1
+                ? `Next step (press right arrow)`
+                : `Complete tour (press right arrow)`
+            }
           >
             {step < STEPS.length - 1 ? (
               <>
@@ -192,6 +279,10 @@ export function OnboardingTour() {
               "Done"
             )}
           </button>
+        </div>
+
+        <div className="mt-3 text-xs text-slate-500">
+          <p>Keyboard: Esc to skip • Right arrow or Tab for next • Left arrow for previous</p>
         </div>
       </div>
     </>

@@ -1,10 +1,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import { initializeCorrelation } from "./lib/observability/correlation";
 import { applyThemeBeforeRender } from "./hooks/useTheme";
 import App from "./App.tsx";
 import "@stellar/design-system/build/styles.min.css";
 import "./i18n"; // initialise i18n catalogue before rendering
+
+initializeCorrelation();
+
 
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";

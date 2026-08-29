@@ -14,7 +14,10 @@ import {
 import {
   getPrompt,
   hasAccess,
+  verifyEntitlement,
   type PromptHashConfig,
+  type LedgerVerifiedEntitlement,
+  DEFAULT_MAX_LEDGER_AGE,
 } from "../../src/lib/stellar/promptHashClient";
 import { fetchCiphertextFromIpfs } from "../../src/lib/ipfs/gateway";
 import { isIpfsReference } from "../../src/lib/ipfs/reference";
@@ -26,7 +29,6 @@ import {
   storeIdempotencyResult,
 } from "../../src/lib/observability/idempotency";
 import { metrics } from "../../src/lib/observability/metrics";
-import { dispatchEvent } from "../../server/src/services/webhookDispatcher";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
@@ -44,6 +46,22 @@ export interface UnlockSuccessResponse {
   title: string;
   contentHash: string;
   plaintext: string;
+}
+
+function promptVersionClaim(prompt: { sourcePromptId?: string; salesCount?: number }): string {
+  return String(prompt.sourcePromptId ?? prompt.salesCount ?? "");
+}
+
+function promptTermsChanged(
+  payload: { promptVersion?: string; expectedPriceStroops?: string },
+  prompt: { priceStroops?: bigint | string | number; sourcePromptId?: string; salesCount?: number },
+): boolean {
+  const currentPrice = prompt.priceStroops === undefined ? "" : String(prompt.priceStroops);
+  const currentVersion = promptVersionClaim(prompt);
+  return (
+    (payload.expectedPriceStroops !== undefined && payload.expectedPriceStroops !== currentPrice) ||
+    (payload.promptVersion !== undefined && payload.promptVersion !== currentVersion)
+  );
 }
 
 // Fail-fast module load validation
@@ -83,20 +101,15 @@ function getActiveSecrets(primarySecret: string): string[] {
 }
 
 function getServerConfig(): PromptHashConfig {
-  const rpcUrl =
-    process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
-  const networkPassphrase =
-    process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ??
-    "Test SDF Network ; September 2015";
-  const promptHashContractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ?? "";
-  const nativeAssetContractId =
-    process.env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID ??
-    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-  const simulationAccount =
-    process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT ?? process.env.UNLOCK_PUBLIC_KEY ?? "";
-
+  const manifest = getServerDeploymentManifest();
   return {
     rpcUrl,
+    rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
+    entitlementQuorum: process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM
+      ? Number(process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM)
+      : undefined,
     networkPassphrase,
     promptHashContractId,
     nativeAssetContractId,
@@ -235,12 +248,20 @@ async function handler(
   try {
     // Support multiple active secrets during rotation grace period
     const activeSecrets = getActiveSecrets(challengeSecret);
+    const config = getServerConfig();
     
     const payload = verifyChallengeToken(
       activeSecrets,
       String(token),
       String(address),
       String(promptId),
+      Date.now(),
+      {
+        origin: String(req.headers.origin ?? ""),
+        networkPassphrase: config.networkPassphrase,
+        contractId: config.promptHashContractId,
+        action: "unlock",
+      },
     );
     const challengeMessage = buildChallengeMessage(payload);
     const validSignature = verifyChallengeSignature(
@@ -266,7 +287,7 @@ async function handler(
     }
 
     // Nonce-based replay protection: ensure this nonce is consumed only once
-    const nonceConsumed = globalNonceLedger.consume(payload.nonce, payload.expiresAt);
+    const nonceConsumed = await globalNonceLedger.consume(payload.nonce, payload.expiresAt);
     if (!nonceConsumed) {
       req.logger.warn({ address, promptId, nonce: payload.nonce }, "Replay attack detected (nonce already consumed)");
       metrics.trackUnlockFailure(String(address), String(promptId), "replay_detected");
@@ -307,11 +328,43 @@ async function handler(
       return;
     }
 
-    const config = getServerConfig();
     const id = BigInt(promptId);
-    const access = await hasAccess(config, String(address), id);
-    if (!access) {
-      req.logger.warn({ address, promptId }, "Prompt access denied");
+
+    // Verify entitlement against finalized ledger state (#545).
+    // Binds the access decision to ledger_sequence, ledger_hash, network_id,
+    // and contract_id with a strict freshness threshold.
+    // Fail-closed: if RPC is unreachable or state is stale, deny access.
+    let entitlement: LedgerVerifiedEntitlement;
+    try {
+      entitlement = await verifyEntitlement(
+        config,
+        String(address),
+        id,
+        DEFAULT_MAX_LEDGER_AGE,
+      );
+    } catch {
+      req.logger.error({ address, promptId }, "Ledger entitlement verification failed (RPC error)");
+      metrics.trackUnlockFailure(String(address), String(promptId), "ledger_verification_failed");
+      void recordAuditEvent({
+        action: "unlock_ledger_failure",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "ledger_verification_failed",
+      });
+      res.status(403).json(
+        apiError(ErrorCode.ACCESS_NOT_PURCHASED, "Unable to verify access. Please try again."),
+      );
+      return;
+    }
+
+    if (!entitlement.hasAccess) {
+      req.logger.warn(
+        { address, promptId, ledgerSequence: entitlement.ledgerSequence, ledgerHash: entitlement.ledgerHash },
+        "Prompt access denied (ledger-verified)",
+      );
       metrics.trackUnlockFailure(String(address), String(promptId), "no_access");
       void recordAuditEvent({
         action: "unlock_no_access",
@@ -328,7 +381,39 @@ async function handler(
       return;
     }
 
+    req.logger.info(
+      {
+        address,
+        promptId,
+        ledgerSequence: entitlement.ledgerSequence,
+        ledgerHash: entitlement.ledgerHash,
+        networkId: entitlement.networkId,
+        contractId: entitlement.contractId,
+      },
+      "Entitlement verified against finalized ledger state",
+    );
+
     const prompt = await getPrompt(config, id);
+    if (promptTermsChanged(payload, prompt)) {
+      req.logger.warn({ address, promptId }, "Prompt terms changed after challenge issuance");
+      metrics.trackUnlockFailure(String(address), String(promptId), "stale_prompt_terms");
+      void recordAuditEvent({
+        action: "unlock_stale_quote",
+        result: "blocked",
+        promptId: String(promptId),
+        walletAddress: String(address),
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: "prompt_terms_changed",
+      });
+      res.status(409).json(
+        apiError(
+          ErrorCode.STALE_PROMPT_TERMS,
+          "Prompt price or version changed. Refresh before signing.",
+        ),
+      );
+      return;
+    }
     const keyBytes = await unwrapPromptKey(
       prompt.wrappedKey,
       unlockPublicKey,
@@ -380,14 +465,10 @@ async function handler(
       reason: null,
     });
 
-    // Fire-and-forget webhook dispatch so the creator is notified of the sale.
-    void Promise.resolve(
-      dispatchEvent(prompt.creator ?? "", "PromptPurchased", {
-        promptId: prompt.id.toString(),
-        buyer: String(address),
-        title: prompt.title,
-      }),
-    ).catch(() => {});
+    // The Soroban indexer is the sole source of `PromptPurchased` webhook
+    // deliveries (#536) — it has the authoritative on-chain buyer/price/
+    // txHash and a stable per-event dedupe key, so unlock no longer fires a
+    // second, independent notification for the same purchase.
 
     const successResponse: UnlockSuccessResponse = {
       promptId: prompt.id.toString(),

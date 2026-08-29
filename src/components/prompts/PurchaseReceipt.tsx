@@ -46,6 +46,13 @@ export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
   // Assuming a fixed platform fee representation or extracting from metadata if available
   const feeXlm = promptDetail ? stroopsToXlmString((BigInt(promptDetail.priceStroops) * 5n) / 100n) : "—"; // Example 5% fee
 
+  const isTestnet =
+    (browserStellarConfig?.networkPassphrase &&
+      browserStellarConfig.networkPassphrase.toUpperCase().includes("TESTNET")) ||
+    (browserStellarConfig?.network &&
+      browserStellarConfig.network.toUpperCase().includes("TESTNET"));
+  const explorerNetwork = isTestnet ? "testnet" : "public";
+
   return (
     <div className="animate-in fade-in zoom-in duration-300 space-y-4" data-testid="purchase-receipt">
       {/* Receipt header */}
@@ -100,7 +107,7 @@ export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
               <p className="text-[10px] text-slate-500">Transaction hash</p>
               <div className="flex items-center gap-2">
                 <a
-                  href={`https://stellar.expert/explorer/${browserStellarConfig.networkPhrase.includes('TESTNET') ? 'testnet' : 'public'}/tx/${txHash}`}
+                  href={`https://stellar.expert/explorer/${explorerNetwork}/tx/${txHash}`}
                   target="_blank"
                   rel="noreferrer"
                   className="font-mono text-xs text-blue-400 hover:text-blue-300 truncate underline decoration-blue-400/30 underline-offset-2"

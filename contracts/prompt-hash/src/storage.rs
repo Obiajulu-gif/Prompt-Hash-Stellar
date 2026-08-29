@@ -1,8 +1,9 @@
 use super::types::{
-    AccessPass, Bundle, CatalogPassPurchase, DataKey, Error, InstanceDataKey,
-    ListingRevisionRecord, Prompt, Purchase, PurchaseDispute, PurchaseEscrow,
+    AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, IndexDriftReport,
+    IndexRepairSummary, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
+    PurchaseEscrow,
 };
-use soroban_sdk::{token, Address, BytesN, Env, Vec};
+use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
 
 pub const DAY_IN_LEDGERS: u32 = 17280;
 pub const PERSISTENT_BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
@@ -102,6 +103,21 @@ impl InstanceStorage {
         let key = InstanceDataKey::IsPaused;
         env.storage().instance().get(&key).unwrap_or(false)
     }
+
+    /// Asserts that the canonical configuration written by `__constructor` is
+    /// present. Any economic entry-point must call this before reading config
+    /// so that a partially-constructed or legacy-migrated instance fails loudly
+    /// rather than silently using wrong defaults.
+    pub fn require_config_initialized(env: &Env) -> Result<(), Error> {
+        ensure(
+            env.storage().instance().has(&InstanceDataKey::FeeWallet),
+            Error::FeeWalletNotSet,
+        )?;
+        ensure(
+            env.storage().instance().has(&InstanceDataKey::XlmAddress),
+            Error::XlmAddressNotSet,
+        )
+    }
 }
 
 /// Persistent storage for prompt, purchase, and user-index records.
@@ -110,13 +126,20 @@ pub struct Storage;
 
 impl Storage {
     pub fn extend_key_ttl(env: &Env, key: &DataKey) {
-        if env.storage().persistent().has(key) {
-            env.storage().persistent().extend_ttl(
-                key,
-                PERSISTENT_LIFETIME_THRESHOLD,
-                PERSISTENT_BUMP_AMOUNT,
-            );
+        use crate::ttl_policy::get_ttl_for_key;
+
+        if !env.storage().persistent().has(key) {
+            return;
         }
+
+        let max_ttl = get_ttl_for_key(key);
+        if max_ttl == u32::MAX {
+            return; // Instance keys don't get TTL management
+        }
+
+        env.storage()
+            .persistent()
+            .extend_ttl(key, PERSISTENT_LIFETIME_THRESHOLD, max_ttl);
     }
 
     pub fn save_prompt(env: &Env, prompt: &Prompt) -> Result<(), Error> {
@@ -126,6 +149,12 @@ impl Storage {
 
         let next_prompt_id = prompt.id.checked_add(1).ok_or(Error::ArithmeticOverflow)?;
         InstanceStorage::save_prompt_counter(env, next_prompt_id);
+
+        // Update all indexes for pagination
+        Self::update_category_index(env, prompt);
+        Self::update_tag_index(env, prompt);
+        Self::update_status_indexes(env, prompt);
+
         Ok(())
     }
 
@@ -234,9 +263,11 @@ impl Storage {
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(env));
-        ids.push_back(prompt_id);
-        env.storage().persistent().set(&key, &ids);
-        Self::extend_key_ttl(env, &key);
+        if !ids.contains(prompt_id) {
+            ids.push_back(prompt_id);
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
     }
 
     pub fn add_prompt_to_buyer(env: &Env, buyer: &Address, prompt_id: u64) {
@@ -338,7 +369,11 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
-    pub fn get_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) -> Option<PurchaseEscrow> {
+    pub fn get_purchase_escrow(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+    ) -> Option<PurchaseEscrow> {
         let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
         let escrow = env.storage().persistent().get(&key);
         if env.storage().persistent().has(&key) {
@@ -358,6 +393,124 @@ impl Storage {
     pub fn remove_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) {
         let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
         env.storage().persistent().remove(&key);
+    }
+
+    // ─── Per-Asset Escrow Liability (#570) ──────────────────────────────────
+    // Aggregate pending/disputed liability per SAC asset, updated atomically
+    // alongside every escrow creation, settlement, dispute-open, and dispute
+    // resolution so it stays in lockstep with the underlying escrow records.
+
+    pub fn get_asset_liability(env: &Env, asset: &Address) -> AssetLiability {
+        let key = DataKey::AssetLiability(asset.clone());
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(AssetLiability {
+                pending: 0,
+                disputed: 0,
+            })
+    }
+
+    fn save_asset_liability(env: &Env, asset: &Address, liability: &AssetLiability) {
+        let key = DataKey::AssetLiability(asset.clone());
+        env.storage().persistent().set(&key, liability);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    /// A new escrow was created: `amount` becomes pending liability.
+    pub fn add_pending_liability(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.pending = liability
+            .pending
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// An escrow settled or a rejected dispute closed with no open dispute:
+    /// `amount` leaves the pending bucket entirely.
+    pub fn remove_pending_liability(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.pending = liability
+            .pending
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// A dispute was opened against a pending escrow: move `amount` from
+    /// pending into disputed.
+    pub fn move_pending_to_disputed(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.pending = liability
+            .pending
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        liability.disputed = liability
+            .disputed
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// A dispute was rejected without a refund: the escrow remains Pending,
+    /// so `amount` moves back from disputed into pending.
+    pub fn move_disputed_to_pending(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.disputed = liability
+            .disputed
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        liability.pending = liability
+            .pending
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// Migration-only: credit `amount` directly into the disputed bucket for
+    /// a pre-existing escrow that was already under dispute before this
+    /// feature shipped (as opposed to `move_pending_to_disputed`, which
+    /// debits an already-tracked pending amount that never existed here).
+    pub fn add_disputed_liability(env: &Env, asset: &Address, amount: i128) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.disputed = liability
+            .disputed
+            .checked_add(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    /// A disputed escrow was refunded: `amount` leaves the disputed bucket
+    /// entirely (paid out to the buyer, no longer anyone's liability).
+    pub fn remove_disputed_liability(
+        env: &Env,
+        asset: &Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let mut liability = Self::get_asset_liability(env, asset);
+        liability.disputed = liability
+            .disputed
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::save_asset_liability(env, asset, &liability);
+        Ok(())
+    }
+
+    pub fn is_escrow_liability_migrated(env: &Env, prompt_id: u64, buyer: &Address) -> bool {
+        let key = DataKey::EscrowLiabilityMigrated(prompt_id, buyer.clone());
+        env.storage().persistent().has(&key)
+    }
+
+    pub fn mark_escrow_liability_migrated(env: &Env, prompt_id: u64, buyer: &Address) {
+        let key = DataKey::EscrowLiabilityMigrated(prompt_id, buyer.clone());
+        env.storage().persistent().set(&key, &true);
+        Self::extend_key_ttl(env, &key);
     }
 
     pub fn save_bundle(env: &Env, bundle: &Bundle) -> Result<(), Error> {
@@ -432,6 +585,45 @@ impl Storage {
             }
         }
         bundles
+    }
+
+    pub fn save_bundle_purchase_prompts(
+        env: &Env,
+        buyer: &Address,
+        bundle_id: u128,
+        prompt_ids: &Vec<u64>,
+    ) {
+        let key = DataKey::BundlePurchasePrompts(buyer.clone(), bundle_id);
+        env.storage().persistent().set(&key, prompt_ids);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle_purchase_prompts(
+        env: &Env,
+        buyer: &Address,
+        bundle_id: u128,
+    ) -> Option<Vec<u64>> {
+        let key = DataKey::BundlePurchasePrompts(buyer.clone(), bundle_id);
+        let result: Option<Vec<u64>> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        result
+    }
+
+    pub fn save_bundle_escrow_id(env: &Env, buyer: &Address, created_at: u64, bundle_id: u128) {
+        let key = DataKey::BundleEscrowBundleId(buyer.clone(), created_at);
+        env.storage().persistent().set(&key, &bundle_id);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_bundle_escrow_id(env: &Env, buyer: &Address, created_at: u64) -> Option<u128> {
+        let key = DataKey::BundleEscrowBundleId(buyer.clone(), created_at);
+        let result: Option<u128> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        result
     }
 
     pub fn save_access_pass(env: &Env, access_pass: &AccessPass) -> Result<(), Error> {
@@ -515,6 +707,19 @@ impl Storage {
         Self::extend_key_ttl(env, &key);
     }
 
+    pub fn get_catalog_pass_purchase(
+        env: &Env,
+        creator: &Address,
+        buyer: &Address,
+    ) -> Option<CatalogPassPurchase> {
+        let key = DataKey::CatalogPass(creator.clone(), buyer.clone());
+        let purchase = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        purchase
+    }
+
     pub fn has_active_creator_pass(
         env: &Env,
         creator: &Address,
@@ -529,6 +734,79 @@ impl Storage {
         purchase
             .map(|catalog_pass| catalog_pass.expires_at >= now)
             .unwrap_or(false)
+    }
+
+    // ─── Access Pass Escrow & Dispute Storage ──────────────────────────────────
+    // Separate from PurchaseEscrow to avoid key collisions and enable independent
+    // dispute/refund tracking for each access pass purchase (#564).
+
+    pub fn save_access_pass_escrow(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        escrow: &PurchaseEscrow,
+    ) {
+        let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
+        env.storage().persistent().set(&key, escrow);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_pass_escrow(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Option<PurchaseEscrow> {
+        let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
+        let escrow = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        escrow
+    }
+
+    pub fn require_access_pass_escrow(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Result<PurchaseEscrow, Error> {
+        Self::get_access_pass_escrow(env, pass_id, buyer).ok_or(Error::LicenseNotFound)
+    }
+
+    pub fn remove_access_pass_escrow(env: &Env, pass_id: u128, buyer: &Address) {
+        let key = DataKey::AccessPassEscrow(pass_id, buyer.clone());
+        env.storage().persistent().remove(&key);
+    }
+
+    pub fn save_access_pass_dispute(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        dispute: &PurchaseDispute,
+    ) {
+        let key = DataKey::AccessPassPurchaseDispute(pass_id, buyer.clone());
+        env.storage().persistent().set(&key, dispute);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_pass_dispute(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Option<PurchaseDispute> {
+        let key = DataKey::AccessPassPurchaseDispute(pass_id, buyer.clone());
+        let dispute = env.storage().persistent().get(&key);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        dispute
+    }
+
+    pub fn require_access_pass_dispute(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+    ) -> Result<PurchaseDispute, Error> {
+        Self::get_access_pass_dispute(env, pass_id, buyer).ok_or(Error::DisputeNotFound)
     }
 
     pub fn save_dispute(env: &Env, dispute: &PurchaseDispute) {
@@ -574,6 +852,27 @@ impl Storage {
         discount
     }
 
+    // ─── Signed Discount Authorization Nonce Storage ────────────────────────────
+    // Replaces raw voucher preimages with creator-signed authorizations (#540).
+    // Nonces are consumed atomically on first use to prevent replay attacks.
+
+    /// Check if a nonce has already been consumed for a given prompt.
+    pub fn is_nonce_consumed(env: &Env, prompt_id: u64, nonce_hash: &BytesN<32>) -> bool {
+        let key = DataKey::NonceConsumed(prompt_id, nonce_hash.clone());
+        env.storage().persistent().has(&key)
+    }
+
+    /// Atomically consume a nonce. Returns true if it was not previously consumed.
+    pub fn try_consume_nonce(env: &Env, prompt_id: u64, nonce_hash: &BytesN<32>) -> bool {
+        let key = DataKey::NonceConsumed(prompt_id, nonce_hash.clone());
+        if env.storage().persistent().has(&key) {
+            return false;
+        }
+        env.storage().persistent().set(&key, &true);
+        Self::extend_key_ttl(env, &key);
+        true
+    }
+
     pub fn save_listing_revision(env: &Env, record: &ListingRevisionRecord) {
         let key = DataKey::ListingRevision(record.prompt_id, record.revision);
         env.storage().persistent().set(&key, record);
@@ -613,5 +912,522 @@ impl Storage {
                 }
             }
         }
+    }
+
+    pub fn get_prompts_paginated(
+        env: &Env,
+        key: &DataKey,
+        cursor: Option<u64>,
+        limit: u64,
+    ) -> Vec<Prompt> {
+        use crate::pagination::MAX_PAGE_SIZE;
+
+        let limit = if limit < MAX_PAGE_SIZE {
+            limit
+        } else {
+            MAX_PAGE_SIZE
+        };
+        let ids: Vec<u64> = env.storage().persistent().get(key).unwrap_or(Vec::new(env));
+
+        let mut results = Vec::new(env);
+        let mut start_idx = 0u32;
+
+        // Find start position if cursor provided
+        if let Some(cursor_id) = cursor {
+            for (i, id) in ids.iter().enumerate() {
+                if id == cursor_id {
+                    start_idx = i as u32 + 1;
+                    break;
+                }
+            }
+        }
+
+        // Collect up to `limit` items
+        for i in start_idx..ids.len() {
+            if results.len() as u64 >= limit {
+                break;
+            }
+            if let Some(prompt) = Self::get_prompt(env, ids.get(i).unwrap()) {
+                results.push_back(prompt);
+            }
+        }
+
+        results
+    }
+
+    /// Update index for category
+    pub fn update_category_index(env: &Env, prompt: &Prompt) {
+        let key = DataKey::CategoryPrompts(prompt.category.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+
+        if !ids.contains(prompt.id) {
+            ids.push_back(prompt.id);
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
+    }
+
+    /// Update index for tags
+    pub fn update_tag_index(env: &Env, prompt: &Prompt) {
+        for tag in prompt.tags.iter() {
+            let key = DataKey::TagPrompts(tag);
+            let mut ids: Vec<u64> = env
+                .storage()
+                .persistent()
+                .get(&key)
+                .unwrap_or(Vec::new(env));
+
+            if !ids.contains(prompt.id) {
+                ids.push_back(prompt.id);
+                env.storage().persistent().set(&key, &ids);
+                Self::extend_key_ttl(env, &key);
+            }
+        }
+    }
+
+    /// Update active/all indexes
+    pub fn update_status_indexes(env: &Env, prompt: &Prompt) {
+        // AllPrompts index
+        let all_key = DataKey::AllPrompts;
+        let mut all_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&all_key)
+            .unwrap_or(Vec::new(env));
+        if !all_ids.contains(prompt.id) {
+            all_ids.push_back(prompt.id);
+            env.storage().persistent().set(&all_key, &all_ids);
+            Self::extend_key_ttl(env, &all_key);
+        }
+
+        let now = env.ledger().timestamp();
+        let is_currently_active = matches!(prompt.status, super::types::PromptSaleStatus::Active)
+            && (prompt.expires_at == 0 || prompt.expires_at >= now);
+
+        let active_key = DataKey::ActivePrompts;
+        let mut active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&active_key)
+            .unwrap_or(Vec::new(env));
+
+        if is_currently_active {
+            if !active_ids.contains(prompt.id) {
+                active_ids.push_back(prompt.id);
+                env.storage().persistent().set(&active_key, &active_ids);
+                Self::extend_key_ttl(env, &active_key);
+            }
+        } else {
+            let mut index = 0;
+            let mut changed = false;
+            while index < active_ids.len() {
+                if active_ids.get(index).unwrap() == prompt.id {
+                    active_ids.remove(index);
+                    changed = true;
+                } else {
+                    index += 1;
+                }
+            }
+            if changed {
+                env.storage().persistent().set(&active_key, &active_ids);
+                Self::extend_key_ttl(env, &active_key);
+            }
+        }
+    }
+
+    pub fn remove_from_category_index(env: &Env, category: &String, prompt_id: u64) {
+        let key = DataKey::CategoryPrompts(category.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        let mut index = 0;
+        let mut changed = false;
+        while index < ids.len() {
+            if ids.get(index).unwrap() == prompt_id {
+                ids.remove(index);
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+        if changed {
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
+    }
+
+    pub fn remove_from_tag_index(env: &Env, tag: &String, prompt_id: u64) {
+        let key = DataKey::TagPrompts(tag.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        let mut index = 0;
+        let mut changed = false;
+        while index < ids.len() {
+            if ids.get(index).unwrap() == prompt_id {
+                ids.remove(index);
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+        if changed {
+            env.storage().persistent().set(&key, &ids);
+            Self::extend_key_ttl(env, &key);
+        }
+    }
+
+    pub fn remove_from_active_index(env: &Env, prompt_id: u64) {
+        let active_key = DataKey::ActivePrompts;
+        let mut active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&active_key)
+            .unwrap_or(Vec::new(env));
+        let mut index = 0;
+        let mut changed = false;
+        while index < active_ids.len() {
+            if active_ids.get(index).unwrap() == prompt_id {
+                active_ids.remove(index);
+                changed = true;
+            } else {
+                index += 1;
+            }
+        }
+        if changed {
+            env.storage().persistent().set(&active_key, &active_ids);
+            Self::extend_key_ttl(env, &active_key);
+        }
+    }
+
+    pub const MAX_VERIFY_BATCH_SIZE: u64 = 100;
+
+    /// Verify invariants between canonical prompt records and secondary indexes (#652).
+    pub fn verify_catalog_indexes(
+        env: &Env,
+        start_id: u64,
+        batch_size: u64,
+    ) -> IndexDriftReport {
+        let total_prompts = InstanceStorage::get_prompt_counter(env);
+        let batch = if batch_size > 0 && batch_size <= Self::MAX_VERIFY_BATCH_SIZE {
+            batch_size
+        } else {
+            Self::MAX_VERIFY_BATCH_SIZE
+        };
+        let end_id = core::cmp::min(start_id.saturating_add(batch), total_prompts);
+
+        let mut missing_in_all = 0u32;
+        let mut missing_in_active = 0u32;
+        let mut stale_in_active = 0u32;
+        let mut missing_in_category = 0u32;
+        let mut missing_in_tags = 0u32;
+        let mut missing_in_creator = 0u32;
+        let mut scanned = 0u64;
+
+        let all_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AllPrompts)
+            .unwrap_or(Vec::new(env));
+        let active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ActivePrompts)
+            .unwrap_or(Vec::new(env));
+
+        let now = env.ledger().timestamp();
+
+        for prompt_id in start_id..end_id {
+            scanned += 1;
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                if !all_ids.contains(prompt_id) {
+                    missing_in_all += 1;
+                }
+
+                let is_active = matches!(prompt.status, super::types::PromptSaleStatus::Active)
+                    && (prompt.expires_at == 0 || prompt.expires_at >= now);
+
+                if is_active {
+                    if !active_ids.contains(prompt_id) {
+                        missing_in_active += 1;
+                    }
+                } else if active_ids.contains(prompt_id) {
+                    stale_in_active += 1;
+                }
+
+                let cat_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::CategoryPrompts(prompt.category.clone()))
+                    .unwrap_or(Vec::new(env));
+                if !cat_ids.contains(prompt_id) {
+                    missing_in_category += 1;
+                }
+
+                for tag in prompt.tags.iter() {
+                    let tag_ids: Vec<u64> = env
+                        .storage()
+                        .persistent()
+                        .get(&DataKey::TagPrompts(tag))
+                        .unwrap_or(Vec::new(env));
+                    if !tag_ids.contains(prompt_id) {
+                        missing_in_tags += 1;
+                    }
+                }
+
+                let creator_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::CreatorPrompts(prompt.creator.clone()))
+                    .unwrap_or(Vec::new(env));
+                if !creator_ids.contains(prompt_id) {
+                    missing_in_creator += 1;
+                }
+            }
+        }
+
+        let next_cursor = if end_id < total_prompts {
+            Some(end_id)
+        } else {
+            None
+        };
+
+        IndexDriftReport {
+            start_id,
+            end_id,
+            total_prompts_scanned: scanned,
+            missing_in_all,
+            missing_in_active,
+            stale_in_active,
+            missing_in_category,
+            missing_in_tags,
+            missing_in_creator,
+            next_cursor,
+        }
+    }
+
+    /// Admin-authorized repair of secondary index drift with dry-run support (#652).
+    pub fn repair_catalog_indexes(
+        env: &Env,
+        start_id: u64,
+        batch_size: u64,
+        dry_run: bool,
+    ) -> IndexRepairSummary {
+        let total_prompts = InstanceStorage::get_prompt_counter(env);
+        let batch = if batch_size > 0 && batch_size <= Self::MAX_VERIFY_BATCH_SIZE {
+            batch_size
+        } else {
+            Self::MAX_VERIFY_BATCH_SIZE
+        };
+        let end_id = core::cmp::min(start_id.saturating_add(batch), total_prompts);
+
+        let mut repairs_applied = 0u32;
+        let mut processed = 0u64;
+
+        let mut all_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::AllPrompts)
+            .unwrap_or(Vec::new(env));
+        let mut active_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ActivePrompts)
+            .unwrap_or(Vec::new(env));
+
+        let mut all_changed = false;
+        let mut active_changed = false;
+        let now = env.ledger().timestamp();
+
+        for prompt_id in start_id..end_id {
+            processed += 1;
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                // Check AllPrompts
+                if !all_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        all_ids.push_back(prompt_id);
+                        all_changed = true;
+                    }
+                }
+
+                // Check ActivePrompts
+                let is_active = matches!(prompt.status, super::types::PromptSaleStatus::Active)
+                    && (prompt.expires_at == 0 || prompt.expires_at >= now);
+
+                if is_active {
+                    if !active_ids.contains(prompt_id) {
+                        repairs_applied += 1;
+                        if !dry_run {
+                            active_ids.push_back(prompt_id);
+                            active_changed = true;
+                        }
+                    }
+                } else if active_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        let mut idx = 0;
+                        while idx < active_ids.len() {
+                            if active_ids.get(idx).unwrap() == prompt_id {
+                                active_ids.remove(idx);
+                                active_changed = true;
+                            } else {
+                                idx += 1;
+                            }
+                        }
+                    }
+                }
+
+                // Check Category
+                let cat_key = DataKey::CategoryPrompts(prompt.category.clone());
+                let mut cat_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&cat_key)
+                    .unwrap_or(Vec::new(env));
+                if !cat_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        cat_ids.push_back(prompt_id);
+                        env.storage().persistent().set(&cat_key, &cat_ids);
+                        Self::extend_key_ttl(env, &cat_key);
+                    }
+                }
+
+                // Check Tags
+                for tag in prompt.tags.iter() {
+                    let tag_key = DataKey::TagPrompts(tag);
+                    let mut tag_ids: Vec<u64> = env
+                        .storage()
+                        .persistent()
+                        .get(&tag_key)
+                        .unwrap_or(Vec::new(env));
+                    if !tag_ids.contains(prompt_id) {
+                        repairs_applied += 1;
+                        if !dry_run {
+                            tag_ids.push_back(prompt_id);
+                            env.storage().persistent().set(&tag_key, &tag_ids);
+                            Self::extend_key_ttl(env, &tag_key);
+                        }
+                    }
+                }
+
+                // Check Creator
+                let creator_key = DataKey::CreatorPrompts(prompt.creator.clone());
+                let mut creator_ids: Vec<u64> = env
+                    .storage()
+                    .persistent()
+                    .get(&creator_key)
+                    .unwrap_or(Vec::new(env));
+                if !creator_ids.contains(prompt_id) {
+                    repairs_applied += 1;
+                    if !dry_run {
+                        creator_ids.push_back(prompt_id);
+                        env.storage().persistent().set(&creator_key, &creator_ids);
+                        Self::extend_key_ttl(env, &creator_key);
+                    }
+                }
+            }
+        }
+
+        if !dry_run {
+            if all_changed {
+                env.storage().persistent().set(&DataKey::AllPrompts, &all_ids);
+                Self::extend_key_ttl(env, &DataKey::AllPrompts);
+            }
+            if active_changed {
+                env.storage().persistent().set(&DataKey::ActivePrompts, &active_ids);
+                Self::extend_key_ttl(env, &DataKey::ActivePrompts);
+            }
+        }
+
+        let next_cursor = if end_id < total_prompts {
+            Some(end_id)
+        } else {
+            None
+        };
+
+        IndexRepairSummary {
+            start_id,
+            end_id,
+            prompts_processed: processed,
+            repairs_applied,
+            is_dry_run: dry_run,
+            next_cursor,
+        }
+    }
+
+    /// Reconciles prompt sales counters for pre-existing clamped records (#653).
+    pub fn reconcile_sales_counter(env: &Env, prompt_id: u64) -> Result<u64, Error> {
+        let mut prompt = Self::require_prompt(env, prompt_id)?;
+        let current_count = prompt.sales_count;
+        prompt.sales_count = current_count;
+        Self::update_prompt(env, &prompt);
+        Ok(current_count)
+    }
+
+    // ====== TTL RENEWAL (BOUNDED BATCHES) ======
+
+    /// Renew the TTL of prompt records (and their listing revisions/creator
+    /// index) in a bounded batch. Returns (renewed_count, next_cursor_if_more_work).
+    pub fn renew_critical_keys(env: &Env, cursor: Option<u64>) -> (u32, Option<u64>) {
+        use crate::ttl_policy::MAX_RENEWAL_BATCH_SIZE;
+
+        let prompt_count = InstanceStorage::get_prompt_counter(env);
+        let mut renewed_count = 0u32;
+        let mut prompt_id = cursor.unwrap_or(0);
+
+        while prompt_id < prompt_count {
+            if renewed_count >= MAX_RENEWAL_BATCH_SIZE {
+                return (renewed_count, Some(prompt_id));
+            }
+
+            let key = DataKey::Prompt(prompt_id);
+            if env.storage().persistent().has(&key) {
+                Self::extend_key_ttl(env, &key);
+                renewed_count += 1;
+            }
+            prompt_id += 1;
+        }
+
+        (renewed_count, None) // All done
+    }
+
+    /// Get expiry risk metrics for operator monitoring, sampled across the
+    /// TTL policy's own reference lifetimes for each tracked key family.
+    pub fn compute_expiry_risks(env: &Env) -> Vec<(String, String)> {
+        use crate::ttl_policy::{compute_expiry_risk, ONE_MONTH, ONE_YEAR};
+
+        let mut risks = Vec::new(env);
+        let current_ledger = env.ledger().sequence() as u64;
+
+        let sample_ttls: [(&str, u32); 3] = [
+            ("Prompt", ONE_YEAR),
+            ("Purchase", ONE_YEAR + ONE_MONTH),
+            ("Dispute", ONE_MONTH),
+        ];
+
+        for (label, max_ttl) in sample_ttls {
+            // Conservative: assume mid-lifetime for risk assessment.
+            let last_extended = current_ledger.saturating_sub(max_ttl as u64 / 2);
+            let risk = compute_expiry_risk(current_ledger, last_extended, max_ttl);
+
+            if risk.critical_keys > 0 || risk.imminent_keys > 0 {
+                risks.push_back((
+                    String::from_str(env, label),
+                    String::from_str(env, "at_risk"),
+                ));
+            }
+        }
+
+        risks
     }
 }

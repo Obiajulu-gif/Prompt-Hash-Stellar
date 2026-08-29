@@ -76,8 +76,11 @@ sudo nano /etc/cron.d/prompt-hash-rotation
 ```bash
 curl -X POST https://your-domain.com/api/auth/rotateSecret \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -d '{"operatorId":"operator-a"}'
 ```
+
+Secret rotation now requires distinct operator approvals before the compare-and-swap update is executed. Set `SECRET_ROTATION_REQUIRED_APPROVALS` to the required quorum; the default is `2`. The first valid approval returns HTTP `202` with the approval count. The approval that reaches quorum performs the rotation, verifies that at least one active secret can be decrypted, and rolls back the in-memory rotation state if verification fails.
 
 **Response:**
 ```json

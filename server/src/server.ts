@@ -16,6 +16,7 @@ import { notificationRouter } from "./routes/notificationRoutes";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
+import { startWebhookOutboxWorker } from "./services/webhookOutboxWorker";
 import connectDb from "./db/connectDb";
 import { runMigrations } from "./db/migrationRunner";
 import {
@@ -24,6 +25,7 @@ import {
   strictLimiter,
   chatLimiter,
 } from "./middleware/rateLimiter";
+import { correlationMiddleware } from "./middleware/correlation";
 
 // ── Sentry backend monitoring (#332) ─────────────────────────────────────────
 // Set SENTRY_DSN in the server .env to enable exception capture.
@@ -41,6 +43,7 @@ const port = 5000;
 
 // Sentry error handler should be registered after routes (#332).
 app.use(express.json());
+app.use(correlationMiddleware);
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
 // Global rate limit: 100 requests per 15 minutes per IP.
@@ -88,6 +91,21 @@ if (process.env.SENTRY_DSN) {
   }
 }
 
+// Global Express error handler to print error logs with Correlation IDs
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const correlationId = req.correlationId;
+  console.error(`[Express Global Error] Correlation ID: ${correlationId} |`, err);
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: err.message || "Internal Server Error",
+      correlationId,
+    });
+  } else {
+    next(err);
+  }
+});
+
+
 async function start() {
   try {
     // Only attempt database connection and migrations if not in test environment
@@ -106,6 +124,9 @@ async function start() {
       startIndexer().catch((err: unknown) => {
         console.error("Failed to start Soroban Indexer:", err);
       });
+
+      // Start the durable webhook outbox delivery worker (#536).
+      startWebhookOutboxWorker();
 
       // DAILY AUTOMATED BACKUP — runs immediately on startup then every 24 h.
       // Use BACKUP_S3_BUCKET env var to enable; silently skips if not configured.

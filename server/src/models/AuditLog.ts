@@ -9,7 +9,12 @@ export type AuditAction =
   | "unlock_no_access"
   | "unlock_integrity_failure"
   | "unlock_error"
-  | "unlock_rate_limited";
+  | "unlock_rate_limited"
+  | "unlock_replay_detected"
+  | "unlock_ledger_failure"
+  | "unlock_stale_quote"
+  | "admin_auth_success"
+  | "admin_auth_denied";
 
 export type AuditResult = "success" | "failure" | "blocked";
 
@@ -28,6 +33,11 @@ const auditLogSchema = new mongoose.Schema(
         "unlock_integrity_failure",
         "unlock_error",
         "unlock_rate_limited",
+        "unlock_replay_detected",
+        "unlock_ledger_failure",
+        "unlock_stale_quote",
+        "admin_auth_success",
+        "admin_auth_denied",
       ] as AuditAction[],
       index: true,
     },
@@ -60,6 +70,15 @@ const auditLogSchema = new mongoose.Schema(
     reason: {
       type: String,
       default: null,
+    },
+    recordHash: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    previousHash: {
+      type: String,
+      required: true,
     },
     // Sensitive fields are NEVER stored — only stable reason codes above.
     // No plaintext, no keys, no raw signatures, no challenge secrets.
