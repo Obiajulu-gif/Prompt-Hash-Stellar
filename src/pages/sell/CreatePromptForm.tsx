@@ -18,6 +18,7 @@ import {
 import { CreatorOnboarding } from "@/components/sell/CreatorOnboarding";
 import { PricingGuidance } from "@/components/sell/PricingGuidance";
 import { TagInput } from "@/components/sell/TagInput";
+import { PayoutReadinessBanner } from "@/components/sell/PayoutReadinessBanner";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useWallet } from "@/hooks/useWallet";
 import { useDraftAutoSave } from "@/hooks/useDraftAutoSave";
+import { usePayoutReadiness } from "@/hooks/usePayoutReadiness";
 import { unlockPublicKey } from "@/lib/env";
 import {
   encryptPromptPlaintext,
@@ -92,6 +94,7 @@ interface CreatePromptFormProps {
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
   const { address, signTransaction } = useWallet();
+  const { readiness, isLoading: isPayoutLoading, shouldBlock } = usePayoutReadiness();
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -256,6 +259,15 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
 
+    // Payout readiness validation - block paid prompt publication if not ready
+    if (shouldBlock) {
+      const blockingIssues = readiness?.blockers || ["Payout setup incomplete"];
+      setSubmitError(
+        `Complete your payout setup before publishing paid prompts: ${blockingIssues.join(", ")}`,
+      );
+      return;
+    }
+
     // Final duplicate gate: block submission if a duplicate was detected
     // and the creator hasn't explicitly confirmed.
     if (duplicateWarning && !duplicateConfirmed) {
@@ -384,6 +396,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             </button>
           </div>
         )}
+
+        {/* Payout Readiness Status */}
+        <PayoutReadinessBanner className="mb-4" />
 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-2">
@@ -822,13 +837,22 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           disabled={
             isSubmitting ||
             (showChecklist && checklistHasFailures) ||
-            payloadEstimate.isOverLimit
+            payloadEstimate.isOverLimit ||
+            shouldBlock ||
+            isPayoutLoading
           }
         >
           {isSubmitting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Encrypting and submitting...
+            </>
+          ) : shouldBlock ? (
+            "Complete payout setup to publish"
+          ) : isPayoutLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Checking payout setup...
             </>
           ) : (
             "Create prompt listing"
