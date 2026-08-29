@@ -47,6 +47,7 @@ export const PROMPT_METADATA_LIMITS = {
 } as const;
 
 export const promptMetadataSchema = z.object({
+  schemaVersion: z.number().int().min(1).default(PROMPT_METADATA_SCHEMA_VERSION),
   title: z
     .string()
     .trim()
@@ -103,4 +104,49 @@ export function validatePromptMetadata(input: unknown): {
     }
   }
   return { data: null, errors };
+}
+
+/**
+ * Migrates legacy prompt metadata records (v0 / unversioned) to the current
+ * canonical schema version, while rejecting future unsupported schema versions (#677).
+ */
+export function migratePromptMetadata(raw: any): {
+  data: PromptMetadata | null;
+  error?: string;
+} {
+  if (!raw || typeof raw !== "object") {
+    return { data: null, error: "Invalid metadata: input must be an object" };
+  }
+
+  const version = raw.schemaVersion ?? 0;
+
+  if (version > PROMPT_METADATA_SCHEMA_VERSION) {
+    return {
+      data: null,
+      error: `Unsupported future schema version: ${version}. Current supported version is ${PROMPT_METADATA_SCHEMA_VERSION}.`,
+    };
+  }
+
+  // Legacy v0 -> v1 migration
+  const normalized = {
+    ...raw,
+    schemaVersion: PROMPT_METADATA_SCHEMA_VERSION,
+    description: raw.description ?? "",
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    licence: raw.licence ?? "standard",
+    status: raw.status ?? raw.listingStatus ?? "draft",
+    category: (PROMPT_CATEGORIES as readonly string[]).includes(raw.category)
+      ? raw.category
+      : "Other",
+  };
+
+  const validation = validatePromptMetadata(normalized);
+  if (!validation.data) {
+    return {
+      data: null,
+      error: `Metadata migration validation failed: ${Object.values(validation.errors).join(", ")}`,
+    };
+  }
+
+  return { data: validation.data };
 }
