@@ -17,6 +17,8 @@ async function handler(req: any, res: any) {
     const query: Record<string, unknown> = {
       listingStatus: "published",
       isActive: true,
+      // Hide restricted prompts from public marketplace queries
+      moderationStatus: { $ne: "restricted" },
     };
 
     if (category) {

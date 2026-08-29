@@ -1,5 +1,5 @@
-use super::types::PromptSaleStatus;
-use soroban_sdk::{contractevent, Address, BytesN, Env};
+use super::types::{ModerationReason, PromptSaleStatus};
+use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 
 #[contractevent]
 struct PromptCreated {
@@ -23,6 +23,8 @@ struct PromptAdminModerated {
     pub prompt_id: u64,
     pub admin: Address,
     pub status: PromptSaleStatus,
+    pub reason: ModerationReason,
+    pub policy_reference: String,
 }
 
 #[contractevent]
@@ -291,11 +293,15 @@ impl Events {
         prompt_id: u64,
         admin: Address,
         status: PromptSaleStatus,
+        reason: ModerationReason,
+        policy_reference: String,
     ) {
         PromptAdminModerated {
             prompt_id,
             admin,
             status,
+            reason,
+            policy_reference,
         }
         .publish(env);
     }
