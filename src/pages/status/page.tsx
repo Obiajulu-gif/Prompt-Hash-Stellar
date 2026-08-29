@@ -23,11 +23,25 @@ interface ServiceCheck {
   error?: string;
 }
 
+interface ProbeResult {
+  name: string;
+  status: "healthy" | "degraded" | "down";
+  latencyMs: number;
+  error?: string;
+  details?: Record<string, unknown>;
+  timestamp: string;
+}
+
 interface StatusResponse {
   status: ServiceStatus;
   timestamp: string;
   uptime: number;
   services: ServiceCheck[];
+  probes?: ProbeResult[];
+  indexer?: {
+    lastIndexedLedger: number;
+    status: string;
+  };
 }
 
 function overallColor(status: ServiceStatus) {
@@ -56,7 +70,43 @@ function LatencyBar({ latencyMs }: { latencyMs: number | null }) {
   );
 }
 
-function ServiceRow({ service }: { service: ServiceCheck }) {
+function ProbeRow({ probe }: { probe: ProbeResult }) {
+  const status: ServiceStatus = probe.status === "healthy" ? "up" : probe.status === "degraded" ? "degraded" : "down";
+  
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+      <StatusIcon status={status} />
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-white capitalize">{probe.name.replace(/_/g, " ")}</p>
+        {probe.error && (
+          <p className="mt-0.5 text-xs text-rose-300 truncate">{probe.error}</p>
+        )}
+        {probe.details && Object.keys(probe.details).length > 0 && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
+              View details
+            </summary>
+            <pre className="mt-2 rounded bg-slate-950/50 p-2 text-xs text-slate-300 overflow-x-auto">
+              {JSON.stringify(probe.details, null, 2)}
+            </pre>
+          </details>
+        )}
+      </div>
+      <LatencyBar latencyMs={probe.latencyMs} />
+      <Badge
+        className={
+          status === "up"
+            ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+            : status === "degraded"
+              ? "border-amber-300/30 bg-amber-300/10 text-amber-100"
+              : "border-rose-300/30 bg-rose-300/10 text-rose-100"
+        }
+      >
+        {probe.status}
+      </Badge>
+    </div>
+  );
+}
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
       <StatusIcon status={service.status} />
@@ -183,7 +233,7 @@ export default function StatusPage() {
 
         {/* Service list */}
         <section className="mt-6 space-y-3">
-          <h2 className="text-xs uppercase tracking-[0.2em] text-slate-500">Services</h2>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-slate-500">External Services</h2>
           {loading && !data ? (
             <div className="flex items-center gap-3 py-10 text-slate-400">
               <RefreshCw className="h-5 w-5 animate-spin" />
@@ -197,6 +247,48 @@ export default function StatusPage() {
             <p className="text-sm text-slate-400">Could not load status.</p>
           )}
         </section>
+
+        {/* Health Probes */}
+        {data?.probes && data.probes.length > 0 && (
+          <section className="mt-8 space-y-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs uppercase tracking-[0.2em] text-slate-500">Health Probes</h2>
+              <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-100 text-[10px]">
+                Synthetic Tests
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              Read-only checks exercising core marketplace workflows without mutating state
+            </p>
+            {data.probes.map((probe) => (
+              <ProbeRow key={probe.name} probe={probe} />
+            ))}
+          </section>
+        )}
+
+        {/* Indexer Status */}
+        {data?.indexer && (
+          <section className="mt-8">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-slate-500 mb-3">Indexer</h2>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Event Indexer</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Last indexed ledger: {data.indexer.lastIndexedLedger.toLocaleString()}
+                  </p>
+                </div>
+                <Badge className={
+                  data.indexer.status === "active"
+                    ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+                    : "border-slate-400/30 bg-slate-400/10 text-slate-300"
+                }>
+                  {data.indexer.status}
+                </Badge>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Meta */}
         {data && (
