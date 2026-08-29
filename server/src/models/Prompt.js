@@ -155,6 +155,21 @@ const promptSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Search index synchronization state (#699)
+    searchIndexStatus: {
+      type: String,
+      enum: ["synced", "pending", "failed"],
+      default: "synced",
+      index: true,
+    },
+    searchIndexError: {
+      type: String,
+      default: null,
+    },
+    lastIndexedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

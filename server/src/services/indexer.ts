@@ -320,3 +320,67 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       break;
   }
 }
+
+/**
+ * Refreshes the search index and cache for a prompt listing atomically,
+ * tracking index status ('pending' -> 'synced' | 'failed') and errors (#699).
+ */
+export async function refreshPromptIndex(
+  promptId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      { $set: { searchIndexStatus: "pending" } },
+    );
+
+    // Invalidate read caches
+    await invalidatePromptCaches(promptId);
+
+    // Update to synced
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "synced",
+          searchIndexError: null,
+          lastIndexedAt: new Date(),
+        },
+      },
+    );
+
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error?.message || "Search index refresh failed";
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "failed",
+          searchIndexError: errorMsg,
+        },
+      },
+    );
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Retries failed search index refreshes across all prompts (#699)
+ */
+export async function retryFailedIndexRefreshes(): Promise<{
+  retried: number;
+  succeeded: number;
+}> {
+  const failedPrompts = await Prompt.find({ searchIndexStatus: "failed" }).limit(50);
+  let succeeded = 0;
+
+  for (const prompt of failedPrompts) {
+    const res = await refreshPromptIndex(String(prompt._id));
+    if (res.success) {
+      succeeded++;
+    }
+  }
+
+  return { retried: failedPrompts.length, succeeded };
+}
