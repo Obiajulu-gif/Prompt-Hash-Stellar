@@ -39,6 +39,9 @@ export const ErrorCode = {
   /** Too many requests from this wallet address. */
   RATE_LIMIT_WALLET: "RATE_LIMIT_WALLET",
 
+  /** Too many unlock attempts for a specific prompt (buyer/prompt/failure scope). */
+  RATE_LIMIT_ENTITLEMENT: "RATE_LIMIT_ENTITLEMENT",
+
   // ── Server errors (5xx) ───────────────────────────────────────────────────
 
   /** The server is missing required configuration (never expose details). */
@@ -98,6 +101,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STALE_PROMPT_TERMS: "This prompt changed since you opened it. Refresh the prompt and sign again.",
   RATE_LIMIT_IP: "Too many requests. Please wait a moment, then try again.",
   RATE_LIMIT_WALLET: "Too many unlock attempts for this wallet. Please wait a minute and try again.",
+  RATE_LIMIT_ENTITLEMENT: "Too many unlock attempts for this prompt. Please wait a moment and try again.",
   CONFIGURATION_ERROR: "Something went wrong on our end. Please try again later.",
   INTEGRITY_FAILURE: "Prompt content could not be verified. Please contact support if this persists.",
   TEMPORARY_FAILURE: "A temporary error occurred. Please try again in a moment.",

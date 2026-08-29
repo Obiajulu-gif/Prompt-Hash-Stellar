@@ -195,6 +195,63 @@ async function handler(
     }
   }
 
+  // ── Composite buyer/prompt/failure-aware throttling ────────────────────
+  // Prevents a single buyer from hammering one prompt (repeated failed unlocks
+  // can stress entitlement checks and hide abuse patterns). Each scope gets an
+  // independent counter; legitimate retries after an indexer delay stay allowed.
+  const throttleComposite = async (
+    scope: string,
+    max: number,
+    windowMs: number,
+    auditReason: string,
+  ): Promise<boolean> => {
+    const composite = await checkRateLimit("unlock", String(address ?? clientIp), isAuthenticated, {
+      scope,
+      maxOverride: max,
+      windowOverride: windowMs,
+    });
+    if (!composite.success) {
+      req.logger.warn({ address, promptId, scope }, "Composite unlock rate limit exceeded");
+      metrics.trackRateLimitHit("unlock_composite", `${address ?? clientIp}:${scope}`);
+      void recordAuditEvent({
+        action: "unlock_rate_limited",
+        result: "blocked",
+        promptId: promptId ? String(promptId) : null,
+        walletAddress: address ? String(address) : null,
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: auditReason,
+      });
+      res.setHeader("X-RateLimit-Limit", composite.limit);
+      res.setHeader("X-RateLimit-Remaining", 0);
+      res.setHeader("X-RateLimit-Reset", composite.reset);
+      res.status(429).json(
+        apiError(
+          ErrorCode.RATE_LIMIT_ENTITLEMENT,
+          "Too many unlock attempts for this prompt. Please wait a moment and try again.",
+          { reset: composite.reset },
+        ),
+      );
+      return true;
+    }
+    return false;
+  };
+
+  // Buyer + prompt level: repeated unlock attempts for the same prompt are
+  // throttled even when spread across different failure reasons.
+  if (address && promptId) {
+    if (
+      await throttleComposite(
+        `prompt:${promptId}`,
+        8,
+        60_000,
+        "entitlement_rate_limit_exceeded",
+      )
+    ) {
+      return;
+    }
+  }
+
   const challengeSecret = process.env.CHALLENGE_TOKEN_SECRET;
   const unlockPublicKey = process.env.UNLOCK_PUBLIC_KEY;
   const unlockPrivateKey = process.env.UNLOCK_PRIVATE_KEY;
@@ -343,6 +400,17 @@ async function handler(
         DEFAULT_MAX_LEDGER_AGE,
       );
     } catch {
+      // Throttle repeated ledger-verification failures for the same prompt.
+      if (
+        await throttleComposite(
+          `prompt:${promptId}:reason:ledger_verification_failed`,
+          3,
+          60_000,
+          "entitlement_rate_limit_exceeded",
+        )
+      ) {
+        return;
+      }
       req.logger.error({ address, promptId }, "Ledger entitlement verification failed (RPC error)");
       metrics.trackUnlockFailure(String(address), String(promptId), "ledger_verification_failed");
       void recordAuditEvent({
@@ -361,6 +429,18 @@ async function handler(
     }
 
     if (!entitlement.hasAccess) {
+      // Throttle repeated entitlement failures for the same prompt so abuse
+      // patterns (e.g. probing access on a prompt you never bought) are contained.
+      if (
+        await throttleComposite(
+          `prompt:${promptId}:reason:no_access`,
+          3,
+          60_000,
+          "entitlement_rate_limit_exceeded",
+        )
+      ) {
+        return;
+      }
       req.logger.warn(
         { address, promptId, ledgerSequence: entitlement.ledgerSequence, ledgerHash: entitlement.ledgerHash },
         "Prompt access denied (ledger-verified)",
