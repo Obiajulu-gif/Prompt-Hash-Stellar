@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  Download,
   ExternalLink,
   Loader2,
   Wallet,
@@ -37,6 +38,35 @@ function loadPayoutPreferences(address: string): PayoutPreferences | null {
   }
 }
 
+interface StatementLine {
+  id: string;
+  kind: "sale" | "refund";
+  saleDate: string;
+  promptTitle: string;
+  promptId: string;
+  buyerAddress: string;
+  grossAmount: number;
+  platformFee: number;
+  creatorAmount: number;
+  txHash: string;
+  settlementStatus: "settled" | "pending" | "failed";
+}
+
+interface StatementSummary {
+  grossAmount: number;
+  platformFee: number;
+  refunds: number;
+  netSettlement: number;
+  settlementStatus: "settled" | "pending" | "failed";
+}
+
+interface PayoutStatementResponse {
+  statement: StatementLine[];
+  summary: StatementSummary;
+  status: "settled" | "pending" | "failed";
+  balanced: boolean;
+}
+
 export default function PayoutSettingsPage() {
   usePageMeta({
     title: "Payout Settings",
@@ -55,6 +85,46 @@ export default function PayoutSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [statement, setStatement] = useState<PayoutStatementResponse | null>(
+    null,
+  );
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementError, setStatementError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!address) return;
+
+    let cancelled = false;
+    setStatementLoading(true);
+    setStatementError(null);
+
+    fetch(
+      `/api/prompts/creator/${encodeURIComponent(address)}/payout-statement`,
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error("Failed to load payout statement.");
+        }
+        return (await res.json()) as PayoutStatementResponse;
+      })
+      .then((data) => {
+        if (!cancelled) setStatement(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setStatementError(
+            err instanceof Error ? err.message : "Failed to load payout statement.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStatementLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
 
   const handleSave = async () => {
     if (!address) return;
@@ -271,11 +341,202 @@ export default function PayoutSettingsPage() {
                 </div>
               </div>
             </div>
+
+            <Card className="border-white/10 bg-white/[0.03]">
+              <CardContent className="p-6 space-y-6">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <Banknote className="h-5 w-5 text-cyan-200" />
+                      Payout Statement
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-400">
+                      Your sales are reconciled against platform fees, refunds,
+                      and net settlement so every statement balances.
+                    </p>
+                  </div>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.08]"
+                  >
+                    <a
+                      href={`/api/prompts/creator/${encodeURIComponent(address)}/payout-statement?format=csv`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Download className="mr-1.5 h-4 w-4" />
+                      Export CSV
+                    </a>
+                  </Button>
+                </div>
+
+                {statementLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-400">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading payout statement...
+                  </div>
+                ) : statementError ? (
+                  <div className="flex items-center gap-2 text-sm text-red-400">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    {statementError}
+                  </div>
+                ) : statement ? (
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <SummaryStat
+                        label="Gross Sales"
+                        value={statement.summary.grossAmount}
+                        accent="text-cyan-200"
+                      />
+                      <SummaryStat
+                        label="Platform Fees"
+                        value={statement.summary.platformFee}
+                        accent="text-amber-300"
+                      />
+                      <SummaryStat
+                        label="Refunds"
+                        value={statement.summary.refunds}
+                        accent="text-rose-300"
+                      />
+                      <SummaryStat
+                        label="Net Settlement"
+                        value={statement.summary.netSettlement}
+                        accent="text-emerald-300"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SettlementBadge status={statement.status} />
+                      {statement.balanced ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Statement balances gross, fees, refunds, and net
+                          payout.
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs text-red-400">
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          Statement is out of balance - please contact support.
+                        </span>
+                      )}
+                    </div>
+
+                    {statement.statement.length > 0 ? (
+                      <div className="max-h-72 overflow-y-auto rounded-xl border border-white/10">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-[#0d1117] text-slate-400">
+                            <tr className="border-b border-white/10">
+                              <th className="px-3 py-2 font-medium">Date</th>
+                              <th className="px-3 py-2 font-medium">Prompt</th>
+                              <th className="px-3 py-2 font-medium">Type</th>
+                              <th className="px-3 py-2 font-medium text-right">
+                                Gross
+                              </th>
+                              <th className="px-3 py-2 font-medium text-right">
+                                Fee
+                              </th>
+                              <th className="px-3 py-2 font-medium text-right">
+                                Net
+                              </th>
+                              <th className="px-3 py-2 font-medium">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-slate-300">
+                            {statement.statement.map((line) => (
+                              <tr
+                                key={line.id}
+                                className="border-b border-white/5 last:border-0"
+                              >
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                  {line.saleDate.slice(0, 10)}
+                                </td>
+                                <td className="px-3 py-2 max-w-40 truncate">
+                                  {line.promptTitle}
+                                </td>
+                                <td className="px-3 py-2 uppercase">
+                                  {line.kind}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {line.grossAmount}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {line.platformFee}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {line.creatorAmount}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <SettlementBadge
+                                    status={line.settlementStatus}
+                                    compact
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">
+                        No sales in the current statement period yet.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
           </div>
         )}
       </main>
 
       <Footer />
     </div>
+  );
+}
+
+function SummaryStat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
+        {label}
+      </p>
+      <p className={`mt-1.5 font-mono text-lg font-bold ${accent}`}>{value}</p>
+    </div>
+  );
+}
+
+function SettlementBadge({
+  status,
+  compact,
+}: {
+  status: "settled" | "pending" | "failed";
+  compact?: boolean;
+}) {
+  const styles =
+    status === "settled"
+      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+      : status === "pending"
+        ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+        : "bg-rose-500/10 text-rose-300 border-rose-500/20";
+  const label =
+    status === "settled"
+      ? "Settled"
+      : status === "pending"
+        ? "Pending"
+        : "Failed";
+  return (
+    <Badge className={`border ${styles} ${compact ? "text-[10px]" : ""}`}>
+      {label}
+    </Badge>
   );
 }

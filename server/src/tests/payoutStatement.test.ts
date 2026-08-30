@@ -5,10 +5,185 @@ import User from "../models/User";
 import Prompt from "../models/Prompt";
 import Purchase from "../models/Purchase";
 import { GetCreatorPayoutStatement } from "../controllers/purchaseControllers";
+import {
+  reconcilePayoutEvents,
+  buildStatementLine,
+  settlementStatusFor,
+  type PayoutEventSource,
+} from "../services/payoutReconciliation";
 
 vi.mock("../db/connectDb", () => ({
   default: vi.fn(),
 }));
+
+function mockUserFind(user: unknown) {
+  vi.spyOn(User, "findOne").mockReturnValue({
+    select: vi.fn().mockResolvedValue(user),
+  } as any);
+}
+
+function mockPromptFind(prompts: unknown[]) {
+  vi.spyOn(Prompt, "find").mockReturnValue({
+    select: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(prompts),
+    }),
+  } as any);
+}
+
+function mockPurchaseFind(purchases: unknown[]) {
+  return vi.spyOn(Purchase, "find").mockReturnValue({
+    sort: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(purchases),
+    }),
+  } as any);
+}
+
+describe("payoutReconciliation service", () => {
+  it("builds a sale line with separated gross, fee, and net amounts", () => {
+    const line = buildStatementLine(
+      {
+        _id: "purchase-1",
+        promptId: "101",
+        buyerWallet: "0xbuyer",
+        txHash: "0xhash",
+        createdAt: new Date("2026-07-01T10:00:00Z"),
+      },
+      { _id: "p1", onChainId: "101", title: "T", price: 100 },
+    );
+
+    expect(line).toMatchObject({
+      kind: "sale",
+      grossAmount: 100,
+      platformFee: 5,
+      creatorAmount: 95,
+      settlementStatus: "settled",
+    });
+  });
+
+  it("balances gross, fees, refunds, and net payout across a refund after payout", () => {
+    const sale: PayoutEventSource = {
+      _id: "sale-1",
+      promptId: "101",
+      buyerWallet: "0xbuyer",
+      txHash: "0xsale",
+      createdAt: new Date("2026-07-01"),
+    };
+    const refund: PayoutEventSource = {
+      _id: "refund-1",
+      promptId: "102",
+      buyerWallet: "0xbuyer2",
+      disputeResolution: "refunded",
+      status: "resolved",
+      txHash: "0xrefund",
+      createdAt: new Date("2026-07-10"),
+    };
+
+    const promptByKey = new Map([
+      ["101", { onChainId: "101", title: "A", price: 100 }],
+      ["102", { onChainId: "102", title: "B", price: 50 }],
+    ]);
+
+    const result = reconcilePayoutEvents([sale, refund], promptByKey as any);
+
+    expect(result.balanced).toBe(true);
+    expect(result.summary.grossAmount).toBe(100);
+    expect(result.summary.platformFee).toBeCloseTo(2.5); // 5 - 2.5 refund fee credit
+    expect(result.summary.refunds).toBe(50);
+    expect(result.summary.netSettlement).toBeCloseTo(47.5); // 95 - 47.5
+    expect(result.summary.grossAmount - result.summary.platformFee - result.summary.refunds).toBeCloseTo(
+      result.summary.netSettlement,
+    );
+  });
+
+  it("reconciles a partial period using only the events provided", () => {
+    const january: PayoutEventSource = {
+      _id: "jan",
+      promptId: "101",
+      buyerWallet: "0xa",
+      txHash: "0x1",
+      createdAt: new Date("2026-01-15"),
+    };
+    const february: PayoutEventSource = {
+      _id: "feb",
+      promptId: "101",
+      buyerWallet: "0xb",
+      txHash: "0x2",
+      createdAt: new Date("2026-02-15"),
+    };
+
+    const promptByKey = new Map([["101", { onChainId: "101", price: 100 }]]);
+
+    const partial = reconcilePayoutEvents([january], promptByKey as any);
+    const full = reconcilePayoutEvents([january, february], promptByKey as any);
+
+    expect(partial.summary.grossAmount).toBe(100);
+    expect(full.summary.grossAmount).toBe(200);
+    expect(partial.balanced).toBe(true);
+  });
+
+  it("marks pending and failed settlements clearly", () => {
+    expect(
+      settlementStatusFor({
+        _id: "x",
+        promptId: "1",
+        buyerWallet: "0xa",
+        txHash: "0xabc",
+      }),
+    ).toBe("settled");
+
+    expect(
+      settlementStatusFor({
+        _id: "x",
+        promptId: "1",
+        buyerWallet: "0xa",
+      }),
+    ).toBe("pending");
+
+    expect(
+      settlementStatusFor({
+        _id: "x",
+        promptId: "1",
+        buyerWallet: "0xa",
+        status: "resolved",
+        disputeResolution: "refunded",
+      }),
+    ).toBe("failed");
+  });
+
+  it("represents a failed payout in the statement status", () => {
+    const purchases: PayoutEventSource[] = [
+      { _id: "ok", promptId: "101", buyerWallet: "0xa", txHash: "0xsale" },
+      {
+        _id: "failed-refund",
+        promptId: "102",
+        buyerWallet: "0xb",
+        status: "resolved",
+        disputeResolution: "refunded",
+      },
+    ];
+    const promptByKey = new Map([
+      ["101", { price: 100 }],
+      ["102", { price: 50 }],
+    ]);
+    const result = reconcilePayoutEvents(purchases, promptByKey as any);
+
+    const refundLine = result.statement.find((l) => l.id === "failed-refund");
+    expect(refundLine?.settlementStatus).toBe("failed");
+    expect(result.status).toBe("failed");
+  });
+
+  it("represents a pending settlement in the statement status", () => {
+    const purchases: PayoutEventSource[] = [
+      { _id: "ok", promptId: "101", buyerWallet: "0xa", txHash: "0xsale" },
+      { _id: "pending", promptId: "101", buyerWallet: "0xb" },
+    ];
+    const promptByKey = new Map([["101", { price: 100 }]]);
+    const result = reconcilePayoutEvents(purchases, promptByKey as any);
+
+    expect(result.statement.find((l) => l.id === "pending")?.settlementStatus).toBe("pending");
+    expect(result.status).toBe("pending");
+  });
+});
 
 describe("GetCreatorPayoutStatement", () => {
   let mockReq: Partial<Request>;
@@ -41,9 +216,7 @@ describe("GetCreatorPayoutStatement", () => {
 
   it("should return 404 if user is not found", async () => {
     mockReq.params = { walletAddress: "nonexistent-wallet" };
-    vi.spyOn(User, "findOne").mockReturnValue({
-      select: vi.fn().mockResolvedValue(null),
-    } as any);
+    mockUserFind(null);
 
     await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
 
@@ -51,24 +224,28 @@ describe("GetCreatorPayoutStatement", () => {
     expect(mockRes.json).toHaveBeenCalledWith({ error: "User not found." });
   });
 
-  it("should return an empty statement array when creator has no prompts", async () => {
+  it("should return an empty balanced statement array when creator has no prompts", async () => {
     const creatorWallet = "0xcreator123";
     mockReq.params = { walletAddress: creatorWallet };
 
     const mockUserId = new mongoose.Types.ObjectId();
-    vi.spyOn(User, "findOne").mockReturnValue({
-      select: vi.fn().mockResolvedValue({ _id: mockUserId, walletAddress: creatorWallet }),
-    } as any);
-
-    vi.spyOn(Prompt, "find").mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as any);
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
+    mockPromptFind([]);
 
     await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
 
-    expect(mockRes.json).toHaveBeenCalledWith({ statement: [] });
+    expect(mockRes.json).toHaveBeenCalledWith({
+      statement: [],
+      summary: {
+        grossAmount: 0,
+        platformFee: 0,
+        refunds: 0,
+        netSettlement: 0,
+        settlementStatus: "settled",
+      },
+      status: "settled",
+      balanced: true,
+    });
   });
 
   it("should return empty CSV header when creator has no prompts and format=csv", async () => {
@@ -77,50 +254,35 @@ describe("GetCreatorPayoutStatement", () => {
     mockReq.query = { format: "csv" };
 
     const mockUserId = new mongoose.Types.ObjectId();
-    vi.spyOn(User, "findOne").mockReturnValue({
-      select: vi.fn().mockResolvedValue({ _id: mockUserId, walletAddress: creatorWallet }),
-    } as any);
-
-    vi.spyOn(Prompt, "find").mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as any);
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
+    mockPromptFind([]);
 
     await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
 
     expect(mockRes.setHeader).toHaveBeenCalledWith("Content-Type", "text/csv");
     expect(mockRes.status).toHaveBeenCalledWith(200);
     expect(mockRes.send).toHaveBeenCalledWith(
-      `"Sale Date","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Transaction Hash"\n`
+      `"Sale Date","Type","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Settlement Status","Transaction Hash"\n`
     );
   });
 
-  it("should return statement with separated gross, fee, and net creator amounts for creator sales", async () => {
+  it("should return a reconciled statement with summary for creator sales", async () => {
     const creatorWallet = "0xcreator123";
     mockReq.params = { walletAddress: creatorWallet };
 
     const mockUserId = new mongoose.Types.ObjectId();
     const promptObjId = new mongoose.Types.ObjectId();
-
-    vi.spyOn(User, "findOne").mockReturnValue({
-      select: vi.fn().mockResolvedValue({ _id: mockUserId, walletAddress: creatorWallet }),
-    } as any);
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
 
     const mockPrompts = [
       {
         _id: promptObjId,
         onChainId: "101",
         title: "Advanced SEO Prompt",
-        price: 100, // 100 XLM
+        price: 100,
       },
     ];
-
-    vi.spyOn(Prompt, "find").mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue(mockPrompts),
-      }),
-    } as any);
+    mockPromptFind(mockPrompts);
 
     const saleDate = new Date("2026-07-01T10:00:00Z");
     const mockPurchases = [
@@ -133,12 +295,7 @@ describe("GetCreatorPayoutStatement", () => {
         createdAt: saleDate,
       },
     ];
-
-    vi.spyOn(Purchase, "find").mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue(mockPurchases),
-      }),
-    } as any);
+    mockPurchaseFind(mockPurchases);
 
     await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
 
@@ -146,16 +303,27 @@ describe("GetCreatorPayoutStatement", () => {
       statement: [
         {
           id: expect.any(String),
+          kind: "sale",
           saleDate: saleDate.toISOString(),
           promptTitle: "Advanced SEO Prompt",
           promptId: "101",
           buyerAddress: "0xbuyer456",
           grossAmount: 100,
-          platformFee: 5, // 5% of 100 = 5
-          creatorAmount: 95, // 100 - 5 = 95
+          platformFee: 5,
+          creatorAmount: 95,
           txHash: "0xtxhash123",
+          settlementStatus: "settled",
         },
       ],
+      summary: {
+        grossAmount: 100,
+        platformFee: 5,
+        refunds: 0,
+        netSettlement: 95,
+        settlementStatus: "settled",
+      },
+      status: "settled",
+      balanced: true,
     });
   });
 
@@ -166,28 +334,19 @@ describe("GetCreatorPayoutStatement", () => {
 
     const mockUserId = new mongoose.Types.ObjectId();
     const promptObjId = new mongoose.Types.ObjectId();
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
 
-    vi.spyOn(User, "findOne").mockReturnValue({
-      select: vi.fn().mockResolvedValue({ _id: mockUserId, walletAddress: creatorWallet }),
-    } as any);
-
-    const mockPrompts = [
+    mockPromptFind([
       {
         _id: promptObjId,
         onChainId: "101",
         title: 'Creative "Quotes" Prompt',
         price: 50,
       },
-    ];
-
-    vi.spyOn(Prompt, "find").mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue(mockPrompts),
-      }),
-    } as any);
+    ]);
 
     const saleDate = new Date("2026-07-15T12:00:00Z");
-    const mockPurchases = [
+    mockPurchaseFind([
       {
         _id: new mongoose.Types.ObjectId(),
         promptId: "101",
@@ -195,21 +354,125 @@ describe("GetCreatorPayoutStatement", () => {
         txHash: "0xhash999",
         createdAt: saleDate,
       },
-    ];
-
-    vi.spyOn(Purchase, "find").mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue(mockPurchases),
-      }),
-    } as any);
+    ]);
 
     await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
 
     expect(mockRes.setHeader).toHaveBeenCalledWith("Content-Type", "text/csv");
     const expectedCsv =
-      `"Sale Date","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Transaction Hash"\n` +
-      `"${saleDate.toISOString()}","Creative ""Quotes"" Prompt","101","0xbuyer789",50,2.5,47.5,"0xhash999"`;
+      `"Sale Date","Type","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Settlement Status","Transaction Hash"\n` +
+      `"${saleDate.toISOString()}",sale,"Creative ""Quotes"" Prompt","101","0xbuyer789",50,2.5,47.5,settled,"0xhash999"`;
     expect(mockRes.send).toHaveBeenCalledWith(expectedCsv);
+  });
+
+  it("should include refund lines and balanced summary when sales were refunded", async () => {
+    const creatorWallet = "0xcreator123";
+    mockReq.params = { walletAddress: creatorWallet };
+
+    const mockUserId = new mongoose.Types.ObjectId();
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
+
+    mockPromptFind([
+      { _id: new mongoose.Types.ObjectId(), onChainId: "101", title: "P1", price: 100 },
+      { _id: new mongoose.Types.ObjectId(), onChainId: "102", title: "P2", price: 50 },
+    ]);
+
+    const saleDate = new Date("2026-07-01T10:00:00Z");
+    const refundDate = new Date("2026-07-20T10:00:00Z");
+    mockPurchaseFind([
+      {
+        _id: new mongoose.Types.ObjectId(),
+        promptId: "101",
+        buyerWallet: "0xbuyer456",
+        txHash: "0xsale",
+        createdAt: saleDate,
+      },
+      {
+        _id: new mongoose.Types.ObjectId(),
+        promptId: "102",
+        buyerWallet: "0xbuyer789",
+        status: "resolved",
+        disputeResolution: "refunded",
+        txHash: "0xrefund",
+        createdAt: refundDate,
+      },
+    ]);
+
+    await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
+
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statement: expect.arrayContaining([
+          expect.objectContaining({ kind: "sale", grossAmount: 100 }),
+          expect.objectContaining({
+            kind: "refund",
+            grossAmount: -50,
+            platformFee: -2.5,
+            creatorAmount: -47.5,
+            settlementStatus: "settled",
+          }),
+        ]),
+        summary: expect.objectContaining({
+          grossAmount: 100,
+          refunds: 50,
+          platformFee: 2.5,
+          netSettlement: 47.5,
+        }),
+        status: "settled",
+        balanced: true,
+      }),
+    );
+  });
+
+  it("should surface failed and pending settlements clearly", async () => {
+    const creatorWallet = "0xcreator123";
+    mockReq.params = { walletAddress: creatorWallet };
+
+    const mockUserId = new mongoose.Types.ObjectId();
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
+
+    mockPromptFind([
+      { _id: new mongoose.Types.ObjectId(), onChainId: "101", title: "P1", price: 100 },
+      { _id: new mongoose.Types.ObjectId(), onChainId: "102", title: "P2", price: 100 },
+      { _id: new mongoose.Types.ObjectId(), onChainId: "103", title: "P3", price: 100 },
+    ]);
+
+    mockPurchaseFind([
+      {
+        _id: new mongoose.Types.ObjectId(),
+        promptId: "101",
+        buyerWallet: "0xbuyer456",
+        txHash: "0xsale",
+        createdAt: new Date("2026-07-01"),
+      },
+      {
+        _id: new mongoose.Types.ObjectId(),
+        promptId: "102",
+        buyerWallet: "0xbuyer789",
+        status: "resolved",
+        disputeResolution: "refunded",
+        createdAt: new Date("2026-07-02"),
+      },
+      {
+        _id: new mongoose.Types.ObjectId(),
+        promptId: "103",
+        buyerWallet: "0xbuyer000",
+        createdAt: new Date("2026-07-03"),
+      },
+    ]);
+
+    await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
+
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statement: expect.arrayContaining([
+          expect.objectContaining({ promptId: "101", settlementStatus: "settled" }),
+          expect.objectContaining({ promptId: "102", settlementStatus: "failed" }),
+          expect.objectContaining({ promptId: "103", settlementStatus: "pending" }),
+        ]),
+        status: "failed",
+      }),
+    );
   });
 
   it("should apply date range filters to purchase query", async () => {
@@ -221,21 +484,11 @@ describe("GetCreatorPayoutStatement", () => {
     };
 
     const mockUserId = new mongoose.Types.ObjectId();
-    vi.spyOn(User, "findOne").mockReturnValue({
-      select: vi.fn().mockResolvedValue({ _id: mockUserId, walletAddress: creatorWallet }),
-    } as any);
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet });
 
-    vi.spyOn(Prompt, "find").mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([{ _id: "prompt1", onChainId: "1", title: "P1", price: 10 }]),
-      }),
-    } as any);
+    mockPromptFind([{ _id: "prompt1", onChainId: "1", title: "P1", price: 10 }]);
 
-    const purchaseFindSpy = vi.spyOn(Purchase, "find").mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as any);
+    const purchaseFindSpy = mockPurchaseFind([]);
 
     await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
 
