@@ -528,64 +528,65 @@ export async function routeDecodedEvent(
 }
 
 /**
- * Replays quarantined events after an event decoder schema upgrade (#654).
- * Replay is idempotent, ordered by ledger sequence, and closes checkpoint gaps.
+ * Refreshes the search index and cache for a prompt listing atomically,
+ * tracking index status ('pending' -> 'synced' | 'failed') and errors (#699).
  */
-export async function replayQuarantinedEvents(options?: {
-  maxEvents?: number;
-  filterTopic?: string;
-}): Promise<{ replayed: number; failed: number; remaining: number }> {
-  const query: Record<string, any> = { status: "quarantined" };
-  if (options?.filterTopic) {
-    query.topic = options.filterTopic;
+export async function refreshPromptIndex(
+  promptId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      { $set: { searchIndexStatus: "pending" } },
+    );
+
+    // Invalidate read caches
+    await invalidatePromptCaches(promptId);
+
+    // Update to synced
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "synced",
+          searchIndexError: null,
+          lastIndexedAt: new Date(),
+        },
+      },
+    );
+
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error?.message || "Search index refresh failed";
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "failed",
+          searchIndexError: errorMsg,
+        },
+      },
+    );
+    return { success: false, error: errorMsg };
   }
+}
 
-  const limit = options?.maxEvents || 100;
-  const items = await QuarantinedEvent.find(query).sort({ ledger: 1, createdAt: 1 }).limit(limit);
+/**
+ * Retries failed search index refreshes across all prompts (#699)
+ */
+export async function retryFailedIndexRefreshes(): Promise<{
+  retried: number;
+  succeeded: number;
+}> {
+  const failedPrompts = await Prompt.find({ searchIndexStatus: "failed" }).limit(50);
+  let succeeded = 0;
 
-  let replayed = 0;
-  let failed = 0;
-
-  for (const item of items) {
-    try {
-      const decoded = decodeEvent(item.topic, item.rawValue);
-      if (decoded.recognized) {
-        await routeDecodedEvent(
-          decoded.type,
-          decoded.data as Record<string, any>,
-          item.eventId,
-          item.txHash,
-          item.ledger,
-        );
-
-        item.status = "replayed";
-        item.replayedAt = new Date();
-        await item.save();
-        replayed++;
-
-        // Decrement quarantine metric on indexer state
-        await IndexerState.findOneAndUpdate(
-          { key: "prompt_hash_contract" },
-          {
-            $inc: { quarantinedCount: -1 },
-            $pull: { quarantinedLedgers: item.ledger },
-          },
-        );
-      } else {
-        item.retryCount += 1;
-        await item.save();
-        failed++;
-      }
-    } catch (err: any) {
-      item.retryCount += 1;
-      item.errorDetails = err?.message || String(err);
-      await item.save();
-      failed++;
+  for (const prompt of failedPrompts) {
+    const res = await refreshPromptIndex(String(prompt._id));
+    if (res.success) {
+      succeeded++;
     }
   }
 
-  const remaining = await QuarantinedEvent.countDocuments({ status: "quarantined" });
-  logger.info("Quarantined events replay finished", { action: "replayQuarantinedEvents", replayed, failed, remaining });
-
-  return { replayed, failed, remaining };
+  return { retried: failedPrompts.length, succeeded };
 }
