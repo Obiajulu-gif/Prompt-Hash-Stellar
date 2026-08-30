@@ -29,6 +29,8 @@ const NotificationContext = createContext<NotificationContextType | undefined>(
   undefined,
 );
 
+import { useOfflineQueue } from "@/hooks/useOfflineQueue";
+
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
@@ -58,8 +60,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
   const contextValue = useMemo(() => ({ addNotification }), [addNotification]);
 
   return (
-    <NotificationContext value={contextValue}>
+    <NotificationContext.Provider value={contextValue}>
       {children}
+      <OfflineQueueManager />
       <div className="notification-container">
         {notifications.map((notification) => (
           <div
@@ -96,3 +99,8 @@ function filterOut(
 
 export { NotificationContext };
 export type { NotificationContextType };
+
+function OfflineQueueManager() {
+  useOfflineQueue();
+  return null;
+}

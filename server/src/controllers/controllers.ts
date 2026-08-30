@@ -18,6 +18,7 @@ import { sendConditionalJson, markPrivate } from "../middleware/etag";
 import { notifyPromptReported } from "../services/emailNotifications";
 import { announceNewPrompt } from "../services/discordNotifications";
 import { logger } from "../services/structuredLogger";
+import { checkSimilarityForContent } from "../services/similarityDetection";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -776,6 +777,33 @@ export const GetPromptsByContentHash = async (
     return res.status(500).json({
       error:
         (error as Error).message || "Failed to find prompts by content hash",
+    });
+  }
+};
+
+/**
+ * Check prompt similarity for a given content string.
+ * Used for pre-publish duplicate detection (anti-plagiarism).
+ */
+
+export const CheckSimilarity = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+    const { content, category } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: "content is required." });
+    }
+
+    const result = await checkSimilarityForContent(content, category);
+    return res.json(result);
+  } catch (error) {
+    logger.error("Check similarity error", { action: "checkSimilarity", error });
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to check similarity",
     });
   }
 };

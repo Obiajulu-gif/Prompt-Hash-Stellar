@@ -176,6 +176,13 @@ function PromptLibraryCard({
     unlockState,
   });
 
+  const isRefunded = receiptQuery.data?.disputeResolution === "refunded";
+  const isRevoked = receiptQuery.data?.purchaseStatus === "revoked";
+
+  if (isRefunded || isRevoked) {
+    return null;
+  }
+
   return (
     <article className="overflow-hidden rounded-xl border border-white/10 bg-[#0f1419] transition-colors hover:border-white/[0.18]">
       <div className="p-5 space-y-4">

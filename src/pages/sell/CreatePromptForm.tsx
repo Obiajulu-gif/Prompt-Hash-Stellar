@@ -61,6 +61,7 @@ import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloa
 import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
 import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { saveRemixAttribution } from "@/lib/prompts/remixAttribution";
+import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 
 
 
@@ -214,8 +215,8 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     [watchAllFields.fullPrompt],
   );
 
-  const checkDuplicateHash = useCallback(
-    async (plaintext: string) => {
+  const checkSimilarity = useCallback(
+    async (plaintext: string, category: string) => {
       if (!plaintext.trim()) {
         setDuplicateWarning(null);
         return;
@@ -226,34 +227,43 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       setDuplicateConfirmed(false);
 
       try {
-        const hash = await hashPromptPlaintext(plaintext);
-        const config = browserStellarConfig;
-        const matches = await findPromptByContentHash(config, hash);
+        const response = await fetch("/api/prompts/similarity/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: plaintext, category }),
+        });
 
-        if (matches.length > 0) {
-          const owned = matches.filter((m) => m.creator === address);
-          if (owned.length > 0) {
+        if (response.ok) {
+          const result = await response.json();
+          if (result.flag === "highly_similar") {
             setDuplicateWarning(
-              `You already have a listing with this exact content (ID: ${owned[0].id}). Publishing will create a duplicate.`,
+              `This prompt is highly similar to an existing prompt (ID: ${result.similarTo}). Publishing is blocked to prevent plagiarism.`,
             );
-          } else {
+          } else if (result.flag === "suspicious") {
             setDuplicateWarning(
-              "A listing with this exact content already exists. Publishing will create a duplicate.",
+              `This prompt is similar to an existing prompt (ID: ${result.similarTo}). It will be flagged for review if published.`,
             );
           }
         }
-      } catch {
-        // Silently ignore hash-check failures — the listing can still proceed.
+      } catch (e) {
+        console.error("Similarity check failed:", e);
       } finally {
         setIsCheckingDuplicate(false);
       }
     },
-    [address],
+    [],
   );
+
+  const { isOnline } = useOfflineQueue();
 
   const onSubmit = async (data: any) => {
     setSubmitError(null);
     setSuccessMessage(null);
+
+    if (!isOnline) {
+      setSubmitError("You are offline. Publishing requires an active internet connection.");
+      return;
+    }
 
     if (!address || !signTransaction) {
       setSubmitError("Please connect your wallet first.");
@@ -269,11 +279,35 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
 
-    // Final duplicate gate: block submission if a duplicate was detected
-    // and the creator hasn't explicitly confirmed.
-    if (duplicateWarning && !duplicateConfirmed) {
+    // Ensure similarity check has run
+    let similarityFlag = "clean";
+    try {
+      const response = await fetch("/api/prompts/similarity/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: data.fullPrompt, category: data.category }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        similarityFlag = result.flag;
+      }
+    } catch (e) {
+      console.error("Failed to check similarity before publish", e);
+    }
+
+    if (similarityFlag === "highly_similar") {
       setSubmitError(
-        "A duplicate content hash was detected. Confirm below to proceed.",
+        "Publishing is blocked. This prompt is highly similar to an existing prompt (plagiarism).",
+      );
+      return;
+    }
+
+    if (similarityFlag === "suspicious" && !duplicateConfirmed) {
+      setDuplicateWarning(
+        "This prompt is suspiciously similar to an existing prompt. Confirm below to proceed (will be sent to review).",
+      );
+      setSubmitError(
+        "Review similarity warning before proceeding.",
       );
       return;
     }
@@ -786,7 +820,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           {watchAllFields.fullPrompt && (
             <button
               type="button"
-              onClick={() => checkDuplicateHash(watchAllFields.fullPrompt)}
+              onClick={() => checkSimilarity(watchAllFields.fullPrompt, watchAllFields.category)}
               disabled={isCheckingDuplicate}
               className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
             >
