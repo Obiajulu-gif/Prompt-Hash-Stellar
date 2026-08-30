@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createChallengeToken } from "../../src/lib/auth/challenge";
+import { createChallengeToken, computeListingSnapshotHash, type ListingSnapshot } from "../../src/lib/auth/challenge";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
@@ -23,6 +23,12 @@ export interface ChallengeRequest {
   action?: string;
   promptVersion?: string;
   expectedPriceStroops?: string;
+  /**
+   * The marketplace listing snapshot the buyer observed. The server computes the
+   * canonical hash and binds it into the challenge so a drifted listing (price,
+   * owner, asset, version, or expiry) invalidates the signed challenge later.
+   */
+  listingSnapshot?: ListingSnapshot;
 }
 
 export interface ChallengeResponse {
@@ -31,6 +37,8 @@ export interface ChallengeResponse {
   issuedAt: number;
   expiresAt: number;
   nonce: string;
+  /** Canonical hash of the listing snapshot embedded in the challenge. */
+  listingSnapshotHash?: string;
 }
 
 // Fail-fast module-load validation: reject startup if secrets are missing.
@@ -62,6 +70,7 @@ async function handler(
     action = "unlock",
     promptVersion,
     expectedPriceStroops,
+    listingSnapshot,
   }: Partial<ChallengeRequest> = req.body ?? {};
 
   const isAuthenticated = Boolean(address);
@@ -116,6 +125,22 @@ async function handler(
   // unreasonably long-lived tokens.
   const MAX_TTL_MS = 10 * 60 * 1000;
   const ttlMs = Math.min(5 * 60 * 1000, MAX_TTL_MS);
+
+  // Bind the challenge to the exact listing snapshot the buyer observed so price,
+  // owner, asset, version, or expiry drift between challenge and submission
+  // invalidates the signed challenge (issue #698).
+  let listingSnapshotHash: string | undefined;
+  if (listingSnapshot && listingSnapshot.owner) {
+    listingSnapshotHash = computeListingSnapshotHash({
+      promptId: String(promptId),
+      owner: String(listingSnapshot.owner),
+      priceStroops: String(listingSnapshot.priceStroops ?? ""),
+      asset: String(listingSnapshot.asset ?? ""),
+      version: String(listingSnapshot.version ?? ""),
+      expiresAt: String(listingSnapshot.expiresAt ?? ""),
+    });
+  }
+
   const challenge = createChallengeToken(secret, String(address), String(promptId), Date.now(), ttlMs, {
     origin: String(req.headers.origin ?? ""),
     networkPassphrase:
@@ -124,6 +149,7 @@ async function handler(
     action: String(action),
     promptVersion: promptVersion === undefined ? undefined : String(promptVersion),
     expectedPriceStroops: expectedPriceStroops === undefined ? undefined : String(expectedPriceStroops),
+    listingSnapshotHash,
   });
 
   const response: ChallengeResponse = {
@@ -132,6 +158,7 @@ async function handler(
     issuedAt: challenge.issuedAt,
     expiresAt: challenge.expiresAt,
     nonce: challenge.nonce,
+    listingSnapshotHash,
   };
 
   metrics.trackChallengeIssued(String(address), String(promptId));

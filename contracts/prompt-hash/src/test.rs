@@ -6893,3 +6893,27 @@ fn test_checked_accounting_invariant_on_double_refund_and_counters() {
     let reconciled = client.reconcile_sales_counter(&context.admin, &prompt_id);
     assert_eq!(reconciled, 0);
 }
+
+#[test]
+fn test_listing_snapshot_hash_binds_to_current_listing_state() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let prompt_id =
+        create_prompt(&env, &client, &creator, "Snapshot Prompt", 10_000_000, &context.xlm);
+
+    let h1 = client.listing_snapshot_hash(&prompt_id);
+    let h1_b = client.listing_snapshot_hash(&prompt_id);
+    assert_eq!(h1, h1_b, "snapshot hash must be deterministic for a stable listing");
+
+    // A price change must invalidate any challenge bound to the prior snapshot.
+    client.update_prompt_price(&creator, &prompt_id, &20_000_000);
+    let h2 = client.listing_snapshot_hash(&prompt_id);
+    assert_ne!(h1, h2, "snapshot hash must change when the listing price drifts");
+
+    // verify_listing_snapshot only matches the current listing state.
+    assert!(!client.verify_listing_snapshot(&prompt_id, &h1));
+    assert!(client.verify_listing_snapshot(&prompt_id, &h2));
+}

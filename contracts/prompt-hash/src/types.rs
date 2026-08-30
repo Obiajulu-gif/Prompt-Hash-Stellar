@@ -914,6 +914,17 @@ pub trait PromptHashTrait {
 
     fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error>;
     fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error>;
+
+    /// Canonical SHA-256 hash of the current listing state (owner, price, asset,
+    /// version/revision, expiry). Buyers sign this hash off-chain so a drifted
+    /// listing cannot be used to replay a stale purchase authorization (#698).
+    fn listing_snapshot_hash(env: Env, prompt_id: u64) -> Result<BytesN<32>, Error>;
+    /// Returns true iff `expected` equals the current listing snapshot hash.
+    fn verify_listing_snapshot(
+        env: Env,
+        prompt_id: u64,
+        expected: BytesN<32>,
+    ) -> Result<bool, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_category(env: Env, category: String) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_tag(env: Env, tag: String) -> Result<Vec<Prompt>, Error>;

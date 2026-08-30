@@ -6,7 +6,8 @@ use super::types::{
     Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
     SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec};
+use soroban_sdk::xdr::ToXdr;
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 
@@ -36,6 +37,23 @@ const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 // pending escrow. After it elapses with no open dispute, settlement becomes
 // permissionless (#541).
 const DISPUTE_WINDOW_SECS: u64 = 3 * 24 * 60 * 60;
+
+/// Canonical listing snapshot hash over the fields a buyer signs: id, owner,
+/// price, asset, version (revision), and expiry. Mirrors the off-chain
+/// `computeListingSnapshotHash` so the same listing always hashes identically
+/// across environments, binding off-chain purchase authorizations to the exact
+/// on-chain listing state (#698).
+fn listing_snapshot_hash(env: &Env, prompt: &Prompt) -> BytesN<32> {
+    let mut buf: Vec<Val> = Vec::new(env);
+    buf.push_back((prompt.id as u128).into_val(env));
+    buf.push_back(prompt.creator.to_val());
+    buf.push_back(prompt.price_stroops.into_val(env));
+    buf.push_back(prompt.asset.to_val());
+    buf.push_back((prompt.revision as u128).into_val(env));
+    buf.push_back((prompt.expires_at as u128).into_val(env));
+    let raw = env.crypto().sha256(&buf.to_xdr(env));
+    BytesN::from_array(env, &raw.to_array())
+}
 
 #[contract]
 pub struct PromptHashContract;
@@ -1172,6 +1190,20 @@ impl PromptHashTrait for PromptHashContract {
 
     fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error> {
         Storage::require_prompt(&env, prompt_id)
+    }
+
+    fn listing_snapshot_hash(env: Env, prompt_id: u64) -> Result<BytesN<32>, Error> {
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        Ok(listing_snapshot_hash(&env, &prompt))
+    }
+
+    fn verify_listing_snapshot(
+        env: Env,
+        prompt_id: u64,
+        expected: BytesN<32>,
+    ) -> Result<bool, Error> {
+        let current = Self::listing_snapshot_hash(env, prompt_id)?;
+        Ok(current == expected)
     }
 
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error> {

@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   buildChallengeMessage,
+  computeListingSnapshotHash,
   verifyChallengeSignature,
   verifyChallengeToken,
   globalNonceLedger,
@@ -62,6 +63,27 @@ function promptTermsChanged(
     (payload.expectedPriceStroops !== undefined && payload.expectedPriceStroops !== currentPrice) ||
     (payload.promptVersion !== undefined && payload.promptVersion !== currentVersion)
   );
+}
+
+/**
+ * Compute the canonical listing snapshot hash for the current on-chain prompt
+ * (issue #698). Mirrors `computeListingSnapshotHash` so the buyer-signed hash is
+ * comparable to the authoritative listing state at purchase submission time.
+ */
+function currentListingSnapshotHash(
+  promptId: string,
+  prompt: Record<string, unknown>,
+): string | undefined {
+  const owner = String(prompt.creator ?? "");
+  if (!owner) return undefined;
+  return computeListingSnapshotHash({
+    promptId: String(promptId),
+    owner,
+    priceStroops: String(prompt.priceStroops ?? ""),
+    asset: String((prompt as any).asset ?? ""),
+    version: String((prompt as any).revision ?? ""),
+    expiresAt: String((prompt as any).expiresAt ?? "0"),
+  });
 }
 
 // Fail-fast module load validation
@@ -494,6 +516,35 @@ async function handler(
       );
       return;
     }
+
+    // Listing snapshot binding (#698): if the buyer signed a listing snapshot
+    // hash, reject when the current on-chain listing no longer matches it
+    // (price, owner, asset, version, or expiry drift between challenge creation
+    // and purchase submission).
+    if (payload.listingSnapshotHash) {
+      const currentHash = currentListingSnapshotHash(String(id), prompt as unknown as Record<string, unknown>);
+      if (currentHash && currentHash !== payload.listingSnapshotHash) {
+        req.logger.warn({ address, promptId }, "Listing snapshot mismatch at purchase submission");
+        metrics.trackUnlockFailure(String(address), String(promptId), "stale_listing_snapshot");
+        void recordAuditEvent({
+          action: "unlock_stale_listing_snapshot",
+          result: "blocked",
+          promptId: String(promptId),
+          walletAddress: String(address),
+          requestId: req.requestId ?? null,
+          clientIp,
+          reason: "listing_snapshot_mismatch",
+        });
+        res.status(409).json(
+          apiError(
+            ErrorCode.STALE_PROMPT_TERMS,
+            "The listing changed since you opened it. Refresh before signing.",
+          ),
+        );
+        return;
+      }
+    }
+
     const keyBytes = await unwrapPromptKey(
       prompt.wrappedKey,
       unlockPublicKey,

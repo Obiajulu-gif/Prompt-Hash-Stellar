@@ -14,6 +14,7 @@ import {
   GitFork,
   ThumbsUp,
   User,
+  Hash,
 } from "lucide-react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
@@ -36,6 +37,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ReportDialog } from "@/components/prompts/ReportDialog";
 import { PromptDetailSkeleton } from "@/components/skeletons";
 import { getMarketplaceReturnUrl } from "@/lib/search/urlState";
+import { computeListingSnapshotHash } from "@/lib/auth/challenge";
 
 const FALLBACK_IMAGE = "/images/codeguru.png";
 
@@ -343,6 +345,28 @@ export default function PromptDetailPage() {
                     v{String((prompt as any).revision)}
                   </span>
                 )}
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
+                <div className="mb-1 flex items-center gap-2 font-medium text-slate-300">
+                  <Hash className="h-3.5 w-3.5" />
+                  Listing integrity snapshot
+                </div>
+                <p className="mb-2">
+                  This hash binds your purchase challenge to the exact listing state
+                  (owner, price, asset, version, expiry). Any change invalidates a
+                  pending challenge.
+                </p>
+                <code className="block break-all font-mono text-[11px] text-slate-300">
+                  {computeListingSnapshotHash({
+                    promptId: String(prompt.id),
+                    owner: String(prompt.creator),
+                    priceStroops: String(prompt.priceStroops ?? ""),
+                    asset: String((prompt as any).asset ?? ""),
+                    version: String((prompt as any).revision ?? ""),
+                    expiresAt: String((prompt as any).expiresAt ?? "0"),
+                  })}
+                </code>
               </div>
 
               <div className="flex flex-col gap-4 border-t border-white/10 pt-5">
