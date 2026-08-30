@@ -135,11 +135,12 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const watchAllFields = watch();
 
-  const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
-    address,
-    values: watchAllFields,
-    setValue,
-  });
+  const { draftRestored, lastSavedAt, discardDraft, conflict, resolveConflict } =
+    useDraftAutoSave({
+      address,
+      values: watchAllFields,
+      setValue,
+    });
 
   const isConfigured = useMemo(
     () =>
@@ -382,6 +383,47 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             >
               Discard
             </button>
+          </div>
+        )}
+
+        {conflict && isConfigured && (
+          <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+            <div className="flex items-center gap-2 font-medium text-amber-200">
+              <AlertCircle className="h-4 w-4" />
+              This draft was edited in another tab
+            </div>
+            <p className="mt-1 text-xs text-amber-200/80">
+              Your changes were made at{" "}
+              {conflict.localSavedAt
+                ? new Date(conflict.localSavedAt).toLocaleString()
+                : "an earlier time"}
+              , and a newer version was saved at{" "}
+              {conflict.storedSavedAt
+                ? new Date(conflict.storedSavedAt).toLocaleString()
+                : "another time"}
+              . Choose which version to keep.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-amber-300 text-slate-950 hover:bg-amber-200"
+                onClick={() => resolveConflict("keep-local")}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Keep my changes
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-white/20 text-amber-100 hover:bg-white/5"
+                onClick={() => resolveConflict("keep-remote")}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Keep the other changes
+              </Button>
+            </div>
           </div>
         )}
 
