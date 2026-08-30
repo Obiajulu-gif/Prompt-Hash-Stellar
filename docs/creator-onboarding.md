@@ -55,16 +55,23 @@ You might wonder: "Why not use NFTs?"
 
 ## Getting Started Checklist
 
+**Before you can publish paid prompts, you'll need to complete payout readiness validation:**
+
 - [ ] Install Freighter wallet browser extension
 - [ ] Create/restore your Stellar account
-- [ ] Fund your wallet with at least 5 XLM
+- [ ] Fund your wallet with at least 2 XLM (for transaction fees)
 - [ ] Connect wallet to PromptHash Stellar
+- [ ] **Complete your creator profile** (display name and bio required)
+- [ ] **Configure your payout address** in settings
+- [ ] **Verify payout readiness** passes all checks
 - [ ] Write your first prompt and preview
 - [ ] List your prompt with a price
 - [ ] Share your profile link with the community
 - [ ] Monitor sales and update prices based on demand
 
-**Estimated time:** 15-30 minutes
+**Estimated time:** 20-40 minutes (including profile setup and validation)
+
+**New Requirement:** As of the latest update, creators must complete payout readiness validation before publishing paid prompts. This ensures you can receive earnings and reduces failed settlements.
 
 ---
 
@@ -126,7 +133,101 @@ Freighter is a browser wallet extension that securely manages your Stellar accou
 
 ---
 
-## Step 2: Fund Your Wallet with XLM
+---
+
+## Step 2.5: Complete Payout Readiness Validation
+
+**NEW REQUIREMENT:** Before you can publish paid prompts, PromptHash validates that your payout setup is complete. This prevents failed settlements and ensures you can receive earnings from buyers.
+
+### What is Payout Readiness?
+
+Payout readiness is a 4-step validation system that checks:
+
+1. **Wallet Connection** ✅ Valid Stellar address connected
+2. **Payout Destination** ✅ Configured address where earnings will be sent  
+3. **Creator Profile** ✅ Complete profile with display name and bio
+4. **Settlement Readiness** ✅ Sufficient XLM balance for transaction fees
+
+### Checking Your Payout Readiness
+
+1. **Go to the Create Prompt page** - You'll see a payout readiness banner at the top
+2. **Check your status** - The banner shows whether you're ready or what needs to be completed
+3. **Click "Fix Setup"** if you see blocking issues
+4. **Or visit the detailed checklist** at `/sell/payout-readiness` for step-by-step guidance
+
+### Completing Each Requirement
+
+#### 1. Wallet Connection
+- This is automatic once you connect your Freighter wallet
+- Your wallet address must be a valid Stellar format (starts with 'G')
+
+#### 2. Payout Destination  
+- Go to **Profile → Payout Settings**
+- Enter a valid Stellar address where you want earnings sent
+- You can use the same address as your connected wallet, or a different one
+- **Tip:** Consider using a dedicated payout address for better organization
+
+#### 3. Creator Profile
+- Go to **Profile → Settings**  
+- Fill in **required fields:**
+  - Display Name (up to 50 characters)
+  - Bio (up to 280 characters)
+- Fill in **recommended fields** for better buyer trust:
+  - Profile picture URL
+  - Website or social media links
+
+#### 4. Settlement Readiness
+- Ensure you have at least **2 XLM** in your connected wallet
+- This covers transaction fees for publishing prompts
+- **Testnet:** Get free XLM from the [Stellar testnet faucet](https://stellar.org/developers/reference/testnet)
+- **Mainnet:** Buy XLM from exchanges like Coinbase, Kraken, or Uphold
+
+### What Happens When You're Not Ready?
+
+- **Prompt publication is blocked** - You can't submit the create prompt form
+- **Clear error messages** - You'll see exactly what needs to be completed
+- **Direct action links** - Click buttons to go straight to the right settings page
+- **Draft saving still works** - Your prompt drafts are saved while you complete setup
+
+### What Happens When You're Ready?
+
+- **Green checkmarks everywhere** ✅
+- **"Ready to publish paid prompts!"** status message
+- **Normal prompt creation** - All features work as expected
+- **Immediate earnings** - Buyers' payments come directly to your payout address
+
+### Troubleshooting Common Issues
+
+**"Invalid payout address format"**
+- Make sure your address starts with 'G' and is exactly 56 characters
+- Copy-paste from your wallet to avoid typos
+- Test the address by sending a small amount first
+
+**"Insufficient XLM balance"**  
+- You need at least 2 XLM for transaction fees
+- Balance is checked in real-time
+- Add more XLM and the check will automatically update
+
+**"Complete your creator profile"**
+- Display name and bio are required for paid prompts
+- This builds buyer trust and reduces disputes
+- Optional fields (avatar, links) improve your profile but aren't required
+
+**"Unable to verify payout readiness"**
+- Check your internet connection
+- Try refreshing the page
+- Clear browser cache if the issue persists
+
+### Getting Help
+
+If you're stuck on payout readiness setup:
+
+1. **Check the detailed checklist** - Visit `/sell/payout-readiness` for interactive guidance
+2. **Review this documentation** - All steps are covered above
+3. **Ask the community** - Join our Discord/GitHub discussions
+4. **Contact support** - Email us if you find a technical issue
+
+## Step 3: Fund Your Wallet with XLM
 
 You need XLM (Stellar Lumens) to list and eventually transfer funds from sales. Here's how to get it.
 
@@ -185,9 +286,11 @@ You need to buy real XLM from an exchange:
 
 ---
 
-## Step 3: List Your First Prompt
+## Step 4: List Your First Prompt
 
 ### Before You List
+
+**IMPORTANT: Complete payout readiness validation first (see Step 2.5 above)**
 
 Have these ready:
 1. **Prompt Title:** (e.g., "ChatGPT Prompt for SEO Blog Outlines")
@@ -196,6 +299,8 @@ Have these ready:
 4. **Full Prompt:** Your complete, working prompt
 5. **Price:** In XLM (e.g., 0.50 XLM, 1 XLM, 10 XLM - see [Pricing Guide](#pricing-your-prompts))
 6. **Featured Image:** (optional) A nice image representing your prompt (PNG/JPG)
+7. **Complete Profile:** Display name, bio, and optional avatar/links
+8. **Payout Address:** Where you want earnings sent
 
 ### Step-by-Step Listing
 
@@ -207,7 +312,10 @@ Have these ready:
 
 2. **Navigate to "Sell":**
    - Click "Sell" in the main navigation
-   - You'll see a "Create New Prompt" form
+   - You'll see a payout readiness banner at the top
+   - If you see red/yellow warnings, complete the setup steps first
+   - Once you see green "Ready to publish paid prompts!" you can continue
+   - You'll see a "Create New Prompt" form below
 
 3. **Fill in Prompt Details:**
    - **Title:** Make it clear and specific
@@ -219,6 +327,7 @@ Have these ready:
 
 4. **Review and Submit:**
    - Double-check all information
+   - Ensure payout readiness shows "Ready" status
    - Click "Create Prompt"
    - Freighter popup: Review transaction details
    - Click "Approve" to confirm
@@ -429,12 +538,37 @@ Once you list prompts, you can track performance:
 
 ## FAQ for Creators
 
+### Q: What is payout readiness validation?
+
+**A:** Payout readiness validation is a new requirement that ensures creators can receive earnings before they publish paid prompts. It checks:
+- Wallet connection is valid
+- Payout destination is configured  
+- Creator profile is complete (display name and bio required)
+- Sufficient XLM balance for transaction fees
+
+This prevents failed settlements and support issues.
+
+### Q: Why can't I publish my prompt?
+
+**A:** If you see "Complete payout setup to publish" on the submit button, you need to:
+1. Check the payout readiness banner for specific issues
+2. Visit Profile → Settings to complete your profile
+3. Visit Profile → Payout Settings to configure your payout address
+4. Ensure you have at least 2 XLM in your wallet
+5. All checks must show green ✅ before you can publish
+
+### Q: Can I save drafts while completing payout setup?
+
+**A:** Yes! Draft auto-saving works normally while you complete payout readiness. Your prompt content is preserved while you fix any blocking issues.
+
 ### Q: How do I get paid?
 
-**A:** XLM from sales automatically goes to your wallet. You can:
-- Keep it in Freighter (hold for value appreciation)
+**A:** XLM from sales automatically goes to your configured payout address (set in Profile → Payout Settings). You can:
+- Keep it in your wallet (hold for value appreciation)
 - Withdraw to an exchange and convert to USD/fiat
 - Spend it directly (some places accept XLM)
+
+**New:** Payout addresses are validated during setup to ensure payments reach you successfully.
 
 ### Q: What if I want to update my prompt?
 
@@ -469,12 +603,14 @@ You **cannot** change the full encrypted prompt (for buyer security). If you nee
 
 ### Q: What if my prompt isn't selling?
 
-**Troubleshooting:**
-1. Improve your preview (see [Best Practices](#best-practices-for-previews))
-2. Lower your price (test market demand)
-3. Add better category/tags
-4. Promote on social media
-5. Check if prompt is working as described
+**Troubleshooting checklist:**
+1. **Check payout readiness** - Incomplete setup can affect buyer confidence
+2. Improve your preview (see [Best Practices](#best-practices-for-previews))
+3. Lower your price (test market demand)
+4. Add better category/tags
+5. Promote on social media
+6. Check if prompt is working as described
+7. **Ensure your profile looks professional** - Display name, bio, and avatar matter
 
 ### Q: Can I hire someone to write prompts for me?
 

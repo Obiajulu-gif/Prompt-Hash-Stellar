@@ -1,16 +1,21 @@
 import Prompt from "../models/Prompt";
+import { cacheDelPattern } from "../services/cacheService";
 
-interface SearchFilters {
+export interface SearchFilters {
   query?: string;
   category?: string;
+  tags?: string | string[];
+  version?: number;
+  minVersion?: number;
+  minCreatorRating?: number;
   minPrice?: number;
   maxPrice?: number;
-  sortBy?: "recent" | "price-low" | "price-high" | "sales" | "rating";
+  sortBy?: "recent" | "price-low" | "price-high" | "sales" | "rating" | "trust";
   page?: number;
   limit?: number;
 }
 
-interface SearchResponse {
+export interface SearchResponse {
   prompts: any[];
   total: number;
   page: number;
@@ -19,12 +24,15 @@ interface SearchResponse {
 }
 
 /**
- * Search prompts with advanced filtering and pagination
+ * Search prompts with advanced filtering (tags, version, creator trust) and pagination (#681)
  */
 export async function searchPrompts(filters: SearchFilters): Promise<SearchResponse> {
   const {
     query = "",
     category,
+    tags,
+    version,
+    minVersion,
     minPrice = 0,
     maxPrice = 1000000,
     sortBy = "recent",
@@ -37,11 +45,26 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
     isActive: true,
     listingStatus: "published",
     price: { $gte: minPrice, $lte: maxPrice },
+    similarityFlag: { $ne: "highly_similar" },
+    integrityStatus: { $nin: ["corrupted", "missing"] },
   };
 
   // Add category filter if specified
   if (category && category !== "") {
     baseQuery.category = category;
+  }
+
+  // Add tags filter if specified
+  if (tags) {
+    const tagList = Array.isArray(tags) ? tags : [tags];
+    baseQuery.tags = { $in: tagList.map((t) => new RegExp(`^${t.trim()}$`, "i")) };
+  }
+
+  // Add version signals filter
+  if (version !== undefined) {
+    baseQuery.currentVersionIndex = version;
+  } else if (minVersion !== undefined) {
+    baseQuery.currentVersionIndex = { $gte: minVersion };
   }
 
   // Add text search if query is provided
@@ -53,6 +76,8 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
       { title: searchRegex },
       { content: searchRegex },
       { category: searchRegex },
+      { description: searchRegex },
+      { tags: searchRegex },
     ]);
   }
 
@@ -72,7 +97,8 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
       sortOptions = { salesCount: -1 };
       break;
     case "rating":
-      sortOptions = { rating: -1 };
+    case "trust":
+      sortOptions = { rating: -1, salesCount: -1 };
       break;
     case "recent":
     default:
@@ -81,12 +107,20 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
   }
 
   // Execute query with pagination
-  const prompts = await searchQuery
+  let prompts = await searchQuery
     .sort(sortOptions)
     .skip((page - 1) * limit)
     .limit(limit)
     .populate("owner", "walletAddress username rating")
     .lean();
+
+  // Filter by creator trust / rating if specified
+  if (filters.minCreatorRating !== undefined) {
+    const minRating = Number(filters.minCreatorRating);
+    prompts = prompts.filter(
+      (p: any) => p.owner?.rating === undefined || p.owner?.rating >= minRating,
+    );
+  }
 
   const totalPages = Math.ceil(total / limit);
   const hasMore = page < totalPages;
@@ -101,11 +135,50 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
 }
 
 /**
+ * Rebuilds the search index deterministically across all published prompts (#681)
+ */
+export async function rebuildSearchIndex(): Promise<{
+  totalIndexed: number;
+  success: boolean;
+  rebuiltAt: string;
+}> {
+  const publishedPrompts = await Prompt.find({
+    listingStatus: "published",
+    isActive: true,
+  });
+
+  const bulkOps = publishedPrompts.map((prompt) => ({
+    updateOne: {
+      filter: { _id: prompt._id },
+      update: {
+        $set: {
+          searchIndexStatus: "synced",
+          searchIndexError: null,
+          lastIndexedAt: new Date(),
+        },
+      },
+    },
+  }));
+
+  if (bulkOps.length > 0) {
+    await Prompt.bulkWrite(bulkOps);
+  }
+
+  await cacheDelPattern("prompts:list:*");
+
+  return {
+    totalIndexed: publishedPrompts.length,
+    success: true,
+    rebuiltAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Get search suggestions based on query
  */
 export async function getSearchSuggestions(query: string, limit: number = 5) {
   if (!query || query.trim().length < 2) {
-    return { titles: [], categories: [] };
+    return { titles: [], categories: [], tags: [] };
   }
 
   const searchRegex = new RegExp(query.trim(), "i");

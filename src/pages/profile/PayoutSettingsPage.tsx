@@ -9,6 +9,8 @@ import {
   Wallet,
   Save,
   Banknote,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
@@ -18,6 +20,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useWallet } from "@/hooks/useWallet";
 import { useWalletBalance } from "@/hooks/useWalletBalance";
+import { usePayoutReadiness } from "@/hooks/usePayoutReadiness";
+import { PayoutReadinessBanner } from "@/components/sell/PayoutReadinessBanner";
 import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
@@ -46,6 +50,7 @@ export default function PayoutSettingsPage() {
 
   const { address, network } = useWallet();
   const { xlm, isLoading: isBalanceLoading } = useWalletBalance();
+  const { readiness, refreshReadiness } = usePayoutReadiness();
 
   const savedPrefs = address ? loadPayoutPreferences(address) : null;
 
@@ -55,6 +60,41 @@ export default function PayoutSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Real-time validation for payout address
+  const validatePayoutAddress = (address: string): { isValid: boolean; message?: string; type?: "error" | "warning" } => {
+    const trimmed = address.trim();
+    
+    if (!trimmed) {
+      return { isValid: true }; // Empty is valid - will use wallet address
+    }
+
+    // Basic Stellar address validation
+    const stellarAddressPattern = /^G[A-Z0-9]{55}$/;
+    if (!stellarAddressPattern.test(trimmed)) {
+      return { 
+        isValid: false, 
+        message: "Invalid Stellar address format", 
+        type: "error" 
+      };
+    }
+
+    // Warn if same as connected wallet
+    if (trimmed === address) {
+      return {
+        isValid: true,
+        message: "Using same address as connected wallet (this is fine)",
+        type: "warning"
+      };
+    }
+
+    return { isValid: true, message: "Valid Stellar address", type: undefined };
+  };
+
+  const addressValidation = validatePayoutAddress(payoutAddress);
+
+  // Get payout readiness check for this specific setting
+  const payoutDestinationCheck = readiness?.checks.find(c => c.id === "payout-destination");
 
   const handleSave = async () => {
     if (!address) return;
@@ -70,6 +110,10 @@ export default function PayoutSettingsPage() {
         JSON.stringify({ payoutAddress: payoutAddress.trim() || address }),
       );
       setSaved(true);
+      // Refresh readiness check after saving
+      setTimeout(() => {
+        refreshReadiness();
+      }, 100);
     } catch (err) {
       setSaveError(
         err instanceof Error
@@ -123,6 +167,9 @@ export default function PayoutSettingsPage() {
                 Configure where your XLM earnings from prompt sales are sent.
               </p>
             </section>
+
+            {/* Payout Readiness Status */}
+            <PayoutReadinessBanner showWhenReady className="mb-2" />
 
             <Card className="border-white/10 bg-white/[0.03]">
               <CardContent className="p-6 space-y-6">
@@ -198,13 +245,40 @@ export default function PayoutSettingsPage() {
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <label
-                    htmlFor="payoutAddress"
-                    className="text-sm font-medium text-slate-200"
-                  >
-                    Payout XLM Address
-                  </label>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label
+                      htmlFor="payoutAddress"
+                      className="text-sm font-medium text-slate-200"
+                    >
+                      Payout XLM Address
+                    </label>
+                    
+                    {/* Real-time validation indicator */}
+                    {payoutAddress.trim() && (
+                      <div className="flex items-center gap-1.5">
+                        {addressValidation.isValid ? (
+                          payoutDestinationCheck?.status === "pass" ? (
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
+                              <CheckCircle2 className="mr-1 h-3 w-3" />
+                              Valid
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-xs">
+                              <AlertTriangle className="mr-1 h-3 w-3" />
+                              Warning
+                            </Badge>
+                          )
+                        ) : (
+                          <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs">
+                            <XCircle className="mr-1 h-3 w-3" />
+                            Invalid
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <Input
                     id="payoutAddress"
                     value={payoutAddress}
@@ -214,17 +288,61 @@ export default function PayoutSettingsPage() {
                       setSaveError(null);
                     }}
                     placeholder={address}
-                    className="border-white/10 bg-white/[0.04] text-slate-100 font-mono"
+                    className={`border-white/10 bg-white/[0.04] text-slate-100 font-mono ${
+                      payoutAddress.trim() && !addressValidation.isValid 
+                        ? "border-red-500/50 ring-1 ring-red-500/20" 
+                        : ""
+                    }`}
                   />
-                  <p className="text-xs text-slate-500">
-                    Leave empty to use your connected wallet address.
-                  </p>
+                  
+                  {/* Validation feedback */}
+                  {payoutAddress.trim() && addressValidation.message && (
+                    <p className={`text-xs flex items-center gap-1.5 ${
+                      addressValidation.type === "error" 
+                        ? "text-red-400" 
+                        : addressValidation.type === "warning"
+                          ? "text-amber-400"
+                          : "text-emerald-400"
+                    }`}>
+                      {addressValidation.type === "error" && <XCircle className="h-3 w-3" />}
+                      {addressValidation.type === "warning" && <AlertTriangle className="h-3 w-3" />}
+                      {!addressValidation.type && <CheckCircle2 className="h-3 w-3" />}
+                      {addressValidation.message}
+                    </p>
+                  )}
+                  
+                  {!payoutAddress.trim() && (
+                    <p className="text-xs text-slate-500">
+                      Leave empty to use your connected wallet address ({shortenAddress(address)}).
+                    </p>
+                  )}
+
+                  {/* Payout destination readiness status */}
+                  {payoutDestinationCheck && (
+                    <div className={`text-xs p-3 rounded-lg border ${
+                      payoutDestinationCheck.status === "pass"
+                        ? "border-emerald-400/20 bg-emerald-500/5 text-emerald-200"
+                        : payoutDestinationCheck.status === "warn" 
+                          ? "border-amber-400/20 bg-amber-500/5 text-amber-200"
+                          : "border-red-400/20 bg-red-500/5 text-red-200"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {payoutDestinationCheck.status === "pass" && <CheckCircle2 className="h-3.5 w-3.5" />}
+                        {payoutDestinationCheck.status === "warn" && <AlertTriangle className="h-3.5 w-3.5" />}
+                        {payoutDestinationCheck.status === "fail" && <XCircle className="h-3.5 w-3.5" />}
+                        <span className="font-medium">{payoutDestinationCheck.name}</span>
+                      </div>
+                      <p className="mt-1 text-xs opacity-90">
+                        {payoutDestinationCheck.message}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-4">
                   <Button
                     onClick={() => void handleSave()}
-                    disabled={saving}
+                    disabled={saving || !addressValidation.isValid}
                     className="h-10 bg-emerald-400 text-slate-950 hover:bg-emerald-300 disabled:opacity-60"
                   >
                     {saving ? (
@@ -260,7 +378,7 @@ export default function PayoutSettingsPage() {
             <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-5 py-4 text-sm text-cyan-100">
               <div className="flex items-start gap-3">
                 <ExternalLink className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
+                <div className="flex-1">
                   <p className="font-medium">Stellar Network Payments</p>
                   <p className="mt-1 text-xs text-cyan-100/80">
                     All payouts are processed on the Stellar network. XLM
@@ -268,6 +386,18 @@ export default function PayoutSettingsPage() {
                     configured payout address. Transactions can be verified on
                     the Stellar block explorer.
                   </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-cyan-400/20 text-cyan-300 hover:bg-cyan-500/10"
+                  >
+                    <Link to="/sell/payout-readiness">
+                      Check Full Setup
+                    </Link>
+                  </Button>
                 </div>
               </div>
             </div>
