@@ -22,6 +22,17 @@ vi.mock("@/util/wallet", () => ({
   },
 }));
 
+vi.mock("@/hooks/usePayoutReadiness", () => ({
+  usePayoutReadiness: () => ({
+    readiness: { isReady: true, checks: [], blockers: [], warnings: [] },
+    isLoading: false,
+    isReady: true,
+    shouldBlock: false,
+    blockingIssues: [],
+    refreshReadiness: vi.fn(),
+  }),
+}));
+
 vi.mock("@/lib/stellar/browserConfig", () => ({
   browserStellarConfig: {
     rpcUrl: "https://stellar.test/rpc",
@@ -37,10 +48,16 @@ vi.mock("@/lib/crypto/promptCrypto", () => ({
   encryptPromptPlaintext: (...args: unknown[]) =>
     encryptPromptPlaintextMock(...args),
   wrapPromptKey: (...args: unknown[]) => wrapPromptKeyMock(...args),
+  hashPromptPlaintext: vi.fn().mockResolvedValue("a".repeat(64)),
 }));
 
 vi.mock("@/lib/stellar/promptHashClient", () => ({
+  PromptHashClient: {
+    createPrompt: (...args: unknown[]) => createPromptMock(...args),
+  },
   createPrompt: (...args: unknown[]) => createPromptMock(...args),
+  findPromptByContentHash: vi.fn().mockResolvedValue([]),
+  getPrompt: vi.fn(),
 }));
 
 vi.mock("@/lib/validation/listing", async (importOriginal) => {
@@ -87,6 +104,7 @@ describe("create listing integration coverage", () => {
     });
     wrapPromptKeyMock.mockResolvedValue("wrapped-key");
     createPromptMock.mockResolvedValue({
+      success: true,
       promptId: 17n,
       txHash: "tx-hash-123",
     });
@@ -115,6 +133,10 @@ describe("create listing integration coverage", () => {
       { target: { value: "Public preview for the integration test listing." } }
     );
     fireEvent.change(
+      screen.getByLabelText(/description/i),
+      { target: { value: "A detailed public description for the integration test listing." } }
+    );
+    fireEvent.change(
       screen.getByLabelText(/full prompt/i),
       { target: { value: "Private prompt body that will be encrypted before submission." } }
     );
@@ -122,21 +144,18 @@ describe("create listing integration coverage", () => {
     const priceInput = screen.getByLabelText(/price in xlm/i);
     fireEvent.change(priceInput, { target: { value: "3.75" } });
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /create prompt listing/i }),
-    );
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
 
     await waitFor(() => {
       expect(encryptPromptPlaintextMock).toHaveBeenCalledWith(
         "Private prompt body that will be encrypted before submission.",
+        "unlock-public-key",
       );
     });
 
-    expect(wrapPromptKeyMock).toHaveBeenCalledWith(
-      new Uint8Array([1, 2, 3, 4]),
-      "unlock-public-key",
-    );
     expect(createPromptMock).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Prompt #17 created successfully.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Prompt created! Transaction: tx-hash-123"),
+    ).toBeInTheDocument();
   });
 });

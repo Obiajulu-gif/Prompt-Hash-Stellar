@@ -1,16 +1,17 @@
-import { 
-  StellarWalletsKit, 
-  WalletNetwork, 
-  allowAllModules 
+import {
+  StellarWalletsKit,
+  Networks,
 } from "@creit.tech/stellar-wallets-kit";
+import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
 import { Horizon } from "@stellar/stellar-sdk";
 import { horizonUrl, stellarNetwork, stellarWalletNetwork } from "../lib/env";
 
-// allowAllModules() returns an array containing albedo, freighter, etc.
-// This prevents us from having to import them individually and hitting the "Missing Export" error.
-export const kit: StellarWalletsKit = new StellarWalletsKit({
-  network: stellarWalletNetwork as WalletNetwork,
-  modules: allowAllModules(),
+// The wallet kit was bumped from 1.x to 2.x which replaced the instance API
+// with a static one. This module exposes the kit behind the same
+// instance-style surface so the rest of the app is unaffected.
+StellarWalletsKit.init({
+  network: stellarWalletNetwork as Networks,
+  modules: defaultModules(),
 });
 
 function getHorizonHost(mode: string) {
@@ -42,9 +43,37 @@ export const fetchBalance = async (address: string) => {
 
 export type Balance = Awaited<ReturnType<typeof fetchBalance>>["balances"][number];
 
-export const wallet = kit;
+type SignOptions = {
+  networkPassphrase?: string;
+  address?: string;
+  path?: string;
+};
+
+export const wallet = {
+  setWallet: (id: string): void => {
+    StellarWalletsKit.setWallet(id);
+  },
+  getAddress: (): Promise<{ address: string }> =>
+    StellarWalletsKit.getAddress(),
+  getNetwork: (): Promise<{ network: string; networkPassphrase: string }> =>
+    StellarWalletsKit.getNetwork(),
+  signTransaction: async (
+    xdr: string,
+    opts?: SignOptions,
+  ): Promise<string> =>
+    (await StellarWalletsKit.signTransaction(xdr, opts)).signedTxXdr,
+  signMessage: async (
+    message: string,
+    opts?: SignOptions,
+  ): Promise<string> =>
+    (await StellarWalletsKit.signMessage(message, opts)).signedMessage,
+  disconnect: (): Promise<void> => StellarWalletsKit.disconnect(),
+  openModal: async (): Promise<void> => {
+    await StellarWalletsKit.authModal();
+  },
+};
 
 // Restore removed connectWallet export for backward compatibility
-export const connectWallet = async (...args: any[]) => {
-  return (kit as any).openModal(...args);
+export const connectWallet = async (..._args: unknown[]): Promise<void> => {
+  await StellarWalletsKit.authModal();
 };
