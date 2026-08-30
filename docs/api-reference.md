@@ -27,34 +27,46 @@ This reference covers the marketplace and account endpoints used by the PromptHa
 
 `GET /api/prompts`
 
-Returns published, active marketplace prompts.
+Returns published, active marketplace prompts using cursor-based pagination (keyset on the descending `_id` order — stable under concurrent inserts).
 
 Optional query parameters:
 
-- `category`
-- `walletAddress`
+- `category` — filter by prompt category
+- `walletAddress` — only prompts owned by this wallet
+- `limit` (default 20, max 50) — page size (`pageSize` is accepted as an alias)
+- `cursor` — the `nextCursor` value from a previous page; omit for the first page
 
 Example response:
 
 ```json
-[
-  {
-    "_id": "6650f1...",
-    "image": "https://example.com/cover.png",
-    "title": "Launch Strategy Pack",
-    "content": "Public preview text ...",
-    "owner": {
-      "username": "faithorji",
-      "walletAddress": "g..."
-    },
-    "price": 2.5,
-    "category": "Marketing",
-    "listingStatus": "published",
-    "isActive": true,
-    "salesCount": 12
+{
+  "data": [
+    {
+      "_id": "6650f1...",
+      "image": "https://example.com/cover.png",
+      "title": "Launch Strategy Pack",
+      "content": "Public preview text ...",
+      "owner": {
+        "username": "faithorji",
+        "walletAddress": "g..."
+      },
+      "price": 2.5,
+      "category": "Marketing",
+      "listingStatus": "published",
+      "isActive": true,
+      "salesCount": 12
+    }
+  ],
+  "metadata": {
+    "hasNextPage": false,
+    "nextCursor": null
   }
-]
+}
 ```
+
+`metadata.hasNextPage` is `true` when another page follows; `metadata.nextCursor`
+then holds the `_id` to pass back as `cursor` to fetch that page. A `null`
+`nextCursor` means the last page was reached.
 
 ### Create a prompt
 
