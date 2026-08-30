@@ -42,6 +42,19 @@ function getFallbackCache(key: string, config: RateLimitConfig) {
   return fallbackCaches.get(key)!;
 }
 
+/**
+ * Optional overrides for composite (buyer/prompt/failure) throttling.
+ *
+ * `scope` is appended to the bucket key so distinct concerns get independent
+ * counters. `maxOverride`/`windowOverride` let a composite bucket use a tighter
+ * or looser window than the base `type` without adding a whole new limits entry.
+ */
+export interface ScopedRateLimitOptions {
+  scope?: string;
+  maxOverride?: number;
+  windowOverride?: number;
+}
+
 function inMemoryCheck(
   bucketKey: string,
   config: RateLimitConfig,
@@ -94,10 +107,19 @@ export async function checkRateLimit(
   type: "challenge" | "unlock",
   identifier: string,
   authenticated = false,
+  options: ScopedRateLimitOptions = {},
 ): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
   const entry = limits[type];
-  const config = entry[authenticated ? "authenticated" : "unauthenticated"];
-  const bucketKey = `${type}:${identifier}`;
+  const baseConfig = entry[authenticated ? "authenticated" : "unauthenticated"];
+
+  // Apply composite overrides when a scoped bucket is requested (e.g. per-prompt
+  // or per-failure-reason throttling for unlock). The classification stays tied
+  // to the base `type` so security controls still fail closed.
+  const config: RateLimitConfig = {
+    max: options.maxOverride ?? baseConfig.max,
+    windowMs: options.windowOverride ?? baseConfig.windowMs,
+  };
+  const bucketKey = `${type}:${identifier}${options.scope ? `:${options.scope}` : ""}`;
 
   let redisAvailable = false;
   try {

@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   buildChallengeMessage,
+  computeListingSnapshotHash,
   verifyChallengeSignature,
   verifyChallengeToken,
   globalNonceLedger,
@@ -62,6 +63,27 @@ function promptTermsChanged(
     (payload.expectedPriceStroops !== undefined && payload.expectedPriceStroops !== currentPrice) ||
     (payload.promptVersion !== undefined && payload.promptVersion !== currentVersion)
   );
+}
+
+/**
+ * Compute the canonical listing snapshot hash for the current on-chain prompt
+ * (issue #698). Mirrors `computeListingSnapshotHash` so the buyer-signed hash is
+ * comparable to the authoritative listing state at purchase submission time.
+ */
+function currentListingSnapshotHash(
+  promptId: string,
+  prompt: Record<string, unknown>,
+): string | undefined {
+  const owner = String(prompt.creator ?? "");
+  if (!owner) return undefined;
+  return computeListingSnapshotHash({
+    promptId: String(promptId),
+    owner,
+    priceStroops: String(prompt.priceStroops ?? ""),
+    asset: String((prompt as any).asset ?? ""),
+    version: String((prompt as any).revision ?? ""),
+    expiresAt: String((prompt as any).expiresAt ?? "0"),
+  });
 }
 
 // Fail-fast module load validation
@@ -191,6 +213,63 @@ async function handler(
           reset: walletRateLimit.reset,
         }),
       );
+      return;
+    }
+  }
+
+  // ── Composite buyer/prompt/failure-aware throttling ────────────────────
+  // Prevents a single buyer from hammering one prompt (repeated failed unlocks
+  // can stress entitlement checks and hide abuse patterns). Each scope gets an
+  // independent counter; legitimate retries after an indexer delay stay allowed.
+  const throttleComposite = async (
+    scope: string,
+    max: number,
+    windowMs: number,
+    auditReason: string,
+  ): Promise<boolean> => {
+    const composite = await checkRateLimit("unlock", String(address ?? clientIp), isAuthenticated, {
+      scope,
+      maxOverride: max,
+      windowOverride: windowMs,
+    });
+    if (!composite.success) {
+      req.logger.warn({ address, promptId, scope }, "Composite unlock rate limit exceeded");
+      metrics.trackRateLimitHit("unlock_composite", `${address ?? clientIp}:${scope}`);
+      void recordAuditEvent({
+        action: "unlock_rate_limited",
+        result: "blocked",
+        promptId: promptId ? String(promptId) : null,
+        walletAddress: address ? String(address) : null,
+        requestId: req.requestId ?? null,
+        clientIp,
+        reason: auditReason,
+      });
+      res.setHeader("X-RateLimit-Limit", composite.limit);
+      res.setHeader("X-RateLimit-Remaining", 0);
+      res.setHeader("X-RateLimit-Reset", composite.reset);
+      res.status(429).json(
+        apiError(
+          ErrorCode.RATE_LIMIT_ENTITLEMENT,
+          "Too many unlock attempts for this prompt. Please wait a moment and try again.",
+          { reset: composite.reset },
+        ),
+      );
+      return true;
+    }
+    return false;
+  };
+
+  // Buyer + prompt level: repeated unlock attempts for the same prompt are
+  // throttled even when spread across different failure reasons.
+  if (address && promptId) {
+    if (
+      await throttleComposite(
+        `prompt:${promptId}`,
+        8,
+        60_000,
+        "entitlement_rate_limit_exceeded",
+      )
+    ) {
       return;
     }
   }
@@ -343,6 +422,17 @@ async function handler(
         DEFAULT_MAX_LEDGER_AGE,
       );
     } catch {
+      // Throttle repeated ledger-verification failures for the same prompt.
+      if (
+        await throttleComposite(
+          `prompt:${promptId}:reason:ledger_verification_failed`,
+          3,
+          60_000,
+          "entitlement_rate_limit_exceeded",
+        )
+      ) {
+        return;
+      }
       req.logger.error({ address, promptId }, "Ledger entitlement verification failed (RPC error)");
       metrics.trackUnlockFailure(String(address), String(promptId), "ledger_verification_failed");
       void recordAuditEvent({
@@ -361,6 +451,18 @@ async function handler(
     }
 
     if (!entitlement.hasAccess) {
+      // Throttle repeated entitlement failures for the same prompt so abuse
+      // patterns (e.g. probing access on a prompt you never bought) are contained.
+      if (
+        await throttleComposite(
+          `prompt:${promptId}:reason:no_access`,
+          3,
+          60_000,
+          "entitlement_rate_limit_exceeded",
+        )
+      ) {
+        return;
+      }
       req.logger.warn(
         { address, promptId, ledgerSequence: entitlement.ledgerSequence, ledgerHash: entitlement.ledgerHash },
         "Prompt access denied (ledger-verified)",
@@ -414,6 +516,35 @@ async function handler(
       );
       return;
     }
+
+    // Listing snapshot binding (#698): if the buyer signed a listing snapshot
+    // hash, reject when the current on-chain listing no longer matches it
+    // (price, owner, asset, version, or expiry drift between challenge creation
+    // and purchase submission).
+    if (payload.listingSnapshotHash) {
+      const currentHash = currentListingSnapshotHash(String(id), prompt as unknown as Record<string, unknown>);
+      if (currentHash && currentHash !== payload.listingSnapshotHash) {
+        req.logger.warn({ address, promptId }, "Listing snapshot mismatch at purchase submission");
+        metrics.trackUnlockFailure(String(address), String(promptId), "stale_listing_snapshot");
+        void recordAuditEvent({
+          action: "unlock_stale_listing_snapshot",
+          result: "blocked",
+          promptId: String(promptId),
+          walletAddress: String(address),
+          requestId: req.requestId ?? null,
+          clientIp,
+          reason: "listing_snapshot_mismatch",
+        });
+        res.status(409).json(
+          apiError(
+            ErrorCode.STALE_PROMPT_TERMS,
+            "The listing changed since you opened it. Refresh before signing.",
+          ),
+        );
+        return;
+      }
+    }
+
     const keyBytes = await unwrapPromptKey(
       prompt.wrappedKey,
       unlockPublicKey,

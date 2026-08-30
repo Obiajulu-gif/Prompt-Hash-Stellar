@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   buildChallengeMessage,
+  computeListingSnapshotHash,
   createChallengeToken,
   globalNonceLedger,
 } from "../../src/lib/auth/challenge";
@@ -249,7 +250,7 @@ describe("unlock challenge message contract", () => {
     };
 
     expect(buildChallengeMessage(payload)).toBe(
-      "prompt-hash:unlock::Test SDF Network ; September 2015:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:::nonce-123:1700000000000:1700000000000",
+      "prompt-hash:unlock::Test SDF Network ; September 2015:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7::::nonce-123:1700000000000:1700000000000",
     );
   });
 });
@@ -726,5 +727,133 @@ describe("unlock API challenge-token secret rotation grace period (#609)", () =>
 
     expect(statusCode).toBe(400);
     expect(responseData.code).toBe(ErrorCode.TEMPORARY_FAILURE);
+  });
+});
+
+describe("unlock API listing snapshot binding (#698)", () => {
+  const CREATOR = "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+  });
+
+  const snapshot = {
+    promptId: "42",
+    owner: CREATOR,
+    priceStroops: "1234567",
+    asset: "ASSET-1",
+    version: "3",
+    expiresAt: "1700000000",
+  };
+
+  it("accepts a valid purchase when the current listing matches the signed snapshot", async () => {
+    const buyer = Keypair.random();
+    const promptId = "42";
+    process.env.CHALLENGE_TOKEN_SECRET = "snapshot-test-secret";
+    process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
+    process.env.UNLOCK_PRIVATE_KEY = "e".repeat(32);
+
+    const signedHash = computeListingSnapshotHash(snapshot);
+    const challenge = createChallengeToken(
+      process.env.CHALLENGE_TOKEN_SECRET,
+      buyer.publicKey(),
+      promptId,
+      Date.now(),
+      5 * 60 * 1000,
+      { ...TEST_CHALLENGE_CONTEXT, listingSnapshotHash: signedHash },
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    verifyEntitlementMock.mockResolvedValue({ hasAccess: true, ledgerSequence: 1, checkedAt: Date.now() });
+    hasAccessMock.mockResolvedValue(true);
+    getPromptMock.mockResolvedValue({
+      id: 42n,
+      creator: CREATOR,
+      title: "Test",
+      contentHash: CONTENT_HASH,
+      encryptedPrompt: "encrypted",
+      encryptionIv: "iv",
+      wrappedKey: "wrapped",
+      priceStroops: 1234567n,
+      asset: "ASSET-1",
+      revision: 3,
+      expiresAt: 1700000000,
+    });
+    unwrapPromptKeyMock.mockResolvedValue(new Uint8Array(32));
+    decryptPromptCiphertextMock.mockResolvedValue(PLAINTEXT);
+    hashPromptPlaintextMock.mockResolvedValue(CONTENT_HASH);
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+  });
+
+  it("rejects a stale listing when the current listing drifted from the signed snapshot", async () => {
+    const buyer = Keypair.random();
+    const promptId = "42";
+    process.env.CHALLENGE_TOKEN_SECRET = "snapshot-test-secret";
+    process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
+    process.env.UNLOCK_PRIVATE_KEY = "e".repeat(32);
+
+    const signedHash = computeListingSnapshotHash(snapshot);
+    const challenge = createChallengeToken(
+      process.env.CHALLENGE_TOKEN_SECRET,
+      buyer.publicKey(),
+      promptId,
+      Date.now(),
+      5 * 60 * 1000,
+      { ...TEST_CHALLENGE_CONTEXT, listingSnapshotHash: signedHash },
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    verifyEntitlementMock.mockResolvedValue({ hasAccess: true, ledgerSequence: 1, checkedAt: Date.now() });
+    hasAccessMock.mockResolvedValue(true);
+    // Current on-chain price no longer matches the snapshot the buyer signed.
+    getPromptMock.mockResolvedValue({
+      id: 42n,
+      creator: CREATOR,
+      title: "Test",
+      contentHash: CONTENT_HASH,
+      encryptedPrompt: "encrypted",
+      encryptionIv: "iv",
+      wrappedKey: "wrapped",
+      priceStroops: 9999999n,
+      asset: "ASSET-1",
+      revision: 3,
+      expiresAt: 1700000000,
+    });
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(409);
+    expect(responseData.code).toBe(ErrorCode.STALE_PROMPT_TERMS);
+    expect(String(responseData.error)).toContain("listing changed");
+  });
+
+  it("is backward compatible when a challenge carries no listing snapshot hash", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+    expect(statusCode).toBe(200);
   });
 });
