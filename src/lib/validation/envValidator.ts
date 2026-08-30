@@ -4,7 +4,6 @@
  */
 
 import { createHash } from "crypto";
-import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 
 const PLACEHOLDER_PATTERNS = [
   /^replace-with/i,
@@ -52,7 +51,7 @@ export function getServerDeploymentManifest(forceRefresh = false): ServerDeploym
   const errors: string[] = [];
 
   const network = process.env.PUBLIC_STELLAR_NETWORK || (isProd ? "" : "TESTNET");
-  const defaultPassphrase = WalletNetwork?.TESTNET || "Test SDF Network ; September 2015";
+  const defaultPassphrase = "Test SDF Network ; September 2015";
   const networkPassphrase =
     process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ||
     (isProd ? "" : defaultPassphrase);

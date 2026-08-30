@@ -243,6 +243,28 @@ const creatorPrompts = await getPromptsByCreator(config, creatorAddress);
 | **Creator** | ✅ Yes | N/A | ✅ Yes |
 | **Admin** | ✅ Yes | ❌ No | ✅ Yes |
 
+## Cache Invalidation and Frontend Consistency
+
+Moderation decisions are stored in the DB-backed marketplace API (`/api/prompts/index`) and must be reflected on the public detail page, the marketplace listing, and the creator dashboard without serving stale cached data.
+
+### Endpoints
+
+- `GET /api/prompts/index` — public marketplace listing. Filters out prompts whose `moderationStatus` is `restricted` or `retired`.
+- `GET /api/prompts/index?walletAddress=<addr>` — creator dashboard view. Returns **all** of the creator's prompts, including moderated ones, so the current status and reason are always visible.
+- `GET /api/prompts/index?onChainId=<id>` — single-prompt moderation lookup used by the detail page to render policy state.
+
+### Consistency guarantees
+
+- The detail page (`PromptDetailPage.tsx`) and the creator dashboard (`MyPrompts.tsx`) fetch moderation state from the DB API using React Query keys `["prompt-moderation", id]` and `["creator-moderation", address]` respectively.
+- Both keys use `staleTime: 0`, `refetchOnWindowFocus: true`, and short `gcTime`, and the pages explicitly `invalidateQueries` on mount so a persisted cache can never serve a pre-moderation view.
+- The on-chain `prompt-detail` and `created-prompts` caches are invalidated on mount/focus for the same reason.
+
+### Operator checklist after a moderation action
+
+1. Confirm the DB `moderationStatus` field is set (`none` | `restricted` | `retired`) with `moderationReason` and `moderatedAt`.
+2. For marketplace-wide hiding, the public `GET /api/prompts/index` query already excludes `restricted`/`retired`.
+3. Ask the affected creator to refresh their dashboard; the invalidation logic will surface the new status and reason automatically. No manual cache purge is required.
+
 ## Audit Trail and Compliance
 
 ### On-Chain Records

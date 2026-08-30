@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CheckSquare,
   Eye,
+  Flag,
   Loader2,
   LockKeyhole,
   PackagePlus,
@@ -51,6 +52,31 @@ interface MyPromptsProps {
   onCreateNew?: () => void;
 }
 
+/** Fetch DB-backed moderation state for a creator's prompts. */
+async function fetchCreatorModeration(
+  walletAddress: string,
+): Promise<Record<string, { status: string; reason: string | null }>> {
+  try {
+    const res = await fetch(
+      `/api/prompts/index?walletAddress=${encodeURIComponent(walletAddress)}`,
+    );
+    if (!res.ok) return {};
+    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const byId: Record<string, { status: string; reason: string | null }> = {};
+    for (const item of list) {
+      const key = String(item.onChainId ?? "");
+      if (!key) continue;
+      byId[key] = {
+        status: typeof item.moderationStatus === "string" ? item.moderationStatus : "none",
+        reason: typeof item.moderationReason === "string" ? item.moderationReason : null,
+      };
+    }
+    return byId;
+  } catch {
+    return {};
+  }
+}
+
 const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const queryClient = useQueryClient();
   const { address, signMessage, signTransaction } = useWallet();
@@ -87,6 +113,10 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     queryFn: async () =>
       address ? getPromptsByCreator(browserStellarConfig, address) : [],
     enabled: Boolean(address),
+    // Moderation state changes must not be served from a stale cache.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
   });
 
   const purchasedQuery = useQuery({
@@ -96,8 +126,29 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     enabled: Boolean(address),
   });
 
+  // Creator-facing moderation state (DB-backed). Re-fetched on focus so a
+  // restrict/reinstate action is reflected without a manual refresh.
+  const moderationQuery = useQuery({
+    queryKey: ["creator-moderation", address],
+    queryFn: async () =>
+      address ? fetchCreatorModeration(address) : {},
+    enabled: Boolean(address),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
+  });
+
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
+  const moderationByPromptId = moderationQuery.data ?? {};
+
+  // Ensure creator dashboard + detail caches are cleared when the page mounts so
+  // moderation decisions are never served from a stale persisted cache.
+  useEffect(() => {
+    if (!address) return;
+    queryClient.invalidateQueries({ queryKey: ["created-prompts", address] });
+    queryClient.invalidateQueries({ queryKey: ["creator-moderation", address] });
+  }, [queryClient, address]);
 
   useEffect(() => {
     if (address) {
@@ -840,17 +891,32 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                           </p>
                         </div>
                         {/* Status badge */}
-                        {prompt.active ? (
-                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
-                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                            Inactive
-                          </span>
-                        )}
+                        {(() => {
+                          const mod = moderationByPromptId[prompt.id.toString()];
+                          if (mod && mod.status && mod.status !== "none") {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                                <Flag className="h-3 w-3" />
+                                {mod.status === "retired" ? "Retired" : "Restricted"}
+                                {mod.reason ? ` · ${mod.reason.replace(/_/g, " ")}` : ""}
+                              </span>
+                            );
+                          }
+                          if (prompt.active) {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                                Active
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                              Inactive
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
                         <div>

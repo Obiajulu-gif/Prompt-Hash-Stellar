@@ -2,6 +2,18 @@
 
 This reference covers the marketplace and account endpoints used by the PromptHash frontend and the Express backend.
 
+## New: Payout Readiness Validation
+
+PromptHash now includes comprehensive payout readiness validation to ensure creators can receive earnings before publishing paid prompts. 
+
+For detailed information, see [Payout Readiness API Reference](./payout-readiness-api.md).
+
+**Key Integration Points:**
+- Form validation blocks paid prompt submission until setup is complete
+- Real-time validation feedback in payout settings
+- Interactive checklists guide creators through setup requirements
+- Graceful error handling with actionable remediation steps
+
 ## Common Response Rules
 
 - Successful requests return JSON.

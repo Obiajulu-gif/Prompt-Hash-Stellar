@@ -1,4 +1,4 @@
-import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
+import { Networks } from "@creit.tech/stellar-wallets-kit";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -9,7 +9,7 @@ const envSchema = z.object({
     "LOCAL",
     "STANDALONE",
   ] as const),
-  PUBLIC_STELLAR_NETWORK_PASSPHRASE: z.nativeEnum(WalletNetwork),
+  PUBLIC_STELLAR_NETWORK_PASSPHRASE: z.nativeEnum(Networks),
   PUBLIC_STELLAR_RPC_URL: z.string().url().or(z.string().startsWith("http://")),
   PUBLIC_STELLAR_HORIZON_URL: z
     .string()
@@ -24,7 +24,7 @@ const envSchema = z.object({
 
 const fallback = {
   PUBLIC_STELLAR_NETWORK: "TESTNET" as const,
-  PUBLIC_STELLAR_NETWORK_PASSPHRASE: WalletNetwork.TESTNET,
+  PUBLIC_STELLAR_NETWORK_PASSPHRASE: Networks.TESTNET,
   PUBLIC_STELLAR_RPC_URL: "https://soroban-testnet.stellar.org",
   PUBLIC_STELLAR_HORIZON_URL: "https://horizon-testnet.stellar.org",
   PUBLIC_PROMPT_HASH_CONTRACT_ID: "",
@@ -84,6 +84,6 @@ export const unlockPublicKey = env.PUBLIC_UNLOCK_PUBLIC_KEY;
 export const allowHttp = new URL(rpcUrl).hostname === "localhost";
 
 export const stellarWalletNetwork =
-  networkPassphrase === WalletNetwork.STANDALONE
-    ? WalletNetwork.STANDALONE
+  networkPassphrase === Networks.STANDALONE
+    ? Networks.STANDALONE
     : networkPassphrase;
