@@ -57,3 +57,51 @@ describe("promptMetadataSchema", () => {
     expect(PROMPT_CATEGORIES.length).toBeGreaterThan(0);
   });
 });
+
+describe("migratePromptMetadata", () => {
+  it("migrates legacy v0 unversioned metadata to current schema version", async () => {
+    const { migratePromptMetadata } = await import("./promptMetadata.js");
+    const legacy = {
+      title: "Legacy Prompt without Schema Version",
+      category: "Marketing",
+      image: "https://example.com/legacy.png",
+      price: "10.5",
+    };
+
+    const res = migratePromptMetadata(legacy);
+    expect(res.data).not.toBeNull();
+    expect(res.data?.schemaVersion).toBe(PROMPT_METADATA_SCHEMA_VERSION);
+    expect(res.data?.description).toBe("");
+    expect(res.data?.tags).toEqual([]);
+    expect(res.data?.licence).toBe("standard");
+  });
+
+  it("fails with a clear error on unsupported future schema versions", async () => {
+    const { migratePromptMetadata } = await import("./promptMetadata.js");
+    const futurePrompt = {
+      schemaVersion: 99,
+      title: "Future Prompt",
+      category: "Other",
+      image: "https://example.com/future.png",
+      price: 5,
+    };
+
+    const res = migratePromptMetadata(futurePrompt);
+    expect(res.data).toBeNull();
+    expect(res.error).toContain("Unsupported future schema version: 99");
+  });
+
+  it("fails when input is invalid or missing required title/image", async () => {
+    const { migratePromptMetadata } = await import("./promptMetadata.js");
+    const invalid = {
+      title: "ab", // below min length
+      category: "Other",
+      image: "https://example.com/i.png",
+      price: 1,
+    };
+
+    const res = migratePromptMetadata(invalid);
+    expect(res.data).toBeNull();
+    expect(res.error).toBeDefined();
+  });
+});
