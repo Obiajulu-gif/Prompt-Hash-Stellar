@@ -239,7 +239,7 @@ export default function PromptDetailPage() {
             {jsonLd && (
               <script
                 type="application/ld+json"
-                dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
               />
             )}
             <div className="aspect-[1200/630] w-full overflow-hidden bg-slate-900">

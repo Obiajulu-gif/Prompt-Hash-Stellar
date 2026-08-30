@@ -26,7 +26,15 @@ export function MarkdownContent({ children, className = "" }: MarkdownContentPro
         .filter(Boolean)
         .join(" ")}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]} 
+        rehypePlugins={[rehypeSanitize]}
+        components={{
+          a: ({ node, ...props }) => (
+            <a {...props} target="_blank" rel="noopener noreferrer" />
+          )
+        }}
+      >
         {children}
       </ReactMarkdown>
     </div>
