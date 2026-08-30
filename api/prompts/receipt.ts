@@ -47,22 +47,21 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
 
   try {
     let txHash = typeof txHashParam === "string" ? txHashParam : undefined;
+    let purchase = null;
 
-    if (!txHash) {
-      await connectDb();
-      const purchase = await Purchase.findOne({
+    await connectDb();
+    purchase = await Purchase.findOne({
         promptId: String(promptId),
         buyerWallet: String(buyerWallet).toLowerCase(),
       }).sort({ createdAt: -1 });
 
-      if (!purchase?.txHash) {
+      if (!txHash && !purchase?.txHash) {
         res
           .status(404)
           .json({ error: "No purchase transaction found for this prompt/buyer." });
         return;
       }
-      txHash = purchase.txHash;
-    }
+      txHash = txHash || purchase?.txHash;
 
     const config = getServerConfig();
     if (!config.promptHashContractId) {
@@ -77,7 +76,11 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       txHash,
     });
 
-    res.status(200).json(signed);
+    res.status(200).json({
+      ...signed,
+      purchaseStatus: purchase?.status || "purchased",
+      disputeResolution: purchase?.disputeResolution || null
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to build receipt.";
     res.status(400).json({ error: message });

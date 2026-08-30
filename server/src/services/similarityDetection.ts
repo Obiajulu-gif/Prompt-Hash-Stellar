@@ -151,18 +151,19 @@ const MAX_CANDIDATES_PER_SCAN = 1000;
  * @param content    The prompt text to compare (title + body combined).
  * @param category   The category of the newly indexed prompt (optional, for filtering).
  */
-export async function scanForSimilarity(
-  onChainId: string,
+export async function checkSimilarityForContent(
   content: string,
   category?: string,
+  excludeOnChainId?: string,
 ): Promise<SimilarityResult> {
-  // Build filter: exclude self and optionally filter by category
-  const filter: Record<string, unknown> = { onChainId: { $ne: onChainId } };
+  const filter: Record<string, unknown> = {};
+  if (excludeOnChainId) {
+    filter.onChainId = { $ne: excludeOnChainId };
+  }
   if (category) {
     filter.category = category;
   }
 
-  // Pre-filter candidates and apply cap to prevent O(n) full-collection scan
   const existing = await Prompt.find(filter, {
     onChainId: 1,
     content: 1,
@@ -171,12 +172,12 @@ export async function scanForSimilarity(
     .lean()
     .limit(MAX_CANDIDATES_PER_SCAN);
 
-  // Log if cap was hit so periodic re-scans can be scheduled if needed
   const totalInCategory = await Prompt.countDocuments(filter);
   if (totalInCategory > MAX_CANDIDATES_PER_SCAN) {
     console.info(
       `[similarity] Scanned ${MAX_CANDIDATES_PER_SCAN}/${totalInCategory} ` +
-        `prompts in category ${category ?? "all"} for prompt ${onChainId}`,
+        `prompts in category ${category ?? "all"}` +
+        (excludeOnChainId ? ` (excluding ${excludeOnChainId})` : ""),
     );
   }
 
@@ -193,6 +194,16 @@ export async function scanForSimilarity(
   }
 
   const flag = classifyScore(maxScore);
+  return { flag, score: maxScore, similarTo: flag !== "clean" ? mostSimilarId : null };
+}
+
+export async function scanForSimilarity(
+  onChainId: string,
+  content: string,
+  category?: string,
+): Promise<SimilarityResult> {
+  const result = await checkSimilarityForContent(content, category, onChainId);
+  const { flag, score: maxScore, similarTo: mostSimilarId } = result;
 
   await Prompt.findOneAndUpdate(
     { onChainId },

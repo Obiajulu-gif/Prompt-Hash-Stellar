@@ -12,6 +12,7 @@ import {
   UnsavePrompt,
   GetPriceHistory,
   GetPromptsByContentHash,
+  CheckSimilarity,
 } from "../controllers/controllers";
 import {
   GetCreatorSalesAnalytics,
@@ -60,6 +61,9 @@ promptRouter.get("/creator/:walletAddress/drafts", GetDraftPrompts);
 
 // Content hash lookup for duplicate detection (#333)
 promptRouter.get("/hash/:contentHash", GetPromptsByContentHash);
+
+// Semantic similarity check for anti-plagiarism
+promptRouter.post("/similarity/check", CheckSimilarity);
 
 // Preview analytics (#257)
 promptRouter.post("/preview", RecordPreview);
