@@ -94,9 +94,9 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
   };
 
   if ((params.result as string) === "failure" || (params.result as string) === "denied") {
-    logger.warn(logFields, `audit: ${params.action} → ${params.result}`);
+    logger.warn(`audit: ${params.action} → ${params.result}`, logFields);
   } else {
-    logger.info(logFields, `audit: ${params.action} → ${params.result}`);
+    logger.info(`audit: ${params.action} → ${params.result}`, logFields);
   }
 
   try {
@@ -130,8 +130,8 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
   } catch (err) {
     // Do not let audit failures surface to callers.
     logger.error(
-      { action: params.action, requestId: params.requestId, err: err instanceof Error ? err.message : String(err) },
       "audit: failed to persist audit event to DB",
+      { action: params.action, requestId: params.requestId ?? undefined, err: err instanceof Error ? err.message : String(err) },
     );
   }
 }

@@ -43,6 +43,7 @@ describe("Route architecture — read-projection boundary (#543)", () => {
       "preview",
       "reports",
       "integrity-check",
+      "similarity/check",
     ];
 
     for (const route of lines) {

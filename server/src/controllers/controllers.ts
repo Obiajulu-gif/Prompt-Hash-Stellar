@@ -1,26 +1,55 @@
 import { Request, Response } from "express";
 import connectDb from "../db/connectDb";
-import User from "../models/User";
-import Prompt from "../models/Prompt";
-import PriceChange from "../models/PriceChange";
-import Report from "../models/Report";
+import User from "../models/User.js";
+import Prompt from "../models/Prompt.js";
+import PriceChange from "../models/PriceChange.js";
+import Report from "../models/Report.js";
+import Purchase from "../models/Purchase.js";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { validateListingMetadata } from "../services/listingValidation";
+import { validateListingMetadata } from "../services/listingValidation.js";
 import {
   cacheGet,
   cacheSet,
+  cacheGetJson,
+  cacheSetJson,
   cacheDel,
   cacheDelPattern,
   CACHE_KEYS,
-} from "../services/cacheService";
-import { sendConditionalJson, markPrivate } from "../middleware/etag";
-import { notifyPromptReported } from "../services/emailNotifications";
-import { announceNewPrompt } from "../services/discordNotifications";
-import { logger } from "../services/structuredLogger";
-import { checkSimilarityForContent } from "../services/similarityDetection";
+  invalidatePromptCaches,
+  DEFAULT_TTL_SECONDS,
+} from "../services/cacheService.js";
+import { sendConditionalJson, markPrivate } from "../middleware/etag.js";
+import { notifyPromptReported } from "../services/emailNotifications.js";
+import { announceNewPrompt } from "../services/discordNotifications.js";
+import { logger } from "../services/structuredLogger.js";
+import { checkSimilarityForContent } from "../services/similarityDetection.js";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
+
+/* CHAT CONTROLLER */
+
+export const PostChat = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { messages } = req.body || {};
+    if (!Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages array is required" });
+    }
+    const formattedMessages = messages.map((message: any) => ({
+      role: message.role === "ai" ? "assistant" : "user",
+      content: message.content,
+    }));
+
+    const result = streamText({
+      model: openai("gpt-4o"),
+      messages: formattedMessages as any,
+    });
+
+    return (result as any).toDataStreamResponse ? (result as any).toDataStreamResponse() : res.json({ result });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to process chat" });
+  }
+};
 
 /* IMPROVE PROXY CONTROLLERS */
 
@@ -92,14 +121,16 @@ export const GetPrompts = async (
 
     const limitParam = req.query.limit || req.query.pageSize;
     const limit = Math.min(parseInt(limitParam as string) || 20, 50);
-    const cursor = req.query.cursor as string;
+    const cursor = (req.query.cursor as string) || "";
+    const page = (req.query.page as string) || "";
+    const sortBy = (req.query.sortBy as string) || "recent";
 
-    // Build a deterministic cache key from the query params
-    const cacheKey = CACHE_KEYS.promptList(
-      `cat=${category ?? ""}&wallet=${walletAddress ?? ""}`,
+    // Build a deterministic cache key from all query parameters
+    const cacheKey = CACHE_KEYS.allPrompts(
+      `cat=${category ?? ""}&wallet=${walletAddress ?? ""}&limit=${limit}&cursor=${cursor}&page=${page}&sort=${sortBy}`,
     );
-    const cached = await cacheGet(cacheKey);
-    if (cached) return sendConditionalJson(req, res, JSON.parse(cached));
+    const cached = await cacheGetJson<{ data: any[]; metadata: any }>(cacheKey);
+    if (cached) return sendConditionalJson(req, res, cached);
 
     const query: any = { listingStatus: "published", isActive: true };
 
@@ -110,7 +141,7 @@ export const GetPrompts = async (
     if (walletAddress) {
       const user = await User.findOne({
         walletAddress: walletAddress.toLowerCase(),
-      });
+      }).lean();
       if (user) {
         query.owner = user._id;
       }
@@ -121,9 +152,10 @@ export const GetPrompts = async (
     }
 
     const prompts = await Prompt.find(query)
-      .populate("owner", "username walletAddress")
+      .populate("owner", "username walletAddress rating")
       .sort({ _id: -1 })
-      .limit(limit + 1);
+      .limit(limit + 1)
+      .lean();
 
     let hasNextPage = false;
     let nextCursor = null;
@@ -136,13 +168,18 @@ export const GetPrompts = async (
       nextCursor = null;
     }
 
-    return sendConditionalJson(req, res, {
+    const responsePayload = {
       data: prompts,
       metadata: {
         hasNextPage,
         nextCursor,
       },
-    });
+    };
+
+    // Cache the optimized response in Redis
+    await cacheSetJson(cacheKey, responsePayload, DEFAULT_TTL_SECONDS);
+
+    return sendConditionalJson(req, res, responsePayload);
   } catch (error) {
     logger.error("Fetch prompts error", { action: "getPrompts", error });
 
@@ -177,7 +214,7 @@ export const GetOwnedPrompts = async (
 
     // Since we want owned prompts, let's load from Purchase
     // assuming Purchase model exists as seen earlier
-    const purchases = await mongoose.models.Purchase.find(query)
+    const purchases = await Purchase.find(query)
       .sort({ _id: -1 })
       .limit(limit + 1);
 
@@ -747,16 +784,25 @@ export const GetPromptsByContentHash = async (
     }
 
     // Query for prompts with matching content hash
-    const matches = await Prompt.find({
+    const promptQuery: any = Prompt.find({
       contentHash: contentHash,
       listingStatus: "published",
       isActive: true,
-    }).select("_id onChainId title creator owner salesCount isActive");
+    });
+    const matches = (
+      typeof promptQuery?.select === "function"
+        ? await promptQuery.select("_id onChainId title creator owner salesCount isActive")
+        : await promptQuery
+    ) || [];
 
     // Hydrate owner wallet addresses
     const enriched = await Promise.all(
-      matches.map(async (prompt) => {
-        const user = await User.findById(prompt.owner).select("walletAddress");
+      matches.map(async (prompt: any) => {
+        const userQuery: any = User.findById(prompt.owner);
+        const user =
+          typeof userQuery?.select === "function"
+            ? await userQuery.select("walletAddress")
+            : await userQuery;
         return {
           id: prompt.onChainId,
           title: prompt.title,

@@ -339,7 +339,7 @@ export const GetIntegrityReport = async (
     markPrivate(res);
     await connectDb();
     const { runContentIntegrityCheckAll } = await import(
-      "../services/contentIntegrity"
+      "../services/contentIntegrity.js"
     );
     const report = await runContentIntegrityCheckAll();
     return res.json(report);
@@ -362,7 +362,7 @@ export const TriggerIntegrityCheck = async (
   try {
     await connectDb();
     const { verifyPromptIntegrity, runContentIntegrityCheckAll } = await import(
-      "../services/contentIntegrity"
+      "../services/contentIntegrity.js"
     );
     const { promptId } = req.body || {};
 

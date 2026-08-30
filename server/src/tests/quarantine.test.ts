@@ -50,6 +50,13 @@ vi.mock("../models/Purchase", () => ({
   },
 }));
 
+vi.mock("../models/PriceChange", () => ({
+  default: {
+    findOneAndUpdate: vi.fn().mockResolvedValue({}),
+    create: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 vi.mock("../services/webhookOutbox", () => ({
   enqueue: vi.fn().mockResolvedValue(undefined),
 }));
@@ -57,9 +64,14 @@ vi.mock("../services/webhookOutbox", () => ({
 vi.mock("../services/cacheService", () => ({
   cacheDel: vi.fn(),
   cacheDelPattern: vi.fn(),
+  invalidatePromptCaches: vi.fn().mockResolvedValue(undefined),
+  cacheGetJson: vi.fn().mockResolvedValue(null),
+  cacheSetJson: vi.fn().mockResolvedValue(undefined),
   CACHE_KEYS: {
     promptDetail: (id: string) => `prompt:${id}`,
+    promptMetadata: (id: string) => `prompt:metadata:${id}`,
   },
+  METADATA_TTL_SECONDS: 300,
 }));
 
 vi.mock("../../../packages/sdk/src/events/decode.js", () => ({

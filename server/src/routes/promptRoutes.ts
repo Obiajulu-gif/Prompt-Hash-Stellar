@@ -53,10 +53,7 @@ promptRouter.get("/buyer/:walletAddress/owned", GetOwnedPrompts);
 promptRouter.get("/buyer/:walletAddress/saved", GetSavedPrompts);
 promptRouter.get("/buyer/:walletAddress/transactions", GetPurchaseTransactions);
 promptRouter.get("/creator/:walletAddress/analytics", GetCreatorSalesAnalytics);
-promptRouter.get(
-  "/creator/:walletAddress/payout-statement",
-  GetCreatorPayoutStatement,
-);
+promptRouter.get("/creator/:walletAddress/payout-statement", GetCreatorPayoutStatement);
 promptRouter.get("/creator/:walletAddress/drafts", GetDraftPrompts);
 
 // Content hash lookup for duplicate detection (#333)
@@ -88,11 +85,7 @@ promptRouter.get(
   requireAdminScope("integrity:read"),
   GetIntegrityReport,
 );
-promptRouter.post(
-  "/admin/integrity-check",
-  requireAdminScope("integrity:write"),
-  TriggerIntegrityCheck,
-);
+promptRouter.post("/admin/integrity-check", requireAdminScope("integrity:write"), TriggerIntegrityCheck);
 
 // ── User Preference (non-authoritative, wallet-signature required) ────────────
 promptRouter.post("/buyer/save", SavePrompt);

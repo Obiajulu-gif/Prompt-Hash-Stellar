@@ -10,8 +10,14 @@
  *   EMAIL_FROM_ADDRESS (e.g. "PromptHash <noreply@prompthash.io>")
  */
 
-import nodemailer from "nodemailer";
 import User from "../models/User.js";
+
+let nodemailer: any;
+try {
+  nodemailer = require("nodemailer");
+} catch {
+  // nodemailer is optional
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
