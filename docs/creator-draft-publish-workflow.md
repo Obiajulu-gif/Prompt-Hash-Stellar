@@ -1,43 +1,31 @@
-# Creator Draft & Publish Workflow
+# Creator & Marketplace Workflow Notes (#682, #679, #676)
 
-This note records how the creator draft/publish workflow satisfies three earlier product
-issues whose behavior is implemented in the files touched by the combined draft-lifecycle
-work merged via PR #729 (commit `a21870a`, "protect draft ownership and session integrity
-across wallet disconnects and network changes").
-
-The issues below were kept together with #680 because they live in the same surfaces —
-`src/hooks/useDraftAutoSave.ts` and `src/pages/sell/CreatePromptForm.tsx` — and the
-ownership/session rewrite (merged already as #680) preserves, integrates, and re-tests their
-existing machinery.
+This note records the marketplace workflow items linked to this PR so each issue stays
+traceable to the surfaces that implement it. The related draft-autosave work is tracked
+separately in PR #729 (issue #680).
 
 ## Related Issues
 
-| Issue | Title | Where implemented |
-|-------|-------|------------------|
-| #458 | [Creator] Add encrypted payload size estimator before publication | `CreatePromptForm.tsx` encrypted-payload-size-estimator section; `estimateEncryptedSize` / `wouldExceedPayloadLimit` in `src/lib/validation/listing.ts` |
-| #488 | [Creator] Warn when publishing an exact duplicate prompt content hash | `CreatePromptForm.tsx` duplicate-content-hash section; `findPromptByContentHash` in `src/lib/stellar/promptHashClient.ts`; final submit gate via `duplicateWarning` / `duplicateConfirmed` |
-| #680 | Seller draft lifecycle can lose unsynced changes across wallet disconnects and network changes | `src/hooks/useDraftAutoSave.ts`, `CreatePromptForm.tsx`, `src/pages/sell/DraftManager.tsx` |
-| #710 | Creator draft autosave does not include conflict resolution for multi-tab editing | `src/hooks/useDraftAutoSave.ts` (last-writer detection, draft backup audit trace, `conflict` / `resolveConflict`) |
+| Issue | Title | Implementation surfaces |
+|-------|-------|------------------------|
+| #676 | Bulk purchase preflight does not surface per-prompt failure reasons in the marketplace UI | `src/lib/errors/bulkPurchaseErrors.ts`, bulk purchase paths in `src/lib/stellar/promptHashClient.ts` / `src/lib/stellar/contractMethods.ts`, buyer purchase UI error rendering |
+| #679 | Prompt content integrity recovery runbook is not wired to automated repair tooling | `docs/operations/content-integrity-recovery.md`, unlock/content-integrity error handling in `src/lib/api/errorCodes.ts` and the unlock flow |
+| #682 | Review submission API lacks abuse controls for duplicate reviews and verified purchase checks | `server/src/models/Review.ts`, `server/src/routes/reviewRoutes.ts` |
 
-## What the combined change preserves
+## Purpose
 
-- **#458 payload estimator** — the estimator renders a live byte count of the encrypted
-  payload (plaintext, ciphertext, IV, wrapped key) against the on-chain limit and blocks
-  submission while over the limit.
-- **#488 duplicate-hash guard** — the form fingerprints the plaintext content hash and
-  queries the contract for an existing listing; a match raises a warning the creator must
-  explicitly confirm, and the final submit path refuses to proceed without that
-  confirmation.
-- **#710 multi-tab conflict resolution** — each autosave boundary stamps a revision and
-  appends an audit-trail entry so another tab's writes are detected on a fresh draft; the
-  creator resolves the conflict (keep/revert) instead of silently losing edits.
+- **#676** — per-prompt failure reasons must be surfaced in the marketplace UI so a bulk
+  purchase can report exactly which prompts failed and why, instead of a single opaque error.
+- **#679** — the recovery runbook's manual steps should be backed by automated repair tooling
+  so content-integrity failures are detectable and repairable programmatically.
+- **#682** — the review submission API needs abuse controls (duplicate-review detection) and
+  verified-purchase checks before a review is accepted.
 
 ## Verification
 
-- `src/hooks/useDraftAutoSave.test.tsx` — multi-tab `#710` conflict describe + new `#680`
-  ownership/session describe (12 tests).
-- `src/test/integration/CreatePromptFormSessionGuard.test.tsx` — session guards against a
-  real hook (3 tests).
-- `src/test/integration/create-listing.integration.test.tsx` — end-to-end submit path
-  including enrichment and contract call (2 tests).
+- Bulk purchase error mapping exercised in `src/lib/errors/bulkPurchaseErrors.ts` and the
+  purchase/unlock test suites.
+- Content-integrity recovery procedures documented in
+  `docs/operations/content-integrity-recovery.md`.
+- Review submission routes covered in the server review suite.
 - Touched files are typecheck-clean; repo-wide pre-existing tsc failures are unrelated.
