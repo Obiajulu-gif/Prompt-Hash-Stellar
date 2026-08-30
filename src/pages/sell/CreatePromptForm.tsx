@@ -93,7 +93,7 @@ interface CreatePromptFormProps {
 
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
-  const { address, signTransaction } = useWallet();
+  const { address, network, signTransaction } = useWallet();
   const { readiness, isLoading: isPayoutLoading, shouldBlock } = usePayoutReadiness();
 
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -107,11 +107,6 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
   const [showBuyerPreview, setShowBuyerPreview] = useState(false);
-
-  const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">(
-    "write",
-  );
-
 
   const {
     register,
@@ -138,12 +133,21 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const watchAllFields = watch();
 
-  const { draftRestored, lastSavedAt, discardDraft, conflict, resolveConflict } =
-    useDraftAutoSave({
-      address,
-      values: watchAllFields,
-      setValue,
-    });
+  const {
+    draftRestored,
+    lastSavedAt,
+    discardDraft,
+    conflict,
+    resolveConflict,
+    sessionGuard,
+    resolveSessionGuard,
+    canPublish,
+  } = useDraftAutoSave({
+    address,
+    network,
+    values: watchAllFields,
+    setValue,
+  });
 
   const isConfigured = useMemo(
     () =>
@@ -260,6 +264,25 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
 
+    // Draft session guard (#680): never publish under a wallet or network
+    // that does not own the current draft.
+    if (sessionGuard) {
+      setSubmitError(
+        sessionGuard.kind === "network-changed"
+          ? "This draft was saved on a different network. Resolve the network warning before publishing."
+          : sessionGuard.kind === "wallet-disconnected"
+            ? "Reconnect your wallet to publish this draft."
+            : "This draft belongs to another wallet. Adopt or discard it before publishing.",
+      );
+      return;
+    }
+    if (!canPublish) {
+      setSubmitError(
+        "This draft cannot be published from the current wallet session.",
+      );
+      return;
+    }
+
     // Payout readiness validation - block paid prompt publication if not ready
     if (shouldBlock) {
       const blockingIssues = readiness?.blockers || ["Payout setup incomplete"];
@@ -360,6 +383,55 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">
             Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID`
             plus `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
+          </div>
+        )}
+
+        {sessionGuard && (
+          <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+            <div className="flex items-center gap-2 font-medium text-amber-200">
+              <AlertCircle className="h-4 w-4" />
+              {sessionGuard.kind === "network-changed"
+                ? "Draft saved on a different network"
+                : sessionGuard.kind === "wallet-disconnected"
+                  ? "Wallet disconnected with unsaved changes"
+                  : "Draft saved under another wallet"}
+            </div>
+            <p className="mt-1 text-xs text-amber-200/80">
+              {sessionGuard.kind === "network-changed" && sessionGuard.draftNetwork
+                ? `This draft was saved on ${sessionGuard.draftNetwork}. Publishing it on ${network} could lock assets on the wrong network.`
+                : sessionGuard.kind === "wallet-disconnected"
+                  ? "Reconnect the same wallet to keep your unsaved edits, or discard them."
+                  : sessionGuard.draftAddress
+                    ? `This draft or its live edits belong to ${sessionGuard.draftAddress}. Publishing it now would credit the wrong wallet.`
+                    : "The draft saved in this browser was created by another wallet."}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {sessionGuard.kind !== "wallet-disconnected" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-amber-300 text-slate-950 hover:bg-amber-200"
+                  onClick={() => resolveSessionGuard("adopt")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {sessionGuard.kind === "network-changed"
+                    ? "Continue on this network"
+                    : "Adopt with this wallet"}
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-white/20 text-amber-100 hover:bg-white/5"
+                onClick={() => resolveSessionGuard("discard")}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {sessionGuard.kind === "wallet-disconnected"
+                  ? "Discard unsaved edits"
+                  : "Discard draft"}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -880,7 +952,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             (showChecklist && checklistHasFailures) ||
             payloadEstimate.isOverLimit ||
             shouldBlock ||
-            isPayoutLoading
+            isPayoutLoading ||
+            Boolean(sessionGuard) ||
+            (Boolean(address) && !canPublish)
           }
         >
           {isSubmitting ? (
@@ -888,13 +962,17 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Encrypting and submitting...
             </>
-          ) : shouldBlock ? (
-            "Complete payout setup to publish"
+          ) : sessionGuard ? (
+            "Resolve the draft session warning to publish"
+          ) : address && !canPublish ? (
+            "Connect the owning wallet to publish"
           ) : isPayoutLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Checking payout setup...
             </>
+          ) : shouldBlock ? (
+            "Complete payout setup to publish"
           ) : (
             "Create prompt listing"
           )}

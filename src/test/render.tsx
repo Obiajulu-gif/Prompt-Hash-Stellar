@@ -23,6 +23,7 @@ const defaultWallet: WalletContextType = {
   disconnect: vi.fn(),
   signMessage: vi.fn(),
   signTransaction: vi.fn(),
+  sessionEpoch: 0,
 };
 
 export function createTestQueryClient() {

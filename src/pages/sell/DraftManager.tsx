@@ -14,12 +14,15 @@ interface DraftPrompt {
   missingFields: string[];
   isPublishable: boolean;
   updatedAt: string;
+  /** Authoring wallet, when the API includes it. Used for ownership checks. */
+  creator?: string;
 }
 
 async function fetchDrafts(walletAddress: string): Promise<DraftPrompt[]> {
   const res = await fetch(`/api/prompts/creator/${walletAddress}/drafts`);
   if (!res.ok) throw new Error("Failed to fetch drafts");
   const data = await res.json();
+  if (Array.isArray(data)) return data;
   return data.drafts ?? [];
 }
 
@@ -96,7 +99,12 @@ export function DraftManager() {
     );
   }
 
-  const drafts = draftsQuery.data ?? [];
+  // Ownership check (#680): a draft bound to a different wallet must never be
+  // publishable from this session. The API is expected to scope by address,
+  // but be defensive when the creator is included in the payload.
+  const drafts = (draftsQuery.data ?? []).filter(
+    (draft) => !draft.creator || draft.creator === address,
+  );
 
   if (drafts.length === 0) {
     return (

@@ -11,9 +11,24 @@ import { CreatePromptForm } from "@/pages/sell/CreatePromptForm";
 // Mock all the required modules
 vi.mock("@/hooks/usePayoutReadiness");
 vi.mock("@/hooks/useDraftAutoSave");
-vi.mock("@/lib/env");
-vi.mock("@/lib/stellar/browserConfig");
-vi.mock("@/lib/ipfs");
+vi.mock("@/lib/env", () => ({
+  unlockPublicKey: "mock-unlock-public-key",
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+  stellarNetwork: "TESTNET",
+}));
+vi.mock("@/lib/stellar/browserConfig", () => ({
+  browserStellarConfig: {
+    promptHashContractId: "mock-contract-id",
+  },
+}));
+vi.mock("@/lib/stellar/promptHashClient", () => ({
+  PromptHashClient: { createPrompt: vi.fn() },
+  findPromptByContentHash: vi.fn(),
+  getPrompt: vi.fn(),
+}));
+vi.mock("@/lib/ipfs", () => ({
+  isIpfsUploadConfigured: vi.fn(() => false),
+}));
 vi.mock("@/components/sell/CreatorOnboarding", () => ({
   CreatorOnboarding: () => <div data-testid="creator-onboarding">Creator Onboarding</div>,
 }));
@@ -31,14 +46,10 @@ vi.mock("@/components/sell/PayoutReadinessBanner", () => ({
 
 import { usePayoutReadiness } from "@/hooks/usePayoutReadiness";
 import { useDraftAutoSave } from "@/hooks/useDraftAutoSave";
-import { unlockPublicKey } from "@/lib/env";
-import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { isIpfsUploadConfigured } from "@/lib/ipfs";
 
 const mockUsePayoutReadiness = vi.mocked(usePayoutReadiness);
 const mockUseDraftAutoSave = vi.mocked(useDraftAutoSave);
-const mockUnlockPublicKey = vi.mocked(unlockPublicKey);
-const mockBrowserStellarConfig = vi.mocked(browserStellarConfig);
 const mockIsIpfsUploadConfigured = vi.mocked(isIpfsUploadConfigured);
 
 describe("CreatePromptForm - Payout Readiness Integration", () => {
@@ -52,12 +63,16 @@ describe("CreatePromptForm - Payout Readiness Integration", () => {
       draftRestored: false,
       lastSavedAt: null,
       discardDraft: vi.fn(),
+      saveNow: vi.fn(),
+      conflict: null,
+      resolveConflict: vi.fn(),
+      sessionGuard: null,
+      resolveSessionGuard: vi.fn(),
+      canPublish: true,
+      draftOwnerAddress: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+      draftNetwork: undefined,
     });
 
-    mockUnlockPublicKey.mockReturnValue("mock-unlock-public-key");
-    mockBrowserStellarConfig.mockReturnValue({
-      promptHashContractId: "mock-contract-id",
-    } as any);
     mockIsIpfsUploadConfigured.mockReturnValue(false);
   });
 
@@ -179,7 +194,7 @@ describe("CreatePromptForm - Payout Readiness Integration", () => {
 
     await user.type(titleInput, "Test Prompt");
     await user.click(categorySelect);
-    await user.click(screen.getByRole("option", { name: /writing/i }));
+    await user.click(screen.getByRole("option", { name: /marketing/i }));
     await user.type(previewTextarea, "This is a test preview text for the prompt");
     await user.type(priceInput, "2.5");
     await user.type(promptTextarea, "This is the full prompt content that will be encrypted");
@@ -255,7 +270,7 @@ describe("CreatePromptForm - Payout Readiness Integration", () => {
     await user.type(imageUrlInput, "https://example.com/image.png");
     await user.type(titleInput, "Test Prompt");
     await user.click(categorySelect);
-    await user.click(screen.getByRole("option", { name: /writing/i }));
+    await user.click(screen.getByRole("option", { name: /marketing/i }));
     await user.type(previewTextarea, "This is a test preview text for the prompt");
     await user.type(priceInput, "2.5");
     await user.type(promptTextarea, "This is the full prompt content that will be encrypted");
