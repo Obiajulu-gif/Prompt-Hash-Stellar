@@ -178,5 +178,31 @@
     "error_required": "Este campo es obligatorio.",
     "error_invalid": "Entrada inválida.",
     "error_validation": "La validación falló. Por favor, verifica el formulario."
+  },
+  "unlockErrors": {
+    "unknown": "No se pudo desbloquear el prompt.",
+    "network": "Se produjo un error de red al desbloquear. Comprueba tu conexión e inténtalo de nuevo.",
+    "withSupportReference": "(Referencia de soporte: {{correlationId}})",
+    "categories": {
+      "wallet": "Problema con la billetera",
+      "access": "Acceso denegado",
+      "server": "Error temporal"
+    },
+    "contactSupport": "Contactar con soporte",
+    "codes": {
+      "MISSING_FIELDS": "Faltan campos obligatorios. Revisa tu solicitud.",
+      "METHOD_NOT_ALLOWED": "Esta acción no es compatible.",
+      "CHALLENGE_EXPIRED": "Tu sesión ha expirado. Haz clic en Descifrar contenido para volver a intentarlo.",
+      "CHALLENGE_INVALID": "La sesión de desbloqueo ya no es válida. Haz clic en Descifrar contenido para empezar de nuevo.",
+      "INVALID_SIGNATURE": "La firma de la billetera no coincide. Abre tu billetera e inténtalo de nuevo.",
+      "ACCESS_NOT_PURCHASED": "No has comprado acceso a este prompt. Completa una compra primero.",
+      "STALE_PROMPT_TERMS": "Este prompt cambió desde que lo abriste. Actualiza el prompt y firma de nuevo.",
+      "RATE_LIMIT_IP": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+      "RATE_LIMIT_WALLET": "Demasiados intentos de desbloqueo para esta billetera. Espera un minuto e inténtalo de nuevo.",
+      "CONFIGURATION_ERROR": "Algo salió mal por nuestra parte. Inténtalo de nuevo más tarde.",
+      "INTEGRITY_FAILURE": "No se pudo verificar el contenido del prompt. Contacta con soporte si esto continúa.",
+      "TEMPORARY_FAILURE": "Se produjo un error temporal. Inténtalo de nuevo en un momento.",
+      "IDEMPOTENCY_CONFLICT": "Esta clave de idempotencia se usó con una solicitud diferente. Usa una clave nueva."
+    }
   }
 }

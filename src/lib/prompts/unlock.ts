@@ -1,4 +1,9 @@
-import { ERROR_MESSAGES, type ApiErrorResponse } from "@/lib/api/errorCodes";
+﻿import { ERROR_MESSAGES, type ApiErrorResponse } from "@/lib/api/errorCodes";
+import {
+  NETWORK_ERROR_CODE,
+  UnlockError,
+  type UnlockErrorCode,
+} from "@/lib/errors/unlockErrors";
 import { hashPromptPlaintext } from "@/lib/crypto/promptCrypto";
 
 type SignMessageFn = (_message: string) => Promise<{ signedMessage?: string } | string>;
@@ -11,25 +16,27 @@ export interface UnlockResult {
   decryptedContent: string;
 }
 
-async function parseApiError(response: Response): Promise<string> {
+async function parseApiError(response: Response): Promise<UnlockError> {
   const payload = (await response.json().catch(() => null)) as
     | ApiErrorResponse
     | { error?: string; correlationId?: string }
     | null;
 
+  let code: UnlockErrorCode = NETWORK_ERROR_CODE;
   let message = "Failed to unlock prompt.";
   if (payload && typeof payload === "object" && "code" in payload && payload.code) {
-    const code = payload.code as keyof typeof ERROR_MESSAGES;
-    message = ERROR_MESSAGES[code] ?? payload.error ?? "Failed to unlock prompt.";
+    code = payload.code as UnlockErrorCode;
+    message = ERROR_MESSAGES[code as keyof typeof ERROR_MESSAGES] ?? payload.error ?? "Failed to unlock prompt.";
   } else if (payload && typeof payload === "object" && "error" in payload && payload.error) {
     message = String(payload.error);
   }
 
-  if (payload && typeof payload === "object" && "correlationId" in payload && payload.correlationId) {
-    message += ` (Support Reference: ${payload.correlationId})`;
-  }
+  const correlationId =
+    payload && typeof payload === "object" && "correlationId" in payload
+      ? payload.correlationId
+      : undefined;
 
-  return message;
+  return new UnlockError({ code, message, correlationId });
 }
 
 
@@ -53,7 +60,7 @@ async function requestChallenge(address: string, promptId: string) {
   });
 
   if (!response.ok) {
-    throw new Error(await parseApiError(response));
+    throw await parseApiError(response);
   }
 
   return response.json() as Promise<{
@@ -77,7 +84,7 @@ async function requestUnlock(params: {
   });
 
   if (!response.ok) {
-    throw new Error(await parseApiError(response));
+    throw await parseApiError(response);
   }
 
   return response.json() as Promise<{
@@ -93,7 +100,7 @@ function normalizePromptId(promptId: string | bigint | number): string {
 }
 
 /**
- * Unlock a purchased prompt via challenge → wallet sign → unlock API.
+ * Unlock a purchased prompt via challenge â†’ wallet sign â†’ unlock API.
  * Re-verifies the returned plaintext hash client-side when contentHash is present.
  */
 export async function unlockPromptContent(
@@ -129,7 +136,7 @@ export async function unlockPromptContent(
   };
 }
 
-/** @deprecated Use unlockPromptContent — txHash is ignored; access is verified on-chain. */
+/** @deprecated Use unlockPromptContent â€” txHash is ignored; access is verified on-chain. */
 export async function unlockPrompt(
   itemId: string,
   _txHash: string,

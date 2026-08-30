@@ -178,5 +178,31 @@
     "error_required": "This field is required.",
     "error_invalid": "Invalid input.",
     "error_validation": "Validation failed. Please check the form."
+  },
+  "unlockErrors": {
+    "unknown": "Failed to unlock prompt.",
+    "network": "A network error occurred while unlocking. Please check your connection and try again.",
+    "withSupportReference": "(Support Reference: {{correlationId}})",
+    "categories": {
+      "wallet": "Wallet issue",
+      "access": "Access denied",
+      "server": "Temporary error"
+    },
+    "contactSupport": "Contact support",
+    "codes": {
+      "MISSING_FIELDS": "Some required fields are missing. Please check your request.",
+      "METHOD_NOT_ALLOWED": "This action is not supported.",
+      "CHALLENGE_EXPIRED": "Your session has expired. Click Decrypt Content to try again.",
+      "CHALLENGE_INVALID": "The unlock session is no longer valid. Click Decrypt Content to start over.",
+      "INVALID_SIGNATURE": "Wallet signature did not match. Open your wallet and try signing again.",
+      "ACCESS_NOT_PURCHASED": "You have not purchased access to this prompt. Complete a purchase first.",
+      "STALE_PROMPT_TERMS": "This prompt changed since you opened it. Refresh the prompt and sign again.",
+      "RATE_LIMIT_IP": "Too many requests. Please wait a moment, then try again.",
+      "RATE_LIMIT_WALLET": "Too many unlock attempts for this wallet. Please wait a minute and try again.",
+      "CONFIGURATION_ERROR": "Something went wrong on our end. Please try again later.",
+      "INTEGRITY_FAILURE": "Prompt content could not be verified. Please contact support if this persists.",
+      "TEMPORARY_FAILURE": "A temporary error occurred. Please try again in a moment.",
+      "IDEMPOTENCY_CONFLICT": "This idempotency key was used with a different request. Please use a new key."
+    }
   }
 }
