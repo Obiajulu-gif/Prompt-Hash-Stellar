@@ -178,5 +178,31 @@
     "error_required": "此字段为必填项。",
     "error_invalid": "输入无效。",
     "error_validation": "验证失败。请检查表单。"
+  },
+  "unlockErrors": {
+    "unknown": "无法解锁提示词。",
+    "network": "解锁时发生网络错误。请检查连接后重试。",
+    "withSupportReference": "（支持参考号：{{correlationId}}）",
+    "categories": {
+      "wallet": "钱包问题",
+      "access": "访问被拒绝",
+      "server": "临时错误"
+    },
+    "contactSupport": "联系支持",
+    "codes": {
+      "MISSING_FIELDS": "缺少必填字段。请检查您的请求。",
+      "METHOD_NOT_ALLOWED": "不支持此操作。",
+      "CHALLENGE_EXPIRED": "您的会话已过期。点击解密内容重试。",
+      "CHALLENGE_INVALID": "解锁会话已失效。点击解密内容重新开始。",
+      "INVALID_SIGNATURE": "钱包签名不匹配。请打开钱包重新签名。",
+      "ACCESS_NOT_PURCHASED": "您尚未购买此提示词的访问权限。请先完成购买。",
+      "STALE_PROMPT_TERMS": "此提示词在您打开后已更改。请刷新提示词后重新签名。",
+      "RATE_LIMIT_IP": "请求过多。请稍候片刻再重试。",
+      "RATE_LIMIT_WALLET": "此钱包解锁尝试过多。请等一分钟再重试。",
+      "CONFIGURATION_ERROR": "我们这边出了点问题。请稍后重试。",
+      "INTEGRITY_FAILURE": "无法验证提示词内容。如果持续出现，请联系支持。",
+      "TEMPORARY_FAILURE": "发生临时错误。请稍后重试。",
+      "IDEMPOTENCY_CONFLICT": "此幂等键已用于不同的请求。请使用新键。"
+    }
   }
 }

@@ -67,6 +67,10 @@ async function handler(req: any, res: any) {
   try {
     await connectDb();
 
+    const { category, walletAddress } = req.query ?? {};
+    const limitParam = req.query?.limit ?? req.query?.pageSize;
+    const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+    const cursor = req.query?.cursor as string | undefined;
     const { category, walletAddress, onChainId } = req.query ?? {};
 
     if (onChainId) {
@@ -103,13 +107,39 @@ async function handler(req: any, res: any) {
         walletAddress: String(walletAddress).toLowerCase(),
       });
       if (!user) {
-        res.status(200).json([]);
+        res
+          .status(200)
+          .json({
+            data: [],
+            metadata: { hasNextPage: false, nextCursor: null },
+          });
         return;
       }
       query.owner = user._id;
     }
 
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
     const prompts = await Prompt.find(query)
+      .populate("owner", "username walletAddress")
+      .sort({ _id: -1 })
+      .limit(limit + 1);
+
+    let hasNextPage = false;
+    let nextCursor: unknown = null;
+
+    if (prompts.length > limit) {
+      hasNextPage = true;
+      prompts.pop();
+      nextCursor = prompts[prompts.length - 1]._id;
+    }
+
+    res.status(200).json({
+      data: prompts,
+      metadata: { hasNextPage, nextCursor },
+    });
       .populate("owner", "username walletAddress rating")
       .sort({ createdAt: -1 });
 

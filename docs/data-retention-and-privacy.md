@@ -31,6 +31,7 @@ This document outlines how PromptHash stores, retains, and secures off-chain mar
 
 - **Challenges & Nonces**: Stored temporarily in memory/Redis and expire after 5 minutes. Never persisted to long-term storage.
 - **Fulfillment & Unlock Records**: Retained indefinitely to allow buyers to re-download purchased materials, unless an explicit deletion request is made.
+- **Payout Statements**: Generated on demand from purchase and refund events. They are recomputed, not stored, and may be regenerated for any period within the purchase history retention window (creators: see the [creator publishing guide](./creator-publishing-guide.md)).
 - **Analytics & Indexed Records**: Aggregated analytics are retained permanently. Raw indexed events mirror the blockchain and are retained to allow fast querying without hitting the RPC node.
 - **Diagnostic Logs**: Retained for 30 days. Logs are heavily redacted (see below).
 

@@ -178,5 +178,31 @@
     "error_required": "Ce champ est obligatoire.",
     "error_invalid": "Entrée invalide.",
     "error_validation": "La validation a échoué. Veuillez vérifier le formulaire."
+  },
+  "unlockErrors": {
+    "unknown": "Échec du déverrouillage du prompt.",
+    "network": "Une erreur réseau est survenue lors du déverrouillage. Vérifiez votre connexion et réessayez.",
+    "withSupportReference": "(Référence d'assistance : {{correlationId}})",
+    "categories": {
+      "wallet": "Problème de portefeuille",
+      "access": "Accès refusé",
+      "server": "Erreur temporaire"
+    },
+    "contactSupport": "Contacter l'assistance",
+    "codes": {
+      "MISSING_FIELDS": "Certains champs obligatoires sont manquants. Vérifiez votre demande.",
+      "METHOD_NOT_ALLOWED": "Cette action n'est pas prise en charge.",
+      "CHALLENGE_EXPIRED": "Votre session a expiré. Cliquez sur Déchiffrer le contenu pour réessayer.",
+      "CHALLENGE_INVALID": "La session de déverrouillage n'est plus valide. Cliquez sur Déchiffrer le contenu pour recommencer.",
+      "INVALID_SIGNATURE": "La signature du portefeuille ne correspond pas. Ouvrez votre portefeuille et signez de nouveau.",
+      "ACCESS_NOT_PURCHASED": "Vous n'avez pas acheté l'accès à ce prompt. Effectuez un achat d'abord.",
+      "STALE_PROMPT_TERMS": "Ce prompt a changé depuis son ouverture. Actualisez le prompt et signez à nouveau.",
+      "RATE_LIMIT_IP": "Trop de demandes. Patientez un instant puis réessayez.",
+      "RATE_LIMIT_WALLET": "Trop de tentatives de déverrouillage pour ce portefeuille. Patientez une minute puis réessayez.",
+      "CONFIGURATION_ERROR": "Une erreur est survenue de notre côté. Réessayez plus tard.",
+      "INTEGRITY_FAILURE": "Le contenu du prompt n'a pas pu être vérifié. Contactez l'assistance si cela persiste.",
+      "TEMPORARY_FAILURE": "Une erreur temporaire est survenue. Réessayez dans un instant.",
+      "IDEMPOTENCY_CONFLICT": "Cette clé d'idempotence a été utilisée avec une demande différente. Utilisez une nouvelle clé."
+    }
   }
 }

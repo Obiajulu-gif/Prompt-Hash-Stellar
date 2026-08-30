@@ -107,6 +107,8 @@ function ProbeRow({ probe }: { probe: ProbeResult }) {
     </div>
   );
 }
+
+function ServiceRow({ service }: { service: ServiceCheck }) {
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
       <StatusIcon status={service.status} />

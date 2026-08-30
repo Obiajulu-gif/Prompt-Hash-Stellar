@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
@@ -49,6 +49,7 @@ export default defineConfig({
       target: "esnext",
       sourcemap: true,
       rollupOptions: {
+        output: {
           manualChunks(id: string) {
             if (id.includes("node_modules")) {
               if (

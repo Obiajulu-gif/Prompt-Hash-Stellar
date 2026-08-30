@@ -21,6 +21,12 @@ import {
   GetIntegrityReport,
   TriggerIntegrityCheck,
 } from "../controllers/purchaseControllers";
+import {
+  RequestOwnershipTransfer,
+  GetOwnershipTransfers,
+  RespondOwnershipTransfer,
+  CancelOwnershipTransfer,
+} from "../controllers/transferControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
 
 export const promptRouter = express.Router();
@@ -93,6 +99,17 @@ promptRouter.post(
   requireAdminScope("integrity:write"),
   TriggerIntegrityCheck,
 );
+
+// ── Ownership transfer (#708) — OFF-CHAIN two-phase handoff ───────────────────
+// The Soroban contract's Prompt.creator is immutable, so handing a listing to
+// a new operator is coordinated here: the current owner requests a transfer
+// and the recipient approves or rejects it. Approval re-points the indexed
+// Prompt.owner (affects analytics/payout attribution). Both actions require a
+// wallet signature. See docs/architecture.md before extending this surface.
+promptRouter.post("/transfers/request", RequestOwnershipTransfer);
+promptRouter.get("/transfers/:walletAddress", GetOwnershipTransfers);
+promptRouter.post("/transfers/:transferId/respond", RespondOwnershipTransfer);
+promptRouter.post("/transfers/:transferId/cancel", CancelOwnershipTransfer);
 
 // ── User Preference (non-authoritative, wallet-signature required) ────────────
 promptRouter.post("/buyer/save", SavePrompt);

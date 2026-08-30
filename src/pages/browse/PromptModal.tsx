@@ -66,6 +66,8 @@ import { ReviewForm } from "../../components/prompts/ReviewForm";
 import { ReviewList } from "../../components/prompts/ReviewList";
 import { StarRating } from "../../components/prompts/StarRating";
 import { UnlockErrorBanner } from "../../components/UnlockErrorBanner";
+import { ErrorCode } from "../../lib/api/errorCodes";
+import type { UnlockError } from "../../lib/errors/unlockErrors";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { browserStellarConfig } from "../../lib/stellar/browserConfig";
@@ -428,6 +430,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
       onError: () => setStatus("PURCHASED_LOCKED"),
     },
   );
+  const unlockErrorStructured = unlockError as UnlockError | null;
 
   const {
     execute: runPurchase,
@@ -657,7 +660,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       walletAddress={wallet?.address || ""}
                       txHash={txHash}
                       isPendingIndexing={
-                        !!unlockError?.message?.includes("ACCESS_NOT_PURCHASED")
+                        unlockErrorStructured?.code === ErrorCode.ACCESS_NOT_PURCHASED
                       }
                     />
                   ) : (
@@ -675,16 +678,16 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                   <UnlockExplainer
                     state="signing"
                     onRetry={
-                      unlockError
+                      unlockErrorStructured
                         ? () => runUnlock(txHash || "existing")
                         : undefined
                     }
                   />
 
-                  {unlockError &&
-                    !unlockError?.message?.includes("ACCESS_NOT_PURCHASED") && (
+                  {unlockErrorStructured &&
+                    unlockErrorStructured?.code !== ErrorCode.ACCESS_NOT_PURCHASED && (
                       <UnlockErrorBanner
-                        message={unlockError.message}
+                        error={unlockErrorStructured}
                         onRetry={() =>
                           runUnlock(txHash || "existing").catch(() => {})
                         }
@@ -701,7 +704,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     {isUnlocking
                       ? "Unlocking..."
                       : txHash &&
-                          unlockError?.message?.includes("ACCESS_NOT_PURCHASED")
+                        unlockErrorStructured?.code === ErrorCode.ACCESS_NOT_PURCHASED
                         ? "Retry Unlock (Wait for Indexing)"
                         : "Decrypt Content"}
                   </button>
