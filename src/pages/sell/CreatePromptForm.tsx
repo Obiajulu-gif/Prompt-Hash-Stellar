@@ -61,6 +61,7 @@ import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloa
 import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
 import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { saveRemixAttribution } from "@/lib/prompts/remixAttribution";
+import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 
 
 
@@ -253,9 +254,16 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     [],
   );
 
+  const { isOnline } = useOfflineQueue();
+
   const onSubmit = async (data: any) => {
     setSubmitError(null);
     setSuccessMessage(null);
+
+    if (!isOnline) {
+      setSubmitError("You are offline. Publishing requires an active internet connection.");
+      return;
+    }
 
     if (!address || !signTransaction) {
       setSubmitError("Please connect your wallet first.");

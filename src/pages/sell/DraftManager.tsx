@@ -47,10 +47,15 @@ function StatusBadge({ status }: { status: DraftPrompt["listingStatus"] }) {
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${v.className}`}>{v.label}</span>;
 }
 
+import { useOfflineQueue } from "@/hooks/useOfflineQueue";
+import { useNotification } from "@/hooks/useNotification";
+
 export function DraftManager() {
   const { address } = useWallet();
   const queryClient = useQueryClient();
   const [publishError, setPublishError] = useState<Record<string, string>>({});
+  const { isOnline, enqueueAction } = useOfflineQueue();
+  const { addNotification } = useNotification();
 
   const draftsQuery = useQuery({
     queryKey: ["creator-drafts", address],
@@ -68,6 +73,31 @@ export function DraftManager() {
     mutationFn: archiveDraft,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["creator-drafts"] }),
   });
+
+  const handlePublish = (id: string) => {
+    if (!isOnline) {
+      addNotification("Publishing requires an active internet connection to sign transactions.", "error");
+      setPublishError((p) => ({ ...p, [id]: "Offline: Cannot publish." }));
+      return;
+    }
+    setPublishError((p) => ({ ...p, [id]: "" }));
+    publishMutation.mutate(id);
+  };
+
+  const handleArchive = (id: string) => {
+    if (!window.confirm("Archive this draft?")) return;
+    
+    if (!isOnline) {
+      enqueueAction("ARCHIVE_DRAFT", { id });
+      // Optimistic update
+      queryClient.setQueryData(["creator-drafts", address], (old: DraftPrompt[] | undefined) => {
+        if (!old) return old;
+        return old.filter(d => d._id !== id);
+      });
+      return;
+    }
+    archiveMutation.mutate(id);
+  };
 
   if (!address) {
     return (
@@ -160,7 +190,7 @@ export function DraftManager() {
                 size="sm"
                 className="h-8 gap-1.5 bg-cyan-200 text-slate-950 hover:bg-cyan-100"
                 disabled={!draft.isPublishable || publishMutation.isPending}
-                onClick={() => { setPublishError((p) => ({ ...p, [draft._id]: "" })); publishMutation.mutate(draft._id); }}
+                onClick={() => handlePublish(draft._id)}
               >
                 <Send className="h-3.5 w-3.5" />
                 Publish
@@ -170,7 +200,7 @@ export function DraftManager() {
                 variant="ghost"
                 className="h-8 gap-1.5 text-slate-500 hover:text-white"
                 disabled={archiveMutation.isPending}
-                onClick={() => { if (window.confirm("Archive this draft?")) archiveMutation.mutate(draft._id); }}
+                onClick={() => handleArchive(draft._id)}
               >
                 <Archive className="h-3.5 w-3.5" />
                 Archive
