@@ -89,6 +89,24 @@ Responsibilities:
 3. Unlock endpoint verifies token, signature, and `has_access`.
 4. Service decrypts prompt plaintext and returns it to the buyer.
 
+### Hand off a listing (ownership transfer)
+
+The Soroban `Prompt.creator` is immutable, so re-pointing who operates a
+listing is a two-phase, wallet-signature-gated OFF-chain handoff coordinated
+by the central server (routes under `/api/prompts/transfers/*`, see
+`server/src/routes/promptRoutes.ts`):
+
+1. The current indexed owner requests a transfer to a recipient wallet.
+2. The recipient wallet signs an approval (or rejection).
+3. On approval the server re-points the indexed `Prompt.owner` to the
+   recipient's `User` record and records a `rejectionReason` if the handoff
+   later fails.
+4. Requests expire after 72 hours and stay in a `pending`/`expired` state
+   until the recipient responds or the requester cancels.
+
+`Prompt.creator` (and therefore where license fees ultimately settle) is never
+changed.
+
 ## Security Model
 
 The current design intentionally separates concerns:

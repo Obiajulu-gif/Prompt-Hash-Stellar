@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CreatorDashboard } from "@/components/sell/CreatorDashboard";
+import { OwnershipTransferPanel } from "@/components/sell/OwnershipTransferPanel";
 import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
@@ -985,6 +986,12 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           </div>
         )}
       </section>
+
+      <OwnershipTransferPanel
+        walletAddress={address}
+        createdPrompts={createdPrompts}
+        signMessage={signMessage ?? undefined}
+      />
 
       <section className="space-y-4">
         <div>

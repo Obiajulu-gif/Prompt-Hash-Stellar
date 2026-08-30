@@ -405,6 +405,12 @@ pub struct ListingConfig {
     pub max_supply: u64,
 }
 
+/// On-chain listing record.
+///
+/// `creator` is intentionally immutable: license fees (`buy_prompt`) always
+/// route to the address that created the listing. Changing who operates a
+/// listing is coordinated OFF-chain (indexed `Prompt.owner` re-pointing,
+/// see docs/architecture.md) and never mutates this struct.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {

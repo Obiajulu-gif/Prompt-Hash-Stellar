@@ -16,6 +16,8 @@ This document describes the creator profile system, verification process, and se
 
 Creator profiles allow marketplace sellers to establish identity, build reputation, and provide social proof to potential buyers. Profiles include display information, external links, and optional verification badges granted by platform administrators.
 
+The profile shown on a listing always corresponds to the wallet that currently owns the indexed listing. Because the Soroban `Prompt.creator` is immutable, an approved off-chain ownership transfer (see `docs/architecture.md`) re-points the listing to the recipient wallet's `User` record, so the recipient's profile and payout attribution apply from that point forward.
+
 ### Key Features
 
 - **Identity Display**: Custom display name, bio, avatar
