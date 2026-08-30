@@ -58,7 +58,7 @@ function formatLog(level: LogLevel, message: string, context?: LogContext): stri
     timestamp: new Date().toISOString(),
     level,
     message,
-    ...(context ? { context: redact(context) : {} }),
+    ...(context ? { context: redact(context) } : {}),
   };
   return JSON.stringify(entry);
 }
