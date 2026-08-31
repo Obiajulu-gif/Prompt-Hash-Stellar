@@ -354,6 +354,8 @@ impl Storage {
             transfer_count: 0,
             last_transferred_at: 0,
             expires_at,
+            purchased_revision: prompt.revision,
+            license_terms_hash: prompt.license_terms_hash.clone(),
         };
         env.storage().persistent().set(&key, &purchase);
         Self::extend_key_ttl(env, &key);

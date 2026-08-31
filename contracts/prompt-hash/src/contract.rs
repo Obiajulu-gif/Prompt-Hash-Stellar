@@ -141,6 +141,7 @@ impl PromptHashTrait for PromptHashContract {
             splits: listing.splits,
             revision: 0,
             tags: listing.tags,
+            license_terms_hash: listing.license_terms_hash.clone(),
         };
 
         Storage::save_prompt(&env, &prompt)?;
