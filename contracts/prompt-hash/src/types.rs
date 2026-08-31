@@ -367,6 +367,12 @@ pub struct Purchase {
     pub transfer_count: u32,
     pub last_transferred_at: u64,
     pub expires_at: u64,
+    /// The listing revision number at the time of purchase.
+    /// Immutable snapshot binding buyer to the prompt metadata version they accepted (#731).
+    pub purchased_revision: u32,
+    /// Hash of the license terms accepted at purchase time.
+    /// Empty BytesN<32> for purchases made before license versioning shipped (#731).
+    pub license_terms_hash: BytesN<32>,
 }
 
 #[contracttype]
@@ -398,6 +404,15 @@ pub struct ListingConfig {
     /// `0` means the listing never expires.
     pub expires_at: u64,
     /// Optional co-creator revenue splits (empty Vec = no splits).
+    pub splits: Vec<Split>,
+    /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
+    pub tags: Vec<String>,
+    /// Maximum number of licenses that can be sold (0 = unlimited).
+    pub max_supply: u64,
+    /// Hash of the license terms offered with this listing (#731).
+    /// Creators must provide this when creating/updating listings.
+    pub license_terms_hash: BytesN<32>,
+}
     pub splits: Vec<Split>,
     /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
     pub tags: Vec<String>,
@@ -439,6 +454,9 @@ pub struct Prompt {
     pub revision: u32,
     /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
     pub tags: Vec<String>,
+    /// Hash of the current license terms offered with this listing.
+    /// Stored on-chain so buyers can verify what terms they're accepting (#731).
+    pub license_terms_hash: BytesN<32>,
 }
 
 #[contracttype]

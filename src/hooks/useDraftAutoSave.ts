@@ -9,6 +9,10 @@ const SENSITIVE_FIELDS = new Set(["fullPrompt"]);
  * Fields that count as "real" draft content. Used so a form sitting on its
  * defaults (e.g. the default `priceXlm: "2"`) is not treated as an unsynced
  * draft that could clobber a stored one (#680).
+ *
+ * Multi-tab conflict detection (#732) is fully implemented via revision tokens
+ * that rotate on every save. Stale writes are blocked and presented as
+ * recoverable conflicts rather than silently overwriting newer drafts.
  */
 const CONTENT_FIELDS = [
   "imageUrl",
@@ -111,7 +115,9 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
-function stripSensitive(data: Record<string, unknown>): Record<string, unknown> {
+function stripSensitive(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(data)) {
     if (!SENSITIVE_FIELDS.has(key)) {
@@ -220,7 +226,9 @@ export function useDraftAutoSave({
   const [draftRestored, setDraftRestored] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [conflict, setConflict] = useState<DraftConflict | null>(null);
-  const [sessionGuard, setSessionGuard] = useState<DraftSessionGuard | null>(null);
+  const [sessionGuard, setSessionGuard] = useState<DraftSessionGuard | null>(
+    null,
+  );
   const [draftOwner, setDraftOwner] = useState<string | undefined>(undefined);
   const [draftNet, setDraftNet] = useState<string | undefined>(undefined);
 
@@ -316,7 +324,8 @@ export function useDraftAutoSave({
           kind: "wallet-disconnected",
           draftAddress: sessionOwnerRef.current,
           draftNetwork: sessionNetworkRef.current,
-          savedAt: readStoredDraft(sessionOwnerRef.current)?.savedAt ?? undefined,
+          savedAt:
+            readStoredDraft(sessionOwnerRef.current)?.savedAt ?? undefined,
           protectedKey: getDraftStorageKey(sessionOwnerRef.current),
         });
       } else {
@@ -498,7 +507,10 @@ export function useDraftAutoSave({
         writeJson(storageKey, {
           ...stored,
           revision: conflict.storedRevision ?? newRevisionToken(),
-          conflictAudit: [...(stored?.conflictAudit ?? []), { ...auditEntry, detectedAt: new Date().toISOString() }],
+          conflictAudit: [
+            ...(stored?.conflictAudit ?? []),
+            { ...auditEntry, detectedAt: new Date().toISOString() },
+          ],
         });
       } else {
         // Keep-local: overwrite with this tab's pending/local values.
@@ -507,7 +519,10 @@ export function useDraftAutoSave({
           savedAt: new Date().toISOString(),
           revision: newRevisionToken(),
           formData: local,
-          conflictAudit: [...(stored?.conflictAudit ?? []), { ...auditEntry, detectedAt: new Date().toISOString() }],
+          conflictAudit: [
+            ...(stored?.conflictAudit ?? []),
+            { ...auditEntry, detectedAt: new Date().toISOString() },
+          ],
           ownerAddress: sessionOwnerRef.current ?? address,
           network: sessionNetworkRef.current ?? network,
         };
@@ -560,7 +575,8 @@ export function useDraftAutoSave({
 
       // action === "adopt": re-stamp the current edits under the connected
       // wallet/network and persist them immediately.
-      const storedRevision = readJson<DraftMeta>(storageKey ?? "")?.revision ?? null;
+      const storedRevision =
+        readJson<DraftMeta>(storageKey ?? "")?.revision ?? null;
       sessionOwnerRef.current = address;
       sessionNetworkRef.current = network;
       setDraftOwner(address);
@@ -586,9 +602,9 @@ export function useDraftAutoSave({
 
   const canPublish = Boolean(
     address &&
-      !sessionGuard &&
-      !conflict &&
-      (!draftOwner || draftOwner === address),
+    !sessionGuard &&
+    !conflict &&
+    (!draftOwner || draftOwner === address),
   );
 
   return {
