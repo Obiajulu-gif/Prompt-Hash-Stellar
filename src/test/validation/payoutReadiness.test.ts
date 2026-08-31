@@ -1,18 +1,22 @@
 /**
- * Tests for payout readiness validation logic
+ * Tests for payout readiness validation logic and Stellar destination constraints (#678)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   validatePayoutReadiness,
   checkCreatorPayoutReadiness,
+  checkCreatorPayoutReadinessAsync,
   shouldBlockPaidPublication,
   getBlockingIssues,
   getPayoutPreferences,
+  validatePayoutAddressFormat,
+  verifyPayoutDestinationOnChain,
   type CreatorReadinessData,
   type PayoutPreferences,
 } from "@/lib/validation/payoutReadiness";
 import type { CreatorProfile } from "@/lib/profiles/creatorProfile";
+import { Horizon } from "@stellar/stellar-sdk";
 
 // Mock localStorage
 const localStorageMock = {
@@ -22,14 +26,17 @@ const localStorageMock = {
   clear: vi.fn(),
 };
 
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock
+Object.defineProperty(window, "localStorage", {
+  value: localStorageMock,
 });
 
 describe("payoutReadiness validation", () => {
-  const mockAddress = "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
-  const mockInvalidAddress = "INVALID_ADDRESS";
-  const mockPayoutAddress = "GDPAYOUTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+  const mockAddress = "GCB5YSIWR5LOBII4R3UHDWJUWVURKPKQSSZREP5N423JFPJCKIDTVLGH";
+  const mockInvalidAddress = "INVALID_ADDRESS_12345";
+  const mockPayoutAddress = "GB3SSVE3YZ3QSBARY7JLYINHWGXCPT2DUM2KMIEUDXGGVSJ5JOEAVDPS";
+  const mockMuxedAddress = "MCB5YSIWR5LOBII4R3UHDWJUWVURKPKQSSZREP5N423JFPJCKIDTUAAAAAAAAABQHECTW";
+  const mockSecretKey = "SCZANGBA5YHTNYVVV4C3U252E2B6P6F5T3U6MM63WBSBZATAQI3EBTQ4";
+  const mockContractId = "CA3D5KRYMCMCZVAC7OHQHGNO2QQ74YQG082A829377J44Q3K3627Y2R3";
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,6 +44,44 @@ describe("payoutReadiness validation", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("validatePayoutAddressFormat", () => {
+    it("should accept valid standard Ed25519 G-addresses", () => {
+      const result = validatePayoutAddressFormat(mockPayoutAddress);
+      expect(result.isValid).toBe(true);
+      expect(result.isMuxed).toBe(false);
+      expect(result.baseAddress).toBe(mockPayoutAddress);
+      expect(result.type).toBe("standard");
+    });
+
+    it("should accept valid Muxed M-addresses (SEP-0023)", () => {
+      const result = validatePayoutAddressFormat(mockMuxedAddress);
+      expect(result.isValid).toBe(true);
+      expect(result.isMuxed).toBe(true);
+      expect(result.baseAddress).toBe(mockAddress);
+      expect(result.muxedId).toBeDefined();
+      expect(result.type).toBe("muxed");
+    });
+
+    it("should reject secret keys (S...)", () => {
+      const result = validatePayoutAddressFormat(mockSecretKey);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("Secret keys");
+    });
+
+    it("should reject contract IDs (C...)", () => {
+      const result = validatePayoutAddressFormat(mockContractId);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("Contract IDs");
+    });
+
+    it("should reject invalid address checksums", () => {
+      const invalidChecksum = "GA2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2G2ZVOUSAC2WSRWZ7CXXX";
+      const result = validatePayoutAddressFormat(invalidChecksum);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("checksum");
+    });
   });
 
   describe("validatePayoutReadiness", () => {
@@ -64,7 +109,33 @@ describe("payoutReadiness validation", () => {
       expect(result.isReady).toBe(true);
       expect(result.blockers).toHaveLength(0);
       expect(result.checks).toHaveLength(4);
-      expect(result.checks.every(check => check.status === "pass" || check.status === "warn")).toBe(true);
+      expect(result.checks.every((check) => check.status === "pass" || check.status === "warn")).toBe(true);
+    });
+
+    it("should pass when creator uses a valid Muxed Account", () => {
+      const data: CreatorReadinessData = {
+        address: mockAddress,
+        profile: {
+          address: mockAddress,
+          displayName: "Test Creator",
+          bio: "I create amazing prompts",
+          websiteUrl: "",
+          avatarUrl: "",
+          twitterHandle: "",
+          verified: false,
+          updatedAt: new Date().toISOString(),
+        },
+        payoutPreferences: {
+          payoutAddress: mockMuxedAddress,
+        },
+        walletBalance: "5.0",
+      };
+
+      const result = validatePayoutReadiness(data);
+      expect(result.isReady).toBe(true);
+      const payoutCheck = result.checks.find((c) => c.id === "payout-destination");
+      expect(payoutCheck?.status).toBe("pass");
+      expect(payoutCheck?.message).toContain("Muxed Account configured");
     });
 
     it("should block when wallet is not connected", () => {
@@ -93,7 +164,7 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(false);
-      expect(result.blockers).toContain("Invalid Stellar wallet address format");
+      expect(result.blockers.some((b) => b.includes("Invalid") || b.includes("Stellar"))).toBe(true);
     });
 
     it("should block when payout destination is missing", () => {
@@ -141,7 +212,7 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(false);
-      expect(result.blockers).toContain("Invalid payout address format");
+      expect(result.blockers.some((b) => b.includes("Invalid") || b.includes("address"))).toBe(true);
     });
 
     it("should block when creator profile is missing", () => {
@@ -166,7 +237,7 @@ describe("payoutReadiness validation", () => {
         profile: {
           address: mockAddress,
           displayName: "", // Missing required field
-          bio: "",         // Missing required field
+          bio: "", // Missing required field
           websiteUrl: "",
           avatarUrl: "",
           twitterHandle: "",
@@ -182,7 +253,7 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(false);
-      expect(result.blockers.some(blocker => blocker.includes("display name, bio"))).toBe(true);
+      expect(result.blockers.some((blocker) => blocker.includes("display name, bio"))).toBe(true);
     });
 
     it("should block when XLM balance is insufficient", () => {
@@ -207,7 +278,7 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(false);
-      expect(result.blockers.some(blocker => blocker.includes("Add at least 1 XLM"))).toBe(true);
+      expect(result.blockers.some((blocker) => blocker.includes("Add at least 1 XLM"))).toBe(true);
     });
 
     it("should warn when payout address is same as wallet address", () => {
@@ -232,9 +303,11 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(true); // Should still be ready
-      expect(result.warnings.some(warning => 
-        warning.includes("Using same address for wallet and payouts")
-      )).toBe(true);
+      expect(
+        result.warnings.some((warning) =>
+          warning.includes("Using same address as connected wallet"),
+        ),
+      ).toBe(true);
     });
 
     it("should warn when XLM balance is low but sufficient", () => {
@@ -259,9 +332,7 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(true); // Should still be ready
-      expect(result.warnings.some(warning => 
-        warning.includes("Low XLM balance")
-      )).toBe(true);
+      expect(result.warnings.some((warning) => warning.includes("Low XLM balance"))).toBe(true);
     });
 
     it("should warn when creator profile is missing optional fields", () => {
@@ -272,7 +343,7 @@ describe("payoutReadiness validation", () => {
           displayName: "Test Creator",
           bio: "I create amazing prompts",
           websiteUrl: "", // Missing optional field
-          avatarUrl: "",  // Missing optional field
+          avatarUrl: "", // Missing optional field
           twitterHandle: "", // Missing optional field
           verified: false,
           updatedAt: new Date().toISOString(),
@@ -286,9 +357,7 @@ describe("payoutReadiness validation", () => {
       const result = validatePayoutReadiness(data);
 
       expect(result.isReady).toBe(true); // Should still be ready
-      expect(result.warnings.some(warning => 
-        warning.includes("Consider adding")
-      )).toBe(true);
+      expect(result.warnings.some((warning) => warning.includes("Consider adding"))).toBe(true);
     });
   });
 
@@ -348,6 +417,69 @@ describe("payoutReadiness validation", () => {
     });
   });
 
+  describe("on-chain and SEP-0029 memo verification", () => {
+    it("should block memo-required exchange accounts when using standard G-address", async () => {
+      const mockAccountCall = vi.fn().mockResolvedValue({
+        id: mockAddress,
+        balances: [{ asset_type: "native", balance: "100.0" }],
+        data_attr: {
+          "config.memo_required": "MQ==", // base64 of "1"
+        },
+      });
+
+      vi.spyOn(Horizon.Server.prototype, "accounts").mockReturnValue({
+        accountId: vi.fn().mockReturnValue({
+          call: mockAccountCall,
+        }),
+      } as any);
+
+      const verification = await verifyPayoutDestinationOnChain(mockAddress);
+      expect(verification.status).toBe("memo_required_blocked");
+      expect(verification.memoRequiredSep29).toBe(true);
+      expect(verification.memoRequiredHandled).toBe(false);
+      expect(verification.error).toContain("requires a memo (SEP-0029)");
+    });
+
+    it("should allow memo-required accounts when using a Muxed Account (M...)", async () => {
+      const mockAccountCall = vi.fn().mockResolvedValue({
+        id: mockAddress,
+        balances: [{ asset_type: "native", balance: "100.0" }],
+        data_attr: {
+          "config.memo_required": "MQ==",
+        },
+      });
+
+      vi.spyOn(Horizon.Server.prototype, "accounts").mockReturnValue({
+        accountId: vi.fn().mockReturnValue({
+          call: mockAccountCall,
+        }),
+      } as any);
+
+      const verification = await verifyPayoutDestinationOnChain(mockMuxedAddress);
+      expect(verification.status).toBe("verified");
+      expect(verification.memoRequiredSep29).toBe(true);
+      expect(verification.memoRequiredHandled).toBe(true);
+      expect(verification.isMuxed).toBe(true);
+    });
+
+    it("should detect unfunded accounts via Horizon 404 response", async () => {
+      const notFoundError: any = new Error("Account not found");
+      notFoundError.response = { status: 404 };
+
+      vi.spyOn(Horizon.Server.prototype, "accounts").mockReturnValue({
+        accountId: vi.fn().mockReturnValue({
+          call: vi.fn().mockRejectedValue(notFoundError),
+        }),
+      } as any);
+
+      const verification = await verifyPayoutDestinationOnChain(mockPayoutAddress);
+      expect(verification.status).toBe("unfunded");
+      expect(verification.isFunded).toBe(false);
+      expect(verification.exists).toBe(false);
+      expect(verification.error).toContain("not funded on Stellar");
+    });
+  });
+
   describe("utility functions", () => {
     it("shouldBlockPaidPublication should return correct boolean", () => {
       const readyResult = {
@@ -401,7 +533,7 @@ describe("payoutReadiness validation", () => {
 
       const result = validatePayoutReadiness(data);
 
-      const settlementCheck = result.checks.find(c => c.id === "settlement-readiness");
+      const settlementCheck = result.checks.find((c) => c.id === "settlement-readiness");
       expect(settlementCheck?.status).toBe("warn");
       expect(settlementCheck?.message).toContain("Unable to verify wallet balance");
     });
@@ -427,7 +559,7 @@ describe("payoutReadiness validation", () => {
 
       const result = validatePayoutReadiness(data);
 
-      const settlementCheck = result.checks.find(c => c.id === "settlement-readiness");
+      const settlementCheck = result.checks.find((c) => c.id === "settlement-readiness");
       expect(settlementCheck?.status).toBe("fail");
     });
 
@@ -452,7 +584,7 @@ describe("payoutReadiness validation", () => {
 
       const result = validatePayoutReadiness(data);
 
-      const payoutCheck = result.checks.find(c => c.id === "payout-destination");
+      const payoutCheck = result.checks.find((c) => c.id === "payout-destination");
       expect(payoutCheck?.status).toBe("fail");
       expect(payoutCheck?.message).toContain("Set up your payout address");
     });

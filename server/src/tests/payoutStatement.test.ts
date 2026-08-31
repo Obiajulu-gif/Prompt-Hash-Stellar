@@ -502,4 +502,56 @@ describe("GetCreatorPayoutStatement", () => {
       })
     );
   });
+
+  it("should handle Stellar standard Ed25519 addresses and Muxed account lookups", async () => {
+    const standardStellarAddress = "GA2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2G2ZVOUSAC2WSRWZ7CXBD";
+    mockReq.params = { walletAddress: standardStellarAddress };
+
+    const mockUserId = new mongoose.Types.ObjectId();
+    mockUserFind({ _id: mockUserId, walletAddress: standardStellarAddress.toLowerCase() });
+    mockPromptFind([{ _id: "prompt1", onChainId: "1", title: "P1", price: 10 }]);
+    mockPurchaseFind([]);
+
+    await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
+
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statement: [],
+        status: "settled",
+        balanced: true,
+      }),
+    );
+  });
+
+  it("should mark settlement status as failed when transactions fail destination verification", async () => {
+    const creatorWallet = "GA2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2G2ZVOUSAC2WSRWZ7CXBD";
+    mockReq.params = { walletAddress: creatorWallet };
+
+    const mockUserId = new mongoose.Types.ObjectId();
+    mockUserFind({ _id: mockUserId, walletAddress: creatorWallet.toLowerCase() });
+
+    mockPromptFind([{ _id: "prompt1", onChainId: "1", title: "P1", price: 50 }]);
+    mockPurchaseFind([
+      {
+        _id: new mongoose.Types.ObjectId(),
+        promptId: "1",
+        buyerWallet: "0xbuyer",
+        status: "resolved",
+        disputeResolution: "destination_unfunded_failed",
+      },
+    ]);
+
+    await GetCreatorPayoutStatement(mockReq as Request, mockRes as Response);
+
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        statement: expect.arrayContaining([
+          expect.objectContaining({
+            settlementStatus: "failed",
+          }),
+        ]),
+      }),
+    );
+  });
 });

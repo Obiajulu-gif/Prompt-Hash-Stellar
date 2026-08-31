@@ -27,6 +27,13 @@ import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 
+import {
+  validatePayoutAddressFormat,
+  verifyPayoutDestinationOnChain,
+  type PayoutAddressFormatResult,
+  type PayoutOnChainVerificationResult,
+} from "@/lib/stellar/payoutValidation";
+
 const PAYOUT_STORAGE_KEY = (address: string) => `prompt-hash:payout:${address}`;
 
 interface PayoutPreferences {
@@ -90,6 +97,8 @@ export default function PayoutSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [onChainCheck, setOnChainCheck] = useState<PayoutOnChainVerificationResult | null>(null);
+  const [isVerifyingOnChain, setIsVerifyingOnChain] = useState(false);
   const [statement, setStatement] = useState<PayoutStatementResponse | null>(
     null,
   );
@@ -131,37 +140,44 @@ export default function PayoutSettingsPage() {
     };
   }, [address]);
 
-  // Real-time validation for payout address
-  const validatePayoutAddress = (address: string): { isValid: boolean; message?: string; type?: "error" | "warning" } => {
-    const trimmed = address.trim();
-    
-    if (!trimmed) {
-      return { isValid: true }; // Empty is valid - will use wallet address
+  // Real-time format validation for payout address
+  const addressFormat: PayoutAddressFormatResult = validatePayoutAddressFormat(
+    payoutAddress,
+    address,
+  );
+
+  // Debounced on-chain verification
+  useEffect(() => {
+    const target = payoutAddress.trim() || address;
+    if (!target || !addressFormat.isValid) {
+      setOnChainCheck(null);
+      return;
     }
 
-    // Basic Stellar address validation
-    const stellarAddressPattern = /^G[A-Z0-9]{55}$/;
-    if (!stellarAddressPattern.test(trimmed)) {
-      return { 
-        isValid: false, 
-        message: "Invalid Stellar address format", 
-        type: "error" 
-      };
-    }
+    let isMounted = true;
+    const timeout = setTimeout(async () => {
+      setIsVerifyingOnChain(true);
+      try {
+        const result = await verifyPayoutDestinationOnChain(target);
+        if (isMounted) {
+          setOnChainCheck(result);
+        }
+      } catch {
+        if (isMounted) {
+          setOnChainCheck(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsVerifyingOnChain(false);
+        }
+      }
+    }, 500);
 
-    // Warn if same as connected wallet
-    if (trimmed === address) {
-      return {
-        isValid: true,
-        message: "Using same address as connected wallet (this is fine)",
-        type: "warning"
-      };
-    }
-
-    return { isValid: true, message: "Valid Stellar address", type: undefined };
-  };
-
-  const addressValidation = validatePayoutAddress(payoutAddress);
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+    };
+  }, [payoutAddress, address, addressFormat.isValid]);
 
   // Get payout readiness check for this specific setting
   const payoutDestinationCheck = readiness?.checks.find(c => c.id === "payout-destination");
@@ -174,12 +190,27 @@ export default function PayoutSettingsPage() {
     setSaving(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 600));
+      const target = payoutAddress.trim() || address;
+      const format = validatePayoutAddressFormat(target, address);
+      if (!format.isValid) {
+        throw new Error(format.error || "Invalid Stellar payout address.");
+      }
+
+      // Pre-save on-chain validation check
+      const onChain = await verifyPayoutDestinationOnChain(target);
+      if (onChain.status === "memo_required_blocked") {
+        throw new Error(
+          onChain.error ||
+            "This destination account requires a memo (SEP-0029). Please provide a Muxed Account address (starts with 'M') or a non-custodial wallet.",
+        );
+      }
+
       localStorage.setItem(
         PAYOUT_STORAGE_KEY(address),
-        JSON.stringify({ payoutAddress: payoutAddress.trim() || address }),
+        JSON.stringify({ payoutAddress: target }),
       );
       setSaved(true);
+      setOnChainCheck(onChain);
       // Refresh readiness check after saving
       setTimeout(() => {
         refreshReadiness();
@@ -327,16 +358,26 @@ export default function PayoutSettingsPage() {
                     {/* Real-time validation indicator */}
                     {payoutAddress.trim() && (
                       <div className="flex items-center gap-1.5">
-                        {addressValidation.isValid ? (
-                          payoutDestinationCheck?.status === "pass" ? (
+                        {addressFormat.isMuxed && (
+                          <Badge className="bg-cyan-500/10 text-cyan-300 border-cyan-500/20 text-xs">
+                            Muxed Account (SEP-0023)
+                          </Badge>
+                        )}
+                        {addressFormat.isValid ? (
+                          onChainCheck?.status === "memo_required_blocked" ? (
+                            <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs">
+                              <XCircle className="mr-1 h-3 w-3" />
+                              Memo Required (Blocked)
+                            </Badge>
+                          ) : onChainCheck?.status === "unfunded" ? (
+                            <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-xs">
+                              <AlertTriangle className="mr-1 h-3 w-3" />
+                              Unfunded Account
+                            </Badge>
+                          ) : (
                             <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
                               <CheckCircle2 className="mr-1 h-3 w-3" />
                               Valid
-                            </Badge>
-                          ) : (
-                            <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-xs">
-                              <AlertTriangle className="mr-1 h-3 w-3" />
-                              Warning
                             </Badge>
                           )
                         ) : (
@@ -359,26 +400,55 @@ export default function PayoutSettingsPage() {
                     }}
                     placeholder={address}
                     className={`border-white/10 bg-white/[0.04] text-slate-100 font-mono ${
-                      payoutAddress.trim() && !addressValidation.isValid 
+                      payoutAddress.trim() && (!addressFormat.isValid || onChainCheck?.status === "memo_required_blocked")
                         ? "border-red-500/50 ring-1 ring-red-500/20" 
                         : ""
                     }`}
                   />
                   
                   {/* Validation feedback */}
-                  {payoutAddress.trim() && addressValidation.message && (
-                    <p className={`text-xs flex items-center gap-1.5 ${
-                      addressValidation.type === "error" 
-                        ? "text-red-400" 
-                        : addressValidation.type === "warning"
-                          ? "text-amber-400"
-                          : "text-emerald-400"
-                    }`}>
-                      {addressValidation.type === "error" && <XCircle className="h-3 w-3" />}
-                      {addressValidation.type === "warning" && <AlertTriangle className="h-3 w-3" />}
-                      {!addressValidation.type && <CheckCircle2 className="h-3 w-3" />}
-                      {addressValidation.message}
-                    </p>
+                  {payoutAddress.trim() && (
+                    <div className="space-y-1.5">
+                      {!addressFormat.isValid && addressFormat.error && (
+                        <p className="text-xs flex items-center gap-1.5 text-red-400">
+                          <XCircle className="h-3 w-3 shrink-0" />
+                          {addressFormat.error}
+                        </p>
+                      )}
+                      {addressFormat.isValid && addressFormat.warning && (
+                        <p className="text-xs flex items-center gap-1.5 text-amber-400">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          {addressFormat.warning}
+                        </p>
+                      )}
+                      {addressFormat.isValid && addressFormat.isMuxed && addressFormat.muxedId && (
+                        <p className="text-xs flex items-center gap-1.5 text-cyan-300">
+                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                          Muxed ID: {addressFormat.muxedId} (Base Account: {shortenAddress(addressFormat.baseAddress)})
+                        </p>
+                      )}
+                      {isVerifyingOnChain && (
+                        <p className="text-xs flex items-center gap-1.5 text-slate-400">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Verifying destination on Stellar Horizon...
+                        </p>
+                      )}
+                      {onChainCheck?.status === "memo_required_blocked" && (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200 space-y-1">
+                          <div className="flex items-center gap-1.5 font-semibold text-red-300">
+                            <XCircle className="h-4 w-4 shrink-0" />
+                            Memo Requirement Warning (SEP-0029)
+                          </div>
+                          <p>{onChainCheck.error}</p>
+                        </div>
+                      )}
+                      {onChainCheck?.status === "unfunded" && onChainCheck.error && (
+                        <p className="text-xs flex items-center gap-1.5 text-amber-400">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          {onChainCheck.error}
+                        </p>
+                      )}
+                    </div>
                   )}
                   
                   {!payoutAddress.trim() && (
@@ -412,7 +482,7 @@ export default function PayoutSettingsPage() {
                 <div className="flex flex-wrap items-center gap-4">
                   <Button
                     onClick={() => void handleSave()}
-                    disabled={saving || !addressValidation.isValid}
+                    disabled={saving || !addressFormat.isValid || onChainCheck?.status === "memo_required_blocked"}
                     className="h-10 bg-emerald-400 text-slate-950 hover:bg-emerald-300 disabled:opacity-60"
                   >
                     {saving ? (

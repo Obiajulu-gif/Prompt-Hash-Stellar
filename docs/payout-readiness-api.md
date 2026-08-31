@@ -176,16 +176,21 @@ Simplified hook for gate checking (blocking/allowing publication).
 
 ### Wallet Connection
 
-- **Pass:** Valid Stellar address (56 chars, starts with 'G')
-- **Fail:** No address or invalid format
+- **Pass:** Valid Stellar Ed25519 public key (56 chars, starts with 'G') with correct checksum
+- **Fail:** No address, invalid checksum, secret key (`S...`), or non-Stellar format
 - **Action:** Connect wallet in profile settings
 
 ### Payout Destination
 
-- **Pass:** Valid Stellar address configured for payouts
+- **Pass:** Valid Stellar public key (`G...`) or Muxed Account (`M...` SEP-0023) configured for payouts
 - **Warn:** Using same address as wallet (allowed but not recommended)
-- **Fail:** No payout address or invalid format
-- **Action:** Configure in Profile → Payout Settings
+- **Fail:** 
+  - Missing payout address
+  - Invalid format/checksum
+  - Secret key (`S...`) or Contract ID (`C...`)
+  - Custodial exchange destination requiring a memo (SEP-0029) without a Muxed Account address
+  - Unfunded destination account on the target Stellar network
+- **Action:** Configure in Profile → Payout Settings (provide a personal wallet or an exchange Muxed Account starting with 'M')
 
 ### Creator Profile
 

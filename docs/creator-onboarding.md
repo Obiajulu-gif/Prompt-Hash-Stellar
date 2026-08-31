@@ -163,9 +163,12 @@ Payout readiness is a 4-step validation system that checks:
 
 #### 2. Payout Destination  
 - Go to **Profile → Payout Settings**
-- Enter a valid Stellar address where you want earnings sent
-- You can use the same address as your connected wallet, or a different one
-- **Tip:** Consider using a dedicated payout address for better organization
+- Enter a valid Stellar destination address where you want earnings sent:
+  - **Standard Wallets:** Standard Stellar public key starting with `G...` (e.g. self-custody Freighter, Lobstr, Albedo).
+  - **Exchange Accounts (Binance, Coinbase, Kraken, etc.):** If sending to a custodial exchange that requires a memo (SEP-0029), you **MUST** provide a **Muxed Account address starting with `M...` (SEP-0023)**. Smart contract marketplace settlements cannot attach manual transaction memo text, so using a standard `G...` exchange address without a muxed ID will result in trapped or lost funds.
+  - **Prohibited:** Secret keys (`S...`), Soroban Contract IDs (`C...`), and signed payloads (`P...`) are strictly rejected.
+- You can use the same address as your connected wallet, or a dedicated payout address.
+- **On-Chain Verification:** Payout settings automatically verify with the Stellar Horizon network to ensure the destination account is funded and compatible before saving.
 
 #### 3. Creator Profile
 - Go to **Profile → Settings**  
@@ -198,20 +201,29 @@ Payout readiness is a 4-step validation system that checks:
 
 ### Troubleshooting Common Issues
 
-**"Invalid payout address format"**
-- Make sure your address starts with 'G' and is exactly 56 characters
-- Copy-paste from your wallet to avoid typos
-- Test the address by sending a small amount first
+**"Invalid payout address format or checksum"**
+- Make sure your address starts with `G` (56 characters) or `M` (69 characters for Muxed accounts).
+- Copy-paste directly from your wallet or exchange to prevent typos.
+- Never enter a secret key (starts with `S`).
+
+**"Destination account requires a memo (SEP-0029)"**
+- Centralized exchanges use shared receiving addresses that require a memo.
+- Provide your exchange's **Muxed Address (starts with `M`)** which embeds the memo ID into the address itself.
+- Alternatively, use a personal self-custody wallet (Freighter) as your payout destination.
+
+**"Destination account is not funded on Stellar"**
+- Stellar accounts must be activated with minimum reserve XLM on the network before they can receive smart contract payouts.
+- Fund the account with at least 1-2 XLM on the active network (Testnet or Mainnet).
 
 **"Insufficient XLM balance"**  
-- You need at least 2 XLM for transaction fees
-- Balance is checked in real-time
-- Add more XLM and the check will automatically update
+- You need at least 2 XLM in your connected wallet for transaction fees.
+- Balance is checked in real-time.
+- Add more XLM and the check will automatically update.
 
 **"Complete your creator profile"**
-- Display name and bio are required for paid prompts
-- This builds buyer trust and reduces disputes
-- Optional fields (avatar, links) improve your profile but aren't required
+- Display name and bio are required for paid prompts.
+- This builds buyer trust and reduces disputes.
+- Optional fields (avatar, links) improve your profile but aren't required.
 
 **"Unable to verify payout readiness"**
 - Check your internet connection
