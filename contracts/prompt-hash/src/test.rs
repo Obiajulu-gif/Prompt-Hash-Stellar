@@ -6943,3 +6943,92 @@ fn test_listing_snapshot_hash_binds_to_current_listing_state() {
     assert!(!client.verify_listing_snapshot(&prompt_id, &h1));
     assert!(client.verify_listing_snapshot(&prompt_id, &h2));
 }
+
+#[test]
+fn test_admin_moderation_delist_restore_and_evidence_audit_trail() {
+    use crate::types::ModerationReason;
+
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    let prompt_id = create_prompt(&env, &client, &creator, "Mod Test", 1_000, &context.xlm);
+    let initial_prompt = client.get_prompt(&prompt_id);
+    assert_eq!(initial_prompt.status, PromptSaleStatus::Active);
+
+    // 1. Evidence validation: empty policy reference should be rejected
+    let empty_evidence_res = client.try_admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Paused,
+        &ModerationReason::PolicyViolation,
+        &String::from_str(&env, ""),
+        &0,
+    );
+    assert_eq!(empty_evidence_res, Err(Ok(Error::InvalidMetadata)));
+
+    // 2. Delist prompt (Active -> Paused) with structured evidence reference
+    let delist_timestamp = 1_000_000;
+    env.ledger().with_mut(|l| l.timestamp = delist_timestamp);
+    let evidence_ref_1 = String::from_str(&env, "DOC-REF-POLICY-735-A");
+    client.admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Paused,
+        &ModerationReason::PolicyViolation,
+        &evidence_ref_1,
+        &0,
+    );
+
+    let delisted_prompt = client.get_prompt(&prompt_id);
+    assert_eq!(delisted_prompt.status, PromptSaleStatus::Paused);
+
+    // Verify durable moderation audit record on-chain
+    let delist_record = client.get_moderation_record(&prompt_id, &delist_timestamp);
+    assert_eq!(delist_record.prompt_id, prompt_id);
+    assert_eq!(delist_record.moderator, context.admin);
+    assert_eq!(delist_record.previous_state, PromptSaleStatus::Active);
+    assert_eq!(delist_record.action, PromptSaleStatus::Paused);
+    assert_eq!(delist_record.reason, ModerationReason::PolicyViolation);
+    assert_eq!(delist_record.policy_reference, evidence_ref_1);
+    assert_eq!(delist_record.reverses_timestamp, 0);
+
+    // 3. Reversal reference validation: invalid reverses_timestamp must be rejected
+    let invalid_reversal_res = client.try_admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Active,
+        &ModerationReason::Other,
+        &String::from_str(&env, "RESTORE-EVID"),
+        &9_999_999, // Non-existent action timestamp
+    );
+    assert_eq!(invalid_reversal_res, Err(Ok(Error::MissingMetadata)));
+
+    // 4. Restore prompt (Paused -> Active) linking back to original delisting action
+    let restore_timestamp = 2_000_000;
+    env.ledger().with_mut(|l| l.timestamp = restore_timestamp);
+    let evidence_ref_2 = String::from_str(&env, "RESTORE-REF-APPEAL-735-B");
+    client.admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Active,
+        &ModerationReason::Other,
+        &evidence_ref_2,
+        &delist_timestamp,
+    );
+
+    let restored_prompt = client.get_prompt(&prompt_id);
+    assert_eq!(restored_prompt.status, PromptSaleStatus::Active);
+
+    // Verify restore audit record references the original delist timestamp
+    let restore_record = client.get_moderation_record(&prompt_id, &restore_timestamp);
+    assert_eq!(restore_record.prompt_id, prompt_id);
+    assert_eq!(restore_record.moderator, context.admin);
+    assert_eq!(restore_record.previous_state, PromptSaleStatus::Paused);
+    assert_eq!(restore_record.action, PromptSaleStatus::Active);
+    assert_eq!(restore_record.reason, ModerationReason::Other);
+    assert_eq!(restore_record.policy_reference, evidence_ref_2);
+    assert_eq!(restore_record.reverses_timestamp, delist_timestamp);
+}
+
