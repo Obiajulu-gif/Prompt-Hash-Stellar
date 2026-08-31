@@ -19,12 +19,6 @@ function isSensitiveKey(key: string): boolean {
 }
 
 function maskValue(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value === "string") {
-    if (value.length <= 8) return "[REDACTED]";
-    return `${value.slice(0, 4)}...${value.slice(-4)}`;
-  }
-  if (typeof value === "number" || typeof value === "boolean") return "[REDACTED]";
   return "[REDACTED]";
 }
 

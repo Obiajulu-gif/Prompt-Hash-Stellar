@@ -21,6 +21,9 @@ import { z } from "zod";
 /** Current schema version. Bump on any breaking field/limit/enum change. */
 export const PROMPT_METADATA_SCHEMA_VERSION = 1;
 
+/** Taxonomy version for category/tag migrations. Bump on category renames/removes/merges. */
+export const PROMPT_TAXONOMY_VERSION = 1;
+
 /** Canonical prompt categories, shared by the form dropdown, server validation, and the Mongo enum. */
 export const PROMPT_CATEGORIES = [
   "Marketing",
@@ -30,6 +33,21 @@ export const PROMPT_CATEGORIES = [
   "Gaming",
   "Other",
 ] as const;
+
+/**
+ * Category slug redirect map for backwards compatibility.
+ * Maps old/removed category names to their new equivalents.
+ * Used to migrate saved filters, URLs, and draft metadata.
+ */
+export const CATEGORY_SLUG_REDIRECTS: Record<string, string> = {
+  // Map old names to new names (case-insensitive)
+  "software-development": "Programming",
+  "web-development": "Programming",
+  "content-writing": "Creative Writing",
+  "business": "Marketing",
+  "audio-music": "Music",
+  "video-games": "Gaming",
+};
 
 /** Licence types a listing can grant to buyers. */
 export const PROMPT_LICENCES = ["standard", "extended", "commercial"] as const;
@@ -107,6 +125,46 @@ export function validatePromptMetadata(input: unknown): {
 }
 
 /**
+ * Migrate a category slug using the redirect map.
+ * Returns the new category, or the original if no redirect exists.
+ */
+export function migrateCategory(oldCategory: string): PromptCategory {
+  const normalizedOld = oldCategory.toLowerCase().replace(/ /g, "-");
+  const redirected = CATEGORY_SLUG_REDIRECTS[normalizedOld];
+
+  if (redirected && (PROMPT_CATEGORIES as readonly string[]).includes(redirected)) {
+    return redirected as PromptCategory;
+  }
+
+  return (PROMPT_CATEGORIES as readonly string[]).includes(oldCategory)
+    ? (oldCategory as PromptCategory)
+    : ("Other" as PromptCategory);
+}
+
+/**
+ * Migrate saved draft categories and URL filters to current taxonomy.
+ */
+export function migrateTaxonomy(input: {
+  category?: string | null;
+  tags?: string[];
+}): {
+  category: PromptCategory;
+  tags: string[];
+  migratedFields: string[];
+} {
+  const migratedFields: string[] = [];
+
+  const category = input.category ? migrateCategory(input.category) : ("Other" as PromptCategory);
+  if (input.category && category !== input.category) {
+    migratedFields.push("category");
+  }
+
+  const tags = Array.isArray(input.tags) ? input.tags.filter(tag => tag && tag.length > 0) : [];
+
+  return { category, tags, migratedFields };
+}
+
+/**
  * Migrates legacy prompt metadata records (v0 / unversioned) to the current
  * canonical schema version, while rejecting future unsupported schema versions (#677).
  */
@@ -127,6 +185,12 @@ export function migratePromptMetadata(raw: any): {
     };
   }
 
+  // Migrate category to current taxonomy
+  const { category: migratedCategory } = migrateTaxonomy({
+    category: raw.category,
+    tags: raw.tags,
+  });
+
   // Legacy v0 -> v1 migration
   const normalized = {
     ...raw,
@@ -135,9 +199,7 @@ export function migratePromptMetadata(raw: any): {
     tags: Array.isArray(raw.tags) ? raw.tags : [],
     licence: raw.licence ?? "standard",
     status: raw.status ?? raw.listingStatus ?? "draft",
-    category: (PROMPT_CATEGORIES as readonly string[]).includes(raw.category)
-      ? raw.category
-      : "Other",
+    category: migratedCategory,
   };
 
   const validation = validatePromptMetadata(normalized);
