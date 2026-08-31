@@ -99,7 +99,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
           >
             <StellarNotification
               title={notification.message}
-              variant={notification.type}
+              variant={
+                notification.type === "secondary"
+                  ? "primary"
+                  : notification.type
+              }
             />
             {notification.actionLabel && notification.onAction && (
               <button
@@ -116,7 +120,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
           </div>
         ))}
       </div>
-    </NotificationContext>
+    </NotificationContext.Provider>
   );
 };
 

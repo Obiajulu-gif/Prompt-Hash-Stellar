@@ -4,6 +4,12 @@
  */
 
 import { CreatorProfile } from "../profiles/creatorProfile";
+import {
+  validatePayoutAddressFormat,
+  verifyPayoutDestinationOnChain,
+  type PayoutAddressFormatResult,
+  type PayoutOnChainVerificationResult,
+} from "../stellar/payoutValidation";
 
 export interface PayoutReadinessCheck {
   id: string;
@@ -104,15 +110,14 @@ function validateWalletConnection(data: CreatorReadinessData): PayoutReadinessCh
     };
   }
 
-  // Basic Stellar address validation
-  const stellarAddressPattern = /^G[A-Z0-9]{55}$/;
-  if (!stellarAddressPattern.test(data.address)) {
+  const formatResult = validatePayoutAddressFormat(data.address);
+  if (!formatResult.isValid) {
     return {
       id: "wallet-connection",
       name: "Wallet Connection",
       description: "Valid Stellar wallet must be connected",
       status: "fail",
-      message: "Invalid Stellar wallet address format",
+      message: formatResult.error || "Invalid Stellar wallet address format",
       actionUrl: "/profile",
       actionText: "Check Wallet",
     };
@@ -144,29 +149,37 @@ function validatePayoutDestination(data: CreatorReadinessData): PayoutReadinessC
   }
 
   const payoutAddress = data.payoutPreferences.payoutAddress.trim();
-  
-  // Validate payout address format
-  const stellarAddressPattern = /^G[A-Z0-9]{55}$/;
-  if (!stellarAddressPattern.test(payoutAddress)) {
+  const formatResult = validatePayoutAddressFormat(payoutAddress, data.address);
+
+  if (!formatResult.isValid) {
     return {
       id: "payout-destination",
       name: "Payout Destination", 
       description: "Configured address where earnings will be sent",
       status: "fail",
-      message: "Invalid payout address format",
+      message: formatResult.error || "Invalid payout address format",
       actionUrl: "/profile/payout-settings",
       actionText: "Fix Payout Address",
     };
   }
 
-  // Warn if payout address is the same as connected wallet
-  if (payoutAddress === data.address) {
+  if (formatResult.warning) {
     return {
       id: "payout-destination",
       name: "Payout Destination",
       description: "Configured address where earnings will be sent", 
       status: "warn",
-      message: "Using same address for wallet and payouts (this is fine but consider a dedicated payout address)",
+      message: formatResult.warning,
+    };
+  }
+
+  if (formatResult.isMuxed) {
+    return {
+      id: "payout-destination",
+      name: "Payout Destination",
+      description: "Configured address where earnings will be sent",
+      status: "pass",
+      message: `Muxed Account configured (Memo ID: ${formatResult.muxedId})`,
     };
   }
 
@@ -266,13 +279,15 @@ function validateSettlementReadiness(data: CreatorReadinessData): PayoutReadines
   const balance = parseFloat(data.walletBalance);
   const minimumBalance = 1.0; // 1 XLM minimum for transaction fees
 
-  if (balance < minimumBalance) {
+  if (isNaN(balance) || balance < minimumBalance) {
     return {
       id: "settlement-readiness",
       name: "Settlement Readiness",
       description: "Sufficient XLM balance for transaction fees", 
       status: "fail",
-      message: `Add at least ${minimumBalance} XLM to your wallet for transaction fees`,
+      message: isNaN(balance)
+        ? "Invalid wallet balance format"
+        : `Add at least ${minimumBalance} XLM to your wallet for transaction fees`,
       actionUrl: "https://stellar.org/developers/reference/testnet",
       actionText: "Get XLM",
     };
@@ -332,6 +347,47 @@ export function checkCreatorPayoutReadiness(
 }
 
 /**
+ * Perform asynchronous on-chain payout readiness check
+ */
+export async function checkCreatorPayoutReadinessAsync(
+  address: string,
+  profile?: CreatorProfile | null,
+  walletBalance?: string,
+  options?: { horizonUrl?: string; network?: string },
+): Promise<PayoutReadinessResult & { onChain?: PayoutOnChainVerificationResult }> {
+  const baseResult = checkCreatorPayoutReadiness(address, profile, walletBalance);
+  const payoutPreferences = getPayoutPreferences(address);
+  const targetAddress = payoutPreferences?.payoutAddress || address;
+
+  if (!targetAddress) {
+    return baseResult;
+  }
+
+  const onChain = await verifyPayoutDestinationOnChain(targetAddress, options);
+
+  if (onChain.status === "memo_required_blocked" || (onChain.status === "unfunded" && onChain.error)) {
+    const errorMsg = onChain.error || "Destination account cannot safely receive payouts.";
+    const checkIdx = baseResult.checks.findIndex((c) => c.id === "payout-destination");
+    if (checkIdx !== -1) {
+      baseResult.checks[checkIdx] = {
+        ...baseResult.checks[checkIdx],
+        status: "fail",
+        message: errorMsg,
+      };
+    }
+    if (!baseResult.blockers.includes(errorMsg)) {
+      baseResult.blockers.push(errorMsg);
+    }
+    baseResult.isReady = false;
+  }
+
+  return {
+    ...baseResult,
+    onChain,
+  };
+}
+
+/**
  * Helper to determine if paid prompt publication should be blocked
  */
 export function shouldBlockPaidPublication(readiness: PayoutReadinessResult): boolean {
@@ -344,3 +400,8 @@ export function shouldBlockPaidPublication(readiness: PayoutReadinessResult): bo
 export function getBlockingIssues(readiness: PayoutReadinessResult): string[] {
   return readiness.blockers;
 }
+
+export {
+  validatePayoutAddressFormat,
+  verifyPayoutDestinationOnChain,
+};

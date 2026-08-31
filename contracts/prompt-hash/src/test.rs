@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
-use crate::types::{DisputeReason, Error, ListingConfig, PromptSaleStatus, Split};
+use crate::types::{DataKey, DisputeReason, Error, ListingConfig, PromptSaleStatus, Split};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,

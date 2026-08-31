@@ -123,7 +123,7 @@ async function handler(req: any, res: any) {
     }
 
     const prompts = await Prompt.find(query)
-      .populate("owner", "username walletAddress")
+      .populate("owner", "username walletAddress rating")
       .sort({ _id: -1 })
       .limit(limit + 1);
 
@@ -135,13 +135,6 @@ async function handler(req: any, res: any) {
       prompts.pop();
       nextCursor = prompts[prompts.length - 1]._id;
     }
-
-    res.status(200).json({
-      data: prompts,
-      metadata: { hasNextPage, nextCursor },
-    });
-      .populate("owner", "username walletAddress rating")
-      .sort({ createdAt: -1 });
 
     if (recommendations === "true" || recommendations === true) {
       const activeWallet = String(viewerWallet || walletAddress || "").toLowerCase();
@@ -185,7 +178,10 @@ async function handler(req: any, res: any) {
       return;
     }
 
-    res.status(200).json(prompts);
+    res.status(200).json({
+      data: prompts,
+      metadata: { hasNextPage, nextCursor },
+    });
   } catch (error) {
     console.error("Fetch prompts error:", error);
     res.status(500).json({ error: "Failed to fetch prompts" });
