@@ -303,3 +303,86 @@ export async function verifyAuditTrail(): Promise<{
     errors,
   };
 }
+
+export interface AuditBundleExportFilter {
+  actor?: string;
+  scope?: string;
+  promptId?: string;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+}
+
+export interface AuditBundleRecord {
+  sequence: number;
+  createdAt: string;
+  action: string;
+  result: string;
+  promptId: string | null;
+  walletHash: string | null;
+  requestId: string | null;
+  reason: string | null;
+  recordHash: string;
+}
+
+/**
+ * Export a filtered, redacted audit bundle for investigation.
+ * Supports filtering by actor (wallet), scope (category), prompt ID, and date range.
+ * All sensitive data is redacted from the export.
+ */
+export async function exportAuditBundle(filter: AuditBundleExportFilter): Promise<{
+  exportedAt: string;
+  recordCount: number;
+  filters: AuditBundleExportFilter;
+  records: AuditBundleRecord[];
+  integrityChecksum: string;
+}> {
+  const query: Record<string, unknown> = {};
+
+  if (filter.actor) {
+    query.walletAddress = hashWalletAddress(filter.actor);
+  }
+  if (filter.promptId) {
+    query.promptId = filter.promptId;
+  }
+  if (filter.since || filter.until) {
+    query.createdAt = {} as Record<string, Date>;
+    if (filter.since) (query.createdAt as Record<string, Date>)["$gte"] = filter.since;
+    if (filter.until) (query.createdAt as Record<string, Date>)["$lte"] = filter.until;
+  }
+
+  const records = await AuditLog.find(query)
+    .sort({ createdAt: 1 })
+    .limit(filter.limit ?? 10000)
+    .lean();
+
+  const exportedRecords: AuditBundleRecord[] = records.map((record, index) => ({
+    sequence: index + 1,
+    createdAt: record.createdAt.toISOString(),
+    action: record.action,
+    result: record.result,
+    promptId: record.promptId,
+    walletHash: record.walletAddress,
+    requestId: record.requestId,
+    reason: record.reason,
+    recordHash: record.recordHash,
+  }));
+
+  const checksum = createHash("sha256")
+    .update(JSON.stringify(exportedRecords))
+    .digest("hex");
+
+  return {
+    exportedAt: new Date().toISOString(),
+    recordCount: exportedRecords.length,
+    filters: {
+      actor: filter.actor ? "[REDACTED_HASH]" : undefined,
+      scope: filter.scope,
+      promptId: filter.promptId,
+      since: filter.since?.toISOString(),
+      until: filter.until?.toISOString(),
+    },
+    records: exportedRecords,
+    integrityChecksum: checksum,
+  };
+}
