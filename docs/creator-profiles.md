@@ -429,6 +429,55 @@ testUrls.forEach(url => {
 3. Ensure proper API request format
 4. Review admin authorization flow
 
+## Dashboard & Seller Analytics
+
+Creators get operational insight into how buyers discover, purchase, refund,
+and unlock their prompts via a privacy-safe analytics surface (`#711`).
+
+### Metrics
+
+| Metric | Derivation | Privacy note |
+|--------|-----------|--------------|
+| **Conversion rate** | purchases / views | Aggregated only |
+| **Refund rate** | refunded purchases / purchases | Aggregated only |
+| **Unlock success rate** | 1 − unlock failures / purchases | Aggregated only |
+| **Satisfaction** | positive reviews / reviews | Aggregated only |
+| **Active buyers** | unique buyer cohorts (suppressed below minimum cohort) | Identity redacted |
+
+### API
+
+`GET /api/prompts/creator/:walletAddress/analytics/support-metrics`
+
+Returns the `SellerAnalytics` shape in `src/lib/analytics/sellerAnalytics.ts`:
+
+```json
+{
+  "success": true,
+  "analytics": {
+    "windowDays": 30,
+    "cohort": { "activeBuyers": 12, "buyerIdentitiesRedacted": true },
+    "totals": { "views": 420, "purchases": 38, "refunds": 2, "unlockFailures": 4, "reviews": 11 },
+    "metrics": {
+      "conversionRate": 0.0904,
+      "refundRate": 0.0526,
+      "unlockSuccessRate": 0.8947,
+      "satisfactionRate": 0.8181,
+      "averageRating": 4.3
+    },
+    "unlockFailuresByReason": { "integrity_failure": 3, "no_access": 1 }
+  }
+}
+```
+
+Buyer wallet addresses never appear in this payload — identities are consumed
+only at the aggregation boundary and suppressed below the minimum cohort size.
+
+### UI
+
+- `src/pages/sell/page.tsx` — **Analytics** view renders `SellerAnalyticsWidget`.
+- `src/pages/profile/page.tsx` — My Inventory tab renders `SellerAnalyticsWidget`
+  beneath `CreatorDashboard`.
+
 ## Related Documentation
 
 - [Moderation and Policy](./operations/incident-response.md)

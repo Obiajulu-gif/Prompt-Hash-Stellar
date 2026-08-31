@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { PlusCircle, LayoutList } from "lucide-react";
+import { PlusCircle, LayoutList, BarChart3 } from "lucide-react";
 import { Footer } from "@/components/footer";
 import { Navigation } from "@/components/navigation";
 import { CreatePromptForm } from "./CreatePromptForm";
 import MyPrompts from "./MyPrompts";
+import { SellerAnalyticsWidget } from "@/components/analytics/SellerAnalyticsWidget";
+import { useWallet } from "@/hooks/useWallet";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 
-type View = "create" | "manage";
+type View = "create" | "manage" | "analytics";
 
 export default function SellPage() {
   usePageMeta({
@@ -15,6 +17,7 @@ export default function SellPage() {
   });
 
   const [view, setView] = useState<View>("create");
+  const { address } = useWallet();
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.12),_transparent_35%),linear-gradient(180deg,_#020617,_#0f172a_45%,_#020617)] text-white">
@@ -81,12 +84,48 @@ export default function SellPage() {
             <LayoutList className="h-4 w-4" />
             My prompts
           </button>
+          <button
+            onClick={() => setView("analytics")}
+            aria-pressed={view === "analytics"}
+            className={`min-h-11 flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all sm:px-4 ${
+              view === "analytics"
+                ? "bg-emerald-500/20 text-emerald-300 shadow-inner"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <BarChart3 className="h-4 w-4" />
+            Analytics
+          </button>
         </div>
 
-        {view === "create" ? (
+        {view === "create" && (
           <CreatePromptForm onCreated={() => setView("manage")} />
-        ) : (
+        )}
+        {view === "manage" && (
           <MyPrompts onCreateNew={() => setView("create")} />
+        )}
+        {view === "analytics" && (
+          <section className="space-y-6">
+            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-5 sm:p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
+                Creator analytics
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">
+                Conversion &amp; support performance
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                See how buyers discover, purchase, and successfully unlock your
+                prompts — with buyer identities redacted to protect privacy.
+              </p>
+            </div>
+            {address ? (
+              <SellerAnalyticsWidget walletAddress={address} />
+            ) : (
+              <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-8 text-center text-sm text-slate-400">
+                Connect your wallet to view privacy-safe seller analytics.
+              </div>
+            )}
+          </section>
         )}
       </main>
 

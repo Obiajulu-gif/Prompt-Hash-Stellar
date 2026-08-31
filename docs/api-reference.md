@@ -14,6 +14,17 @@ For detailed information, see [Payout Readiness API Reference](./payout-readines
 - Interactive checklists guide creators through setup requirements
 - Graceful error handling with actionable remediation steps
 
+> **Machine-readable schema (#713):** a valid OpenAPI 3.0 document covering
+> the marketplace endpoints below is published at
+> [`docs/openapi.json`](./openapi.json). It is also served live by the backend
+> and rendered as an interactive explorer:
+>
+> - `GET /api/openapi.json` — fetch the JSON schema
+> - `GET /api/docs` — interactive (Redoc) explorer
+>
+> Use the schema with code generators (`openapi-generator`, `hey-api`,
+> Postman import) to keep SDKs and integrations in sync with the API.
+
 ## Common Response Rules
 
 - Successful requests return JSON.
@@ -240,7 +251,99 @@ Example response:
 
 Returns draft and ready-to-publish prompts for the connected creator wallet.
 
-### Version updates
+### Creator sales analytics
+
+`GET /api/prompts/creator/:walletAddress/analytics`
+
+Returns daily sales and revenue for the trailing 30-day window:
+
+```json
+{
+  "dailySales": [
+    { "date": "2026-07-29", "unitsSold": 3, "revenueXlm": 7.5 }
+  ]
+}
+```
+
+### Privacy-safe support metrics (#711)
+
+`GET /api/prompts/creator/:walletAddress/analytics/support-metrics`
+
+Returns conversion, refund, unlock-failure, and review outcomes for the
+creator's listings. **Buyer identities are aggregated server-side and never
+returned**; cohorts below the minimum size are suppressed:
+
+```json
+{
+  "success": true,
+  "analytics": {
+    "windowDays": 30,
+    "cohort": { "activeBuyers": 12, "buyerIdentitiesRedacted": true },
+    "totals": { "views": 420, "purchases": 38, "refunds": 2, "unlockFailures": 4, "reviews": 11 },
+    "metrics": { "conversionRate": 0.0904, "refundRate": 0.0526, "unlockSuccessRate": 0.8947, "satisfactionRate": 0.8181, "averageRating": 4.3 },
+    "unlockFailuresByReason": { "integrity_failure": 3, "no_access": 1 }
+  }
+}
+```
+
+### Purchase transactions (#711)
+
+`GET /api/prompts/buyer/:walletAddress/transactions`
+
+Returns the buyer's licensing/purchase history, each row pairing an on-chain
+purchase with its prompt:
+
+```json
+{
+  "transactions": [
+    {
+      "id": "...",
+      "promptId": "123",
+      "promptTitle": "Launch Strategy Pack",
+      "promptImage": "https://...",
+      "amountXlm": 2.5,
+      "versionIndex": 1,
+      "txHash": "...",
+      "createdAt": "2026-07-29T10:15:30.000Z"
+    }
+  ]
+}
+```
+
+### Abuse reports & triage (#714)
+
+`POST /api/prompts/reports` — submit a report (public). Reporters may attach
+up to 10 evidence items:
+
+```json
+{
+  "promptId": "12345",
+  "reporterAddress": "G...",
+  "reason": "copyright",
+  "description": "Optional details",
+  "evidence": [
+    { "url": "https://source.example/original.pdf", "kind": "pdf" }
+  ]
+}
+```
+
+`GET /api/prompts/reports` — moderation queue (admin token required). Filter
+by `?status=pending|investigating|resolved|dismissed`.
+
+`PATCH /api/prompts/reports` — update triage status/notes (admin token
+required). Triage is **forward-only**: `pending → investigating →
+resolved|dismissed`; regressions and re-opens are rejected with `409`.
+
+```json
+{
+  "reportId": "report_1",
+  "status": "investigating",
+  "adminNotes": "Comparing against the provided source.",
+  "evidence": [{ "url": "https://s3.example/123.png", "kind": "image" }]
+}
+```
+
+## Version updates
 
 `POST /api/prompts/version`
 

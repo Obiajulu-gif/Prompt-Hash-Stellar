@@ -3,6 +3,8 @@ import connectDb from "../db/connectDb";
 import Purchase from "../models/Purchase";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
+import Review from "../models/Review";
+import AuditLog from "../models/AuditLog";
 import { markPrivate } from "../middleware/etag";
 import {
   reconcilePayoutEvents,
@@ -11,6 +13,8 @@ import {
   type PayoutStatementLine,
   type PayoutStatementSummary,
 } from "../services/payoutReconciliation";
+import { aggregateSellerAnalytics } from "../../../src/lib/analytics/sellerAnalytics.js";
+import type { SellerEvent } from "../../../src/lib/analytics/sellerAnalytics.js";
 
 interface PromptLite {
   _id: unknown;
@@ -188,6 +192,125 @@ export const GetCreatorSalesAnalytics = async (
     console.error("Get creator sales analytics error:", err);
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch creator sales analytics",
+    });
+  }
+};
+
+/**
+ * Returns privacy-safe conversion, refund, unlock-failure, and review outcomes
+ * for a creator's listings (#711).
+ *
+ * Buyer identities are aggregated server-side only: the response carries
+ * counts and rates, never raw buyer wallet addresses. The aggregation honours
+ * a minimum-cohort suppression so a lone buyer can never be isolated.
+ */
+const WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+export const GetCreatorSupportMetrics = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    markPrivate(res);
+    await connectDb();
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: "walletAddress is required." });
+    }
+
+    const user = await User.findOne({
+      walletAddress: walletAddress.toLowerCase(),
+    }).select("_id");
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const prompts = (await Prompt.find({ owner: user._id })
+      .select("_id onChainId")
+      .lean()) as unknown as { _id: unknown; onChainId?: string | null }[];
+
+    if (prompts.length === 0) {
+      return res.json({
+        success: true,
+        analytics: aggregateSellerAnalytics([]),
+      });
+    }
+
+    const promptIds = new Set<string>();
+    for (const prompt of prompts) {
+      promptIds.add(String(prompt._id));
+      if (prompt.onChainId) promptIds.add(String(prompt.onChainId));
+    }
+    const promptIdList = [...promptIds];
+    const since = new Date(Date.now() - WINDOW_MS);
+
+    const [purchases, reviews, unlockAudits] = await Promise.all([
+      Purchase.find({
+        promptId: { $in: promptIdList },
+        createdAt: { $gte: since },
+      })
+        .select("buyerWallet promptId status disputeResolution")
+        .lean(),
+      Review.find({ promptId: { $in: promptIdList }, status: "published" })
+        .select("userAddress rating promptId")
+        .lean(),
+      AuditLog.find({
+        promptId: { $in: promptIdList },
+        createdAt: { $gte: since },
+        $or: [
+          { action: { $regex: /^unlock_/ } },
+          { action: "unlock_success" },
+        ],
+      })
+        .select("action promptId walletAddress")
+        .lean(),
+    ]);
+
+    const events: SellerEvent[] = [];
+
+    for (const purchase of purchases) {
+      const buyer = String(purchase.buyerWallet ?? "");
+      if (!buyer) continue;
+      events.push({ buyerId: buyer, kind: "purchase", promptId: "0" });
+      if (purchase.status === "disputed" && purchase.disputeResolution === "refunded") {
+        events.push({ buyerId: buyer, kind: "refund", promptId: "0" });
+      }
+    }
+
+    for (const review of reviews) {
+      const rating = Number(review.rating ?? 0);
+      events.push({
+        buyerId: review.userAddress ?? "anon",
+        kind: "review",
+        promptId: "0",
+        rating,
+        isPositiveReview: rating >= 4,
+      });
+    }
+
+    for (const audit of unlockAudits) {
+      const action = String(audit.action ?? "");
+      if (action === "unlock_success") continue;
+      const reason = action.replace(/^unlock_/, "");
+      events.push({
+        buyerId: audit.walletAddress ?? "anon",
+        kind: "unlock_failure",
+        promptId: "0",
+        reason: reason || "unknown",
+      });
+    }
+
+    return res.json({
+      success: true,
+      analytics: aggregateSellerAnalytics(events, { enforceMinCohort: true }),
+    });
+  } catch (err) {
+    console.error("Get creator support metrics error:", err);
+    return res.status(500).json({
+      success: false,
+      error: (err as Error).message || "Failed to fetch support metrics",
     });
   }
 };
