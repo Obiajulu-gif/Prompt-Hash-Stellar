@@ -244,3 +244,52 @@ per day** (hourly is fine too):
 
 **Rule of thumb:** an empty `get_expiry_risk_metrics` result + a daily successful
 `renew_critical_keys` sweep = safe. Anything else = page someone.
+
+---
+
+## 7. Deploy-Time & Release Gate Verification (#685)
+
+To prevent deploying or upgrading contracts when critical state entries are near expiration, the deployment and CI pipelines enforce a **deploy-time TTL readiness check**.
+
+### Automated Deploy Gate Tool: `check-ttl-readiness.mjs`
+
+The script `scripts/check-ttl-readiness.mjs` (runnable via `npm run check:ttl` or `yarn check:ttl`) inspects the contract's expiry risk metrics before releases and contract upgrades.
+
+```bash
+# Offline / CI self-check mode:
+node scripts/check-ttl-readiness.mjs --self-check
+
+# Live target network check:
+node scripts/check-ttl-readiness.mjs --network testnet --contract-id <CONTRACT_ID>
+```
+
+#### Gate Behavior:
+1. **Pass Condition**: If `get_expiry_risk_metrics` returns `[]` (empty), all critical entries are above operational thresholds. The check exits with code `0`.
+2. **Block / Failure Condition**: If any critical entry family (`Prompt`, `Purchase`, `Dispute`) is within the warning/critical threshold:
+   - The deployment/release process **immediately fails (exit code 1)**.
+   - The tool reports the **contract ID**, **affected key families**, and **severity level**.
+   - Clear remediation commands are printed to unblock the deployment.
+
+### Runbook Remediation Command: `renew-critical-keys.mjs`
+
+When a deploy check fails due to critical TTL risk, run the automated renewal sweep operator tool:
+
+```bash
+# Automated multi-batch cursor sweep:
+node scripts/renew-critical-keys.mjs --network testnet --contract-id <CONTRACT_ID> --admin admin
+# Or via npm script:
+npm run renew:ttl -- --network testnet --contract-id <CONTRACT_ID>
+
+# Manual stellar-cli invocation:
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source admin \
+  --network testnet \
+  -- renew_critical_keys
+```
+
+### Pipeline Integration
+- **CI Workflows (`.github/workflows/contracts.yml`)**: Runs `node scripts/check-ttl-readiness.mjs --self-check` to validate threshold calculations and policy constraints.
+- **Deployment Scripts (`scripts/deploy.sh`)**: Runs post-initialization TTL readiness validation.
+- **Upgrade Scripts (`scripts/upgrade.sh`)**: Enforces pre-upgrade and post-upgrade TTL readiness checks to prevent upgrading contracts with degraded state.
+

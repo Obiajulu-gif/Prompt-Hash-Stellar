@@ -25,6 +25,8 @@
     "prepare": "node -e \"try { require('fs').existsSync('.husky/') && process.exit(0) } catch(e) {}\" && husky || true",
     "check:setup": "node scripts/check-local-setup.mjs",
     "check:policy": "node scripts/policy-scanner.mjs",
+    "check:ttl": "node scripts/check-ttl-readiness.mjs",
+    "renew:ttl": "node scripts/renew-critical-keys.mjs",
     "seed:preview": "node server/scripts/seedPreview.mjs",
     "verify:smoke": "node scripts/smoke-verification.mjs"
   },

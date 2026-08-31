@@ -413,12 +413,6 @@ pub struct ListingConfig {
     /// Creators must provide this when creating/updating listings.
     pub license_terms_hash: BytesN<32>,
 }
-    pub splits: Vec<Split>,
-    /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
-    pub tags: Vec<String>,
-    /// Maximum number of licenses that can be sold (0 = unlimited).
-    pub max_supply: u64,
-}
 
 /// On-chain listing record.
 ///
