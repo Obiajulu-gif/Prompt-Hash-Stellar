@@ -191,7 +191,7 @@ fn test_create_prompt_stores_encrypted_fields() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -228,7 +228,7 @@ fn test_creator_can_pause_reactivate_and_update_price() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -256,7 +256,7 @@ fn test_buy_prompt_grants_access_to_multiple_buyers_and_tracks_exact_fees() {
     let creator = Address::generate(&env);
     let buyer_one = Address::generate(&env);
     let buyer_two = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -316,7 +316,7 @@ fn test_fee_routing_pays_seller_and_platform_wallet_for_exact_purchase() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 25_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -361,7 +361,7 @@ fn test_small_price_fee_rounding_keeps_fractional_fee_with_seller() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 19;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -453,7 +453,7 @@ fn test_failed_purchase_does_not_grant_access_or_route_partial_payouts() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -552,7 +552,7 @@ fn test_has_access_is_true_for_creator_and_buyer_but_not_stranger() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let stranger = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -613,7 +613,7 @@ fn test_license_owner_can_transfer_and_creator_receives_royalty() {
     let creator = Address::generate(&env);
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -661,7 +661,7 @@ fn test_non_owner_cannot_transfer_license() {
     let owner = Address::generate(&env);
     let stranger = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -702,7 +702,7 @@ fn test_transfer_license_rejects_zero_price_and_self_transfer() {
     let creator = Address::generate(&env);
     let owner = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -748,7 +748,7 @@ fn test_duplicate_purchase_returns_typed_error() {
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "One License", 4_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "One License", 4_000, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
     client.buy_prompt(
@@ -782,7 +782,7 @@ fn test_creator_cannot_buy_own_prompt() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -813,7 +813,7 @@ fn test_inactive_prompt_cannot_be_bought() {
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -851,7 +851,7 @@ fn test_buy_prompt_with_zero_fee() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -886,7 +886,7 @@ fn test_multiple_buyers_until_supply_exhausted() {
     let buyer3 = Address::generate(&env);
     let price = 10_000;
 
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -947,7 +947,7 @@ fn test_buy_prompt_with_max_fee() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1044,7 +1044,7 @@ fn test_unauthorized_seller_actions_fail() {
 
     let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1104,7 +1104,7 @@ fn test_massive_price_does_not_overflow() {
 
     // Test with a very large price that might cause overflow in fee calculation
     let massive_price = i128::MAX / 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1173,7 +1173,7 @@ fn test_global_pause_blocks_mutations_but_not_reads() {
     }
 
     client.set_pause_status(&false);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1200,7 +1200,7 @@ fn test_lease_prompt_grants_temporary_access_and_expires() {
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1235,7 +1235,7 @@ fn test_buy_prompt_with_referrer_splits_payment_correctly() {
     let buyer = Address::generate(&env);
     let referrer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1293,7 +1293,7 @@ fn test_referrer_cannot_be_buyer() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1330,7 +1330,7 @@ fn test_referrer_cannot_be_creator() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1367,7 +1367,7 @@ fn test_buy_without_referrer_no_referral_amount_paid() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1467,7 +1467,7 @@ fn test_buy_prompt_blocked_when_paused() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 5_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1495,7 +1495,7 @@ fn test_update_prompt_price_blocked_when_paused() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1523,7 +1523,7 @@ fn test_read_only_methods_work_when_paused() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1555,7 +1555,7 @@ fn test_unpause_restores_operations() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 5_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1587,7 +1587,7 @@ fn test_extend_listing_blocked_when_paused() {
     env.ledger().with_mut(|l| l.timestamp = 1_000);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1616,7 +1616,7 @@ fn test_bulk_purchase_blocked_when_paused() {
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Bulk Pause", 1_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Bulk Pause", 1_000, &context.xlm);
 
     client.set_pause_status(&true);
 
@@ -1649,7 +1649,7 @@ fn test_tip_above_price_succeeds_and_creator_receives_full_tip() {
     let price: i128 = 10_000;
     let tip: i128 = 5_000;
     let total_payment = price + tip;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1697,7 +1697,7 @@ fn test_payment_below_price_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1731,7 +1731,7 @@ fn test_exact_price_payment_succeeds() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1759,7 +1759,7 @@ fn test_voucher_applies_discount_on_purchase() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1817,7 +1817,7 @@ fn test_voucher_is_single_use_second_use_fails() {
     let buyer_one = Address::generate(&env);
     let buyer_two = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1869,7 +1869,7 @@ fn test_invalid_voucher_code_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1902,7 +1902,7 @@ fn test_only_creator_can_add_voucher() {
 
     let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1934,7 +1934,7 @@ fn test_creator_can_remove_voucher() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -1978,7 +1978,7 @@ fn test_voucher_with_referrer_combined() {
     let buyer = Address::generate(&env);
     let referrer = Address::generate(&env);
     let price: i128 = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -2048,7 +2048,7 @@ fn test_buy_prompt_with_non_xlm_asset() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 5_000_000; // 5 USDC (6 decimals)
-    let prompt_id = create_prompt(&env, &client, &creator, "USDC Prompt", price, &usdc);
+    let _prompt_id = create_prompt(&env, &client, &creator, "USDC Prompt", price, &usdc);
 
     // Fund buyer with USDC
     usdc_client.mint(&buyer, &price);
@@ -2167,7 +2167,7 @@ fn test_lease_prompt_with_non_xlm_asset() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 10_000_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "USDC Lease Prompt", price, &usdc);
+    let _prompt_id = create_prompt(&env, &client, &creator, "USDC Lease Prompt", price, &usdc);
 
     // Lease price = 40% of base price
     let lease_price = price * 4_000 / 10_000;
@@ -2400,7 +2400,7 @@ fn test_only_creator_can_extend_listing() {
 
     let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Auth Extend", 5_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Auth Extend", 5_000, &context.xlm);
 
     let result = client.try_extend_listing(&stranger, &prompt_id, &9_000u64);
     match result {
@@ -2805,7 +2805,7 @@ fn test_buy_prompts_bulk_rejects_batch_over_max_size() {
         } else {
             "Over Max B"
         };
-        let prompt_id = create_prompt(&env, &client, &creator, title, price, &context.xlm);
+        let _prompt_id = create_prompt(&env, &client, &creator, title, price, &context.xlm);
         ids.push_back(prompt_id);
         amounts.push_back(price);
     }
@@ -2843,7 +2843,7 @@ fn test_buy_prompts_bulk_allows_exactly_max_size() {
     let mut amounts = Vec::new(&env);
     for i in 0..20 {
         let title = if i % 2 == 0 { "At Max A" } else { "At Max B" };
-        let prompt_id = create_prompt(&env, &client, &creator, title, price, &context.xlm);
+        let _prompt_id = create_prompt(&env, &client, &creator, title, price, &context.xlm);
         ids.push_back(prompt_id);
         amounts.push_back(price);
     }
@@ -3124,7 +3124,7 @@ fn test_atomicity_boundary_exactly_max_size_succeeds() {
     let mut ids = Vec::new(&env);
     let mut amounts = Vec::new(&env);
     for _i in 0..20 {
-        let prompt_id = create_prompt(&env, &client, &creator, "Bulk Item", price, &context.xlm);
+        let _prompt_id = create_prompt(&env, &client, &creator, "Bulk Item", price, &context.xlm);
         ids.push_back(prompt_id);
         amounts.push_back(price);
     }
@@ -3321,7 +3321,7 @@ fn test_access_pass_grants_time_bound_catalog_access() {
 
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Catalog A", 8_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Catalog A", 8_000, &context.xlm);
     let pass_price: i128 = 15_000;
     fund_buyer(&xlm_client, &buyer, &context.contract, pass_price);
 
@@ -3353,7 +3353,7 @@ fn test_revise_listing_increments_revision_and_snapshots_old_metadata() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -3396,7 +3396,7 @@ fn test_revise_listing_multiple_times_each_revision_preserved() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "V0 Title", 100, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "V0 Title", 100, &context.xlm);
 
     client.revise_listing(
         &creator,
@@ -3437,7 +3437,7 @@ fn test_revise_listing_unauthorized_fails() {
 
     let creator = Address::generate(&env);
     let other = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "My Prompt", 500, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "My Prompt", 500, &context.xlm);
 
     let result = client.try_revise_listing(
         &other,
@@ -3462,7 +3462,7 @@ fn test_revise_listing_buyer_retains_access_after_revision() {
     let buyer = Address::generate(&env);
     let price: i128 = 5_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "My Prompt", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "My Prompt", price, &context.xlm);
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None, &price, &None);
 
@@ -3588,7 +3588,7 @@ fn test_update_splits_rejects_unauthorized_caller() {
 
     let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Auth Splits", 5_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Auth Splits", 5_000, &context.xlm);
 
     let splits = Vec::<Split>::new(&env);
     let result = client.try_update_splits(&stranger, &prompt_id, &splits);
@@ -3609,7 +3609,7 @@ fn test_update_splits_rejects_invalid_total_bps() {
 
     let creator = Address::generate(&env);
     let co1 = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Bad Splits", 5_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Bad Splits", 5_000, &context.xlm);
 
     let mut bad_splits = Vec::<Split>::new(&env);
     bad_splits.push_back(Split {
@@ -3635,7 +3635,7 @@ fn test_update_splits_rejects_duplicate_recipients() {
 
     let creator = Address::generate(&env);
     let co1 = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Dup Splits", 5_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Dup Splits", 5_000, &context.xlm);
 
     let mut dup_splits = Vec::<Split>::new(&env);
     dup_splits.push_back(Split {
@@ -3709,7 +3709,7 @@ fn test_update_splits_blocked_when_paused() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Pause Splits", 5_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Pause Splits", 5_000, &context.xlm);
 
     client.set_pause_status(&true);
     let result = client.try_update_splits(&creator, &prompt_id, &Vec::new(&env));
@@ -3786,7 +3786,7 @@ fn test_buyer_can_open_and_admin_can_resolve_refund_dispute() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 10_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Refundable", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Refundable", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -3817,7 +3817,7 @@ fn test_invalid_dispute_requires_purchase() {
     let client = PromptHashContractClient::new(&env, &context.contract);
     let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "No Purchase", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "No Purchase", 10_000, &context.xlm);
 
     let res = client.try_open_dispute(
         &stranger,
@@ -3839,7 +3839,7 @@ fn test_resolved_dispute_cannot_be_resolved_twice() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 10_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Resolved", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Resolved", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -3870,7 +3870,7 @@ fn test_max_supply_enforced_on_purchase() {
     let buyer2 = Address::generate(&env);
     let price = 5_000;
 
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -3916,7 +3916,7 @@ fn test_max_supply_zero_means_unlimited() {
     let creator = Address::generate(&env);
     let price = 5_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Unlimited", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Unlimited", price, &context.xlm);
 
     // Default max_supply is 0 (unlimited) — multiple purchases should succeed
     for _ in 0..5 {
@@ -3975,7 +3975,7 @@ fn test_limited_edition_exhausts_after_max_supply_sales() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 10_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -4122,7 +4122,7 @@ fn test_unlimited_supply_allows_many_purchases() {
     let buyer = Address::generate(&env);
     let price = 100_000;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Lease Price", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Lease Price", price, &context.xlm);
 
     // Fund buyer with enough for lease (40% of price = 40_000)
     let lease_price = price * 4_000 / 10_000; // 40_000
@@ -4313,7 +4313,7 @@ fn test_update_price_to_zero_rejected() {
     let _xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -4389,7 +4389,7 @@ fn test_inactive_prompt_purchase_fails_with_correct_error() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price: i128 = 5_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -4435,7 +4435,7 @@ fn test_payout_invariant_fee_plus_creator_equals_payment() {
     let buyer = Address::generate(&env);
     let payment: i128 = 100_000;
 
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -4484,7 +4484,7 @@ fn test_payout_invariant_with_referral() {
     let referrer = Address::generate(&env);
     let payment: i128 = 100_000;
 
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -4609,7 +4609,7 @@ fn test_payout_invariant_with_tip() {
     let payment: i128 = 75_000; // tip = 25_000
     let tip = payment - price;
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Tip Test", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Tip Test", price, &context.xlm);
     fund_buyer(&xlm_client, &buyer, &context.contract, payment);
 
     let creator_balance_before = xlm_client.balance(&creator);
@@ -4652,7 +4652,7 @@ fn test_lease_respects_max_supply() {
     let creator = Address::generate(&env);
     let buyer_one = Address::generate(&env);
     let buyer_two = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Leased Once", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Leased Once", 10_000, &context.xlm);
     client.set_prompt_max_supply(&creator, &prompt_id, &1);
 
     fund_buyer(&xlm_client, &buyer_one, &context.contract, 100_000);
@@ -4681,7 +4681,7 @@ fn test_set_max_supply_below_committed_sales_rejected() {
     let buyer_one = Address::generate(&env);
     let buyer_two = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Uncapped", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Uncapped", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer_one, &context.contract, price);
     fund_buyer(&xlm_client, &buyer_two, &context.contract, price);
@@ -4721,7 +4721,7 @@ fn test_dispute_refund_releases_supply_for_resale() {
     let buyer_one = Address::generate(&env);
     let buyer_two = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "One Unit", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "One Unit", price, &context.xlm);
     client.set_prompt_max_supply(&creator, &prompt_id, &1);
 
     fund_buyer(&xlm_client, &buyer_one, &context.contract, price);
@@ -4776,7 +4776,7 @@ fn test_transfer_license_does_not_consume_or_free_supply() {
     let new_buyer = Address::generate(&env);
     let stranger = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Resale Cap", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Resale Cap", price, &context.xlm);
     client.set_prompt_max_supply(&creator, &prompt_id, &1);
 
     fund_buyer(&xlm_client, &seller, &context.contract, price);
@@ -4902,7 +4902,7 @@ fn test_access_pass_renewal_before_expiry_extends_from_current_expiry() {
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Catalog", 1_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Catalog", 1_000, &context.xlm);
     let price = 5_000;
 
     let pass_id = client.create_access_pass(
@@ -4939,7 +4939,7 @@ fn test_access_pass_renewal_after_expiry_starts_from_now() {
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Catalog", 1_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Catalog", 1_000, &context.xlm);
     let price = 5_000;
 
     let pass_id = client.create_access_pass(
@@ -5031,7 +5031,7 @@ fn test_retiring_access_pass_does_not_revoke_existing_grant() {
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Catalog", 1_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Catalog", 1_000, &context.xlm);
     let price = 5_000;
 
     let pass_id = client.create_access_pass(
@@ -5096,7 +5096,7 @@ fn test_dispute_cannot_open_after_window_closes() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Windowed", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Windowed", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5125,7 +5125,7 @@ fn test_dispute_within_window_still_succeeds() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Windowed", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Windowed", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5151,7 +5151,7 @@ fn test_permissionless_settlement_blocked_before_window_elapses() {
     let buyer = Address::generate(&env);
     let stranger = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Stale", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Stale", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5173,7 +5173,7 @@ fn test_permissionless_settlement_after_window_by_any_caller() {
     let buyer = Address::generate(&env);
     let stranger = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Stale", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Stale", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5200,7 +5200,7 @@ fn test_settle_purchase_blocked_while_dispute_open() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Contested", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Contested", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5228,7 +5228,7 @@ fn test_creator_can_settle_immediately_without_waiting() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Fast Path", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Fast Path", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5250,7 +5250,7 @@ fn test_asset_liability_tracks_pending_on_purchase() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5269,7 +5269,7 @@ fn test_asset_liability_decrements_on_settle() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5289,7 +5289,7 @@ fn test_asset_liability_moves_to_disputed_on_dispute_open() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5313,7 +5313,7 @@ fn test_asset_liability_moves_back_to_pending_on_dispute_rejected() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5343,7 +5343,7 @@ fn test_asset_liability_clears_on_dispute_refunded() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Liability", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5368,7 +5368,7 @@ fn test_asset_liability_unaffected_by_lease_prompt() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Lease", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Lease", price, &context.xlm);
 
     // Leases (like bundles and access passes) transfer payment in and pay it
     // straight back out within the same call — there's never a persisted
@@ -5390,7 +5390,7 @@ fn test_asset_solvency_matches_when_no_drift() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Solvency", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Solvency", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5411,7 +5411,7 @@ fn test_check_asset_solvency_detects_drift_and_pauses() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Drift", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Drift", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5444,7 +5444,7 @@ fn test_migrate_asset_liability_is_idempotent() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 5_000;
-    let prompt_id = create_prompt(&env, &client, &creator, "Migrate", price, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Migrate", price, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, price);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &price, &None::<Bytes>);
@@ -5737,7 +5737,7 @@ fn test_renew_critical_keys_batch_resumption_with_cursor() {
     let mut prompt_ids = Vec::new(&env);
 
     for i in 0..num_prompts {
-        let prompt_id = create_prompt(
+        let _prompt_id = create_prompt(
             &env,
             &client,
             &creator,
@@ -5790,7 +5790,7 @@ fn test_renew_critical_keys_processes_each_key_exactly_once() {
     let mut created_ids = Vec::new(&env);
 
     for i in 0..num_prompts {
-        let prompt_id = create_prompt(
+        let _prompt_id = create_prompt(
             &env,
             &client,
             &creator,
@@ -5869,7 +5869,7 @@ fn test_renew_critical_keys_expiry_risk_consistency() {
     let creator = Address::generate(&env);
 
     // Create prompts
-    for i in 0..5 {
+    for _i in 0..5 {
         create_prompt(
             &env,
             &client,
@@ -6035,7 +6035,7 @@ fn test_pagination_cursor_consistency_across_entry_points() {
 
     // Create prompts in a specific category
     let category = "TestCategory";
-    for i in 0..5 {
+    for _i in 0..5 {
         create_prompt_with_category(
             &env,
             &client,
@@ -6186,7 +6186,7 @@ fn test_migrate_asset_liability_pending_case() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 3_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -6221,7 +6221,7 @@ fn test_migrate_asset_liability_disputed_case() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 4_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -6258,7 +6258,7 @@ fn test_migrate_asset_liability_non_admin_rejected() {
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Auth Check", 2_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Auth Check", 2_000, &context.xlm);
 
     fund_buyer(&xlm_client, &buyer, &context.contract, 2_000);
     client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &2_000, &None::<Bytes>);
@@ -6280,7 +6280,7 @@ fn test_migrate_asset_liability_with_asset_solvency() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     let price = 6_000;
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -6329,7 +6329,7 @@ fn test_discount_auth_happy_path() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
     fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
@@ -6377,7 +6377,7 @@ fn test_discount_auth_domain_mismatch_network_id() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Create authorization with wrong network_id
     let network_id = BytesN::from_array(&env, &[1u8; 32]); // Wrong network_id
@@ -6411,7 +6411,7 @@ fn test_discount_auth_domain_mismatch_contract_id() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Create authorization with wrong contract_id
     let network_id = env.ledger().network_id();
@@ -6446,7 +6446,7 @@ fn test_discount_auth_expired_ledger() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Create authorization with expiry in the past
     let network_id = env.ledger().network_id();
@@ -6481,7 +6481,7 @@ fn test_discount_auth_nonce_replay_rejection() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
     fund_buyer(&xlm_client, &buyer, &context.contract, 16_000);
@@ -6539,7 +6539,7 @@ fn test_discount_auth_unauthorized_caller() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Non-creator tries to add discount auth for creator's prompt
     let network_id = env.ledger().network_id();
@@ -6575,7 +6575,7 @@ fn test_discount_auth_revoke_then_redeem_fails() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
     fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
@@ -6626,7 +6626,7 @@ fn test_discount_auth_invalid_discount_percentage() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Create authorization with discount_bps > MAX_BPS (10_000)
     let network_id = env.ledger().network_id();
@@ -6661,7 +6661,7 @@ fn test_discount_auth_max_bps_edge_case() {
     let buyer = Address::generate(&env);
 
     // Create a prompt
-    let prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Test Prompt", 10_000, &context.xlm);
 
     // Fund the buyer
     fund_buyer(&xlm_client, &buyer, &context.contract, 8_000);
@@ -6803,7 +6803,7 @@ fn test_get_prompts_by_buyer_paginated_multi_page() {
     fund_buyer(&xlm_client, &buyer, &context.contract, 50_000);
 
     let mut created_ids = Vec::new(&env);
-    for i in 0..5 {
+    for _i in 0..5 {
         let p_id = create_prompt(&env, &client, &creator, "Prompt", 1_000, &context.xlm);
         created_ids.push_back(p_id);
         client.buy_prompt(&buyer, &p_id, &None, &1_000, &None);
@@ -6839,7 +6839,7 @@ fn test_catalog_secondary_index_verification_and_repair() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -6911,7 +6911,7 @@ fn test_checked_accounting_invariant_on_double_refund_and_counters() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -6954,7 +6954,7 @@ fn test_listing_snapshot_hash_binds_to_current_listing_state() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(
+    let _prompt_id = create_prompt(
         &env,
         &client,
         &creator,
@@ -6992,7 +6992,7 @@ fn test_admin_moderation_delist_restore_and_evidence_audit_trail() {
     let client = PromptHashContractClient::new(&env, &context.contract);
     let creator = Address::generate(&env);
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Mod Test", 1_000, &context.xlm);
+    let _prompt_id = create_prompt(&env, &client, &creator, "Mod Test", 1_000, &context.xlm);
     let initial_prompt = client.get_prompt(&prompt_id);
     assert_eq!(initial_prompt.status, PromptSaleStatus::Active);
 

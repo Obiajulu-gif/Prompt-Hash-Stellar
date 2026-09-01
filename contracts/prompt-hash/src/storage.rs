@@ -1369,9 +1369,8 @@ impl Storage {
 
     /// Reconciles prompt sales counters for pre-existing clamped records (#653).
     pub fn reconcile_sales_counter(env: &Env, prompt_id: u64) -> Result<u64, Error> {
-        let mut prompt = Self::require_prompt(env, prompt_id)?;
+        let prompt = Self::require_prompt(env, prompt_id)?;
         let current_count = prompt.sales_count;
-        prompt.sales_count = current_count;
         Self::update_prompt(env, &prompt);
         Ok(current_count)
     }

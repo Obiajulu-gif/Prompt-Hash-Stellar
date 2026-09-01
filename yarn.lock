@@ -5226,6 +5226,44 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tanstack/query-core@npm:5.102.8":
+  version: 5.102.8
+  resolution: "@tanstack/query-core@npm:5.102.8"
+  checksum: 10c0/b8b8413c2372ff26605f63283f2bfe0edc17be1daad858a437d154ca38b30e8b6e47a5b8a0eb5c40b93fd66b8461f1cf2ac6cf5e1c9a03919d0079a0b4ae8bfa
+  languageName: node
+  linkType: hard
+
+"@tanstack/query-persist-client-core@npm:5.102.8":
+  version: 5.102.8
+  resolution: "@tanstack/query-persist-client-core@npm:5.102.8"
+  dependencies:
+    "@tanstack/query-core": "npm:5.102.8"
+  checksum: 10c0/9c1f51fa6e61ebfaec7be7b656a74a388cd5bc02c8089d537d01a8d1b1b4b2980b9916e5359f287131ca16d0ddf06a32427695712063d7f1b50ca893932a4fa8
+  languageName: node
+  linkType: hard
+
+"@tanstack/query-sync-storage-persister@npm:^5.102.8":
+  version: 5.102.8
+  resolution: "@tanstack/query-sync-storage-persister@npm:5.102.8"
+  dependencies:
+    "@tanstack/query-core": "npm:5.102.8"
+    "@tanstack/query-persist-client-core": "npm:5.102.8"
+  checksum: 10c0/9a52516a883c829cbae17a0790c14859b3646aef6090cf46c68917671abf3490a098f29809f859b4ed9ddca1ae6f98380be7206f1a67f279628aaa348a62a215
+  languageName: node
+  linkType: hard
+
+"@tanstack/react-query-persist-client@npm:^5.102.8":
+  version: 5.102.8
+  resolution: "@tanstack/react-query-persist-client@npm:5.102.8"
+  dependencies:
+    "@tanstack/query-persist-client-core": "npm:5.102.8"
+  peerDependencies:
+    "@tanstack/react-query": ^5.102.8
+    react: ^18 || ^19
+  checksum: 10c0/0cb15d6dbfeb666ad45abc41b20554d7e833555b8aba3a23241182b8e806fa8755690f2edecf5855648f1ff51f910fe8da2bb67ff8f5df78bad1a5b604c45fe3
+  languageName: node
+  linkType: hard
+
 "@tanstack/react-query@npm:^5.101.4":
   version: 5.101.4
   resolution: "@tanstack/react-query@npm:5.101.4"
@@ -9996,6 +10034,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"js-sha256@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "js-sha256@npm:1.0.0"
+  checksum: 10c0/24749f9ce929d3121324ba168f120802177939ca8b5411ef3ac69e6333b005a1be92279be50b41e24c1e30094d4eb6e231be7471e50fa5aa54a600f6fcd05612
+  languageName: node
+  linkType: hard
+
 "js-tokens@npm:^4.0.0":
   version: 4.0.0
   resolution: "js-tokens@npm:4.0.0"
@@ -12163,7 +12208,9 @@ __metadata:
     "@stellar/stellar-sdk": "npm:^16.1.0"
     "@tailwindcss/postcss": "npm:^4.3.3"
     "@tailwindcss/vite": "npm:^4.3.3"
+    "@tanstack/query-sync-storage-persister": "npm:^5.102.8"
     "@tanstack/react-query": "npm:^5.101.4"
+    "@tanstack/react-query-persist-client": "npm:^5.102.8"
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/jest-dom": "npm:^7.0.0"
     "@testing-library/react": "npm:^16.3.2"
@@ -12186,6 +12233,7 @@ __metadata:
     husky: "npm:^9.1.7"
     i18next: "npm:^26.3.0"
     i18next-browser-languagedetector: "npm:^8.2.1"
+    js-sha256: "npm:^1.0.0"
     jsdom: "npm:^30.0.0"
     libsodium-wrappers: "npm:^0.8.4"
     lint-staged: "npm:^17.2.0"

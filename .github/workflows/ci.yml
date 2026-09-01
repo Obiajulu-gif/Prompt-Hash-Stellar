@@ -114,6 +114,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build Schema
+        run: npm --prefix ../packages/schema install && npm --prefix ../packages/schema run build
+
       - name: Run lint
         run: npm run lint
 
