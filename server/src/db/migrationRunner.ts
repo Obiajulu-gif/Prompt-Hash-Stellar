@@ -38,6 +38,7 @@ export async function getMigrationFiles(migrationsDir: string = defaultMigration
     const version = parseInt(match[1], 10);
     const filePath = path.join(migrationsDir, file);
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const migrationModule = require(filePath);
 
     if (typeof migrationModule.up !== "function" || typeof migrationModule.down !== "function") {

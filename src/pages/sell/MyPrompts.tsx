@@ -140,7 +140,7 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
 
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
-  const moderationByPromptId = moderationQuery.data ?? {};
+  const moderationByPromptId = (moderationQuery.data ?? {}) as Record<string, any>;
 
   // Ensure creator dashboard + detail caches are cleared when the page mounts so
   // moderation decisions are never served from a stale persisted cache.
@@ -1163,4 +1163,5 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   );
 };
 
+export { MyPrompts };
 export default MyPrompts;

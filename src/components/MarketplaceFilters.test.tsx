@@ -152,12 +152,13 @@ describe("MarketplaceFilters - Combined Filter States", () => {
   });
 
   it("displays empty state when combined filters exclude all listings", () => {
-    const hasActiveFilters =
-      Boolean("AI") ||
-      Boolean("popular") ||
-      "sales" !== "recent" ||
-      5 !== 0 ||
-      15 !== 25;
+    const hasActiveFilters = [
+      Boolean("AI"),
+      Boolean("popular"),
+      "sales" !== "recent",
+      5 !== 0,
+      15 !== 25
+    ].some(Boolean);
 
     expect(hasActiveFilters).toBe(true);
   });

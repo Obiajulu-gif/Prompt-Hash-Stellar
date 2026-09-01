@@ -154,8 +154,7 @@ export const GetPrompts = async (
     const prompts = await Prompt.find(query)
       .populate("owner", "username walletAddress rating")
       .sort({ _id: -1 })
-      .limit(limit + 1)
-      .lean();
+      .limit(limit + 1);
 
     let hasNextPage = false;
     let nextCursor = null;

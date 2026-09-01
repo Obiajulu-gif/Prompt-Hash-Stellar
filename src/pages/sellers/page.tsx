@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   BarChart3,
   Clock,
+  ExternalLink,
   Loader2,
   PackageSearch,
   ShoppingBag,
@@ -31,6 +32,12 @@ import {
   CreatorReputationSummary,
   CreatorVerifiedBadge,
 } from "@/components/reputation/CreatorReputationBadge";
+import {
+  getCreatorProfile,
+  getCreatorDisplayName,
+  shortenCreatorAddress,
+} from "@/lib/profiles/creatorProfile";
+import { shortenAddress } from "@/lib/utils";
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&

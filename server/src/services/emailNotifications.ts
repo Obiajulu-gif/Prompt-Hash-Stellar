@@ -14,6 +14,7 @@ import User from "../models/User.js";
 
 let nodemailer: any;
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   nodemailer = require("nodemailer");
 } catch {
   // nodemailer is optional

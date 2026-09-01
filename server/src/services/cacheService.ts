@@ -5,7 +5,7 @@ let client: RedisClientType | null = null;
 let connectingPromise: Promise<RedisClientType | null> | null = null;
 
 export async function getClient(): Promise<RedisClientType | null> {
-  const redisUrl = process.env.REDIS_URL || (process.env.NODE_ENV === "test" ? "redis://127.0.0.1:6379" : undefined);
+  const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) return null;
   if (client && client.isOpen) return client;
 

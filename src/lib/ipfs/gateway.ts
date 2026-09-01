@@ -444,3 +444,8 @@ export async function verifyWithQuorum(
     gatewayResults,
   };
 }
+export const DEFAULT_IPFS_GATEWAY = "https://ipfs.io";
+export function resolveGatewayBase(url: string): string {
+  const clean = url.replace(/\/$/, "");
+  return `${clean}/ipfs/`;
+}

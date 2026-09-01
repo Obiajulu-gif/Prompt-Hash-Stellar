@@ -113,7 +113,6 @@ pub enum Error {
     MissingMetadata = 88,
 }
 
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PromptSaleStatus {
@@ -217,7 +216,7 @@ pub enum DataKey {
     /// Marks that `migrate_asset_liability` has already backfilled the given
     /// escrow into `AssetLiability`, so a repeat call is a safe no-op (#570).
     EscrowLiabilityMigrated(u64, Address),
-    
+
     /// Moderation audit record, keyed by (prompt_id, moderation_timestamp).
     /// Preserves complete history of policy actions for compliance.
     ModerationRecord(u64, u64),
@@ -1010,11 +1009,7 @@ pub trait PromptHashTrait {
     ) -> Result<IndexRepairSummary, Error>;
 
     // Checked accounting counter reconciliation (#653).
-    fn reconcile_sales_counter(
-        env: Env,
-        admin: Address,
-        prompt_id: u64,
-    ) -> Result<u64, Error>;
+    fn reconcile_sales_counter(env: Env, admin: Address, prompt_id: u64) -> Result<u64, Error>;
 
     // TTL maintenance (operator utilities).
     fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error>;

@@ -12,6 +12,8 @@ import {
   DEFAULT_TTL_SECONDS,
 } from "../services/cacheService";
 
+process.env.REDIS_URL = "redis://127.0.0.1:6379";
+
 // Mock redis client
 const mockRedisGet = vi.fn();
 const mockRedisSet = vi.fn();
@@ -66,7 +68,7 @@ vi.mock("../models/Prompt", () => {
       find: vi.fn(() => ({
         populate: vi.fn().mockReturnThis(),
         sort: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue(mockPrompts),
         lean: vi.fn().mockResolvedValue(mockPrompts),
       })),
       findOne: vi.fn(),
