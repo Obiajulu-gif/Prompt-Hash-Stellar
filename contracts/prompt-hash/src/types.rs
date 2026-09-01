@@ -109,7 +109,10 @@ pub enum Error {
     MaxSupplyBelowCommitted = 84,
     DisputeWindowClosed = 85,
     DisputeWindowNotElapsed = 86,
+    InvalidMetadata = 87,
+    MissingMetadata = 88,
 }
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -247,16 +250,18 @@ pub enum ModerationReason {
     Other,
 }
 
-/// Moderation audit record preserving complete policy action history.
+/// Moderation audit record preserving complete policy action history and reversal links.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModerationRecord {
     pub prompt_id: u64,
     pub moderator: Address,
     pub action: PromptSaleStatus,
+    pub previous_state: PromptSaleStatus,
     pub reason: ModerationReason,
     pub policy_reference: String,
     pub timestamp: u64,
+    pub reverses_timestamp: u64,
 }
 
 #[contracttype]
@@ -367,6 +372,12 @@ pub struct Purchase {
     pub transfer_count: u32,
     pub last_transferred_at: u64,
     pub expires_at: u64,
+    /// The listing revision number at the time of purchase.
+    /// Immutable snapshot binding buyer to the prompt metadata version they accepted (#731).
+    pub purchased_revision: u32,
+    /// Hash of the license terms accepted at purchase time.
+    /// Empty BytesN<32> for purchases made before license versioning shipped (#731).
+    pub license_terms_hash: BytesN<32>,
 }
 
 #[contracttype]
@@ -403,8 +414,17 @@ pub struct ListingConfig {
     pub tags: Vec<String>,
     /// Maximum number of licenses that can be sold (0 = unlimited).
     pub max_supply: u64,
+    /// Hash of the license terms offered with this listing (#731).
+    /// Creators must provide this when creating/updating listings.
+    pub license_terms_hash: BytesN<32>,
 }
 
+/// On-chain listing record.
+///
+/// `creator` is intentionally immutable: license fees (`buy_prompt`) always
+/// route to the address that created the listing. Changing who operates a
+/// listing is coordinated OFF-chain (indexed `Prompt.owner` re-pointing,
+/// see docs/architecture.md) and never mutates this struct.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
@@ -433,6 +453,9 @@ pub struct Prompt {
     pub revision: u32,
     /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
     pub tags: Vec<String>,
+    /// Hash of the current license terms offered with this listing.
+    /// Stored on-chain so buyers can verify what terms they're accepting (#731).
+    pub license_terms_hash: BytesN<32>,
 }
 
 #[contracttype]
@@ -721,7 +744,14 @@ pub trait PromptHashTrait {
         status: PromptSaleStatus,
         reason: ModerationReason,
         policy_reference: String,
+        reverses_timestamp: u64,
     ) -> Result<(), Error>;
+
+    fn get_moderation_record(
+        env: Env,
+        prompt_id: u64,
+        timestamp: u64,
+    ) -> Result<ModerationRecord, Error>;
 
     fn set_prompt_max_supply(
         env: Env,

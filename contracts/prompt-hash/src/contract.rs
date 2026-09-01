@@ -141,6 +141,7 @@ impl PromptHashTrait for PromptHashContract {
             splits: listing.splits,
             revision: 0,
             tags: listing.tags,
+            license_terms_hash: listing.license_terms_hash.clone(),
         };
 
         Storage::save_prompt(&env, &prompt)?;
@@ -181,10 +182,14 @@ impl PromptHashTrait for PromptHashContract {
         status: PromptSaleStatus,
         reason: super::types::ModerationReason,
         policy_reference: soroban_sdk::String,
+        reverses_timestamp: u64,
     ) -> Result<(), Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
+
+        // Ensure structured evidence reference is provided
+        ensure(!policy_reference.is_empty(), Error::InvalidMetadata)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(
@@ -193,26 +198,49 @@ impl PromptHashTrait for PromptHashContract {
         )?;
         ensure(prompt.status != status, Error::InvalidStatusTransition)?;
 
+        // If this action reverses a prior moderation decision, verify the original action record exists
+        if reverses_timestamp != 0 {
+            let _orig = Storage::get_moderation_record(&env, prompt_id, reverses_timestamp)?;
+        }
+
+        let previous_state = prompt.status.clone();
         let now = env.ledger().timestamp();
         
-        // Store moderation audit record
+        // Store moderation audit record with durable evidence trail and reversal link
         let moderation_record = super::types::ModerationRecord {
             prompt_id,
             moderator: admin.clone(),
             action: status.clone(),
+            previous_state: previous_state.clone(),
             reason: reason.clone(),
             policy_reference: policy_reference.clone(),
             timestamp: now,
+            reverses_timestamp,
         };
-        let key = super::types::DataKey::ModerationRecord(prompt_id, now);
-        env.storage().persistent().set(&key, &moderation_record);
-        Storage::extend_key_ttl(&env, &key);
+        Storage::set_moderation_record(&env, &moderation_record);
 
         prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
         Storage::update_status_indexes(&env, &prompt);
-        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, status, reason, policy_reference);
+        Events::emit_prompt_admin_moderated(
+            &env,
+            prompt_id,
+            admin,
+            status,
+            previous_state,
+            reason,
+            policy_reference,
+            reverses_timestamp,
+        );
         Ok(())
+    }
+
+    fn get_moderation_record(
+        env: Env,
+        prompt_id: u64,
+        timestamp: u64,
+    ) -> Result<super::types::ModerationRecord, Error> {
+        Storage::get_moderation_record(&env, prompt_id, timestamp)
     }
 
     fn set_prompt_max_supply(

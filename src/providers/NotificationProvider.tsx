@@ -19,10 +19,23 @@ interface Notification {
   message: string;
   type: NotificationType;
   isVisible: boolean;
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
+export interface NotificationActionOptions {
+  /** Label for the action button rendered inside the notification. */
+  actionLabel?: string;
+  /** Invoked when the action is pressed (typically a retry). */
+  onAction?: () => void;
 }
 
 interface NotificationContextType {
-  addNotification: (_message: string, _type: NotificationType) => void;
+  addNotification: (
+    _message: string,
+    _type: NotificationType,
+    _options?: NotificationActionOptions,
+  ) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(
@@ -37,14 +50,29 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const addNotification = useCallback(
-    (message: string, type: NotificationType) => {
-      const newNotification = {
+    (
+      message: string,
+      type: NotificationType,
+      options?: NotificationActionOptions,
+    ) => {
+      const hasAction = Boolean(options?.actionLabel && options?.onAction);
+      const newNotification: Notification = {
         id: `${type}-${Date.now().toString()}`,
         message,
         type,
         isVisible: true,
+        actionLabel: options?.actionLabel,
+        onAction: options?.onAction,
       };
       setNotifications((prev) => [...prev, newNotification]);
+
+      if (hasAction) {
+        // Action-backed notifications stay visible so the user can act on them.
+        setTimeout(() => {
+          setNotifications(filterOut(newNotification.id));
+        }, 15000);
+        return;
+      }
 
       setTimeout(() => {
         setNotifications(markRead(newNotification.id));
@@ -71,12 +99,28 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
           >
             <StellarNotification
               title={notification.message}
-              variant={notification.type}
+              variant={
+                notification.type === "secondary"
+                  ? "primary"
+                  : notification.type
+              }
             />
+            {notification.actionLabel && notification.onAction && (
+              <button
+                type="button"
+                className="notification-action"
+                onClick={() => {
+                  setNotifications(filterOut(notification.id));
+                  notification.onAction?.();
+                }}
+              >
+                {notification.actionLabel}
+              </button>
+            )}
           </div>
         ))}
       </div>
-    </NotificationContext>
+    </NotificationContext.Provider>
   );
 };
 

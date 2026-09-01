@@ -77,3 +77,8 @@ export const wallet = {
 export const connectWallet = async (..._args: unknown[]): Promise<void> => {
   await StellarWalletsKit.authModal();
 };
+
+export {
+  validatePayoutAddressFormat,
+  verifyPayoutDestinationOnChain,
+} from "../lib/stellar/payoutValidation";

@@ -23,8 +23,10 @@ struct PromptAdminModerated {
     pub prompt_id: u64,
     pub admin: Address,
     pub status: PromptSaleStatus,
+    pub previous_state: PromptSaleStatus,
     pub reason: ModerationReason,
     pub policy_reference: String,
+    pub reverses_timestamp: u64,
 }
 
 #[contractevent]
@@ -293,15 +295,19 @@ impl Events {
         prompt_id: u64,
         admin: Address,
         status: PromptSaleStatus,
+        previous_state: PromptSaleStatus,
         reason: ModerationReason,
         policy_reference: String,
+        reverses_timestamp: u64,
     ) {
         PromptAdminModerated {
             prompt_id,
             admin,
             status,
+            previous_state,
             reason,
             policy_reference,
+            reverses_timestamp,
         }
         .publish(env);
     }

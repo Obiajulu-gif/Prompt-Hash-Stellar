@@ -208,3 +208,112 @@ export async function buildAndSignReceipt(input: BuildReceiptInput): Promise<Bui
     signerKeyId: keyId,
   };
 }
+
+export interface VerifyReceiptInput {
+  receipt: Record<string, unknown>;
+  signature: string;
+  signerPublicKey: string;
+  signerKeyId?: string;
+}
+
+export interface VerificationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  tamperedFields?: string[];
+}
+
+/**
+ * Verify a receipt's integrity and authenticity using Stellar transaction data.
+ * Can be used independently outside the app without database access.
+ */
+export async function verifyReceipt(input: VerifyReceiptInput): Promise<VerificationResult> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const tamperedFields: string[] = [];
+
+  const { receipt, signature, signerPublicKey, signerKeyId } = input;
+
+  if (!receipt || typeof receipt !== "object") {
+    errors.push("Receipt must be a valid object");
+    return { valid: false, errors, warnings };
+  }
+
+  // Check receipt version
+  if ((receipt as Record<string, unknown>).version !== 1) {
+    warnings.push("Receipt version is not 1; newer versions may have additional fields");
+  }
+
+  // Verify signature using the public key
+  try {
+    await sodium.ready;
+    const message = sodium.from_string(canonicalizeReceipt(receipt));
+    const signatureBytes = sodium.from_base64(signature, sodium.base64_variants.ORIGINAL);
+    const publicKeyBytes = sodium.from_base64(signerPublicKey, sodium.base64_variants.ORIGINAL);
+
+    const isValid = sodium.crypto_sign_open(
+      new Uint8Array([...signatureBytes, ...message]),
+      publicKeyBytes
+    );
+
+    if (!isValid || !sodium.compare(isValid, message)) {
+      errors.push("Signature verification failed; receipt may have been tampered with");
+    }
+  } catch (err) {
+    errors.push(`Signature verification error: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Check required fields
+  const requiredFields = ["version", "network", "contract", "prompt", "buyer", "transaction", "event"];
+  const missingFields = requiredFields.filter(field => !(field in receipt));
+  if (missingFields.length > 0) {
+    errors.push(`Missing required fields: ${missingFields.join(", ")}`);
+  }
+
+  // Check timestamp validity
+  const receipt_ = receipt as Record<string, any>;
+  if (receipt_.issuedAt && receipt_.expiresAt) {
+    const issuedTime = new Date(receipt_.issuedAt).getTime();
+    const expiresTime = new Date(receipt_.expiresAt).getTime();
+    const now = Date.now();
+
+    if (now > expiresTime) {
+      warnings.push("Receipt has expired");
+    }
+
+    if (issuedTime > now) {
+      tamperedFields.push("issuedAt");
+    }
+  }
+
+  // Validate transaction hash format
+  if (receipt_.transaction?.hash) {
+    const txHash = String(receipt_.transaction.hash);
+    if (!txHash.match(/^[a-f0-9]{64}$/i)) {
+      tamperedFields.push("transaction.hash");
+    }
+  }
+
+  // Validate buyer wallet format
+  if (receipt_.buyer) {
+    const buyer = String(receipt_.buyer);
+    if (!buyer.match(/^G[A-Z2-7]{55}$|^0x[a-fA-F0-9]{40}$/)) {
+      tamperedFields.push("buyer");
+    }
+  }
+
+  // Validate prompt ID format
+  if (receipt_.prompt?.id) {
+    const promptId = String(receipt_.prompt.id);
+    if (!promptId.match(/^\d+$/)) {
+      tamperedFields.push("prompt.id");
+    }
+  }
+
+  return {
+    valid: errors.length === 0 && tamperedFields.length === 0,
+    errors,
+    warnings,
+    tamperedFields: tamperedFields.length > 0 ? tamperedFields : undefined,
+  };
+}

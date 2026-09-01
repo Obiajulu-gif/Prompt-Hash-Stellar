@@ -354,6 +354,8 @@ impl Storage {
             transfer_count: 0,
             last_transferred_at: 0,
             expires_at,
+            purchased_revision: prompt.revision,
+            license_terms_hash: prompt.license_terms_hash.clone(),
         };
         env.storage().persistent().set(&key, &purchase);
         Self::extend_key_ttl(env, &key);
@@ -1430,4 +1432,26 @@ impl Storage {
 
         risks
     }
+
+    pub fn get_moderation_record(
+        env: &Env,
+        prompt_id: u64,
+        timestamp: u64,
+    ) -> Result<super::types::ModerationRecord, super::types::Error> {
+        let key = super::types::DataKey::ModerationRecord(prompt_id, timestamp);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .ok_or(super::types::Error::MissingMetadata)
+    }
+
+    pub fn set_moderation_record(
+        env: &Env,
+        record: &super::types::ModerationRecord,
+    ) {
+        let key = super::types::DataKey::ModerationRecord(record.prompt_id, record.timestamp);
+        env.storage().persistent().set(&key, record);
+        Self::extend_key_ttl(env, &key);
+    }
 }
+

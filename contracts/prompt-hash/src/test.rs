@@ -105,6 +105,7 @@ fn create_prompt(
             splits: Vec::new(env),
             tags: Vec::new(env),
             max_supply: 0,
+            license_terms_hash: hash(env, 0),
         },
     )
 }
@@ -137,6 +138,7 @@ fn create_prompt_with_supply(
             splits: Vec::new(env),
             tags: Vec::new(env),
             max_supply: max_supply as u64,
+            license_terms_hash: hash(env, 0),
         },
     )
 }
@@ -177,6 +179,7 @@ fn create_prompt_with_splits(
             splits,
             tags: Vec::new(env),
             max_supply: 0,
+            license_terms_hash: hash(env, 0),
         },
     )
 }
@@ -1158,6 +1161,7 @@ fn test_global_pause_blocks_mutations_but_not_reads() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
     match create_res {
@@ -1441,6 +1445,7 @@ fn test_create_prompt_blocked_when_paused() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
     match result {
@@ -2218,6 +2223,7 @@ fn test_create_prompt_with_expiry_stores_expires_at() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -2253,6 +2259,7 @@ fn test_expired_listing_excluded_from_get_all_prompts() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
     let persistent = create_prompt(&env, &client, &creator, "Persistent", 5_000, &context.xlm);
@@ -2297,6 +2304,7 @@ fn test_buy_expired_listing_fails() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -2359,6 +2367,7 @@ fn test_extend_listing_pushes_expiry_and_allows_purchase() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -2437,6 +2446,7 @@ fn test_create_prompt_with_splits_stores_split_data() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -2482,6 +2492,7 @@ fn test_buy_prompt_with_splits_distributes_correctly() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -2547,6 +2558,7 @@ fn test_splits_exceeding_max_bps_minus_fee_rejected() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
     match result {
@@ -2599,6 +2611,7 @@ fn test_multiple_splits_distribute_all_recipients() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -3673,6 +3686,7 @@ fn test_create_prompt_rejects_duplicate_split_recipients() {
             splits: dup_splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
     match result {
@@ -3738,6 +3752,7 @@ fn test_create_prompt_tags_and_category_filters() {
                 ],
             ),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -3938,6 +3953,7 @@ fn test_create_prompt_with_max_supply_stores_correctly() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 3,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -4043,6 +4059,7 @@ fn test_lease_price_is_40_percent_of_listing() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 2,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -4198,6 +4215,7 @@ fn test_get_prompts_by_ids_empty_list() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -4271,6 +4289,7 @@ fn test_zero_price_prompt_rejected() {
             splits: Vec::new(&env),
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
     match result {
@@ -5502,6 +5521,7 @@ fn test_split_validation_rejects_split_exceeding_max_bps() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -5540,6 +5560,7 @@ fn test_split_validation_rejects_zero_bps_split() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -5582,6 +5603,7 @@ fn test_split_validation_rejects_duplicate_recipients() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -5622,6 +5644,7 @@ fn test_split_validation_rejects_too_many_splits() {
             splits,
             tags: Vec::new(&env),
             max_supply: 0,
+            license_terms_hash: hash(&env, 0),
         },
     );
 
@@ -6113,6 +6136,7 @@ fn create_prompt_with_category(
             splits: Vec::new(env),
             tags: Vec::new(env),
             max_supply: 0,
+            license_terms_hash: hash(env, 0),
         },
     )
 }
@@ -6709,6 +6733,7 @@ fn test_get_prompts_by_creator_paginated_empty_and_multi_page() {
                 splits: Vec::new(&env),
                 tags: Vec::new(&env),
                 max_supply: 0,
+                license_terms_hash: hash(&env, 0),
             },
         );
     }
@@ -6731,6 +6756,7 @@ fn test_get_prompts_by_creator_paginated_empty_and_multi_page() {
                 splits: Vec::new(&env),
                 tags: Vec::new(&env),
                 max_supply: 0,
+                license_terms_hash: hash(&env, 0),
             },
         );
     }
@@ -6917,3 +6943,92 @@ fn test_listing_snapshot_hash_binds_to_current_listing_state() {
     assert!(!client.verify_listing_snapshot(&prompt_id, &h1));
     assert!(client.verify_listing_snapshot(&prompt_id, &h2));
 }
+
+#[test]
+fn test_admin_moderation_delist_restore_and_evidence_audit_trail() {
+    use crate::types::ModerationReason;
+
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let creator = Address::generate(&env);
+
+    let prompt_id = create_prompt(&env, &client, &creator, "Mod Test", 1_000, &context.xlm);
+    let initial_prompt = client.get_prompt(&prompt_id);
+    assert_eq!(initial_prompt.status, PromptSaleStatus::Active);
+
+    // 1. Evidence validation: empty policy reference should be rejected
+    let empty_evidence_res = client.try_admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Paused,
+        &ModerationReason::PolicyViolation,
+        &String::from_str(&env, ""),
+        &0,
+    );
+    assert_eq!(empty_evidence_res, Err(Ok(Error::InvalidMetadata)));
+
+    // 2. Delist prompt (Active -> Paused) with structured evidence reference
+    let delist_timestamp = 1_000_000;
+    env.ledger().with_mut(|l| l.timestamp = delist_timestamp);
+    let evidence_ref_1 = String::from_str(&env, "DOC-REF-POLICY-735-A");
+    client.admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Paused,
+        &ModerationReason::PolicyViolation,
+        &evidence_ref_1,
+        &0,
+    );
+
+    let delisted_prompt = client.get_prompt(&prompt_id);
+    assert_eq!(delisted_prompt.status, PromptSaleStatus::Paused);
+
+    // Verify durable moderation audit record on-chain
+    let delist_record = client.get_moderation_record(&prompt_id, &delist_timestamp);
+    assert_eq!(delist_record.prompt_id, prompt_id);
+    assert_eq!(delist_record.moderator, context.admin);
+    assert_eq!(delist_record.previous_state, PromptSaleStatus::Active);
+    assert_eq!(delist_record.action, PromptSaleStatus::Paused);
+    assert_eq!(delist_record.reason, ModerationReason::PolicyViolation);
+    assert_eq!(delist_record.policy_reference, evidence_ref_1);
+    assert_eq!(delist_record.reverses_timestamp, 0);
+
+    // 3. Reversal reference validation: invalid reverses_timestamp must be rejected
+    let invalid_reversal_res = client.try_admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Active,
+        &ModerationReason::Other,
+        &String::from_str(&env, "RESTORE-EVID"),
+        &9_999_999, // Non-existent action timestamp
+    );
+    assert_eq!(invalid_reversal_res, Err(Ok(Error::MissingMetadata)));
+
+    // 4. Restore prompt (Paused -> Active) linking back to original delisting action
+    let restore_timestamp = 2_000_000;
+    env.ledger().with_mut(|l| l.timestamp = restore_timestamp);
+    let evidence_ref_2 = String::from_str(&env, "RESTORE-REF-APPEAL-735-B");
+    client.admin_set_prompt_sale_status(
+        &context.admin,
+        &prompt_id,
+        &PromptSaleStatus::Active,
+        &ModerationReason::Other,
+        &evidence_ref_2,
+        &delist_timestamp,
+    );
+
+    let restored_prompt = client.get_prompt(&prompt_id);
+    assert_eq!(restored_prompt.status, PromptSaleStatus::Active);
+
+    // Verify restore audit record references the original delist timestamp
+    let restore_record = client.get_moderation_record(&prompt_id, &restore_timestamp);
+    assert_eq!(restore_record.prompt_id, prompt_id);
+    assert_eq!(restore_record.moderator, context.admin);
+    assert_eq!(restore_record.previous_state, PromptSaleStatus::Paused);
+    assert_eq!(restore_record.action, PromptSaleStatus::Active);
+    assert_eq!(restore_record.reason, ModerationReason::Other);
+    assert_eq!(restore_record.policy_reference, evidence_ref_2);
+    assert_eq!(restore_record.reverses_timestamp, delist_timestamp);
+}
+

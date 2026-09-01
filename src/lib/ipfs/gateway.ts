@@ -354,3 +354,93 @@ export function getGatewayPool(): IPFSGatewayPool {
   }
   return globalPool;
 }
+
+export interface QuorumVerificationResult {
+  valid: boolean;
+  confidence: number; // 0.0 - 1.0, represents agreement strength
+  agreementCount: number; // Number of gateways that returned matching content
+  totalAttempts: number; // Total gateways queried
+  gatewayResults: Array<{
+    gateway: string;
+    success: boolean;
+    hash: string | null;
+    latencyMs?: number;
+    error?: string;
+  }>;
+}
+
+/**
+ * Verify content integrity using a quorum of gateways.
+ * Requires a minimum agreement threshold to mark content as healthy.
+ * Tracks gateway-specific errors and latency for operations tooling.
+ */
+export async function verifyWithQuorum(
+  cid: string,
+  expectedCidHash: string,
+  quorumThreshold: number = 2, // Minimum gateways that must agree
+): Promise<QuorumVerificationResult> {
+  const pool = getGatewayPool();
+  const gateways = pool.getHealth();
+  const gatewayResults: QuorumVerificationResult["gatewayResults"] = [];
+  let agreementCount = 0;
+  let successCount = 0;
+
+  // Query all healthy gateways in parallel
+  const results = await Promise.allSettled(
+    gateways
+      .filter((g) => !g.isCircuitOpen)
+      .map(async (gateway) => {
+        const startTime = Date.now();
+        try {
+          const response = await pool.fetchWithFailover(cid, expectedCidHash);
+          const latencyMs = Date.now() - startTime;
+
+          return {
+            gateway: gateway.url,
+            success: true,
+            hash: response.cidHash,
+            latencyMs,
+          };
+        } catch (error) {
+          return {
+            gateway: gateway.url,
+            success: false,
+            hash: null,
+            latencyMs: Date.now() - startTime,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      })
+  );
+
+  // Aggregate results
+  const successfulResults = results
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => (r as PromiseSettledResult<typeof results[0]>).value);
+
+  const hashes = new Map<string | null, number>();
+  for (const result of successfulResults) {
+    gatewayResults.push(result);
+    if (result.success) {
+      successCount += 1;
+      const hash = result.hash;
+      hashes.set(hash, (hashes.get(hash) || 0) + 1);
+    }
+  }
+
+  // Determine agreement: which hash has the most votes?
+  const maxAgreement = Math.max(...hashes.values(), 0);
+  agreementCount = maxAgreement;
+
+  const totalAttempts = gatewayResults.length;
+  const confidence = totalAttempts > 0 ? agreementCount / totalAttempts : 0;
+  const valid = agreementCount >= quorumThreshold;
+
+  return {
+    valid,
+    confidence,
+    agreementCount,
+    totalAttempts,
+    gatewayResults,
+  };
+}

@@ -124,18 +124,18 @@ console.log(top); // [{ promptId, upvotes }, ...]
 
 ## REST API Reference
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/prompts` | List prompts (`?page=1&limit=20&sort=upvotes`) |
-| `GET` | `/api/prompts/:id` | Get prompt by ID |
-| `POST` | `/api/prompts/:id/purchase` | Record a purchase |
-| `GET` | `/api/prompts/:id/license` | Check license (`?wallet=G...`) |
-| `GET` | `/api/unlock/:id` | Get challenge nonce |
-| `POST` | `/api/unlock/:id` | Submit signed challenge, receive key |
-| `POST` | `/api/governance/vote/:id` | Cast upvote |
-| `DELETE` | `/api/governance/vote/:id` | Remove upvote |
-| `GET` | `/api/governance/votes/:id` | Get vote count |
-| `GET` | `/api/governance/top` | Top-ranked prompts |
+| Method   | Path                        | Description                                    |
+| -------- | --------------------------- | ---------------------------------------------- |
+| `GET`    | `/api/prompts`              | List prompts (`?limit=20&cursor=<nextCursor>`) |
+| `GET`    | `/api/prompts/:id`          | Get prompt by ID                               |
+| `POST`   | `/api/prompts/:id/purchase` | Record a purchase                              |
+| `GET`    | `/api/prompts/:id/license`  | Check license (`?wallet=G...`)                 |
+| `GET`    | `/api/unlock/:id`           | Get challenge nonce                            |
+| `POST`   | `/api/unlock/:id`           | Submit signed challenge, receive key           |
+| `POST`   | `/api/governance/vote/:id`  | Cast upvote                                    |
+| `DELETE` | `/api/governance/vote/:id`  | Remove upvote                                  |
+| `GET`    | `/api/governance/votes/:id` | Get vote count                                 |
+| `GET`    | `/api/governance/top`       | Top-ranked prompts                             |
 
 Full OpenAPI spec: [docs/api-reference.md](./api-reference.md)
 

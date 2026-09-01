@@ -4,6 +4,13 @@ import Purchase from "../models/Purchase";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
 import { markPrivate } from "../middleware/etag";
+import {
+  reconcilePayoutEvents,
+  type PayoutEventSource,
+  type PayoutPromptSource,
+  type PayoutStatementLine,
+  type PayoutStatementSummary,
+} from "../services/payoutReconciliation";
 
 interface PromptLite {
   _id: unknown;
@@ -188,9 +195,11 @@ export const GetCreatorSalesAnalytics = async (
 /**
  * Generates a creator's payout statement for prompt sales.
  *
- * Includes sale date, prompt, buyer address, gross amount, platform fee, and
- * creator net amount. Supports optional `startDate` and `endDate` query filters
- * and outputs CSV format when requested.
+ * Includes sale date, prompt, buyer address, gross amount, platform fee,
+ * creator net amount, refund lines, and settlement status. Supports optional
+ * `startDate` and `endDate` query filters and outputs CSV format when
+ * requested. Statements reconcile purchases, fees, refunds, and net settlement
+ * into a balanced summary (#716).
  */
 export const GetCreatorPayoutStatement = async (
   req: Request,
@@ -216,11 +225,20 @@ export const GetCreatorPayoutStatement = async (
 
     const prompts = (await Prompt.find({ owner: user._id })
       .select("_id onChainId title price")
-      .lean()) as unknown as PromptLite[];
+      .lean()) as unknown as PayoutPromptSource[];
+
+    const emptySummary: PayoutStatementSummary = {
+      grossAmount: 0,
+      platformFee: 0,
+      refunds: 0,
+      netSettlement: 0,
+      settlementStatus: "settled",
+    };
 
     if (prompts.length === 0) {
+      const empty = { statement: [], summary: emptySummary, status: "settled", balanced: true };
       if (format === "csv" || req.headers.accept?.includes("text/csv")) {
-        const csvHeader = `"Sale Date","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Transaction Hash"\n`;
+        const csvHeader = payoutCsvHeader;
         res.setHeader("Content-Type", "text/csv");
         res.setHeader(
           "Content-Disposition",
@@ -228,10 +246,10 @@ export const GetCreatorPayoutStatement = async (
         );
         return res.status(200).send(csvHeader);
       }
-      return res.json({ statement: [] });
+      return res.json(empty);
     }
 
-    const promptByKey = new Map<string, PromptLite>();
+    const promptByKey = new Map<string, PayoutPromptSource>();
     for (const prompt of prompts) {
       promptByKey.set(String(prompt._id), prompt);
       if (prompt.onChainId) {
@@ -267,48 +285,15 @@ export const GetCreatorPayoutStatement = async (
       }
     }
 
-    const purchases = await Purchase.find(query)
+    const purchases = (await Purchase.find(query)
       .sort({ createdAt: -1 })
-      .lean();
+      .lean()) as unknown as PayoutEventSource[];
 
-    const PLATFORM_FEE_RATE = 0.05;
-
-    const statement = purchases.map((purchase) => {
-      const prompt = promptByKey.get(String(purchase.promptId));
-      const grossAmount = typeof prompt?.price === "number" ? prompt.price : 0;
-      const platformFee = Number((grossAmount * PLATFORM_FEE_RATE).toFixed(4));
-      const creatorAmount = Number((grossAmount - platformFee).toFixed(4));
-
-      return {
-        id: String(purchase._id),
-        saleDate: purchase.createdAt
-          ? new Date(purchase.createdAt).toISOString()
-          : new Date().toISOString(),
-        promptTitle: prompt?.title ?? "Prompt",
-        promptId: prompt?.onChainId ?? String(purchase.promptId),
-        buyerAddress: purchase.buyerWallet,
-        grossAmount,
-        platformFee,
-        creatorAmount,
-        txHash: purchase.txHash ?? "",
-      };
-    });
+    const reconciled = reconcilePayoutEvents(purchases, promptByKey);
 
     if (format === "csv" || req.headers.accept?.includes("text/csv")) {
-      const csvHeader = `"Sale Date","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Transaction Hash"\n`;
-      const csvRows = statement
-        .map((row) =>
-          [
-            `"${row.saleDate}"`,
-            `"${row.promptTitle.replace(/"/g, '""')}"`,
-            `"${row.promptId}"`,
-            `"${row.buyerAddress}"`,
-            row.grossAmount,
-            row.platformFee,
-            row.creatorAmount,
-            `"${row.txHash}"`,
-          ].join(","),
-        )
+      const csvRows = reconciled.statement
+        .map((row) => rowToCsv(row))
         .join("\n");
 
       res.setHeader("Content-Type", "text/csv");
@@ -316,10 +301,10 @@ export const GetCreatorPayoutStatement = async (
         "Content-Disposition",
         `attachment; filename="payout-statement-${walletAddress.slice(0, 8)}.csv"`,
       );
-      return res.status(200).send(csvHeader + csvRows);
+      return res.status(200).send(payoutCsvHeader + csvRows);
     }
 
-    return res.json({ statement });
+    return res.json(reconciled);
   } catch (err) {
     console.error("Get creator payout statement error:", err);
     return res.status(500).json({
@@ -327,6 +312,24 @@ export const GetCreatorPayoutStatement = async (
     });
   }
 };
+
+const payoutCsvHeader =
+  `"Sale Date","Type","Prompt Title","Prompt ID","Buyer Address","Gross Amount (XLM)","Platform Fee (XLM)","Creator Amount (XLM)","Settlement Status","Transaction Hash"\n`;
+
+function rowToCsv(row: PayoutStatementLine): string {
+  return [
+    `"${row.saleDate}"`,
+    row.kind,
+    `"${row.promptTitle.replace(/"/g, '""')}"`,
+    `"${row.promptId}"`,
+    `"${row.buyerAddress}"`,
+    row.grossAmount,
+    row.platformFee,
+    row.creatorAmount,
+    row.settlementStatus,
+    `"${row.txHash}"`,
+  ].join(",");
+}
 
 /**
  * Returns summary metrics of content integrity rechecks across all prompt listings.
