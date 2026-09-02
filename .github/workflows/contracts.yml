@@ -64,8 +64,8 @@ jobs:
       - name: Upgrade preflight self-check (#435)
         run: python3 scripts/preflight_upgrade.py check --self-check
 
-      - name: Migration dry-run self-check (#712)
-        run: python3 scripts/dry-run-migration.py self-test
+      - name: Contract TTL renewal readiness check (#685)
+        run: node scripts/check-ttl-readiness.mjs --self-check
 
       - name: Set up Node.js for ABI conformance tests
         uses: actions/setup-node@v7

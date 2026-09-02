@@ -134,4 +134,72 @@ mod tests {
         assert!(risk.imminent_keys > 0, "Should detect imminent expiry");
         assert_eq!(risk.critical_keys, 0);
     }
+
+    #[test]
+    fn test_deploy_check_fails_when_critical_state_ttl_unsafe() {
+        let max_ttl = ONE_YEAR;
+        let current_ledger = 10_000_000u64;
+        // 95% of TTL has elapsed: entry is in critical zone (remaining <= 10%)
+        let critical_extended = current_ledger - (max_ttl as u64) * 95 / 100;
+
+        let risk = compute_expiry_risk(current_ledger, critical_extended, max_ttl);
+        assert!(
+            risk.critical_keys > 0,
+            "Deploy check must detect critical expiration risk"
+        );
+
+        // Verification: when critical risk > 0, deploy gate must reject release
+        let deploy_safe = risk.critical_keys == 0 && risk.imminent_keys == 0;
+        assert!(
+            !deploy_safe,
+            "Deployment must fail when critical keys are near expiration"
+        );
+    }
+
+    #[test]
+    fn test_remediation_command_restores_ttl_health() {
+        let max_ttl = ONE_YEAR;
+        let current_ledger = 10_000_000u64;
+        let critical_extended = current_ledger - (max_ttl as u64) * 95 / 100;
+
+        // Unsafe state before remediation
+        let pre_remediation = compute_expiry_risk(current_ledger, critical_extended, max_ttl);
+        assert!(pre_remediation.critical_keys > 0);
+
+        // Remediation: simulated renewal sets last_extended to current ledger
+        let post_remediation_extended = current_ledger;
+        let post_remediation =
+            compute_expiry_risk(current_ledger, post_remediation_extended, max_ttl);
+
+        assert_eq!(post_remediation.critical_keys, 0);
+        assert_eq!(post_remediation.imminent_keys, 0);
+        assert_eq!(post_remediation.at_risk_keys, 0);
+    }
+
+    #[test]
+    fn test_critical_state_families_tracked() {
+        let sample_families = [
+            ("Prompt", get_ttl_for_key(&DataKey::Prompt(1))),
+            (
+                "Purchase",
+                get_ttl_for_key(&DataKey::Purchase(1, Address::generate(&Env::default()))),
+            ),
+            (
+                "Dispute",
+                get_ttl_for_key(&DataKey::PurchaseDispute(
+                    1,
+                    Address::generate(&Env::default()),
+                )),
+            ),
+        ];
+
+        for (family, max_ttl) in sample_families {
+            assert!(max_ttl > 0, "Family {} must have positive TTL", family);
+            assert!(
+                max_ttl >= ONE_MONTH,
+                "Family {} TTL must be at least ONE_MONTH",
+                family
+            );
+        }
+    }
 }

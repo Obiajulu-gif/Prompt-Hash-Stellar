@@ -109,7 +109,10 @@ pub enum Error {
     MaxSupplyBelowCommitted = 84,
     DisputeWindowClosed = 85,
     DisputeWindowNotElapsed = 86,
+    InvalidMetadata = 87,
+    MissingMetadata = 88,
 }
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -247,16 +250,18 @@ pub enum ModerationReason {
     Other,
 }
 
-/// Moderation audit record preserving complete policy action history.
+/// Moderation audit record preserving complete policy action history and reversal links.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModerationRecord {
     pub prompt_id: u64,
     pub moderator: Address,
     pub action: PromptSaleStatus,
+    pub previous_state: PromptSaleStatus,
     pub reason: ModerationReason,
     pub policy_reference: String,
     pub timestamp: u64,
+    pub reverses_timestamp: u64,
 }
 
 #[contracttype]
@@ -412,12 +417,6 @@ pub struct ListingConfig {
     /// Hash of the license terms offered with this listing (#731).
     /// Creators must provide this when creating/updating listings.
     pub license_terms_hash: BytesN<32>,
-}
-    pub splits: Vec<Split>,
-    /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
-    pub tags: Vec<String>,
-    /// Maximum number of licenses that can be sold (0 = unlimited).
-    pub max_supply: u64,
 }
 
 /// On-chain listing record.
@@ -745,7 +744,14 @@ pub trait PromptHashTrait {
         status: PromptSaleStatus,
         reason: ModerationReason,
         policy_reference: String,
+        reverses_timestamp: u64,
     ) -> Result<(), Error>;
+
+    fn get_moderation_record(
+        env: Env,
+        prompt_id: u64,
+        timestamp: u64,
+    ) -> Result<ModerationRecord, Error>;
 
     fn set_prompt_max_supply(
         env: Env,
