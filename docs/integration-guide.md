@@ -136,6 +136,36 @@ console.log(top); // [{ promptId, upvotes }, ...]
 | `DELETE` | `/api/governance/vote/:id`  | Remove upvote                                  |
 | `GET`    | `/api/governance/votes/:id` | Get vote count                                 |
 | `GET`    | `/api/governance/top`       | Top-ranked prompts                             |
+| `GET`    | `/api/openapi.json`         | Machine-readable OpenAPI 3.0 schema (#713)     |
+| `GET`    | `/api/docs`                 | Interactive Redoc explorer (#713)              |
+
+## Machine-Readable Schema (#713)
+
+The marketplace REST endpoints (and this SDK) are documented as a machine
+readable OpenAPI 3.0 schema that clients, postman collections, and code
+generators can consume:
+
+- Schema: [`docs/openapi.json`](./openapi.json)
+- Served live: `GET /api/openapi.json`
+- Interactive explorer: `GET /api/docs`
+- Human reference: [docs/api-reference.md](./api-reference.md)
+
+Example — generate a TypeScript client with `openapi-generator`:
+
+```bash
+npx @openapitools/openapi-generator-cli generate \
+  -i docs/openapi.json \
+  -g typescript-fetch \
+  -o ./generated-client
+```
+
+The schema covers prompts, buyer/creator endpoints (including the
+privacy-safe `analytics/support-metrics` of #711), abuse-report evidence and
+triage of #714, reviews, webhooks, notifications, search, and versioning.
+
+> **Note:** authorization for admin-scoped endpoints (e.g. opening the
+> moderation queue or rotating webhook secrets) uses the `x-admin-token`
+> API-key scheme declared under `components.securitySchemes.adminToken`.
 
 Full OpenAPI spec: [docs/api-reference.md](./api-reference.md)
 

@@ -13,6 +13,10 @@ import searchRouter from "./routes/searchRoutes";
 import { fulfillmentRouter } from "./routes/fulfillmentRoutes";
 import { reviewRouter } from "./routes/reviewRoutes";
 import { notificationRouter } from "./routes/notificationRoutes";
+import {
+  GetOpenApiSchema,
+  GetOpenApiExplorer,
+} from "./controllers/docsControllers";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
@@ -63,6 +67,10 @@ app.use("/api/search", searchRouter);
 app.use("/api/fulfillment", strictLimiter, fulfillmentRouter);
 app.use("/api/reviews", reviewRouter);
 app.use("/api/notifications", authLimiter, notificationRouter);
+
+// Machine-readable API schema + interactive explorer (#713).
+app.get("/api/openapi.json", GetOpenApiSchema);
+app.get("/api/docs", GetOpenApiExplorer);
 
 app.post("/api/test-prompt", strictLimiter, TestPromptProxy);
 

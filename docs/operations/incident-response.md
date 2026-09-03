@@ -136,6 +136,74 @@ Used for edge cases not covered by standard categories. Requires detailed notes.
    - Determine required action (restrict/retire)
    - Identify applicable policy reference
 
+### Report Evidence Capture & Triage (#714)
+
+Every report submitted through `POST /api/prompts/reports` now enters a
+structured triage queue with captured evidence and a forward-only lifecycle.
+
+**Evidence capture**
+
+Reporters may attach up to 10 evidence items (`url` + `kind` of
+`image` | `pdf` | `link` | `text`) at submission:
+
+```json
+POST /api/prompts/reports
+{
+  "promptId": "12345",
+  "reporterAddress": "G...",
+  "reason": "copyright",
+  "description": "Listed text matches a protected work.",
+  "evidence": [
+    { "url": "https://source.example/original.pdf", "kind": "pdf" },
+    { "url": "https://prompt-hash.example/p/mirror", "kind": "link" }
+  ]
+}
+```
+
+Evidence URLs are normalized, capped at 10 per report, and stored on the
+report record. Admin (`PATCH`) calls may append further evidence
+(`addedBy: "maintainer"`).
+
+**Triage lifecycle**
+
+Reports always enter the queue as `pending`. Maintainers move them through a
+strictly forward-only state machine — **regressions and re-opens are
+rejected with a `409`** to keep the audit trail unambiguous:
+
+```
+pending ──► investigating ──► resolved
+                 │
+                 └──────────► dismissed
+```
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Awaiting review (default on submission) |
+| `investigating` | A maintainer picked it up; evidence review in progress |
+| `resolved` | Action taken (e.g. content restricted/retired) |
+| `dismissed` | Reviewed and no action warranted |
+
+Maintainers update status and add notes/admin-supplied evidence via admin
+`PATCH`:
+
+```json
+PATCH /api/prompts/reports
+{
+  "reportId": "report_...",
+  "status": "investigating",
+  "adminNotes": "Comparing against provided source URL.",
+  "evidence": [{ "url": "https://s3.example/evidence/123.png", "kind": "image" }]
+}
+```
+
+The queue can be filtered by triage status:
+
+```
+GET /api/prompts/reports?status=investigating   # admin only
+```
+
+Escalation and follow-on moderation still follow the procedures below.
+
 ### 2. Execute Moderation Action
 
 **Authorization Required**: Admin wallet signature

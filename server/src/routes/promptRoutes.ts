@@ -16,6 +16,7 @@ import {
 } from "../controllers/controllers";
 import {
   GetCreatorSalesAnalytics,
+  GetCreatorSupportMetrics,
   GetPurchaseTransactions,
   GetCreatorPayoutStatement,
   GetIntegrityReport,

@@ -7,7 +7,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ReportClient, REPORT_REASONS, type ReportReason } from "@/lib/reports/reportClient";
+import { ReportClient, REPORT_REASONS, type ReportReason, type ReportEvidence } from "@/lib/reports/reportClient";
 
 export interface ReportDialogProps {
   promptId: string;
@@ -29,8 +29,17 @@ export function ReportDialog({
     ""
   );
   const [description, setDescription] = useState("");
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [evidence, setEvidence] = useState<ReportEvidence[]>([]);
   const [error, setError] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const addEvidence = () => {
+    const url = evidenceUrl.trim();
+    if (!url) return;
+    setEvidence((prev) => [...prev, { url, kind: "link" }]);
+    setEvidenceUrl("");
+  };
 
   const handleSubmit = async () => {
     setError("");
@@ -53,7 +62,8 @@ export function ReportDialog({
         promptId,
         userAddress,
         selectedReason as ReportReason,
-        description
+        description,
+        evidence.length ? evidence : undefined
       );
 
       setStage("success");
@@ -63,6 +73,8 @@ export function ReportDialog({
         setStage("form");
         setSelectedReason("");
         setDescription("");
+        setEvidenceUrl("");
+        setEvidence([]);
         setError("");
       }, 2000);
     } catch (err) {
@@ -152,6 +164,63 @@ export function ReportDialog({
                 />
                 <p className="text-xs text-slate-500 text-right">
                   {description.length}/500
+                </p>
+              </div>
+
+              {/* Evidence (#714) */}
+              <div className="space-y-2">
+                <label htmlFor="report-evidence" className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Evidence links (optional)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="report-evidence"
+                    type="url"
+                    value={evidenceUrl}
+                    onChange={(e) => setEvidenceUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addEvidence();
+                      }
+                    }}
+                    placeholder="https://..."
+                    className="flex-1 px-4 py-3 rounded-lg border border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addEvidence}
+                    disabled={!evidenceUrl.trim()}
+                    className="px-3"
+                  >
+                    Add
+                  </Button>
+                </div>
+                {evidence.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {evidence.map((item, index) => (
+                      <li
+                        key={`${item.url}-${index}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                      >
+                        <span className="truncate text-slate-300">{item.url}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEvidence((prev) => prev.filter((_, i) => i !== index))
+                          }
+                          className="ml-2 shrink-0 text-slate-500 hover:text-red-400 transition-colors"
+                          aria-label="Remove evidence link"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-xs text-slate-500">
+                  Up to 10 evidence links help our moderation team verify your report.
                 </p>
               </div>
 

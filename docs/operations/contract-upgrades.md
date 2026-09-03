@@ -78,6 +78,34 @@ builds or touches the network. The gate:
    `openssl dgst -sha256 -sign`; otherwise it's written unsigned with
    instructions to sign it retroactively.
 
+## Migration Dry-Run Output (#712)
+
+Before submitting any upgrade, preview its storage/migration effect without
+touching chain state:
+
+```bash
+python3 scripts/dry-run-migration.py report
+```
+
+The report classifies the diff as `no-op`, `additive`, or `incompatible` and
+publishes:
+
+- **Affected storage-key families** (e.g. `Prompt`, `BuyerPrompts`,
+  `AllPrompts`) and sample keys slow the impact scan.
+- **Expected write counts** — for `incompatible` changes this is the number
+  of key families the accompanying data migration must rewrite/replace.
+- **TTL implications** — whether new keys inherit the family TTL policy and
+  whether stale lifetime entries require a post-migration sweep.
+- **Rollback notes** — for adds, a pure Wasm-hash downgrade remains possible;
+  for incompatible changes, a restore-from-snapshot path is required.
+- **Recommendation** — `SAFE TO UPGRADE`, `SAFE TO UPGRADE (additive only)`,
+  or `BLOCKED` (incompatible changes must be acknowledged in `MIGRATION.md`
+  and shipped with a data migration in the same upgrade).
+
+Use `--json` for CI/instrumentation and `self-test` to exercise the
+`no-op`/`additive`/`incompatible` classifiers offline. The tool never writes
+state — every report starts with `wrote_state: false`.
+
 After an intentional interface change, regenerate the baseline and commit it:
 
 ```bash
