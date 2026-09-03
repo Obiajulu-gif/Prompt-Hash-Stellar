@@ -25,7 +25,7 @@ async function main() {
     console.error("[migration-cli] Fatal error during migrations:", err);
     try {
       await mongoose.disconnect();
-    } catch {}
+    } catch { /* ignore */ }
     process.exit(1);
   }
 }

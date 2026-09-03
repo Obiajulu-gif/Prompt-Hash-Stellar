@@ -54,8 +54,7 @@ async function downloadFromS3(key: string): Promise<Buffer> {
   if (!bucket) throw new Error("BACKUP_S3_BUCKET is not configured.");
   const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   const chunks: Buffer[] = [];
-  // @ts-expect-error S3 body stream
-  for await (const chunk of response.Body) {
+  for await (const chunk of (response.Body as any)) {
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks);

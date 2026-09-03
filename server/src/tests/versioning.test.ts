@@ -158,17 +158,15 @@ describe("Prompt Versioning System", () => {
         promptId: mockPrompt._id.toString(),
       };
 
-      const findSpy = vi.spyOn(PromptVersion, "find").mockReturnValueOnce({
-        sort: vi.fn().mockReturnValueOnce({
-          select: vi.fn().mockResolvedValueOnce([]),
-        }),
+      const selectMock = vi.fn().mockResolvedValueOnce([]);
+      const sortMock = vi.fn().mockReturnValueOnce({ select: selectMock });
+      vi.spyOn(PromptVersion, "find").mockReturnValueOnce({
+        sort: sortMock,
       } as any);
 
       await GetPromptVersions(mockReq as Request, mockRes as Response);
 
-      const selectCall = (findSpy.mock.results[0].value?.select as any).mock
-        .calls[0][0];
-      expect(selectCall).toBe("-content");
+      expect(selectMock).toHaveBeenCalledWith("-content");
     });
 
     it("should return 400 if promptId is missing", async () => {

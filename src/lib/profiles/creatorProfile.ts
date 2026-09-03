@@ -60,7 +60,7 @@ export function validateUrlSafety(url: string): string | null {
 
   // Must use http or https
   if (!/^https?:\/\/.+/.test(trimmed)) {
-    return "URL must start with http:// or https://";
+    return "Only HTTP and HTTPS protocols are allowed";
   }
 
   try {
@@ -71,17 +71,12 @@ export function validateUrlSafety(url: string): string | null {
       return "Only HTTP and HTTPS protocols are allowed";
     }
 
-    // Extract hostname for validation
-    const hostname = parsed.hostname.toLowerCase();
+    // Extract hostname for validation (strip IPv6 brackets if present)
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
 
     // Block localhost and variations
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return "Localhost URLs are not allowed";
-    }
-
-    // Block known cloud metadata endpoints
-    if (BLOCKED_DOMAINS.includes(hostname)) {
-      return "This domain is not allowed";
     }
 
     // Block internal/private IP ranges
@@ -89,6 +84,11 @@ export function validateUrlSafety(url: string): string | null {
       if (pattern.test(hostname)) {
         return "Internal/private IP addresses are not allowed";
       }
+    }
+
+    // Block known cloud metadata endpoints
+    if (BLOCKED_DOMAINS.includes(hostname)) {
+      return "This domain is not allowed";
     }
 
     // Block URLs with credentials (username:password@host)

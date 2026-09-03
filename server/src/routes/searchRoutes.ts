@@ -105,7 +105,7 @@ router.post(
   "/rebuild-index",
   asyncHandler(async (_req: Request, res: Response) => {
     const { rebuildSearchIndex } = await import(
-      "../controllers/searchController"
+      "../controllers/searchController.js"
     );
     const result = await rebuildSearchIndex();
     res.json(result);

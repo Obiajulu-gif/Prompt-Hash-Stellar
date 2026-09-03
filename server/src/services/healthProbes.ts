@@ -6,20 +6,19 @@
  * preflight, and purchase preflight workflows.
  */
 
-import { Keypair, Server as StellarServer } from "@stellar/stellar-sdk";
+import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { Server as RpcServer } from "@stellar/stellar-sdk/rpc";
-import {
-  createChallengeToken,
-  verifyChallengeToken,
-  buildChallengeMessage,
-  verifyChallengeSignature,
-} from "../../../src/lib/auth/challenge";
-import {
-  getPrompt,
-  hasAccess,
-  type PromptHashConfig,
-} from "../../../src/lib/stellar/promptHashClient";
-import { logger } from "./structuredLogger";
+const StellarServer = Horizon.Server;
+import { logger } from "./structuredLogger.js";
+
+export interface PromptHashConfig {
+  rpcUrl: string;
+  networkPassphrase: string;
+  promptHashContractId: string;
+  simulationAccount: string;
+  nativeAssetContractId: string;
+  allowHttp: boolean;
+}
 
 export interface ProbeResult {
   name: string;
@@ -59,6 +58,13 @@ export async function probeChallenge(config: HealthProbeConfig): Promise<ProbeRe
     const testKeypair = Keypair.random();
     const testAddress = testKeypair.publicKey();
     const testPromptId = "999999"; // Non-existent ID for testing
+
+    const {
+      createChallengeToken,
+      verifyChallengeToken,
+      buildChallengeMessage,
+      verifyChallengeSignature,
+    } = await import("../../../src/lib/auth/challenge.js" as string);
 
     // Create challenge token
     const challenge = createChallengeToken(
@@ -173,6 +179,10 @@ export async function probeContractRead(config: HealthProbeConfig): Promise<Prob
       setTimeout(() => reject(new Error("Contract read timeout")), timeoutMs)
     );
 
+    const { getPrompt } = await import(
+      "../../../src/lib/stellar/promptHashClient.js" as string
+    );
+
     const prompt = await Promise.race([
       getPrompt(contractConfig, PROBE_TEST_PROMPT_ID),
       timeoutPromise,
@@ -258,6 +268,10 @@ export async function probeUnlockPreflight(config: HealthProbeConfig): Promise<P
 
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("Unlock preflight timeout")), timeoutMs)
+    );
+
+    const { hasAccess } = await import(
+      "../../../src/lib/stellar/promptHashClient.js" as string
     );
 
     // Check access (should return false for non-existent purchase)

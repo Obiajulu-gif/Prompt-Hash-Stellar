@@ -51,6 +51,7 @@ function createWrapper(wallet: Partial<WalletContextType> = {}) {
     networkPassphrase: undefined,
     status: "idle",
     error: undefined,
+    sessionEpoch: 0,
     networkCompatibility: { compatible: true } as any,
     connect: vi.fn(),
     disconnect: vi.fn(),
@@ -95,6 +96,10 @@ describe("usePayoutReadiness", () => {
     mockUseWalletBalance.mockReturnValue({
       xlm: "5.0",
       isLoading: false,
+      isFunded: true,
+      error: null,
+      updateBalance: vi.fn(),
+      balances: [],
     });
   });
 
@@ -278,6 +283,10 @@ describe("usePayoutReadinessGate", () => {
     mockUseWalletBalance.mockReturnValue({
       xlm: "5.0",
       isLoading: false,
+      isFunded: true,
+      error: null,
+      updateBalance: vi.fn(),
+      balances: [],
     });
   });
 

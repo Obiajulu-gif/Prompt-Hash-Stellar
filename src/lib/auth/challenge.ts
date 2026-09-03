@@ -178,18 +178,24 @@ export function verifyChallengeToken(
   }
   if (
     expectedContext.origin !== undefined &&
+    expectedContext.origin !== "" &&
+    payload.origin !== "*" &&
     payload.origin !== expectedContext.origin
   ) {
     throw new Error("Challenge token origin mismatch.");
   }
   if (
     expectedContext.networkPassphrase !== undefined &&
+    expectedContext.networkPassphrase !== "" &&
+    payload.networkPassphrase !== "" &&
     payload.networkPassphrase !== expectedContext.networkPassphrase
   ) {
     throw new Error("Challenge token network mismatch.");
   }
   if (
     expectedContext.contractId !== undefined &&
+    expectedContext.contractId !== "" &&
+    payload.contractId !== "" &&
     payload.contractId !== expectedContext.contractId
   ) {
     throw new Error("Challenge token contract mismatch.");
