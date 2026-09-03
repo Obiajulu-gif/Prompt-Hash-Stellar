@@ -33,6 +33,7 @@ import { TipButton } from "@/components/TipButton";
 import { UnlockExplainer, type UnlockState } from "@/components/UnlockExplainer";
 import { WebhookSettings } from "@/components/WebhookSettings";
 import { CreatorDashboard } from "@/components/analytics/CreatorDashboard";
+import { SellerAnalyticsWidget } from "@/components/analytics/SellerAnalyticsWidget";
 import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1116,7 +1117,10 @@ export default function ProfilePage() {
                   <TabsContent value="created" className="mt-0 space-y-6">
                     {/* Creator activity dashboard — metrics, revenue, top performers (#213) */}
                     {!isPublicView && address && (
-                      <CreatorDashboard walletAddress={address} />
+                      <div className="space-y-6">
+                        <CreatorDashboard walletAddress={address} />
+                        <SellerAnalyticsWidget walletAddress={address} />
+                      </div>
                     )}
 
                     {createdQuery.isLoading ? (

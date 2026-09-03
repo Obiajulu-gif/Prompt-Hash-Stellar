@@ -16,6 +16,7 @@ import {
 } from "../controllers/controllers";
 import {
   GetCreatorSalesAnalytics,
+  GetCreatorSupportMetrics,
   GetPurchaseTransactions,
   GetCreatorPayoutStatement,
   GetIntegrityReport,
@@ -59,6 +60,10 @@ promptRouter.get("/buyer/:walletAddress/owned", GetOwnedPrompts);
 promptRouter.get("/buyer/:walletAddress/saved", GetSavedPrompts);
 promptRouter.get("/buyer/:walletAddress/transactions", GetPurchaseTransactions);
 promptRouter.get("/creator/:walletAddress/analytics", GetCreatorSalesAnalytics);
+promptRouter.get(
+  "/creator/:walletAddress/analytics/support-metrics",
+  GetCreatorSupportMetrics,
+);
 promptRouter.get(
   "/creator/:walletAddress/payout-statement",
   GetCreatorPayoutStatement,

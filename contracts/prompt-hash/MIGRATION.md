@@ -5,9 +5,26 @@ breaking change to the contract's public interface (a removed/changed
 trait function, error code, storage-key/record shape, or event) relative to
 `contracts/prompt-hash/spec-baseline.json`.
 
+`scripts/dry-run-migration.py` (introduced for #712) previews the migration
+effect of the same diff **without writing any state**. It classifies the
+pending change as `no-op`, `additive`, or `incompatible`, then reports the
+affected storage-key families, expected write counts, TTL implications,
+sample keys, and rollback options:
+
+```bash
+python3 scripts/dry-run-migration.py report          # human-readable
+python3 scripts/dry-run-migration.py report --json   # machine-readable
+python3 scripts/dry-run-migration.py self-test       # no-op/additive/incompatible coverage
+```
+
+Run the dry-run as the first step whenever you intend to upgrade. If it
+returns `BLOCKED`, the change is incompatible and **must not ship** until you
+acknowledge it below and ship a data migration **in the same upgrade** that
+changes the code.
+
 If a change is intentionally breaking, acknowledge **every** reported line
 here with one `ACK-BREAKING:` entry per change (copy the exact line the
-preflight tool printed), describe the migration/rollback plan below it, then
+dry-run/preflight tool printed), describe the migration/rollback plan below it, then
 regenerate the baseline:
 
 ```bash

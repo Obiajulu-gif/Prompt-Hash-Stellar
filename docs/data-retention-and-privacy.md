@@ -46,3 +46,23 @@ Contributors must ensure that application logs never capture:
 - The actual prompt text (except for the public preview snippet).
 - Cryptographic signatures or authentication nonces.
 - Personally identifiable information (PII) beyond the public Stellar public key.
+
+## Privacy-Safe Seller Analytics (#711)
+
+Seller/support analytics are aggregated server-side from indexed purchases,
+refunds, unlock audit events, and published reviews. The aggregation layer enforces:
+
+- **Buyer identity redaction** — the seller-facing payload carries counts and
+  rates (`conversionRate`, `refundRate`, `unlockSuccessRate`, satisfaction and
+  average rating) and aggregated cohort sizes only. Raw buyer wallet addresses
+  are consumed inside the aggregation and never included in API responses.
+- **Minimum-cohort suppression** — a single buyer can never be isolated: any
+  cohort below the configured threshold is reported as zero. See
+  `MIN_COHORT_SIZE` in `src/lib/analytics/sellerAnalytics.ts`.
+- **Aggregation-boundary discipline** — the pure aggregation helpers in
+  `src/lib/analytics/sellerAnalytics.ts` are the only place raw activity
+  events and buyer identities meet derived metrics. UI widgets consume only
+  the aggregated shape.
+
+Creator-facing endpoints (`/api/prompts/creator/:walletAddress/analytics/support-metrics`)
+never expose buyer PII beyond the aggregated metrics described above.
