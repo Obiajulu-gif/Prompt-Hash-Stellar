@@ -1280,9 +1280,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@creit.tech/stellar-wallets-kit@npm:^2.5.0":
-  version: 2.5.0
-  resolution: "@creit.tech/stellar-wallets-kit@npm:2.5.0"
+"@creit.tech/stellar-wallets-kit@npm:^2.6.0":
+  version: 2.6.0
+  resolution: "@creit.tech/stellar-wallets-kit@npm:2.6.0"
   dependencies:
     "@albedo-link/intent": "npm:0.12.0"
     "@creit.tech/xbull-wallet-connect": "npm:0.4.0"
@@ -1294,9 +1294,8 @@ __metadata:
     "@preact/signals": "npm:2.9.0"
     "@reown/appkit": "npm:1.8.21"
     "@stellar/freighter-api": "npm:6.0.0"
-    "@stellar/stellar-sdk": "npm:^16.0.0"
-    "@trezor/connect-plugin-stellar": "npm:10.0.0-alpha.1"
-    "@trezor/connect-web": "npm:10.0.0-alpha.1"
+    "@stellar/stellar-sdk": "npm:^17.0.0"
+    "@trezor/connect-web": "npm:10.0.0-beta.1"
     "@twind/core": "npm:1.1.3"
     "@twind/preset-autoprefix": "npm:1.0.7"
     "@twind/preset-tailwind": "npm:1.1.4"
@@ -1304,7 +1303,7 @@ __metadata:
     "@walletconnect/types": "npm:2.23.9"
     htm: "npm:3.1.1"
     preact: "npm:^10.29.0"
-  checksum: 10c0/e94088a3494513ddbf97656d95dfb1e34f425f5f1bf7b0f35c77e479f7677dbcb9c6bcbf0535012246560e03d0185f112e4bc46fc8c8f5d41126c42e1d6a191b
+  checksum: 10c0/b2e40541b1a0e34f7e868f66a88eea4cf0d8a6d2044cdadd2d3aaf93055102e1defbf54456f1aa39f663285e65feb9478a0e46137206f7f5db2186139887046a
   languageName: node
   linkType: hard
 
@@ -4990,10 +4989,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@stellar/js-xdr@npm:4.0.0, @stellar/js-xdr@npm:^4.0.0":
+"@stellar/js-xdr@npm:^4.0.0":
   version: 4.0.0
   resolution: "@stellar/js-xdr@npm:4.0.0"
   checksum: 10c0/617bb3d7fa9fbdb607e5cb42cc032a15ad1c111440c6d7ede40fcecde204e88ed351aebc80ce1e4eedac6c1d949c3da5722696611e2b00569e7edbd5a0634c37
+  languageName: node
+  linkType: hard
+
+"@stellar/js-xdr@npm:^5.0.0":
+  version: 5.0.0
+  resolution: "@stellar/js-xdr@npm:5.0.0"
+  checksum: 10c0/c61b1e0ed2d74ec523d306437318f63d639889cc853fe7db7e7b2bb923da0c4d1ea568060ca6ed542546a3ef4943f150a385318fcc5723dc820b2efd511130be
   languageName: node
   linkType: hard
 
@@ -5011,17 +5017,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@stellar/stellar-sdk@npm:16.1.0":
-  version: 16.1.0
-  resolution: "@stellar/stellar-sdk@npm:16.1.0"
+"@stellar/stellar-sdk@npm:17.0.1":
+  version: 17.0.1
+  resolution: "@stellar/stellar-sdk@npm:17.0.1"
   dependencies:
+    "@exodus/bytes": "npm:^1.15.1"
     "@noble/ed25519": "npm:^3.1.0"
     "@noble/hashes": "npm:^2.2.0"
-    "@stellar/js-xdr": "npm:4.0.0"
+    "@stellar/js-xdr": "npm:^5.0.0"
+    "@types/json-schema": "npm:^7.0.15"
     axios: "npm:1.18.0"
-    base32.js: "npm:^0.1.0"
     bignumber.js: "npm:^11.1.4"
-    buffer: "npm:^6.0.3"
     commander: "npm:^14.0.3"
     eventsource: "npm:^4.1.0"
     feaxios: "npm:^0.0.23"
@@ -5029,7 +5035,7 @@ __metadata:
     uint8array-extras: "npm:^1.5.0"
   bin:
     stellar-js: bin/stellar-js
-  checksum: 10c0/82b7c9490e5c6dd6b459bf97bb61c3e1d10820adc50d7b1746e687c4aec2f7c471ddbbf1398aa0dfde26439cd99454d32d8ada817b826ff55ef632a87923558b
+  checksum: 10c0/027d1a5c1187998cc9fc3142c74039ef272e20ed4200a9f34f058c130000b680066c0edd0978543f18a005558cf2bd6ceb0e05ccdb757a7f9136935d9376600e
   languageName: node
   linkType: hard
 
@@ -5298,116 +5304,115 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@trezor/connect-common@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/connect-common@npm:10.0.0-alpha.1"
+"@trezor/connect-common@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/connect-common@npm:10.0.0-beta.1"
   dependencies:
-    "@trezor/device-utils": "npm:10.0.0-alpha.1"
-    "@trezor/protobuf": "npm:10.0.0-alpha.1"
-    "@trezor/protocol": "npm:^10.0.0-alpha.1"
-    "@trezor/schema-utils": "npm:10.0.0-alpha.1"
-    "@trezor/type-utils": "npm:10.0.0-alpha.1"
-    "@trezor/utils": "npm:10.0.0-alpha.1"
+    "@trezor/crypto-utils": "npm:10.0.0-beta.1"
+    "@trezor/device-utils": "npm:10.0.0-beta.1"
+    "@trezor/protobuf": "npm:10.0.0-beta.1"
+    "@trezor/protocol": "npm:^10.0.0-beta.1"
+    "@trezor/schema-utils": "npm:10.0.0-beta.1"
+    "@trezor/type-utils": "npm:10.0.0-beta.1"
+    "@trezor/utils": "npm:10.0.0-beta.1"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/335ea97339c2c0eaf5f274829bf19950e7fdab229d37852695863eb42e5b485da0c99eb26cf15498f9ef0ddfb632e56885959b91c25950f122977540a565e0d7
+  checksum: 10c0/83d688bd66d28245a3dba0c66f63892a4df00639aacb0395adf427cce957b5efa140bdf9f2a5115befbe3ae7acdfbcb24756320e81a1ee7d14c3547aa965ce69
   languageName: node
   linkType: hard
 
-"@trezor/connect-plugin-stellar@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/connect-plugin-stellar@npm:10.0.0-alpha.1"
+"@trezor/connect-web@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/connect-web@npm:10.0.0-beta.1"
   dependencies:
-    "@trezor/utils": "npm:10.0.0-alpha.1"
-  peerDependencies:
-    "@stellar/stellar-sdk": ^13.3.0
-    "@trezor/connect": 9.x.x
-    tslib: ^2.6.2
-  checksum: 10c0/92686f28636956481fd3112f45ba1dcbb7e43b4af505bedab3d8a17255cbb7ad76ed536e7b06ebb9382d61da10eb48a42d167fbfc12d0aeac5eb0cc47e487627
-  languageName: node
-  linkType: hard
-
-"@trezor/connect-web@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/connect-web@npm:10.0.0-alpha.1"
-  dependencies:
-    "@trezor/connect-common": "npm:10.0.0-alpha.1"
-    "@trezor/utils": "npm:10.0.0-alpha.1"
-    "@trezor/websocket-client": "npm:10.0.0-alpha.1"
+    "@trezor/connect-common": "npm:10.0.0-beta.1"
+    "@trezor/utils": "npm:10.0.0-beta.1"
+    "@trezor/websocket-client": "npm:10.0.0-beta.1"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/67a8b8a3739f47f70ec28283b2a635d25022e41f4556dfb7bd2cf38833db09a3882f235e0cd0389c3713780365f07aa5fca509f286f2edeedff88b19fea1a49c
+  checksum: 10c0/9de4c7656788e3f28914e7917b238820a485e94af503aacde7c021468d6c42ded55e5fd52958dd4e06587620f33a8161f3d392396bd6eabf1a660accf55f3769
   languageName: node
   linkType: hard
 
-"@trezor/device-utils@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/device-utils@npm:10.0.0-alpha.1"
-  checksum: 10c0/ed4f11079fac3b008466d4340d80a1ad4c47622d63141242360168afa19091d1741a15928072e57c5f42059c581665dafeda0aa9e6d9d151069c8b5d4bb45af1
+"@trezor/crypto-utils@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/crypto-utils@npm:10.0.0-beta.1"
+  dependencies:
+    "@trezor/type-utils": "npm:10.0.0-beta.1"
+  peerDependencies:
+    tslib: ^2.6.2
+  checksum: 10c0/1b417f2dd2980c56b6e00196c2400c3f823c61d3ba7e92695e4ff85b4340cda2fde535a32275f950f591b53fac9c2a201e977c818d088bd43297261d9ab9b0a3
   languageName: node
   linkType: hard
 
-"@trezor/protobuf@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/protobuf@npm:10.0.0-alpha.1"
+"@trezor/device-utils@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/device-utils@npm:10.0.0-beta.1"
+  checksum: 10c0/fc08450d30d62c65e0dcada14645a2894aa4c85f882a8f07901627e2cd8ce0bc2d7842cc0b585c801d23d9a2720d8e7cdbe624e0b0d9a62dfb0c81f7cbf2b82d
+  languageName: node
+  linkType: hard
+
+"@trezor/protobuf@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/protobuf@npm:10.0.0-beta.1"
   dependencies:
     "@bufbuild/protobuf": "npm:^2.11.0"
-    "@trezor/schema-utils": "npm:10.0.0-alpha.1"
+    "@trezor/schema-utils": "npm:10.0.0-beta.1"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/24de677f7325a691d1a7288268ddb14299a5e311fdf459e09a0f491e47101998de642376447d85764c51be772fb79a6a57469f79393416ab6ba0a8fd2583e20e
+  checksum: 10c0/66edb723441b8daf47c1375c2cd0a3e46c1448d1c822d4331bc2eade3b9b3ae4e75fb8446502fe77448700d2b7edc2b724fe1f1b28cb2fcc7d701280939fb3fe
   languageName: node
   linkType: hard
 
-"@trezor/protocol@npm:^10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/protocol@npm:10.0.0-alpha.1"
+"@trezor/protocol@npm:^10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/protocol@npm:10.0.0-beta.1"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/c027e9dca3601139acaf34e029d8e8a6d09e55a4081878738cb87f069f35a16040039b130a6ed0c7171ff4be833f493472fcac0e69a037c526b96016c4d88491
+  checksum: 10c0/61faea86cbfd7b59395e1f557d70db971686c5908ab3f69a4e9d5962f98c74f7239b7c36c05c4ced92e6560d7334e5f9f21fcc171ca5a1e30f594b921083dd53
   languageName: node
   linkType: hard
 
-"@trezor/schema-utils@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/schema-utils@npm:10.0.0-alpha.1"
+"@trezor/schema-utils@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/schema-utils@npm:10.0.0-beta.1"
   dependencies:
     "@sinclair/typebox": "npm:^0.34.49"
-    "@trezor/type-utils": "npm:10.0.0-alpha.1"
+    "@trezor/utils": "npm:10.0.0-beta.1"
     ts-mixer: "npm:^6.0.4"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/0e1b85c0883cb18f608b32119f41e1a49d2b76b8cd4ca523f57a63363b4aea2c8b181dc27c79f9f563536874927dabd056f1a7b3afeea7bc973a4409fad3d293
+  checksum: 10c0/9ae2a2f3b5e24738e8343866d6752cb8cc118b32ed727c93cf772964f45b4343afe46924543429555fac9f966b6d6f25c682e6dfb027cfd11c1a45172aae9666
   languageName: node
   linkType: hard
 
-"@trezor/type-utils@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/type-utils@npm:10.0.0-alpha.1"
-  checksum: 10c0/b958050bcc746661475827903d03907e2bb255630965c122416ebabcd1ba8809811d6e9f54967de168655678401b7a90d684674351fc7b3d63f93128fa0a5653
+"@trezor/type-utils@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/type-utils@npm:10.0.0-beta.1"
+  checksum: 10c0/92134bc556ed9cfaabf39bc632a1a3bf0f9b571ada777010d1d10fdf1ad7c8d4bb9f6bc26e2a6111912a84fd47be8a94a21345966d25fcaea255af5f5647e895
   languageName: node
   linkType: hard
 
-"@trezor/utils@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/utils@npm:10.0.0-alpha.1"
+"@trezor/utils@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/utils@npm:10.0.0-beta.1"
   dependencies:
-    bignumber.js: "npm:^9.3.1"
+    bignumber.js: "npm:^11.1.4"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/692cc5738772c9d6eea1b8409baa0ead027477baad0bdcdf5fc92a55f7bb28012954d54d1a9f32edcf08ec07df945fb45741b0272335a52f75e96c04d1daab56
+  checksum: 10c0/329af9d08089a73c798d145912e14eb6143a24de6f2db12e7adccc4ac76c03337eec64ee459e439a496fabdc95665e51608571a13551179be88074081d5b6211
   languageName: node
   linkType: hard
 
-"@trezor/websocket-client@npm:10.0.0-alpha.1":
-  version: 10.0.0-alpha.1
-  resolution: "@trezor/websocket-client@npm:10.0.0-alpha.1"
+"@trezor/websocket-client@npm:10.0.0-beta.1":
+  version: 10.0.0-beta.1
+  resolution: "@trezor/websocket-client@npm:10.0.0-beta.1"
   dependencies:
-    "@trezor/utils": "npm:10.0.0-alpha.1"
+    "@trezor/utils": "npm:10.0.0-beta.1"
     ws: "npm:^8.20.0"
   peerDependencies:
     tslib: ^2.6.2
-  checksum: 10c0/4b32fb71e5359df83934fad1b49ed4458d692d181fec7642aaf5fea26fbfb05640a95c32d41798f21482b2d4074dfb657a0f16f00bd21bc9aa46611d968d7ffc
+  checksum: 10c0/939516a6d43e6bc1aba297124e901027e429fb2dc6aa1c4fcf6c174a36c2e01ec7f3c190758ae3a386ffcd639bdcd1414df79836433df8f9a458d488a90930e9
   languageName: node
   linkType: hard
 
@@ -12142,7 +12147,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "prompt-hash-stellar@workspace:."
   dependencies:
-    "@creit.tech/stellar-wallets-kit": "npm:^2.5.0"
+    "@creit.tech/stellar-wallets-kit": "npm:^2.6.0"
     "@eslint/js": "npm:^10.0.1"
     "@hookform/resolvers": "npm:^5.5.7"
     "@jadonamite/automata-sdk": "npm:^1.0.1"
@@ -12160,7 +12165,7 @@ __metadata:
     "@sentry/vite-plugin": "npm:^5.3.0"
     "@stellar/design-system": "npm:^4.0.2"
     "@stellar/stellar-base": "npm:^15.0.0"
-    "@stellar/stellar-sdk": "npm:^16.1.0"
+    "@stellar/stellar-sdk": "npm:^17.0.1"
     "@tailwindcss/postcss": "npm:^4.3.3"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@tanstack/react-query": "npm:^5.101.4"
