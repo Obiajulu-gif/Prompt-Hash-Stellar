@@ -362,11 +362,11 @@ export class PromptHashClient {
     return contractMethods.contractGetPromptsByCreator(config, address);
   }
 
-/**
- * Find existing prompts whose content hash matches the given hash.
- * Returns matching records without exposing plaintext content.
- * Distinguishes between an truly empty result and a failure to fetch.
- */
+  /**
+   * Find existing prompts whose content hash matches the given hash.
+   * Returns matching records without exposing plaintext content.
+   * Distinguishes between an truly empty result and a failure to fetch.
+   */
   static async findPromptByContentHash(
     config: PromptHashConfig,
     contentHash: string,
@@ -638,8 +638,8 @@ export const verifyEntitlement = async (
           providerUrl: rpcUrl,
           hasAccess: access,
           ledgerSequence: latestLedger.sequence,
-          ledgerHash: latestLedger.hash?.toString() ?? "",
-          ledgerClosedAt: latestLedger.lastLedgerCloseTimestamp,
+          ledgerHash: latestLedger.id,
+          ledgerClosedAt: (latestLedger as any).lastLedgerCloseTimestamp ?? 0,
         } satisfies EntitlementProviderSample;
       }),
     );

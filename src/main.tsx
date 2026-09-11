@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
@@ -59,7 +60,6 @@ const queryClient = new QueryClient({
     mutations: {
       retry: false,
       gcTime: 1000 * 60 * 60 * 24, // 24 hours caching
-      staleTime: 1000 * 60 * 5, // 5 minutes fresh
     },
   },
 });

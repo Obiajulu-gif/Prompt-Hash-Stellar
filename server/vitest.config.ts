@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import path from "path";
 
 export default defineConfig({
   // Vite's default PostCSS config search climbs to the repo root and picks
@@ -7,6 +8,11 @@ export default defineConfig({
   // so short-circuit the search instead of pulling in frontend tooling.
   css: {
     postcss: {},
+  },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "../src"),
+    },
   },
   test: {
     include: ["src/tests/**/*.test.ts"],

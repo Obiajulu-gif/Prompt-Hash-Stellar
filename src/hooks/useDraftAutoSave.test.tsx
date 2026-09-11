@@ -330,8 +330,8 @@ describe("useDraftAutoSave draft ownership/session checks (#680)", () => {
 
     // Wallet disconnects while the user is mid-edit.
     rerender({
-      address: undefined,
-      network: undefined,
+      address: undefined as any,
+      network: undefined as any,
       values: baseValues({ title: "Edited while disconnected" }),
       setValue,
     });

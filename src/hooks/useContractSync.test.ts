@@ -174,10 +174,10 @@ describe("useContractSync hook", () => {
 
     const intervals: number[] = [];
     const originalSetTimeout = global.setTimeout;
-    vi.spyOn(global, "setTimeout").mockImplementation((cb, delay: number) => {
-      intervals.push(delay);
+    vi.spyOn(global, "setTimeout").mockImplementation(((cb: any, delay?: number) => {
+      intervals.push(delay || 0);
       return originalSetTimeout(cb, 0);
-    });
+    }) as any);
 
     vi.advanceTimersByTime(10_000);
     await vi.runAllTimersAsync();

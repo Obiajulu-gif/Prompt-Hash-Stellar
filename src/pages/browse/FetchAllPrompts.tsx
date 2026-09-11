@@ -147,6 +147,76 @@ const FetchAllPrompts = ({
     },
   });
 
+  const filteredPrompts = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    let prompts = (promptsQuery.data ?? []).filter((prompt) => {
+      const promptPrice = parseXlmNumber(prompt.priceStroops);
+      const matchesCategory =
+        !selectedCategory || prompt.category === selectedCategory;
+      const matchesTag =
+        !selectedTag ||
+        prompt.tags?.some(
+          (tag) => tag.toLowerCase() === selectedTag.toLowerCase(),
+        );
+      const matchesSearch =
+        !normalizedSearch ||
+        prompt.title.toLowerCase().includes(normalizedSearch) ||
+        prompt.category.toLowerCase().includes(normalizedSearch) ||
+        prompt.previewText.toLowerCase().includes(normalizedSearch) ||
+        (prompt.description ?? "").toLowerCase().includes(normalizedSearch) ||
+        prompt.creator.toLowerCase().includes(normalizedSearch) ||
+        prompt.tags?.some((tag) =>
+          tag.toLowerCase().includes(normalizedSearch),
+        );
+      const matchesPrice =
+        promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
+      
+      // Filter out restricted prompts from public marketplace view
+      // Restricted prompts are hidden for policy violations but preserve buyer records
+      const isNotRestricted = prompt.status !== "Restricted";
+
+      return (
+        prompt.active &&
+        isNotRestricted &&
+        matchesCategory &&
+        matchesTag &&
+        matchesSearch &&
+        matchesPrice
+      );
+    });
+
+    // Apply ranking engine for improved search relevance when search query exists
+    if (normalizedSearch) {
+      prompts = rankPrompts(prompts, searchQuery, selectedCategory);
+    }
+
+    switch (sortBy) {
+      case "price-low":
+        return [...prompts].sort((a, b) =>
+          a.priceStroops < b.priceStroops ? -1 : 1,
+        );
+      case "price-high":
+        return [...prompts].sort((a, b) =>
+          a.priceStroops > b.priceStroops ? -1 : 1,
+        );
+      case "sales":
+        return [...prompts].sort((a, b) => b.salesCount - a.salesCount);
+      default:
+        return [...prompts].sort((a, b) => Number(b.id - a.id));
+    }
+  }, [
+    priceRange,
+    promptsQuery.data,
+    searchQuery,
+    selectedCategory,
+    sortBy,
+    selectedTag,
+  ]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
+  );
   // Infinite scroll observer
   useEffect(() => {
     if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
@@ -229,76 +299,7 @@ const FetchAllPrompts = ({
     }
   };
 
-  const filteredPrompts = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-    let prompts = (promptsQuery.data ?? []).filter((prompt) => {
-      const promptPrice = parseXlmNumber(prompt.priceStroops);
-      const matchesCategory =
-        !selectedCategory || prompt.category === selectedCategory;
-      const matchesTag =
-        !selectedTag ||
-        prompt.tags?.some(
-          (tag) => tag.toLowerCase() === selectedTag.toLowerCase(),
-        );
-      const matchesSearch =
-        !normalizedSearch ||
-        prompt.title.toLowerCase().includes(normalizedSearch) ||
-        prompt.category.toLowerCase().includes(normalizedSearch) ||
-        prompt.previewText.toLowerCase().includes(normalizedSearch) ||
-        (prompt.description ?? "").toLowerCase().includes(normalizedSearch) ||
-        prompt.creator.toLowerCase().includes(normalizedSearch) ||
-        prompt.tags?.some((tag) =>
-          tag.toLowerCase().includes(normalizedSearch),
-        );
-      const matchesPrice =
-        promptPrice >= priceRange[0] && promptPrice <= priceRange[1];
-      
-      // Filter out restricted prompts from public marketplace view
-      // Restricted prompts are hidden for policy violations but preserve buyer records
-      const isNotRestricted = prompt.status !== "Restricted";
 
-      return (
-        prompt.active &&
-        isNotRestricted &&
-        matchesCategory &&
-        matchesTag &&
-        matchesSearch &&
-        matchesPrice
-      );
-    });
-
-    // Apply ranking engine for improved search relevance when search query exists
-    if (normalizedSearch) {
-      prompts = rankPrompts(prompts, searchQuery, selectedCategory);
-    }
-
-    switch (sortBy) {
-      case "price-low":
-        return [...prompts].sort((a, b) =>
-          a.priceStroops < b.priceStroops ? -1 : 1,
-        );
-      case "price-high":
-        return [...prompts].sort((a, b) =>
-          a.priceStroops > b.priceStroops ? -1 : 1,
-        );
-      case "sales":
-        return [...prompts].sort((a, b) => b.salesCount - a.salesCount);
-      default:
-        return [...prompts].sort((a, b) => Number(b.id - a.id));
-    }
-  }, [
-    priceRange,
-    promptsQuery.data,
-    searchQuery,
-    selectedCategory,
-    sortBy,
-    selectedTag,
-  ]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredPrompts.length / ITEMS_PER_PAGE),
-  );
 
   // For infinite scroll, show all items up to current page
   const currentPrompts = ENABLE_INFINITE_SCROLL

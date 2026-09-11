@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
-import { PromptHashContractClient } from "@/lib/stellar/promptHashClient";
+import { PromptHashClient } from "@/lib/stellar/promptHashClient";
 import { Keypair, TransactionBuilder, Networks, BASE_FEE } from "@stellar/stellar-sdk";
 
 export function Dialog({ children, open }: { children: React.ReactNode; open: boolean }) {

@@ -77,19 +77,19 @@ jobs:
         working-directory: ./
 
       - name: Generate ABI fixtures from contract spec
-        run: node tests/abi-conformance/scripts/generate-fixtures.ts
+        run: npx tsx tests/abi-conformance/scripts/generate-fixtures.ts
 
       - name: Run ABI conformance tests
         run: npm test -- tests/abi-conformance/validators/
 
       - name: Generate compatibility report
-        run: node tests/abi-conformance/scripts/compatibility-report.ts
+        run: npx tsx tests/abi-conformance/scripts/compatibility-report.ts
 
       - name: Check for uncommitted fixture changes
         run: |
           if [ -n "$(git diff --name-only tests/abi-conformance/fixtures/)" ]; then
             echo "❌ ABI fixtures have changed. Please regenerate and commit the updated fixtures."
-            echo "Run: node tests/abi-conformance/scripts/generate-fixtures.ts"
+            echo "Run: npx tsx tests/abi-conformance/scripts/generate-fixtures.ts"
             git diff tests/abi-conformance/fixtures/
             exit 1
           fi

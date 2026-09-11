@@ -37,7 +37,7 @@ export function TipButton({ creatorAddress, onTipSent }: TipButtonProps) {
       const stroops = xlmToStroops(amount);
       await approveNativeAssetSpend(
         browserStellarConfig,
-        { signTransaction },
+        { signTransaction: async (xdr: string, opts: any) => ({ signedTxXdr: await signTransaction(xdr, opts) }) },
         address,
         creatorAddress,
         stroops,

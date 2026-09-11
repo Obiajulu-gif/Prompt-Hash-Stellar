@@ -123,7 +123,7 @@ export function calculatePaymentBreakdown(
       totalChargedStroops: 0n,
       isStale: false,
       isAvailable: false,
-      errorMessage: `Invalid price: ${err.message}`,
+      errorMessage: `Invalid price: ${(err as Error).message}`,
     };
   }
 
