@@ -61,6 +61,7 @@ Thumbs.db
 packages/*
 !packages/.gitkeep
 !packages/schema
+!packages/sdk
 !src/contracts/util.ts
 .omx/
 

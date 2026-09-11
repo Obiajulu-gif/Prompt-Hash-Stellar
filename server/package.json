@@ -39,17 +39,19 @@
     "@prompthash/schema": "file:../packages/schema",
     "@prompthash/sdk": "file:../packages/sdk",
     "@sentry/node": "^10.63.0",
-    "@stellar/stellar-sdk": "^14.6.1",
+    "@stellar/stellar-sdk": "^16.1.0",
     "@typescript-eslint/parser": "^8.62.1",
     "ai": "^6.0.168",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-async-handler": "^1.2.0",
+    "js-sha256": "^1.0.0",
     "mongoose": "^9.5.0",
     "nodemon": "^3.1.14",
     "prompt-hash-stellar": "file:..",
     "redis": "^6.0.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

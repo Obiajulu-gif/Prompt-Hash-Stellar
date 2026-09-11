@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@types/libsodium-wrappers": "^0.7.14",
+    "@types/uuid": "^10.0.0",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0"
   }
