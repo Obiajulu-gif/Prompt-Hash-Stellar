@@ -19,6 +19,8 @@ function isSensitiveKey(key: string): boolean {
 }
 
 function maskValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(() => "[REDACTED]");
   return "[REDACTED]";
 }
 
@@ -30,7 +32,11 @@ export function redact(obj: unknown): unknown {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (isSensitiveKey(key)) {
-      result[key] = maskValue(value);
+      if (Array.isArray(value)) {
+        result[key] = value.map(() => "[REDACTED]");
+      } else {
+        result[key] = "[REDACTED]";
+      }
     } else if (typeof value === "object" && value !== null) {
       result[key] = redact(value);
     } else {

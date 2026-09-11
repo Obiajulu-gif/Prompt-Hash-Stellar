@@ -1113,11 +1113,7 @@ impl Storage {
     pub const MAX_VERIFY_BATCH_SIZE: u64 = 100;
 
     /// Verify invariants between canonical prompt records and secondary indexes (#652).
-    pub fn verify_catalog_indexes(
-        env: &Env,
-        start_id: u64,
-        batch_size: u64,
-    ) -> IndexDriftReport {
+    pub fn verify_catalog_indexes(env: &Env, start_id: u64, batch_size: u64) -> IndexDriftReport {
         let total_prompts = InstanceStorage::get_prompt_counter(env);
         let batch = if batch_size > 0 && batch_size <= Self::MAX_VERIFY_BATCH_SIZE {
             batch_size
@@ -1342,11 +1338,15 @@ impl Storage {
 
         if !dry_run {
             if all_changed {
-                env.storage().persistent().set(&DataKey::AllPrompts, &all_ids);
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::AllPrompts, &all_ids);
                 Self::extend_key_ttl(env, &DataKey::AllPrompts);
             }
             if active_changed {
-                env.storage().persistent().set(&DataKey::ActivePrompts, &active_ids);
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::ActivePrompts, &active_ids);
                 Self::extend_key_ttl(env, &DataKey::ActivePrompts);
             }
         }
@@ -1369,9 +1369,8 @@ impl Storage {
 
     /// Reconciles prompt sales counters for pre-existing clamped records (#653).
     pub fn reconcile_sales_counter(env: &Env, prompt_id: u64) -> Result<u64, Error> {
-        let mut prompt = Self::require_prompt(env, prompt_id)?;
+        let prompt = Self::require_prompt(env, prompt_id)?;
         let current_count = prompt.sales_count;
-        prompt.sales_count = current_count;
         Self::update_prompt(env, &prompt);
         Ok(current_count)
     }
@@ -1445,13 +1444,9 @@ impl Storage {
             .ok_or(super::types::Error::MissingMetadata)
     }
 
-    pub fn set_moderation_record(
-        env: &Env,
-        record: &super::types::ModerationRecord,
-    ) {
+    pub fn set_moderation_record(env: &Env, record: &super::types::ModerationRecord) {
         let key = super::types::DataKey::ModerationRecord(record.prompt_id, record.timestamp);
         env.storage().persistent().set(&key, record);
         Self::extend_key_ttl(env, &key);
     }
 }
-

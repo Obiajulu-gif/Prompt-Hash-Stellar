@@ -20,6 +20,7 @@ import {
   CreatorVerifiedBadge,
 } from "@/components/reputation/CreatorReputationBadge";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { useCreatorProfile } from "@/hooks/useCreatorProfile";
 import { ReviewClient } from "@/lib/reviews/reviewClient";
 import {
   getCreatorDisplayName,
@@ -60,8 +61,8 @@ export const PromptCard = ({
   const [imageLoaded, setImageLoaded] = useState(false);
 
   const isBestSeller = prompt.salesCount >= 10;
-  const creatorProfile = getCreatorProfile(prompt.creator);
-  const creatorName = getCreatorDisplayName(prompt.creator, creatorProfile);
+  const { profile: creatorProfile } = useCreatorProfile(prompt.creator);
+  const creatorName = getCreatorDisplayName(prompt.creator, creatorProfile || null);
   const reputation = buildCreatorReputation(prompt.creator, [prompt]);
 
   const hoverProps = reducedMotion
@@ -69,7 +70,7 @@ export const PromptCard = ({
     : {
         whileHover: { y: -4, scale: 1.01 },
         whileTap: { scale: 0.98 },
-        transition: { type: "spring", stiffness: 300, damping: 20 },
+        transition: { type: "spring" as const, stiffness: 300, damping: 20 },
       };
 
   const { data: reviewStats } = useQuery({

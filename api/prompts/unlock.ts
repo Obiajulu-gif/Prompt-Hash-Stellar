@@ -32,7 +32,10 @@ import {
 import { metrics } from "../../src/lib/observability/metrics";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
-import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
+import {
+  validateUnlockSecrets,
+  getServerDeploymentManifest,
+} from "../../src/lib/validation/envValidator";
 
 export interface UnlockRequest {
   token: string;
@@ -125,18 +128,18 @@ function getActiveSecrets(primarySecret: string): string[] {
 function getServerConfig(): PromptHashConfig {
   const manifest = getServerDeploymentManifest();
   return {
-    rpcUrl,
+    rpcUrl: manifest.rpcUrl,
     rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")
       .map((url) => url.trim())
       .filter(Boolean),
     entitlementQuorum: process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM
       ? Number(process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM)
       : undefined,
-    networkPassphrase,
-    promptHashContractId,
-    nativeAssetContractId,
-    simulationAccount,
-    allowHttp: new URL(rpcUrl).hostname === "localhost",
+    networkPassphrase: manifest.networkPassphrase,
+    promptHashContractId: manifest.promptHashContractId,
+    nativeAssetContractId: manifest.nativeAssetContractId,
+    simulationAccount: manifest.simulationAccount,
+    allowHttp: new URL(manifest.rpcUrl).hostname === "localhost",
   };
 }
 
@@ -625,16 +628,27 @@ async function handler(
     metrics.trackUnlockFailure(String(address), String(promptId), "error");
     metrics.trackUnlockLatency(Date.now() - unlockStartMs);
 
-    // Distinguish expired-challenge errors for finer-grained audit reasons and error codes.
+    // Distinguish expired-challenge and signature/token errors for finer-grained audit reasons and error codes.
     const isExpired = message.toLowerCase().includes("expired");
+    const isTokenMismatch =
+      message.toLowerCase().includes("does not match");
+
     void recordAuditEvent({
-      action: isExpired ? "unlock_expired_challenge" : "unlock_error",
+      action: isExpired
+        ? "unlock_expired_challenge"
+        : isTokenMismatch
+          ? "unlock_invalid_signature"
+          : "unlock_error",
       result: "failure",
       promptId: promptId ? String(promptId) : null,
       walletAddress: address ? String(address) : null,
       requestId: req.requestId ?? null,
       clientIp,
-      reason: isExpired ? "expired_challenge" : "error",
+      reason: isExpired
+        ? "expired_challenge"
+        : isTokenMismatch
+          ? "invalid_signature"
+          : "error",
     });
 
     if (isExpired) {
@@ -651,6 +665,20 @@ async function handler(
         );
       }
       res.status(400).json(body);
+    } else if (isTokenMismatch) {
+      const body = apiError(ErrorCode.INVALID_SIGNATURE, "Invalid challenge token or signature.");
+      if (idempotencyKey) {
+        void storeIdempotencyResult(
+          String(idempotencyKey),
+          String(token),
+          String(promptId),
+          String(address),
+          String(signedMessage),
+          401,
+          body,
+        );
+      }
+      res.status(401).json(body);
     } else {
       const body = apiError(ErrorCode.TEMPORARY_FAILURE, "Failed to unlock prompt. Please try again.");
       if (idempotencyKey) {

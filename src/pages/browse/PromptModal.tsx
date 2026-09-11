@@ -4,6 +4,8 @@ import { WalletContext } from "../../providers/WalletProvider";
 import { useAsyncTransaction } from "../../components/useAsyncTransaction";
 import { PromptHashClient } from "../../lib/stellar/promptHashClient";
 import { browserStellarConfig } from "../../lib/stellar/browserConfig";
+import { MappedWalletError, mapWalletError } from "@/lib/stellar/tx";
+import { ThumbRating, getCreatorThumbRating, saveCreatorThumbRating } from "@/lib/reputation/creatorReputation";
 import { unlockPrompt } from "../../lib/prompts/unlock";
 import { Skeleton } from "../../components/Skeleton";
 import { StatusBanner } from "../../components/StatusBanner";
@@ -70,7 +72,6 @@ import { ErrorCode } from "../../lib/api/errorCodes";
 import type { UnlockError } from "../../lib/errors/unlockErrors";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
@@ -459,7 +460,11 @@ export const PromptModal: React.FC<PromptModalProps> = ({
       return await PromptHashClient.purchasePrompt(
         itemId,
         wallet.address,
-        { signTransaction: wallet.signTransaction },
+        {
+          signTransaction: async (xdr: string, opts: any) => ({
+            signedTxXdr: await wallet.signTransaction(xdr, opts),
+          }),
+        },
         browserStellarConfig,
       );
     },
@@ -566,8 +571,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
                   {/* Fee & Payment Breakdown before wallet signing (#455) */}
                   <CheckoutFeeBreakdown
-                    promptTitle={prompt.title}
-                    priceXlm={(prompt.priceStroops / 10000000).toString()}
+                    promptTitle={promptDetail?.title || ""}
+                    priceXlm={(Number(promptDetail?.priceStroops || 0) / 10000000).toString()}
                   />
 
                   {status === "ERROR" &&

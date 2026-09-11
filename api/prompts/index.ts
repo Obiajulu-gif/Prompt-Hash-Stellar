@@ -67,11 +67,16 @@ async function handler(req: any, res: any) {
   try {
     await connectDb();
 
-    const { category, walletAddress } = req.query ?? {};
+    const {
+      category,
+      walletAddress,
+      onChainId,
+      recommendations,
+      viewerWallet,
+    } = req.query ?? {};
     const limitParam = req.query?.limit ?? req.query?.pageSize;
     const limit = Math.min(parseInt(limitParam as string) || 20, 50);
     const cursor = req.query?.cursor as string | undefined;
-    const { category, walletAddress, onChainId } = req.query ?? {};
 
     if (onChainId) {
       const prompt = await Prompt.findOne(
@@ -79,20 +84,6 @@ async function handler(req: any, res: any) {
       )
         .populate("owner", "username walletAddress")
         .lean();
-    const {
-      category,
-      walletAddress,
-      recommendations,
-      viewerWallet,
-      limit,
-    } = req.query ?? {};
-
-    const query: Record<string, unknown> = {
-      listingStatus: "published",
-      isActive: true,
-      similarityFlag: { $ne: "highly_similar" },
-      integrityStatus: { $nin: ["corrupted", "missing"] },
-    };
 
       res.status(200).json(prompt ? [prompt] : []);
       return;

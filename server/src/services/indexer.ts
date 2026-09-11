@@ -9,9 +9,25 @@ import ProcessedEvent from "../models/ProcessedEvent";
 import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
-import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
-import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
+import {
+  cacheDel,
+  cacheDelPattern,
+  cacheGetJson,
+  cacheSetJson,
+  CACHE_KEYS,
+  invalidatePromptCaches,
+  METADATA_TTL_SECONDS,
+} from "./cacheService";
 import { logger } from "./structuredLogger";
+
+let cachedDecodeEvent: ((topic: string, data: unknown) => any) | null = null;
+async function getEventDecoder(): Promise<(topic: string, data: unknown) => any> {
+  if (!cachedDecodeEvent) {
+    const sdk = await import("@prompthash/sdk" as string);
+    cachedDecodeEvent = sdk.decodeEvent;
+  }
+  return cachedDecodeEvent!;
+}
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -25,6 +41,24 @@ const ENTITLEMENT_CACHE_TTL_SECS = 30;
 
 async function invalidateEntitlementCacheForPrompt(promptId: string): Promise<void> {
   await cacheDelPattern(CACHE_KEYS.entitlementDecisionPattern(promptId));
+}
+
+/**
+ * Cached prompt metadata retrieval for indexing service to reduce DB / RPC overhead.
+ */
+export async function getCachedPromptMetadata<T>(promptId: string): Promise<T | null> {
+  return cacheGetJson<T>(CACHE_KEYS.promptMetadata(promptId));
+}
+
+/**
+ * Cache indexed prompt metadata.
+ */
+export async function cachePromptMetadata<T>(
+  promptId: string,
+  metadata: T,
+  ttlSeconds = METADATA_TTL_SECONDS,
+): Promise<void> {
+  await cacheSetJson(CACHE_KEYS.promptMetadata(promptId), metadata, ttlSeconds);
 }
 
 /**
@@ -43,17 +77,6 @@ async function ensureUser(walletAddress: string) {
   return user;
 }
 
-/**
- * Invalidates the marketplace read caches for a listing after an indexed
- * on-chain event changes it, so `GET /api/prompts` and per-prompt reads
- * regenerate a fresh ETag on the next request instead of serving stale data.
- */
-async function invalidatePromptCaches(promptId: string): Promise<void> {
-  await Promise.all([
-    cacheDelPattern("prompts:list:*"),
-    cacheDel(CACHE_KEYS.promptDetail(promptId)),
-  ]);
-}
 
 /**
  * Enqueues a durable webhook delivery for a creator/owner wallet, swallowing
@@ -155,7 +178,7 @@ export async function startIndexer(): Promise<void> {
 
       for (const event of response.events) {
         // Skip provisional events — only process finalized transactions
-        if (event.inSuccessfulContractInvocation === false) {
+        if ((event as any).inSuccessfulContractInvocation === false || (event as any).inSuccessfulContractCall === false) {
           logger.debug("Skipping provisional event", { action: "processEvent", ledger: event.ledger });
           continue;
         }
@@ -246,9 +269,30 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
   let rawData: unknown;
 
   // 1. Defensively decode XDR to native types. If malformed, quarantine immediately.
+  if (
+    !event.topic ||
+    !Array.isArray(event.topic) ||
+    event.topic.length === 0 ||
+    event.topic[0] === null ||
+    event.topic[0] === undefined
+  ) {
+    await quarantineEvent(event, "malformed_xdr", "Missing or null event topic");
+    return;
+  }
+
   try {
-    rawTopic = scValToNative(event.topic[0]);
-    rawData = scValToNative(event.value);
+    rawTopic =
+      typeof (event.topic[0] as any)?.switch === "function"
+        ? scValToNative(event.topic[0])
+        : typeof event.topic[0] === "object" && event.topic[0] !== null && "value" in event.topic[0]
+          ? (event.topic[0] as any).value
+          : event.topic[0];
+    rawData =
+      event.value && typeof (event.value as any)?.switch === "function"
+        ? scValToNative(event.value)
+        : event.value !== null && typeof event.value === "object" && "value" in event.value
+          ? (event.value as any).value
+          : event.value;
   } catch (err: any) {
     await quarantineEvent(event, "malformed_xdr", err?.message || String(err));
     return;
@@ -276,7 +320,8 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
   // 3. Decode event against schema
   let decoded;
   try {
-    decoded = decodeEvent(String(rawTopic), rawData);
+    const decodeFn = await getEventDecoder();
+    decoded = decodeFn(String(rawTopic), rawData);
   } catch (err: any) {
     await quarantineEvent(event, "decoder_error", err?.message || String(err), rawTopic, rawData);
     return;
@@ -521,6 +566,76 @@ export async function routeDecodedEvent(
       break;
     }
 
+    case "PromptUpdated": {
+      const { prompt_id, version } = data;
+      const promptId = prompt_id.toString();
+
+      if (version !== undefined) {
+        await Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { currentVersionIndex: Number(version) } },
+        );
+      }
+
+      await invalidatePromptCaches(promptId);
+      logger.info("Prompt updated on-chain, invalidated caches", {
+        action: "processEvent",
+        topic: "PromptUpdated",
+        promptId,
+        version,
+      });
+      break;
+    }
+
+    case "ListingRevised": {
+      const { prompt_id, new_revision } = data;
+      const promptId = prompt_id.toString();
+
+      if (new_revision !== undefined) {
+        await Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { currentRevision: Number(new_revision) } },
+        );
+      }
+
+      await invalidatePromptCaches(promptId);
+      logger.info("Listing revised, invalidated caches", {
+        action: "processEvent",
+        topic: "ListingRevised",
+        promptId,
+      });
+      break;
+    }
+
+    case "ListingExtended": {
+      const { prompt_id } = data;
+      const promptId = prompt_id.toString();
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
+    case "SplitsUpdated": {
+      const { prompt_id } = data;
+      const promptId = prompt_id.toString();
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
+    case "PromptMaxSupplyUpdated": {
+      const { prompt_id, max_supply } = data;
+      const promptId = prompt_id.toString();
+
+      if (max_supply !== undefined) {
+        await Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { maxSupply: Number(max_supply) } },
+        );
+      }
+
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
     default:
       logger.debug("Unhandled event topic", { action: "processEvent", topic });
       break;
@@ -590,3 +705,49 @@ export async function retryFailedIndexRefreshes(): Promise<{
 
   return { retried: failedPrompts.length, succeeded };
 }
+
+/**
+ * Replays quarantined events through the event decoder and database projections (#654).
+ */
+export async function replayQuarantinedEvents(options: { maxEvents?: number } = {}): Promise<{
+  replayed: number;
+  failed: number;
+}> {
+  const maxEvents = options.maxEvents || 100;
+  const quarantinedEvents = await QuarantinedEvent.find({ status: "quarantined" })
+    .sort({ ledger: 1, quarantinedAt: 1 })
+    .limit(maxEvents);
+
+  let replayed = 0;
+  let failed = 0;
+  const decodeFn = await getEventDecoder();
+
+  for (const item of quarantinedEvents) {
+    try {
+      const decoded = decodeFn(item.topic, item.rawValue);
+      if (decoded.recognized) {
+        await routeDecodedEvent(
+          decoded.type,
+          decoded.data as Record<string, any>,
+          item.eventId,
+          item.txHash,
+          item.ledger,
+        );
+        item.status = "replayed";
+        item.replayedAt = new Date();
+        await item.save();
+        replayed++;
+      } else {
+        failed++;
+      }
+    } catch (err: any) {
+      item.errorDetails = err?.message || String(err);
+      item.retryCount = (item.retryCount || 0) + 1;
+      await item.save();
+      failed++;
+    }
+  }
+
+  return { replayed, failed };
+}
+

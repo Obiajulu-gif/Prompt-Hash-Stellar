@@ -243,7 +243,7 @@ describe('useSavedSearches hook (#467)', () => {
 
     let alerts: any[] = [];
     act(() => {
-      alerts = result.current.processListingAlerts(malformedListings);
+      alerts = result.current.processListingAlerts(malformedListings as any);
     });
 
     // Should process gracefully without crashing

@@ -36,7 +36,7 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "abcdef0123456789abcdef0123456789",
     );
 
-    expect(result).toEqual([]);
+    expect((result as any).records).toEqual([]);
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringContaining("/api/prompts/hash/abcdef0123456789abcdef0123456789"),
     );
@@ -69,8 +69,8 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "abcdef0123456789abcdef0123456789",
     );
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
+    expect((result as any).records).toHaveLength(1);
+    expect((result as any).records[0]).toMatchObject({
       id: BigInt(12345),
       title: "Original Prompt",
       creator: "GCAAA123...",
@@ -114,9 +114,9 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "fedcba9876543210fedcba9876543210",
     );
 
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(BigInt(12345));
-    expect(result[1].id).toBe(BigInt(67890));
+    expect((result as any).records).toHaveLength(2);
+    expect((result as any).records[0].id).toBe(BigInt(12345));
+    expect((result as any).records[1].id).toBe(BigInt(67890));
   });
 
   it("handles API errors gracefully and returns empty array", async () => {
@@ -134,7 +134,7 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "abcdef0123456789abcdef0123456789",
     );
 
-    expect(result).toEqual([]);
+    expect((result as any).records).toEqual([]);
     expect(consoleSpy).toHaveBeenCalled();
   });
 
@@ -150,7 +150,7 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "abcdef0123456789abcdef0123456789",
     );
 
-    expect(result).toEqual([]);
+    expect((result as any).records).toEqual([]);
     expect(consoleSpy).toHaveBeenCalled();
   });
 
@@ -203,13 +203,13 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "0123456789abcdef0123456789abcdef",
     );
 
-    expect(result[0]).toHaveProperty("id");
-    expect(result[0]).toHaveProperty("title");
-    expect(result[0]).toHaveProperty("creator");
-    expect(result[0]).toHaveProperty("priceStroops");
-    expect(result[0]).toHaveProperty("active");
-    expect(result[0]).toHaveProperty("contentHash");
-    expect(result[0].priceStroops).toBe(BigInt(0)); // Not included in response
+    expect((result as any).records[0]).toHaveProperty("id");
+    expect((result as any).records[0]).toHaveProperty("title");
+    expect((result as any).records[0]).toHaveProperty("creator");
+    expect((result as any).records[0]).toHaveProperty("priceStroops");
+    expect((result as any).records[0]).toHaveProperty("active");
+    expect((result as any).records[0]).toHaveProperty("contentHash");
+    expect((result as any).records[0].priceStroops).toBe(BigInt(0)); // Not included in response
   });
 
   it("handles prompts with missing optional fields", async () => {
@@ -236,8 +236,8 @@ describe("PromptHashClient.findPromptByContentHash (#333)", () => {
       "11111111111111111111111111111111",
     );
 
-    expect(result[0].salesCount).toBe(0); // Default fallback
-    expect(result[0].active).toBeUndefined(); // Undefined if missing
+    expect((result as any).records[0].salesCount).toBe(0); // Default fallback
+    expect((result as any).records[0].active).toBeUndefined(); // Undefined if missing
   });
 
   it("can be used via the exported wrapper function", async () => {

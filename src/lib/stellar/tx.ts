@@ -164,7 +164,7 @@ export function getRpcServer(config: StellarNetworkConfig) {
   });
 }
 
-export function scValArg(value: unknown, type?: string) {
+export function scValArg(value: unknown, type?: any) {
   return type ? nativeToScVal(value, { type }) : nativeToScVal(value);
 }
 

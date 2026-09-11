@@ -201,7 +201,7 @@ export function useSavedSearches() {
               listingId: item.id,
               listingTitle: item.title,
               listingCategory: item.category,
-              listingPrice: item.price,
+              listingPrice: item.price || 0,
               walletAddress: activeWallet,
               createdAt: Date.now(),
               read: false,

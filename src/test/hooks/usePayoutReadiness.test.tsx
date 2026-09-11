@@ -45,19 +45,20 @@ function createWrapper(wallet: Partial<WalletContextType> = {}) {
     },
   });
 
-  const defaultWallet: WalletContextType = {
+  const defaultWallet = {
     address: undefined,
     network: undefined,
     networkPassphrase: undefined,
     status: "idle",
     error: undefined,
+    sessionEpoch: 0,
     networkCompatibility: { compatible: true } as any,
     connect: vi.fn(),
     disconnect: vi.fn(),
     signMessage: vi.fn(),
     signTransaction: vi.fn(),
     ...wallet,
-  };
+  } as WalletContextType;
 
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -95,6 +96,10 @@ describe("usePayoutReadiness", () => {
     mockUseWalletBalance.mockReturnValue({
       xlm: "5.0",
       isLoading: false,
+      isFunded: true,
+      error: null,
+      updateBalance: vi.fn(),
+      balances: [],
     });
   });
 
@@ -278,6 +283,10 @@ describe("usePayoutReadinessGate", () => {
     mockUseWalletBalance.mockReturnValue({
       xlm: "5.0",
       isLoading: false,
+      isFunded: true,
+      error: null,
+      updateBalance: vi.fn(),
+      balances: [],
     });
   });
 

@@ -416,7 +416,7 @@ export async function verifyWithQuorum(
   // Aggregate results
   const successfulResults = results
     .filter((r) => r.status === "fulfilled")
-    .map((r) => (r as PromiseSettledResult<typeof results[0]>).value);
+    .map((r) => (r as PromiseFulfilledResult<any>).value);
 
   const hashes = new Map<string | null, number>();
   for (const result of successfulResults) {
@@ -443,4 +443,9 @@ export async function verifyWithQuorum(
     totalAttempts,
     gatewayResults,
   };
+}
+export const DEFAULT_IPFS_GATEWAY = "https://ipfs.io";
+export function resolveGatewayBase(url: string): string {
+  const clean = url.replace(/\/$/, "");
+  return `${clean}/ipfs/`;
 }
