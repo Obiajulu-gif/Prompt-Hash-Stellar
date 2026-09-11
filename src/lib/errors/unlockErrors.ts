@@ -20,6 +20,7 @@ export interface UnlockErrorMeta {
 }
 
 const UNLOCK_ERROR_META: Record<UnlockErrorCode, Omit<UnlockErrorMeta, "code">> = {
+  RATE_LIMIT_ENTITLEMENT: { category: "server", retryable: true, i18nKey: "RATE_LIMIT_ENTITLEMENT" },
   MISSING_FIELDS: { category: "server", retryable: false, i18nKey: "MISSING_FIELDS" },
   METHOD_NOT_ALLOWED: { category: "server", retryable: false, i18nKey: "METHOD_NOT_ALLOWED" },
   CHALLENGE_EXPIRED: { category: "wallet", retryable: true, i18nKey: "CHALLENGE_EXPIRED" },

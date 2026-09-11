@@ -51,7 +51,6 @@ export function VerifiedIcon({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   return (
     <BadgeCheck
       className={`${iconSize} text-cyan-400`}
-      title="Verified creator"
     />
   );
 }

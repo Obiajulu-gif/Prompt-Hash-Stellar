@@ -90,6 +90,14 @@ export const EVENT_SCHEMAS: Record<string, EventSchema> = {
       { name: "price_stroops", type: "i128" },
     ],
   },
+  PromptUpdated: {
+    name: "PromptUpdated",
+    version: 1,
+    fields: [
+      { name: "prompt_id", type: "u64" },
+      { name: "version", type: "u32" },
+    ],
+  },
   PromptPurchased: {
     name: "PromptPurchased",
     version: 1,
@@ -298,6 +306,14 @@ export const EVENT_SCHEMAS_V2: Record<string, EventSchema> = {
     fields: [
       { name: "prompt_id", type: "u64" },
       { name: "price_stroops", type: "i128" },
+      { name: "version", type: "u32" },
+    ],
+  },
+  PromptUpdated: {
+    name: "PromptUpdated",
+    version: 2,
+    fields: [
+      { name: "prompt_id", type: "u64" },
       { name: "version", type: "u32" },
     ],
   },

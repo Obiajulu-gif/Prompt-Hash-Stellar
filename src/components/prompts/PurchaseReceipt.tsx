@@ -48,7 +48,9 @@ export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
 
   const isTestnet =
     (browserStellarConfig?.networkPassphrase &&
-      browserStellarConfig.networkPassphrase.toUpperCase().includes("TESTNET"));
+      browserStellarConfig.networkPassphrase.toUpperCase().includes("TESTNET")) ||
+    ((browserStellarConfig as any)?.network &&
+      (browserStellarConfig as any).network.toUpperCase().includes("TESTNET"));
   const explorerNetwork = isTestnet ? "testnet" : "public";
 
   return (

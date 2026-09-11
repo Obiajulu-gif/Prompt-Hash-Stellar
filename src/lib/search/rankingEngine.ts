@@ -49,10 +49,10 @@ function calculateFreshnessMultiplier(prompt: PromptRecord): number {
   const now = Date.now();
 
   // Use the most recent activity timestamp available
-  const lastActivityTime = prompt.updatedAt
-    ? new Date(prompt.updatedAt).getTime()
-    : prompt.createdAt
-      ? new Date(prompt.createdAt).getTime()
+  const lastActivityTime = (prompt as any).updatedAt
+    ? new Date((prompt as any).updatedAt).getTime()
+    : (prompt as any).createdAt
+      ? new Date((prompt as any).createdAt).getTime()
       : now;
 
   const ageMs = now - lastActivityTime;
@@ -148,7 +148,7 @@ export function calculateRelevanceScore(
   }
 
   // Verification boost (#734)
-  if (prompt.verified) {
+  if ((prompt as any).verified) {
     score += RANKING_WEIGHTS.VERIFIED_BOOST;
   }
 

@@ -6,6 +6,78 @@ import Purchase from "../models/Purchase";
 import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
 import { MarketplaceIndex } from "../models/MarketplaceIndex";
+import ProcessedEvent from "../models/ProcessedEvent";
+import QuarantinedEvent from "../models/QuarantinedEvent";
+import { scanForSimilarity } from "./similarityDetection";
+import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
+import {
+  cacheDel,
+  cacheDelPattern,
+  cacheGetJson,
+  cacheSetJson,
+  CACHE_KEYS,
+  invalidatePromptCaches,
+  METADATA_TTL_SECONDS,
+} from "./cacheService";
+import { logger } from "./structuredLogger";
+
+let cachedDecodeEvent: ((topic: string, data: unknown) => any) | null = null;
+async function getEventDecoder(): Promise<(topic: string, data: unknown) => any> {
+  if (!cachedDecodeEvent) {
+    const sdk = await import("@prompthash/sdk" as string);
+    cachedDecodeEvent = sdk.decodeEvent;
+  }
+  return cachedDecodeEvent!;
+}
+
+const POLL_INTERVAL_MS = 5_000;
+const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
+const REPLICA_ID = `${process.pid}@${os.hostname()}`;
+
+let tickInFlight = false; // single-flight guard for the current process
+
+// Entitlement decision cache — invalidated on settlement events (#545, #602).
+// Uses Redis for multi-instance deployments; short TTL balances freshness with RPC load.
+const ENTITLEMENT_CACHE_TTL_SECS = 30;
+
+async function invalidateEntitlementCacheForPrompt(promptId: string): Promise<void> {
+  await cacheDelPattern(CACHE_KEYS.entitlementDecisionPattern(promptId));
+}
+
+/**
+ * Cached prompt metadata retrieval for indexing service to reduce DB / RPC overhead.
+ */
+export async function getCachedPromptMetadata<T>(promptId: string): Promise<T | null> {
+  return cacheGetJson<T>(CACHE_KEYS.promptMetadata(promptId));
+}
+
+/**
+ * Cache indexed prompt metadata.
+ */
+export async function cachePromptMetadata<T>(
+  promptId: string,
+  metadata: T,
+  ttlSeconds = METADATA_TTL_SECONDS,
+): Promise<void> {
+  await cacheSetJson(CACHE_KEYS.promptMetadata(promptId), metadata, ttlSeconds);
+}
+
+/**
+ * Resolves a wallet address to a User document, creating a minimal wallet
+ * subject if none exists yet. The subject carries only the on-chain address;
+ * no synthetic username or reputation rating is injected. Identity fields
+ * (username, displayName, rating) must be set explicitly through verified
+ * profile claims to prevent unearned reputation from landing in the index.
+ */
+async function ensureUser(walletAddress: string) {
+  const normalized = walletAddress.toLowerCase();
+  let user = await User.findOne({ walletAddress: normalized });
+  if (!user) {
+    user = await User.create({ walletAddress: normalized });
+  }
+  return user;
+}
+
 
 const CONTRACT_ID = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
 const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
@@ -58,11 +130,8 @@ export async function startIndexer() {
 
       for (const event of response.events) {
         // Skip provisional events — only process finalized transactions
-        if (event.inSuccessfulContractInvocation === false) {
-          logger.debug("Skipping provisional event", {
-            action: "processEvent",
-            ledger: event.ledger,
-          });
+        if ((event as any).inSuccessfulContractInvocation === false || (event as any).inSuccessfulContractCall === false) {
+          logger.debug("Skipping provisional event", { action: "processEvent", ledger: event.ledger });
           continue;
         }
         await processEvent(event);
@@ -156,15 +225,64 @@ export async function quarantineEvent(
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-async function processEvent(event: rpc.Api.EventResponse) {
-  // Decode the topic and value from XDR to Native JS types
-  const topic = scValToNative(event.topic[0]);
-  const data = scValToNative(event.value);
+export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
+  let rawTopic: unknown;
+  let rawData: unknown;
+
+  // 1. Defensively decode XDR to native types. If malformed, quarantine immediately.
+  if (
+    !event.topic ||
+    !Array.isArray(event.topic) ||
+    event.topic.length === 0 ||
+    event.topic[0] === null ||
+    event.topic[0] === undefined
+  ) {
+    await quarantineEvent(event, "malformed_xdr", "Missing or null event topic");
+    return;
+  }
+
+  try {
+    rawTopic =
+      typeof (event.topic[0] as any)?.switch === "function"
+        ? scValToNative(event.topic[0])
+        : typeof event.topic[0] === "object" && event.topic[0] !== null && "value" in event.topic[0]
+          ? (event.topic[0] as any).value
+          : event.topic[0];
+    rawData =
+      event.value && typeof (event.value as any)?.switch === "function"
+        ? scValToNative(event.value)
+        : event.value !== null && typeof event.value === "object" && "value" in event.value
+          ? (event.value as any).value
+          : event.value;
+  } catch (err: any) {
+    await quarantineEvent(event, "malformed_xdr", err?.message || String(err));
+    return;
+  }
+
+  const txHash = event.txHash;
+
+  // 2. Mark event processed for idempotency
+  try {
+    await ProcessedEvent.create({
+      eventId: event.id,
+      ledger: event.ledger,
+      txHash: txHash || "",
+      contractId: event.contractId,
+      topic: String(rawTopic),
+    });
+  } catch (err: any) {
+    if (err.code === 11000) {
+      logger.debug("Skipping duplicate event", { action: "processEvent", eventId: event.id });
+      return;
+    }
+    throw err;
+  }
 
   // 3. Decode event against schema
   let decoded;
   try {
-    decoded = decodeEvent(String(rawTopic), rawData);
+    const decodeFn = await getEventDecoder();
+    decoded = decodeFn(String(rawTopic), rawData);
   } catch (err: any) {
     await quarantineEvent(
       event,
@@ -474,8 +592,188 @@ export async function routeDecodedEvent(
       break;
     }
 
+    case "PromptUpdated": {
+      const { prompt_id, version } = data;
+      const promptId = prompt_id.toString();
+
+      if (version !== undefined) {
+        await Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { currentVersionIndex: Number(version) } },
+        );
+      }
+
+      await invalidatePromptCaches(promptId);
+      logger.info("Prompt updated on-chain, invalidated caches", {
+        action: "processEvent",
+        topic: "PromptUpdated",
+        promptId,
+        version,
+      });
+      break;
+    }
+
+    case "ListingRevised": {
+      const { prompt_id, new_revision } = data;
+      const promptId = prompt_id.toString();
+
+      if (new_revision !== undefined) {
+        await Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { currentRevision: Number(new_revision) } },
+        );
+      }
+
+      await invalidatePromptCaches(promptId);
+      logger.info("Listing revised, invalidated caches", {
+        action: "processEvent",
+        topic: "ListingRevised",
+        promptId,
+      });
+      break;
+    }
+
+    case "ListingExtended": {
+      const { prompt_id } = data;
+      const promptId = prompt_id.toString();
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
+    case "SplitsUpdated": {
+      const { prompt_id } = data;
+      const promptId = prompt_id.toString();
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
+    case "PromptMaxSupplyUpdated": {
+      const { prompt_id, max_supply } = data;
+      const promptId = prompt_id.toString();
+
+      if (max_supply !== undefined) {
+        await Prompt.findOneAndUpdate(
+          { onChainId: promptId },
+          { $set: { maxSupply: Number(max_supply) } },
+        );
+      }
+
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
     default:
       logger.debug("Unhandled event topic", { action: "processEvent", topic });
       break;
   }
 }
+
+/**
+ * Refreshes the search index and cache for a prompt listing atomically,
+ * tracking index status ('pending' -> 'synced' | 'failed') and errors (#699).
+ */
+export async function refreshPromptIndex(
+  promptId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      { $set: { searchIndexStatus: "pending" } },
+    );
+
+    // Invalidate read caches
+    await invalidatePromptCaches(promptId);
+
+    // Update to synced
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "synced",
+          searchIndexError: null,
+          lastIndexedAt: new Date(),
+        },
+      },
+    );
+
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error?.message || "Search index refresh failed";
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "failed",
+          searchIndexError: errorMsg,
+        },
+      },
+    );
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Retries failed search index refreshes across all prompts (#699)
+ */
+export async function retryFailedIndexRefreshes(): Promise<{
+  retried: number;
+  succeeded: number;
+}> {
+  const failedPrompts = await Prompt.find({ searchIndexStatus: "failed" }).limit(50);
+  let succeeded = 0;
+
+  for (const prompt of failedPrompts) {
+    const res = await refreshPromptIndex(String(prompt._id));
+    if (res.success) {
+      succeeded++;
+    }
+  }
+
+  return { retried: failedPrompts.length, succeeded };
+}
+
+/**
+ * Replays quarantined events through the event decoder and database projections (#654).
+ */
+export async function replayQuarantinedEvents(options: { maxEvents?: number } = {}): Promise<{
+  replayed: number;
+  failed: number;
+}> {
+  const maxEvents = options.maxEvents || 100;
+  const quarantinedEvents = await QuarantinedEvent.find({ status: "quarantined" })
+    .sort({ ledger: 1, quarantinedAt: 1 })
+    .limit(maxEvents);
+
+  let replayed = 0;
+  let failed = 0;
+  const decodeFn = await getEventDecoder();
+
+  for (const item of quarantinedEvents) {
+    try {
+      const decoded = decodeFn(item.topic, item.rawValue);
+      if (decoded.recognized) {
+        await routeDecodedEvent(
+          decoded.type,
+          decoded.data as Record<string, any>,
+          item.eventId,
+          item.txHash,
+          item.ledger,
+        );
+        item.status = "replayed";
+        item.replayedAt = new Date();
+        await item.save();
+        replayed++;
+      } else {
+        failed++;
+      }
+    } catch (err: any) {
+      item.errorDetails = err?.message || String(err);
+      item.retryCount = (item.retryCount || 0) + 1;
+      await item.save();
+      failed++;
+    }
+  }
+
+  return { replayed, failed };
+}
+
