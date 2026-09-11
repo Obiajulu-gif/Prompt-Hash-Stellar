@@ -10,6 +10,10 @@ import { featureFlagRouter } from "./routes/featureFlagRoutes.js";
 import { supportCaseRouter } from "./routes/supportCaseRoutes.js";
 import { qualityCheckRouter } from "./routes/qualityCheckRoutes.js";
 import { recommendationFeedbackRouter } from "./routes/recommendationFeedbackRoutes.js";
+import {
+  GetOpenApiSchema,
+  GetOpenApiExplorer,
+} from "./controllers/docsControllers";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
 
@@ -32,6 +36,10 @@ app.use("/api/flags", featureFlagRouter);
 app.use("/api/support-cases", supportCaseRouter);
 app.use("/api/quality-checks", qualityCheckRouter);
 app.use("/api/recommendations/feedback", recommendationFeedbackRouter);
+
+// Machine-readable API schema + interactive explorer (#713).
+app.get("/api/openapi.json", GetOpenApiSchema);
+app.get("/api/docs", GetOpenApiExplorer);
 
 app.get("/health", async (req, res) => {
   const [state, backupHealth] = await Promise.all([
