@@ -28,7 +28,7 @@ const purchaseSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["purchased", "disputed", "resolved"],
+      enum: ["purchased", "disputed", "resolved", "refunded"],
       default: "purchased",
       index: true,
     },

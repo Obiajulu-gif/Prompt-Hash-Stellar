@@ -47,6 +47,8 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
     price: { $gte: minPrice, $lte: maxPrice },
     similarityFlag: { $ne: "highly_similar" },
     integrityStatus: { $nin: ["corrupted", "missing"] },
+    moderationStatus: { $nin: ["flagged", "hidden"] },
+    visibility: { $ne: "private" },
   };
 
   // Add category filter if specified
@@ -88,21 +90,21 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
   let sortOptions: any;
   switch (sortBy) {
     case "price-low":
-      sortOptions = { price: 1 };
+      sortOptions = { price: 1, _id: 1 };
       break;
     case "price-high":
-      sortOptions = { price: -1 };
+      sortOptions = { price: -1, _id: 1 };
       break;
     case "sales":
-      sortOptions = { salesCount: -1 };
+      sortOptions = { salesCount: -1, rating: -1, createdAt: -1, _id: 1 };
       break;
     case "rating":
     case "trust":
-      sortOptions = { rating: -1, salesCount: -1 };
+      sortOptions = { rating: -1, salesCount: -1, createdAt: -1, _id: 1 };
       break;
     case "recent":
     default:
-      sortOptions = { createdAt: -1 };
+      sortOptions = { createdAt: -1, _id: 1 };
       break;
   }
 
