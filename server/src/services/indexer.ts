@@ -9,6 +9,7 @@ import ProcessedEvent from "../models/ProcessedEvent";
 import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
 import { applySafetyScan } from "./safetyScannerHook";
+import { snapshotLicenseForPurchase } from "./licensingService";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
@@ -384,7 +385,7 @@ export async function routeDecodedEvent(
 
       if (buyer) {
         const buyerWallet = String(buyer).toLowerCase();
-        await Purchase.findOneAndUpdate(
+        const purchaseDoc = await Purchase.findOneAndUpdate(
           { promptId, buyerWallet, txHash: txHash ?? "" },
           {
             $set: {
@@ -395,7 +396,20 @@ export async function routeDecodedEvent(
               txHash: txHash ?? "",
             },
           },
-          { upsert: true },
+          { upsert: true, new: true },
+        );
+        // Freeze the license terms active at purchase time (#759).
+        // Fire-and-forget: snapshotting must never block or fail indexing.
+        snapshotLicenseForPurchase(
+          promptId,
+          buyerWallet,
+          String(purchaseDoc?._id ?? ""),
+        ).catch((err) =>
+          logger.error("license snapshot hook failed", {
+            action: "indexer",
+            promptId,
+            error: err,
+          }),
         );
       }
 

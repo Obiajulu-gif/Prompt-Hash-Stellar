@@ -438,6 +438,221 @@
         }
       }
     },
+    "/api/prompts/{promptId}/license": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Current license terms for a prompt (#759)",
+        "description": "Returns the license terms the prompt currently advertises. Falls back to the marketplace default when the creator has not configured one.",
+        "operationId": "getPromptLicense",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current license state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "license": {
+                      "$ref": "#/components/schemas/PromptLicenseState"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/licensing/update": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Update a prompt's license terms (#759)",
+        "description": "Creator-only. Material changes bump the prompt's `licenseVersionIndex`. Historical purchases are never mutated \u2014 they keep the immutable snapshot frozen at purchase time. Provide `templateKey` + `templateVersion` to adopt a template, or explicit terms fields for custom terms.",
+        "operationId": "updatePromptLicense",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LicenseUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated license state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "license": {
+                      "$ref": "#/components/schemas/PromptLicenseState"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload (missing fields, short terms text, template pair incomplete)."
+          },
+          "403": {
+            "description": "Caller is not the prompt owner."
+          },
+          "404": {
+            "description": "Prompt or template not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/licensing/templates": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List available license templates (#759)",
+        "description": "Returns the active license templates creators can adopt for their prompts. Templates are versioned; only the latest active versions are listed.",
+        "operationId": "getLicenseTemplates",
+        "responses": {
+          "200": {
+            "description": "Active license templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LicenseTemplate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/buyer/{walletAddress}/receipts/{promptId}": {
+      "get": {
+        "tags": [
+          "Buyer"
+        ],
+        "summary": "Buyer receipt with purchase-time license terms (#759)",
+        "description": "Returns the buyer's receipt for a prompt, including the license snapshot frozen at purchase time. Legacy purchases (made before #759) report `license.legacy: true` and show the marketplace default terms. Response is wallet-scoped personal data (`Cache-Control: private, no-store`).",
+        "operationId": "getPurchaseReceipt",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer Stellar wallet address."
+          },
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purchase receipt with license snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseReceipt"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Purchase not found for this wallet."
+          }
+        }
+      }
+    },
+    "/api/prompts/admin/licensing/{walletAddress}/disputes/{promptId}": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Admin license dispute view (#759)",
+        "description": "Pairs the license snapshot frozen at purchase time with the prompt's current terms, so a dispute reviewer can see exactly what changed after the purchase. Requires an admin token with the `moderation:read` scope.",
+        "operationId": "getLicenseDisputeView",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer Stellar wallet address."
+          },
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute view: snapshot + current terms.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseDisputeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:read scope."
+          },
+          "404": {
+            "description": "Purchase not found."
+          }
+        }
+      }
+    },
     "/api/prompts/moderation/{promptId}/override": {
       "post": {
         "tags": [
@@ -1495,6 +1710,253 @@
       }
     },
     "schemas": {
+    "LicenseTemplate": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Stable template identifier, e.g. 'standard'."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Template version; new rows are appended, never edited."
+        },
+        "name": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "termsText": {
+          "type": "string",
+          "description": "Full human-readable terms."
+        },
+        "allowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commercialUse": {
+          "type": "boolean"
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "redistributionAllowed": {
+          "type": "boolean"
+        },
+        "active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PromptLicenseState": {
+      "type": "object",
+      "properties": {
+        "licenseTemplateKey": {
+          "type": "string",
+          "nullable": true
+        },
+        "licenseTemplateVersion": {
+          "type": "integer",
+          "nullable": true
+        },
+        "licenseVersionIndex": {
+          "type": "integer",
+          "description": "Bumped on every material license change."
+        },
+        "licenseSummary": {
+          "type": "string"
+        },
+        "licenseTermsText": {
+          "type": "string"
+        },
+        "licenseAllowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "licenseCommercialUse": {
+          "type": "boolean"
+        },
+        "licenseAttributionRequired": {
+          "type": "boolean"
+        },
+        "licenseRedistributionAllowed": {
+          "type": "boolean"
+        },
+        "licenseCustomTerms": {
+          "type": "string",
+          "description": "Creator-specific clauses layered onto the template."
+        },
+        "licenseUpdatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        }
+      }
+    },
+    "LicenseUpdateRequest": {
+      "type": "object",
+      "required": [
+        "promptId",
+        "walletAddress"
+      ],
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "walletAddress": {
+          "type": "string",
+          "description": "Creator wallet; must own the prompt."
+        },
+        "templateKey": {
+          "type": "string",
+          "description": "Required together with templateVersion."
+        },
+        "templateVersion": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "termsText": {
+          "type": "string",
+          "minLength": 10
+        },
+        "allowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commercialUse": {
+          "type": "boolean"
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "redistributionAllowed": {
+          "type": "boolean"
+        },
+        "customTerms": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "PurchaseReceipt": {
+      "type": "object",
+      "properties": {
+        "purchaseId": {
+          "type": "string"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "buyerWallet": {
+          "type": "string"
+        },
+        "versionIndex": {
+          "type": "integer",
+          "description": "Prompt content version purchased."
+        },
+        "txHash": {
+          "type": "string"
+        },
+        "purchasedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "license": {
+          "type": "object",
+          "properties": {
+            "legacy": {
+              "type": "boolean",
+              "description": "True for purchases made before #759; terms are the marketplace default."
+            },
+            "licenseVersionIndex": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "termsText": {
+              "type": "string"
+            },
+            "allowedUses": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "commercialUse": {
+              "type": "boolean"
+            },
+            "attributionRequired": {
+              "type": "boolean"
+            },
+            "redistributionAllowed": {
+              "type": "boolean"
+            },
+            "customTerms": {
+              "type": "string"
+            },
+            "snapshotAt": {
+              "type": "string",
+              "format": "date-time",
+              "nullable": true
+            }
+          }
+        }
+      }
+    },
+    "LicenseDisputeView": {
+      "type": "object",
+      "properties": {
+        "purchaseId": {
+          "type": "string"
+        },
+        "purchaseStatus": {
+          "type": "string",
+          "enum": [
+            "purchased",
+            "disputed",
+            "resolved",
+            "refunded"
+          ]
+        },
+        "snapshot": {
+          "type": "object",
+          "description": "Frozen license snapshot (LicenseSnapshot document), or null for legacy purchases.",
+          "nullable": true
+        },
+        "currentPromptLicense": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "licenseVersionIndex": {
+              "type": "integer"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "termsText": {
+              "type": "string"
+            },
+            "customTerms": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "SimilarityCheckResult": {
       "type": "object",
       "properties": {

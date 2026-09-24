@@ -47,6 +47,7 @@ describe("Route architecture — read-projection boundary (#543)", () => {
       "/similarity/check", // advisory anti-plagiarism check
       "/admin/integrity-check",
       "/moderation/:promptId/override", // #758 maintainer decision on scanner queue
+      "/licensing/update", // #759 license terms are off-chain metadata; purchases snapshot them
       "/transfers/request", // #708 off-chain two-phase handoff
       "/transfers/:transferId/respond",
       "/transfers/:transferId/cancel",
