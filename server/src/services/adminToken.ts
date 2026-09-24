@@ -26,7 +26,7 @@ export interface AdminTokenPayload {
   /** Operator identifier, e.g. "ops-jane". Never a secret. */
   sub: string;
   role: "admin";
-  /** Granted scopes, e.g. ["integrity:read", "integrity:write"]. */
+  /** Granted scopes, e.g. ["integrity:read", "moderation:write"]. */
   scope: string[];
   /** Who minted this token (informational, included in the signed payload). */
   iss: string;

@@ -8,6 +8,7 @@ import { IndexerState } from "../models/IndexerState";
 import ProcessedEvent from "../models/ProcessedEvent";
 import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
+import { applySafetyScan } from "./safetyScannerHook";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
@@ -349,6 +350,22 @@ export async function routeDecodedEvent(
         const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
         scanForSimilarity(promptId, combinedText, upserted.category).catch((err) =>
           logger.error("Similarity scan error", { action: "similarityScan", promptId, error: err }),
+        );
+      }
+
+      // Run the prompt safety scanner asynchronously (#758) — queued or
+      // blocked prompts are hidden from the public marketplace until a
+      // maintainer overrides. The encrypted payload never enters the scanner.
+      if (upserted) {
+        applySafetyScan(promptId, {
+          title: upserted.title,
+          description: upserted.description,
+          category: upserted.category,
+          tags: upserted.tags,
+          preview: upserted.preview,
+          payload: upserted.encryptedPrompt ?? undefined,
+        }).catch((err) =>
+          logger.error("Safety scan error", { action: "safetyScan", promptId, error: err }),
         );
       }
       await invalidatePromptCaches(promptId);

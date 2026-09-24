@@ -170,6 +170,39 @@ const promptSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Prompt content safety scanner (#758)
+    moderationStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+      index: true,
+    },
+    scannerVerdict: {
+      // Latest scanner verdict; null when never scanned.
+      type: String,
+      enum: ["allow", "queue", "block", null],
+      default: null,
+    },
+    scannerRuleIds: {
+      type: [String],
+      default: [],
+    },
+    scannerReasons: {
+      type: [String],
+      default: [],
+    },
+    scannerScannedAt: {
+      type: Date,
+      default: null,
+    },
+    moderationDecidedAt: {
+      type: Date,
+      default: null,
+    },
+    moderationDecidedBy: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

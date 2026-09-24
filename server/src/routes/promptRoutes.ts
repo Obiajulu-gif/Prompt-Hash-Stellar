@@ -28,6 +28,7 @@ import {
   RespondOwnershipTransfer,
   CancelOwnershipTransfer,
 } from "../controllers/transferControllers";
+import { GetModerationQueue, OverrideModeration } from "../services/moderationService";
 import { requireAdminScope } from "../middleware/adminAuth";
 import { reportLimiter, publishLimiter } from "../middleware/rateLimiter";
 
@@ -104,6 +105,22 @@ promptRouter.post(
   "/admin/integrity-check",
   requireAdminScope("integrity:write"),
   TriggerIntegrityCheck,
+);
+
+// ── Safety scanner moderation (#758) — maintainer override workflow ──────────
+// The scanner queues (never publishes/blocks unilaterally); a maintainer with
+// a moderation-scoped admin token approves or rejects. Every decision is
+// appended to the ModerationReview history and the audit trail. Hidden-payload
+// fields are excluded from every moderation response.
+promptRouter.get(
+  "/moderation/queue",
+  requireAdminScope("moderation:read"),
+  GetModerationQueue,
+);
+promptRouter.post(
+  "/moderation/:promptId/override",
+  requireAdminScope("moderation:write"),
+  OverrideModeration,
 );
 
 // ── Ownership transfer (#708) — OFF-CHAIN two-phase handoff ───────────────────
