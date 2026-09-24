@@ -61,6 +61,14 @@ vi.mock("../../server/src/services/auditTrail", () => ({
   recordAuditEvent: vi.fn(),
 }));
 
+const recordUnlockFailureMock = vi.fn();
+const recordUnlockSuccessMock = vi.fn();
+
+vi.mock("../../server/src/services/purchaseDisputes", () => ({
+  recordUnlockFailure: (...args: unknown[]) => recordUnlockFailureMock(...args),
+  recordUnlockSuccess: (...args: unknown[]) => recordUnlockSuccessMock(...args),
+}));
+
 import handler from "./unlock";
 
 const TEST_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
@@ -855,5 +863,91 @@ describe("unlock API listing snapshot binding (#698)", () => {
       signedMessage,
     });
     expect(statusCode).toBe(200);
+  });
+});
+
+describe("unlock API disputed purchases (#755)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIdempotencyCache();
+  });
+
+  it("opens a recoverable dispute when a paid unlock fails the integrity check", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    hashPromptPlaintextMock.mockResolvedValue("b".repeat(64));
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(500);
+    expect(recordUnlockFailureMock).toHaveBeenCalledWith({
+      promptId,
+      buyerWallet: buyer.publicKey(),
+      reason: "integrity_failure",
+      requestId: "test-request",
+    });
+    expect(recordUnlockSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("opens a dispute when delivery errors after the payment was confirmed (partial failure)", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    decryptPromptCiphertextMock.mockRejectedValue(new Error("IPFS gateway timeout"));
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(recordUnlockFailureMock).toHaveBeenCalledWith(
+      expect.objectContaining({ promptId, reason: "unlock_error" }),
+    );
+  });
+
+  it("does not open a dispute when the wallet never paid", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    verifyEntitlementMock.mockResolvedValue({
+      hasAccess: false,
+      ledgerSequence: 123456,
+      ledgerHash: "hash",
+      networkId: "testnet",
+      contractId: TEST_CONTRACT_ID,
+      checkedAt: Date.now(),
+    });
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(403);
+    expect(recordUnlockFailureMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a successful unlock so an open dispute can close", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+    expect(recordUnlockSuccessMock).toHaveBeenCalledWith({
+      promptId,
+      buyerWallet: buyer.publicKey(),
+      requestId: "test-request",
+    });
+    expect(recordUnlockFailureMock).not.toHaveBeenCalled();
   });
 });

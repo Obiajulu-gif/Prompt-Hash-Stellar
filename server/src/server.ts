@@ -13,6 +13,10 @@ import searchRouter from "./routes/searchRoutes";
 import { fulfillmentRouter } from "./routes/fulfillmentRoutes";
 import { reviewRouter } from "./routes/reviewRoutes";
 import { notificationRouter } from "./routes/notificationRoutes";
+import { auditRouter } from "./routes/auditRoutes";
+import { libraryRouter } from "./routes/libraryRoutes";
+import { provenanceRouter } from "./routes/provenanceRoutes";
+import { walletSessionRouter } from "./routes/walletSessionRoutes";
 import {
   GetOpenApiSchema,
   GetOpenApiExplorer,
@@ -67,6 +71,10 @@ app.use("/api/search", searchRouter);
 app.use("/api/fulfillment", strictLimiter, fulfillmentRouter);
 app.use("/api/reviews", reviewRouter);
 app.use("/api/notifications", authLimiter, notificationRouter);
+app.use("/api/audit", authLimiter, auditRouter); // #783
+app.use("/api/wallet-session", authLimiter, walletSessionRouter); // #753, #784
+app.use("/api/library", libraryRouter); // #784
+app.use("/api/provenance", provenanceRouter); // #753
 
 // Machine-readable API schema + interactive explorer (#713).
 app.get("/api/openapi.json", GetOpenApiSchema);

@@ -93,6 +93,7 @@ export function requireAdminScope(requiredScope: string) {
         result: "success",
         promptId: null,
         walletAddress: null,
+        actor: payload.sub,
         requestId: req.requestId ?? null,
         clientIp: clientIpOf(req),
         reason: `sub=${payload.sub} scope=${requiredScope} route=${route}`,

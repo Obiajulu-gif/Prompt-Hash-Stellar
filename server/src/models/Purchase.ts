@@ -28,7 +28,9 @@ const purchaseSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["purchased", "disputed", "resolved"],
+      // "revoked": access withdrawn after purchase; the buyer library (#784)
+      // and purchase receipts surface it as a distinct entitlement state.
+      enum: ["purchased", "disputed", "resolved", "revoked"],
       default: "purchased",
       index: true,
     },
@@ -41,6 +43,8 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 purchaseSchema.index({ promptId: 1, buyerWallet: 1 });
+// Buyer library listing, newest purchase first (#784).
+purchaseSchema.index({ buyerWallet: 1, createdAt: -1 });
 
 const Purchase = mongoose.models.Purchase || mongoose.model("Purchase", purchaseSchema);
 export default Purchase;

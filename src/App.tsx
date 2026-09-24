@@ -23,6 +23,7 @@ const AdminReportsPage = lazy(() => import("./pages/admin/Reports.tsx"));
 const AdminConfigPage = lazy(
   () => import("./pages/admin/ConfigDashboard.tsx"),
 );
+const AdminDisputesPage = lazy(() => import("./pages/admin/Disputes.tsx"));
 
 import { OfflineBanner } from "./components/OfflineBanner";
 
@@ -66,6 +67,7 @@ function App() {
           <Route path="/sellers/:sellerId" element={<SellerPage />} />
           <Route path="/admin/reports" element={<AdminReportsPage />} />
           <Route path="/admin/config" element={<AdminConfigPage />} />
+          <Route path="/admin/disputes" element={<AdminDisputesPage />} />
           <Route path="*" element={<Home />} />
         </Route>
       </Routes>

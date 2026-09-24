@@ -1,11 +1,20 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle, Clock, EyeOff, Loader2, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle, Clock, EyeOff, GitFork, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ReportClient, type PromptReport } from "@/lib/reports/reportClient";
 import { adminSetPromptSaleStatus } from "@/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { useWallet } from "@/hooks/useWallet";
+import { fetchProvenanceFlags, type ProvenanceFlag } from "@/lib/prompts/provenance";
+
+const PROVENANCE_FLAG_LABELS: Record<ProvenanceFlag["type"], string> = {
+  cross_creator_parent: "Attribution conflict",
+  deep_fork_chain: "Suspicious fork chain",
+  undeclared_similarity: "Undeclared copy",
+  unconfirmed_attribution: "Unconfirmed attribution",
+};
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-300 border-amber-500/20",
@@ -31,6 +40,13 @@ export default function AdminReportsPage() {
   const { data: reports = [], isLoading, error } = useQuery({
     queryKey: ["admin-reports"],
     queryFn: () => ReportClient.getAllReports(),
+  });
+
+  // Provenance moderation signals (#753): fork chains and attribution conflicts.
+  const provenanceFlags = useQuery({
+    queryKey: ["admin-provenance-flags"],
+    queryFn: fetchProvenanceFlags,
+    retry: false,
   });
 
   const selectedReport = useMemo(
@@ -203,6 +219,43 @@ export default function AdminReportsPage() {
             </div>
           </div>
         </div>
+
+        <section className="mt-12">
+          <h2 className="mb-2 flex items-center gap-2 text-xl font-semibold">
+            <GitFork className="h-5 w-5 text-violet-300" />
+            Provenance Flags
+          </h2>
+          <p className="mb-4 text-sm text-slate-400">
+            Suspicious fork chains and attribution conflicts in the prompt provenance graph.
+            Requires the `provenance:read` scope.
+          </p>
+          {provenanceFlags.isLoading ? (
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+          ) : provenanceFlags.isError ? (
+            <p className="text-sm text-red-300">Failed to load provenance flags.</p>
+          ) : (provenanceFlags.data ?? []).length === 0 ? (
+            <p className="text-sm text-slate-400">No provenance flags.</p>
+          ) : (
+            <ul className="space-y-2">
+              {(provenanceFlags.data ?? []).map((flag) => (
+                <li
+                  key={`${flag.type}-${flag.promptId}-${flag.relatedPromptIds.join(",")}`}
+                  className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm"
+                >
+                  <span className="mr-2 rounded border border-violet-400/20 bg-violet-400/10 px-2 py-0.5 text-xs text-violet-200">
+                    {PROVENANCE_FLAG_LABELS[flag.type]}
+                  </span>
+                  <Link to={`/prompts/${flag.promptId}`} className="font-mono underline underline-offset-4">
+                    #{flag.promptId}
+                  </Link>
+                  {" → "}
+                  {flag.relatedPromptIds.map((id) => `#${id}`).join(", ")}
+                  <p className="mt-1 text-xs text-slate-400">{flag.detail}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
   );

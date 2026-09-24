@@ -12,6 +12,7 @@ import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 import { logger } from "./structuredLogger";
+import { applyDisputeTransition } from "./purchaseDisputes";
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -471,6 +472,19 @@ export async function routeDecodedEvent(
         { $set: { status: "disputed" } },
       );
 
+      // An on-chain dispute is the buyer's refund request for an off-chain
+      // dispute record, if one exists (#755). Keyed by event id so a replayed
+      // event is a no-op.
+      await applyDisputeTransition({
+        promptId,
+        buyerWallet,
+        event: "refund_requested",
+        actor: "indexer",
+        note: "Dispute opened on-chain",
+        eventKey: `chain:${eventId}`,
+        set: txHash ? { disputeTxHash: txHash } : undefined,
+      });
+
       invalidateEntitlementCacheForPrompt(promptId);
       await invalidatePromptCaches(promptId);
 
@@ -503,6 +517,20 @@ export async function routeDecodedEvent(
           },
         },
       );
+
+      if (refunded) {
+        // Escrowed funds went back to the buyer: settle the off-chain dispute
+        // record too (#755). Idempotent if a maintainer already approved it.
+        await applyDisputeTransition({
+          promptId,
+          buyerWallet,
+          event: "refund_settled",
+          actor: "indexer",
+          note: "Refund settled on-chain",
+          eventKey: `chain:${eventId}`,
+          set: txHash ? { resolutionTxHash: txHash } : undefined,
+        });
+      }
 
       invalidateEntitlementCacheForPrompt(promptId);
       await invalidatePromptCaches(promptId);

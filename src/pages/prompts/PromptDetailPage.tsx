@@ -35,6 +35,7 @@ import { ClipboardAutoClearBanner } from "@/components/ClipboardAutoClearBanner"
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ReportDialog } from "@/components/prompts/ReportDialog";
+import { ProvenancePanel } from "@/components/prompts/ProvenancePanel";
 import { PromptDetailSkeleton } from "@/components/skeletons";
 import { getMarketplaceReturnUrl } from "@/lib/search/urlState";
 import { computeListingSnapshotHash } from "@/lib/auth/challenge";
@@ -421,6 +422,12 @@ export default function PromptDetailPage() {
                 onChainId={id}
                 currentPriceStroops={prompt.priceStroops}
               />
+            </div>
+          )}
+
+          {prompt && (
+            <div className="mt-8">
+              <ProvenancePanel promptId={id} creator={prompt.creator} />
             </div>
           )}
       </main>
