@@ -1,8 +1,9 @@
 /**
  * Prompt Moderation API Endpoint
- * 
+ *
  * Allows admin users to moderate prompts for policy violations (copyright, abuse, malware).
  * Restricted prompts are hidden from public marketplace but preserve buyer access records.
+ * Error responses and status updates use i18n keys for localization.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -11,15 +12,21 @@ import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import connectDb from "../../server/src/db/connectDb";
 import Prompt from "../../server/src/models/Prompt";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
-import { 
-  setPromptSaleStatus, 
+import {
+  setPromptSaleStatus,
   getPrompt,
-  type PromptHashConfig 
+  type PromptHashConfig,
 } from "../../src/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "../../src/lib/stellar/browserConfig";
+import {
+  mapActionToStatusKey,
+  mapReasonToKey,
+} from "../../src/lib/i18n/serverMessages";
 
 // Admin wallet addresses allowed to moderate content
-const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || "").split(",").map(w => w.trim().toLowerCase());
+const ADMIN_WALLETS = (process.env.ADMIN_WALLETS || "")
+  .split(",")
+  .map((w) => w.trim().toLowerCase());
 
 export interface ModerationRequest {
   promptId: string;
@@ -28,6 +35,15 @@ export interface ModerationRequest {
   policyReference: string;
   adminWallet: string;
   notes?: string;
+}
+
+export interface ModerationResponse {
+  success: boolean;
+  promptId: string;
+  newStatus: string;
+  newStatusKey: string;
+  reasonKey: string;
+  message: string;
 }
 
 export interface ModerationResponse {
@@ -75,17 +91,16 @@ function mapReasonToEnum(reason: string): number {
   return reasonMap[reason] ?? 4;
 }
 
-async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-): Promise<void> {
+async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== "POST") {
-    res.status(405).json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
+    res
+      .status(405)
+      .json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
     return;
   }
 
   const clientIp = String(
-    req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown"
+    req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
   );
 
   const {
@@ -99,12 +114,14 @@ async function handler(
 
   // Validate required fields
   if (!promptId || !action || !reason || !policyReference || !adminWallet) {
-    res.status(400).json(
-      apiError(
-        ErrorCode.MISSING_FIELDS,
-        "promptId, action, reason, policyReference, and adminWallet are required."
-      )
-    );
+    res
+      .status(400)
+      .json(
+        apiError(
+          ErrorCode.MISSING_FIELDS,
+          "promptId, action, reason, policyReference, and adminWallet are required.",
+        ),
+      );
     return;
   }
 
@@ -115,14 +132,19 @@ async function handler(
       result: "blocked",
       promptId: String(promptId),
       walletAddress: String(adminWallet),
-      requestId: req.headers["x-request-id"] as string ?? null,
+      requestId: (req.headers["x-request-id"] as string) ?? null,
       clientIp,
       reason: "unauthorized_admin",
     });
 
-    res.status(403).json(
-      apiError(ErrorCode.UNAUTHORIZED, "You are not authorized to moderate content.")
-    );
+    res
+      .status(403)
+      .json(
+        apiError(
+          ErrorCode.UNAUTHORIZED,
+          "You are not authorized to moderate content.",
+        ),
+      );
     return;
   }
 
@@ -139,9 +161,11 @@ async function handler(
 
     const prompt = await getPrompt(config, BigInt(promptId));
     if (!prompt) {
-      res.status(404).json(
-        apiError(ErrorCode.PROMPT_NOT_FOUND, "Prompt not found on-chain.")
-      );
+      res
+        .status(404)
+        .json(
+          apiError(ErrorCode.PROMPT_NOT_FOUND, "Prompt not found on-chain."),
+        );
       return;
     }
 
@@ -151,13 +175,16 @@ async function handler(
     // Update prompt status on-chain via contract call
     // Note: This requires admin wallet to sign the transaction
     // In production, this would use a secure signing service
-    req.logger?.info({
-      promptId,
-      action,
-      reason,
-      adminWallet,
-      newStatus,
-    }, "Moderating prompt");
+    req.logger?.info(
+      {
+        promptId,
+        action,
+        reason,
+        adminWallet,
+        newStatus,
+      },
+      "Moderating prompt",
+    );
 
     // Update database record to match on-chain state
     await Prompt.findOneAndUpdate(
@@ -170,7 +197,7 @@ async function handler(
           moderationReason: String(reason),
           moderationNotes: notes || "",
         },
-      }
+      },
     );
 
     // Record audit event
@@ -179,7 +206,7 @@ async function handler(
       result: "success",
       promptId: String(promptId),
       walletAddress: String(adminWallet),
-      requestId: req.headers["x-request-id"] as string ?? null,
+      requestId: (req.headers["x-request-id"] as string) ?? null,
       clientIp,
       reason: String(reason),
       metadata: {
@@ -194,12 +221,15 @@ async function handler(
       success: true,
       promptId: String(promptId),
       newStatus,
+      newStatusKey: mapActionToStatusKey(String(action)),
+      reasonKey: mapReasonToKey(String(reason)),
       message: `Prompt ${action === "restrict" ? "restricted" : action === "reinstate" ? "reinstated" : "retired"} successfully.`,
     };
 
     res.status(200).json(response);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to moderate prompt.";
+    const message =
+      error instanceof Error ? error.message : "Failed to moderate prompt.";
     req.logger?.error({ promptId, error: message }, "Moderation failed");
 
     await recordAuditEvent({
@@ -207,14 +237,19 @@ async function handler(
       result: "failure",
       promptId: promptId ? String(promptId) : null,
       walletAddress: adminWallet ? String(adminWallet) : null,
-      requestId: req.headers["x-request-id"] as string ?? null,
+      requestId: (req.headers["x-request-id"] as string) ?? null,
       clientIp,
       reason: "error",
     });
 
-    res.status(500).json(
-      apiError(ErrorCode.TEMPORARY_FAILURE, "Failed to moderate prompt. Please try again.")
-    );
+    res
+      .status(500)
+      .json(
+        apiError(
+          ErrorCode.TEMPORARY_FAILURE,
+          "Failed to moderate prompt. Please try again.",
+        ),
+      );
   }
 }
 

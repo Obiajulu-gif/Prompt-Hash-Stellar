@@ -1,5 +1,6 @@
 import Prompt from "../models/Prompt";
 import { cacheDelPattern } from "../services/cacheService";
+import { resolveCategory } from "../services/categoryTaxonomyService";
 
 export interface SearchFilters {
   query?: string;
@@ -26,7 +27,9 @@ export interface SearchResponse {
 /**
  * Search prompts with advanced filtering (tags, version, creator trust) and pagination (#681)
  */
-export async function searchPrompts(filters: SearchFilters): Promise<SearchResponse> {
+export async function searchPrompts(
+  filters: SearchFilters,
+): Promise<SearchResponse> {
   const {
     query = "",
     category,
@@ -49,15 +52,30 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
     integrityStatus: { $nin: ["corrupted", "missing"] },
   };
 
-  // Add category filter if specified
+  // Add category filter if specified (with redirect support)
   if (category && category !== "") {
-    baseQuery.category = category;
+    // Resolve category slug to active category (following redirects)
+    const resolvedCategory = await resolveCategory(category);
+    if (resolvedCategory) {
+      baseQuery.category = resolvedCategory.displayName;
+    } else {
+      // Category not found or deprecated; return empty results
+      return {
+        prompts: [],
+        total: 0,
+        page,
+        totalPages: 0,
+        hasMore: false,
+      };
+    }
   }
 
   // Add tags filter if specified
   if (tags) {
     const tagList = Array.isArray(tags) ? tags : [tags];
-    baseQuery.tags = { $in: tagList.map((t) => new RegExp(`^${t.trim()}$`, "i")) };
+    baseQuery.tags = {
+      $in: tagList.map((t) => new RegExp(`^${t.trim()}$`, "i")),
+    };
   }
 
   // Add version signals filter
@@ -188,8 +206,8 @@ export async function getSearchSuggestions(query: string, limit: number = 5) {
       .select("title")
       .limit(limit)
       .lean(),
-    Prompt.distinct("category", { category: searchRegex, isActive: true }).then((cats: string[]) =>
-      cats.slice(0, limit),
+    Prompt.distinct("category", { category: searchRegex, isActive: true }).then(
+      (cats: string[]) => cats.slice(0, limit),
     ),
   ]);
 
