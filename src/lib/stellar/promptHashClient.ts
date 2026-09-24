@@ -7,6 +7,7 @@ import * as contractMethods from "./contractMethods";
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { hashKey } from "../observability/sharedStore";
 import { getSourcePromptId } from "../prompts/remixAttribution";
+import { PriceQuote, validateQuoteForPurchase } from "../checkout/priceQuoter";
 
 export interface PromptHashConfig {
   rpcUrl: string;
@@ -255,7 +256,20 @@ export class PromptHashClient {
     userAddress: string,
     _walletSigner?: WalletTransactionSigner,
     config?: PromptHashConfig,
+    quote?: PriceQuote,
   ): Promise<{ txHash: string; success: boolean }> {
+    if (quote) {
+      const validation = validateQuoteForPurchase(quote, {
+        promptId: itemId,
+        requestedAsset: quote.quoteAsset,
+      });
+      if (!validation.isValid) {
+        throw new Error(
+          validation.errorMessage ||
+            "Expired quotes cannot be used for purchase settlement.",
+        );
+      }
+    }
     if (!config || !_walletSigner) {
       throw new Error(
         "Missing config or wallet signer for real contract call.",

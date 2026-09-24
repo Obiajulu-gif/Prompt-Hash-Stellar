@@ -8,7 +8,8 @@ import { unlockPrompt } from "../../lib/prompts/unlock";
 import { Skeleton } from "../../components/Skeleton";
 import { StatusBanner } from "../../components/StatusBanner";
 import { UnlockExplainer } from "../../components/UnlockExplainer";
-import { CheckoutFeeBreakdown } from "../../components/checkout/CheckoutFeeBreakdown";
+import { MultiCurrencyQuoteBreakdown } from "../../components/checkout/MultiCurrencyQuoteBreakdown";
+import { PriceQuote, validateQuoteForPurchase } from "../../lib/checkout/priceQuoter";
 import { copyToClipboard } from "../../lib/clipboard/secureClipboard";
 import { ReportDialog } from "../../components/prompts/ReportDialog";
 import {
@@ -301,6 +302,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [creatorThumbRating, setCreatorThumbRating] =
     useState<ThumbRating | null>(null);
+  const [currentQuote, setCurrentQuote] = useState<PriceQuote | null>(null);
+  const [isQuoteValid, setIsQuoteValid] = useState<boolean>(true);
   const [copyFeedback, setCopyFeedback] = useState<{
     visible: boolean;
     success: boolean;
@@ -455,12 +458,26 @@ export const PromptModal: React.FC<PromptModalProps> = ({
         throw new Error("Please connect your wallet first");
       }
 
+      if (currentQuote) {
+        const quoteValidation = validateQuoteForPurchase(currentQuote, {
+          promptId: itemId,
+          requestedAsset: currentQuote.quoteAsset,
+        });
+        if (!quoteValidation.isValid) {
+          throw new Error(
+            quoteValidation.errorMessage ||
+              "Expired quotes cannot be used for purchase settlement. Please refresh quote.",
+          );
+        }
+      }
+
       setStatus("AWAITING_APPROVAL");
       return await PromptHashClient.purchasePrompt(
         itemId,
         wallet.address,
         { signTransaction: wallet.signTransaction },
         browserStellarConfig,
+        currentQuote || undefined,
       );
     },
     {
@@ -564,10 +581,16 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Fee & Payment Breakdown before wallet signing (#455) */}
-                  <CheckoutFeeBreakdown
+                  {/* Multi-Currency Price Quote & Breakdown before wallet signing (#760) */}
+                  <MultiCurrencyQuoteBreakdown
                     promptTitle={prompt.title}
-                    priceXlm={(prompt.priceStroops / 10000000).toString()}
+                    promptId={itemId}
+                    basePriceStroops={prompt.priceStroops}
+                    buyerAddress={wallet?.address}
+                    onQuoteChange={(quote, isValid) => {
+                      setCurrentQuote(quote);
+                      setIsQuoteValid(isValid);
+                    }}
                   />
 
                   {status === "ERROR" &&
@@ -595,6 +618,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     disabled={
                       isPurchasing ||
                       !isOnline ||
+                      !isQuoteValid ||
                       detectNetworkMismatch(
                         !!wallet?.address,
                         wallet?.network,
