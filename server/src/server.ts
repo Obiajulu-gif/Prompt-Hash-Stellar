@@ -13,6 +13,10 @@ import searchRouter from "./routes/searchRoutes";
 import { fulfillmentRouter } from "./routes/fulfillmentRoutes";
 import { reviewRouter } from "./routes/reviewRoutes";
 import { notificationRouter } from "./routes/notificationRoutes";
+import { adminRateLimitRouter } from "./routes/adminRateLimitRoutes";
+import { payoutLedgerRouter } from "./routes/payoutLedgerRoutes";
+import { entitlementRouter } from "./routes/entitlementRoutes";
+import { bundleRouter } from "./routes/bundleRoutes";
 import {
   GetOpenApiSchema,
   GetOpenApiExplorer,
@@ -67,6 +71,10 @@ app.use("/api/search", searchRouter);
 app.use("/api/fulfillment", strictLimiter, fulfillmentRouter);
 app.use("/api/reviews", reviewRouter);
 app.use("/api/notifications", authLimiter, notificationRouter);
+app.use("/api/admin/rate-limits", adminRateLimitRouter);
+app.use("/api/payouts", payoutLedgerRouter);
+app.use("/api/entitlements", entitlementRouter);
+app.use("/api/bundles", bundleRouter);
 
 // Machine-readable API schema + interactive explorer (#713).
 app.get("/api/openapi.json", GetOpenApiSchema);

@@ -29,6 +29,7 @@ import {
   CancelOwnershipTransfer,
 } from "../controllers/transferControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
+import { reportLimiter, publishLimiter } from "../middleware/rateLimiter";
 
 export const promptRouter = express.Router();
 
@@ -83,7 +84,7 @@ promptRouter.get("/preview/stats", GetPreviewStats);
 // Report endpoints — off-chain moderation data, does not affect access control.
 // Submission is public (anyone can flag a listing); reading the queue is a
 // moderation action and requires an admin token (#542).
-promptRouter.post("/reports", SubmitPromptReport);
+promptRouter.post("/reports", reportLimiter, SubmitPromptReport);
 promptRouter.get(
   "/reports",
   requireAdminScope("reports:read"),
