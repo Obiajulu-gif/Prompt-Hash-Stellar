@@ -71,7 +71,6 @@ import { ErrorCode } from "../../lib/api/errorCodes";
 import type { UnlockError } from "../../lib/errors/unlockErrors";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
@@ -583,9 +582,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
                   {/* Multi-Currency Price Quote & Breakdown before wallet signing (#760) */}
                   <MultiCurrencyQuoteBreakdown
-                    promptTitle={prompt.title}
+                    promptTitle={promptDetail?.title || "Prompt License"}
                     promptId={itemId}
-                    basePriceStroops={prompt.priceStroops}
+                    basePriceStroops={promptDetail?.priceStroops || 0n}
                     buyerAddress={wallet?.address}
                     onQuoteChange={(quote, isValid) => {
                       setCurrentQuote(quote);

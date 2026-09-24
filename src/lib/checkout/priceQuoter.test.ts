@@ -72,8 +72,8 @@ describe("Multi-Currency Price Quoting & Protection (#760)", () => {
     });
 
     it("prevents zero truncation on very small non-zero base amounts", () => {
-      // 1 Stroop converted with low rate: (1 * 120,000) / 1,000,000 = 0 -> rounds up to 1 unit
-      const converted = convertBaseStroopsToAssetUnits(1n, 120_000n, 1_000_000n);
+      // 1 Stroop converted with low rate: (1 * 1,200,000) / 10,000,000 = 0 -> rounds up to 1 unit
+      const converted = convertBaseStroopsToAssetUnits(1n, 1_200_000n, 10_000_000n);
       expect(converted).toBe(1n);
     });
 

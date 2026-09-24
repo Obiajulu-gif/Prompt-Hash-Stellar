@@ -37,8 +37,8 @@ export const SUPPORTED_ASSET_CONFIGS: Record<string, SupportedAssetConfig> = {
     name: "USD Coin",
     issuer: "GA5ZSEJYB37JRC5AVCIA5XYG4DZ6NMTCDD75B2B4VPP6QLY4VMKS74JD",
     decimals: 7,
-    rateNumerator: 120_000n, // 1 XLM = 0.12 USDC
-    rateDenominator: 1_000_000n,
+    rateNumerator: 1_200_000n, // 1 XLM = 0.12 USDC
+    rateDenominator: 10_000_000n,
     defaultSlippageBps: 50,
     defaultTtlSeconds: 60,
   },
@@ -47,8 +47,8 @@ export const SUPPORTED_ASSET_CONFIGS: Record<string, SupportedAssetConfig> = {
     name: "Euro Coin",
     issuer: "GDHU6WR2E7VWVHJH2B5NZEWNZT27N5DXZC3UY4K2Q4Q4Q4Q4Q4Q4Q4Q4",
     decimals: 7,
-    rateNumerator: 110_000n, // 1 XLM = 0.11 EURC
-    rateDenominator: 1_000_000n,
+    rateNumerator: 1_100_000n, // 1 XLM = 0.11 EURC
+    rateDenominator: 10_000_000n,
     defaultSlippageBps: 50,
     defaultTtlSeconds: 60,
   },

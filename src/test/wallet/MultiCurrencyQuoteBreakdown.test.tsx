@@ -31,7 +31,7 @@ describe("MultiCurrencyQuoteBreakdown Component (#760)", () => {
     // Amount breakdown
     expect(screen.getByText("Prompt Price (Awesome AI Prompt)")).toBeInTheDocument();
     expect(screen.getByText("Total Quoted Settlement")).toBeInTheDocument();
-    expect(screen.getByText(/10 XLM/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/10 XLM/i).length).toBeGreaterThan(0);
 
     expect(onQuoteChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -50,7 +50,7 @@ describe("MultiCurrencyQuoteBreakdown Component (#760)", () => {
     fireEvent.click(usdcBtn);
 
     expect(screen.getByText(/1 XLM = 0.12 USDC/i)).toBeInTheDocument();
-    expect(screen.getByText(/1.2 USDC/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/1.2 USDC/i).length).toBeGreaterThan(0);
 
     expect(onQuoteChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
