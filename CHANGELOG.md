@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Prompt Lifecycle State Machine (Issue #786)
+- New explicit lifecycle states — `draft`, `review`, `published`, `hidden`,
+  `suspended`, `archived` — replacing scattered `listingStatus`/
+  `moderationStatus`/`isActive` checks. See `docs/prompt-lifecycle.md`.
+- `packages/schema/src/lifecycle.ts`: pure, framework-free transition
+  table (`canTransition`/`assertTransition`/`availableTransitions`) and a
+  legacy-field migration function (`deriveLifecycleState`).
+- `server/src/services/promptLifecycle.ts`: the single write path for
+  lifecycle transitions — validates against the transition table, updates
+  the prompt document, and records an audit event either way.
+- `api/prompts/moderate.ts` now routes through the lifecycle state
+  machine instead of writing status fields directly, and rejects
+  moderation actions invalid for the listing's current state (`409
+  INVALID_STATE`).
+- Fixed: `moderationStatus`/`moderatedAt`/`moderatedBy`/`moderationReason`/
+  `moderationNotes` were referenced by the moderation endpoint but never
+  declared on the `Prompt` schema, so every write to them was silently
+  dropped by Mongoose's default strict mode. They're now declared fields.
+
 #### Payout Readiness Validation System
 - **New requirement**: Creators must complete payout readiness validation before publishing paid prompts
 - **4-step validation system**:

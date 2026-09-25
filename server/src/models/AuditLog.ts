@@ -15,12 +15,11 @@ export type AuditAction =
   | "unlock_stale_quote"
   | "admin_auth_success"
   | "admin_auth_denied"
-  // Bulk moderation actions (#moderation-queue)
-  | "moderation_approve"
-  | "moderation_reject"
-  | "moderation_hide"
-  | "moderation_restore"
-  | "moderation_rollback";
+  // Issue #786: prompt lifecycle state machine transitions.
+  | "prompt_lifecycle_transition"
+  | "prompt_lifecycle_transition_denied"
+  | "moderation_unauthorized"
+  | "moderation_error";
 
 export type AuditResult = "success" | "failure" | "blocked";
 
@@ -44,11 +43,10 @@ const auditLogSchema = new mongoose.Schema(
         "unlock_stale_quote",
         "admin_auth_success",
         "admin_auth_denied",
-        "moderation_approve",
-        "moderation_reject",
-        "moderation_hide",
-        "moderation_restore",
-        "moderation_rollback",
+        "prompt_lifecycle_transition",
+        "prompt_lifecycle_transition_denied",
+        "moderation_unauthorized",
+        "moderation_error",
       ] as AuditAction[],
       index: true,
     },

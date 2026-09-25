@@ -10,10 +10,14 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import connectDb from "../../server/src/db/connectDb";
-import Prompt from "../../server/src/models/Prompt";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
 import {
-  setPromptSaleStatus,
+  transitionPromptLifecycle,
+  PromptNotFoundError,
+} from "../../server/src/services/promptLifecycle";
+import { LifecycleTransitionError, type LifecycleState } from "@prompthash/schema";
+import { 
+  setPromptSaleStatus, 
   getPrompt,
   type PromptHashConfig,
 } from "../../src/lib/stellar/promptHashClient";
@@ -72,6 +76,37 @@ function mapActionToStatus(action: string): string {
       return "Active";
     case "retire":
       return "Retired";
+    default:
+      throw new Error(`Invalid moderation action: ${action}`);
+  }
+}
+
+/**
+ * Map a moderation action to the target lifecycle state (Issue #786).
+ * A restricted listing is hidden (not archived) so it can be reinstated
+ * without losing history; retirement is terminal-ish (archived).
+ */
+function mapActionToLifecycleState(action: string): LifecycleState {
+  switch (action) {
+    case "restrict":
+      return "hidden";
+    case "reinstate":
+      return "published";
+    case "retire":
+      return "archived";
+    default:
+      throw new Error(`Invalid moderation action: ${action}`);
+  }
+}
+
+function mapActionToModerationStatus(action: string): "none" | "restricted" | "retired" {
+  switch (action) {
+    case "restrict":
+      return "restricted";
+    case "reinstate":
+      return "none";
+    case "retire":
+      return "retired";
     default:
       throw new Error(`Invalid moderation action: ${action}`);
   }
@@ -171,6 +206,8 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
 
     const newStatus = mapActionToStatus(String(action));
     const moderationReason = mapReasonToEnum(String(reason));
+    const lifecycleTarget = mapActionToLifecycleState(String(action));
+    const moderationStatusValue = mapActionToModerationStatus(String(action));
 
     // Update prompt status on-chain via contract call
     // Note: This requires admin wallet to sign the transaction
@@ -186,36 +223,45 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       "Moderating prompt",
     );
 
-    // Update database record to match on-chain state
-    await Prompt.findOneAndUpdate(
-      { onChainId: String(promptId) },
-      {
-        $set: {
-          moderationStatus: newStatus.toLowerCase(),
-          moderatedAt: new Date(),
-          moderatedBy: String(adminWallet),
-          moderationReason: String(reason),
-          moderationNotes: notes || "",
+    // Issue #786: route through the lifecycle state machine instead of
+    // writing listingStatus/moderationStatus fields directly — this
+    // rejects moderating a prompt whose current lifecycle state doesn't
+    // allow the requested transition (e.g. reinstating one that was never
+    // suspended/restricted), and records the transition in both the
+    // tamper-evident audit trail and the prompt's own lifecycleHistory.
+    try {
+      await transitionPromptLifecycle({
+        promptId: String(promptId),
+        by: "onChainId",
+        to: lifecycleTarget,
+        actor: { role: "moderator", id: String(adminWallet) },
+        reason: `${reason}: ${policyReference}`,
+        requestId: (req.headers["x-request-id"] as string) ?? null,
+        clientIp,
+        moderation: {
+          status: moderationStatusValue,
+          reasonCode: String(reason),
+          notes: notes || "",
         },
-      },
-    );
-
-    // Record audit event
-    await recordAuditEvent({
-      action: `prompt_${action}`,
-      result: "success",
-      promptId: String(promptId),
-      walletAddress: String(adminWallet),
-      requestId: (req.headers["x-request-id"] as string) ?? null,
-      clientIp,
-      reason: String(reason),
-      metadata: {
-        policyReference: String(policyReference),
-        notes: notes || "",
-        previousStatus: prompt.status,
-        newStatus,
-      },
-    });
+      });
+    } catch (err) {
+      if (err instanceof LifecycleTransitionError) {
+        res.status(409).json(
+          apiError(
+            ErrorCode.INVALID_STATE,
+            `Cannot ${action} this prompt from its current lifecycle state.`,
+          ),
+        );
+        return;
+      }
+      if (err instanceof PromptNotFoundError) {
+        res.status(404).json(
+          apiError(ErrorCode.PROMPT_NOT_FOUND, "Prompt not found in the marketplace index."),
+        );
+        return;
+      }
+      throw err;
+    }
 
     const response: ModerationResponse = {
       success: true,
