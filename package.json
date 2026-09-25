@@ -31,6 +31,7 @@
     "verify:smoke": "node scripts/smoke-verification.mjs"
   },
   "dependencies": {
+    "@prompthash/schema": "file:./packages/schema",
     "@creit.tech/stellar-wallets-kit": "^2.5.0",
     "@hookform/resolvers": "^5.5.7",
     "@jadonamite/automata-sdk": "^1.0.1",

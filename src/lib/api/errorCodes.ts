@@ -31,6 +31,15 @@ export const ErrorCode = {
   /** The prompt price or version changed after the wallet challenge was issued. */
   STALE_PROMPT_TERMS: "STALE_PROMPT_TERMS",
 
+  /** No prompt matches the given id. */
+  PROMPT_NOT_FOUND: "PROMPT_NOT_FOUND",
+
+  /** The action isn't allowed from the resource's current state (Issue #786: lifecycle transitions). */
+  INVALID_STATE: "INVALID_STATE",
+
+  /** The caller is authenticated but not authorized for this action. */
+  UNAUTHORIZED: "UNAUTHORIZED",
+
   // ── Rate limiting (429) ───────────────────────────────────────────────────
 
   /** Too many requests from this IP address. */
@@ -99,6 +108,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_SIGNATURE: "Wallet signature did not match. Open your wallet and try signing again.",
   ACCESS_NOT_PURCHASED: "You have not purchased access to this prompt. Complete a purchase first.",
   STALE_PROMPT_TERMS: "This prompt changed since you opened it. Refresh the prompt and sign again.",
+  PROMPT_NOT_FOUND: "That prompt could not be found.",
+  INVALID_STATE: "This action isn't allowed from the item's current status.",
+  UNAUTHORIZED: "You are not authorized to perform this action.",
   RATE_LIMIT_IP: "Too many requests. Please wait a moment, then try again.",
   RATE_LIMIT_WALLET: "Too many unlock attempts for this wallet. Please wait a minute and try again.",
   RATE_LIMIT_ENTITLEMENT: "Too many unlock attempts for this prompt. Please wait a moment and try again.",
