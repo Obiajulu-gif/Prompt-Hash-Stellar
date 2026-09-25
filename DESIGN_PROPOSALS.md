@@ -314,3 +314,94 @@ $ ./reIndexFromLedger --from-ledger 12345 --mode reconcile
 | #423 | Checkpoint model, phases, reorg logic | 1-2 | 8-10 |
 
 **Total: ~4-6 PRs, ~30-40 commits, estimated 4-6 week project with review cycles**
+
+---
+
+# Design Proposals: Index Pagination, Catalog Drift Repair, Checked Counters & Event Quarantine (#651, #652, #653, #654)
+
+## Issue #651: Cursor Pagination for Creator and Buyer Ownership Indexes
+
+### Current State
+- `get_prompts_by_creator` and `get_prompts_by_buyer` return unpaginated vectors, leading to unbound gas/resource consumption as user activity scales.
+- `get_all_prompts_paginated` exists but creator and buyer lookups lack cursor-based endpoints.
+
+### Proposed Design
+- Introduce `IndexType::Buyer = 5` to `pagination.rs`.
+- Add `get_prompts_by_creator_paginated(creator, cursor, limit)` and `get_prompts_by_buyer_paginated(buyer, cursor, limit)` to `PromptHashTrait` and `PromptHashContract`.
+- Cursors are 9-byte raw serialized byte buffers encoding big-endian last item ID and 1-byte index type discriminant.
+- TypeScript client bindings `contractGetPromptsByCreatorPaginated` and `contractGetPromptsByBuyerPaginated` in `src/lib/stellar/contractMethods.ts`.
+
+### Compatibility & Rollout
+- Fully backward compatible: legacy `get_prompts_by_creator` and `get_prompts_by_buyer` retained.
+- Clients can adopt paginated methods incrementally.
+
+### Failure Handling & Limits
+- Bounded by `MAX_PAGE_SIZE = 50`. Exceeding limits clamps to maximum page size.
+- Invalid or corrupted cursors fail deterministically with `Error::InvalidCursor`.
+
+### Test Strategy
+- Multi-page iteration tests, empty index bounds, single-item pages, limit clamps, and invalid cursor rejection.
+
+---
+
+## Issue #652: Detect and Repair Drift Across Catalog Secondary Indexes
+
+### Current State
+- Secondary indexes (`AllPrompts`, `ActivePrompts`, `CategoryPrompts`, `TagPrompts`, `CreatorPrompts`) can diverge from canonical `Prompt` storage due to partial writes, historical bugs, or TTL differences.
+
+### Proposed Design
+- Implement `verify_catalog_indexes(start_id, batch_size) -> IndexDriftReport`: Read-only, permissionless scan returning drift counts.
+- Implement `repair_catalog_indexes(admin, start_id, batch_size, dry_run) -> IndexRepairSummary`: Admin-authorized repair with dry-run support, batch bounds, and resumable pagination.
+- Emit `CatalogIndexesRepaired` event for auditing.
+- Make multi-index mutations in `create_prompt`, `revise_listing`, and status transitions atomic and idempotent.
+
+### Compatibility & Rollout
+- Safe for live operation. Operators run verification first, then dry-run repair, followed by live repair in bounded batches.
+
+### Test Strategy
+- Fault injection of missing/stale entries in All, Active, Category, Tag, and Creator indexes.
+- Verification of dry-run vs live repair semantics.
+- Idempotency test proving healthy indexes require 0 repairs on re-run.
+
+---
+
+## Issue #653: Replace Saturating Marketplace Counters with Checked Invariant Enforcement
+
+### Current State
+- `prompt.sales_count.saturating_sub(1)` and unchecked arithmetic allowed silent underflow and state inconsistencies during dispute resolutions or refunds.
+
+### Proposed Design
+- Replace all saturating operations on counters with `checked_sub(1).ok_or(Error::ArithmeticOverflow)?`.
+- Enforce strict settlement and dispute status checks (`DisputeStatus::Open` and `SettlementStatus::Pending`), rejecting double-refund attempts with `Error::DisputeResolved` or `Error::SettlementAlreadyFinalized`.
+- Add admin-authorized `reconcile_sales_counter(admin, prompt_id)` to reconcile historical clamped records.
+- Emit `SalesCounterReconciled` audit events.
+
+### Compatibility & Rollout
+- Invariant enforcement applies immediately to all settlement and dispute actions.
+- Historical prompts can be reconciled safely via `reconcile_sales_counter`.
+
+### Test Strategy
+- Rejection of double-refund attempts and out-of-order dispute resolutions.
+- Rejection of decrement when counter is 0 failing with `ArithmeticOverflow` without state corruption.
+- Reconciliation of sales counters.
+
+---
+
+## Issue #654: Quarantine Unsupported Contract Events Without Advancing Lossy Indexer Checkpoint
+
+### Current State
+- Unknown or malformed events were logged and silently skipped, allowing the indexer checkpoint (`lastIndexedLedger`) to advance past critical unhandled state.
+
+### Proposed Design
+- Add `QuarantinedEvent` Mongoose model storing `eventId`, `ledger`, `txHash`, `contractId`, `topic`, `rawTopic`, `rawValue`, `reason`, `status`, and `errorDetails`.
+- In `processEvent`, catch malformed XDR or unsupported event versions and persist them to `QuarantinedEvent` while tracking `quarantinedCount` and `quarantinedLedgers` on `IndexerState`.
+- Emit warning logs and structured alerts for operator monitoring.
+- Implement `replayQuarantinedEvents(options)` and CLI script `scripts/replay-quarantined-events.ts` for idempotent replay after decoder schema upgrades.
+
+### Compatibility & Rollout
+- Non-breaking; preserves unhandled events safely without blocking progress on other events.
+- Replay is idempotent, processing events in ledger sequence order and closing checkpoint gaps.
+
+### Test Strategy
+- Unit and integration tests for malformed XDR, unknown topic versions, quarantine persistence, checkpoint integrity, and mid-replay idempotence.
+

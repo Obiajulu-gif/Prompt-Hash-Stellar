@@ -109,6 +109,8 @@ pub enum Error {
     MaxSupplyBelowCommitted = 84,
     DisputeWindowClosed = 85,
     DisputeWindowNotElapsed = 86,
+    InvalidMetadata = 87,
+    MissingMetadata = 88,
 }
 
 #[contracttype]
@@ -118,6 +120,9 @@ pub enum PromptSaleStatus {
     Active,
     Paused,
     Retired,
+    /// Restricted for policy violation (copyright, abuse, malware).
+    /// Hidden from public marketplace but preserves buyer access records.
+    Restricted,
 }
 
 /// Instance storage keys — contract-level configuration stored in
@@ -165,10 +170,21 @@ pub enum DataKey {
     Bundle(u128),
     BundleCounter,
     CreatorBundles(Address),
+    /// Bundle purchase prompt IDs for refund processing, keyed by (buyer, bundle_id)
+    /// Stores the list of prompt_ids in a bundle purchase for proper refund handling (#595).
+    BundlePurchasePrompts(Address, u128),
+    /// Maps a bundle escrow (prompt_id=0) to its bundle_id for refund processing (#595).
+    /// Keyed by (buyer, timestamp) to uniquely identify the escrow.
+    BundleEscrowBundleId(Address, u64),
     AccessPass(u128),
     AccessPassCounter,
     CreatorAccessPasses(Address),
     CatalogPass(Address, Address),
+    /// Access pass escrow for dispute/refund tracking, keyed by (pass_id, buyer)
+    /// to avoid collisions between multiple passes for the same buyer (#564).
+    AccessPassEscrow(u128, Address),
+    /// Access pass dispute record, keyed by (pass_id, buyer).
+    AccessPassPurchaseDispute(u128, Address),
 
     /// Nonce consumed for a signed quote commitment (#565).
     /// Key: (buyer, nonce) — scoped to the buyer so nonces need no global store.
@@ -194,6 +210,16 @@ pub enum DataKey {
 
     /// A pending two-phase governance action, keyed by proposal hash (#569).
     GovernanceProposal(BytesN<32>),
+
+    /// Aggregate per-asset escrow liability, keyed by SAC asset address (#570).
+    AssetLiability(Address),
+    /// Marks that `migrate_asset_liability` has already backfilled the given
+    /// escrow into `AssetLiability`, so a repeat call is a safe no-op (#570).
+    EscrowLiabilityMigrated(u64, Address),
+
+    /// Moderation audit record, keyed by (prompt_id, moderation_timestamp).
+    /// Preserves complete history of policy actions for compliance.
+    ModerationRecord(u64, u64),
 }
 
 #[contracttype]
@@ -210,6 +236,31 @@ pub enum DisputeReason {
     InvalidEncryptedPayload,
     MissingMetadata,
     FailedIntegrityVerification,
+}
+
+/// Reason for content moderation action.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModerationReason {
+    Copyright,
+    Abuse,
+    Malware,
+    PolicyViolation,
+    Other,
+}
+
+/// Moderation audit record preserving complete policy action history and reversal links.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModerationRecord {
+    pub prompt_id: u64,
+    pub moderator: Address,
+    pub action: PromptSaleStatus,
+    pub previous_state: PromptSaleStatus,
+    pub reason: ModerationReason,
+    pub policy_reference: String,
+    pub timestamp: u64,
+    pub reverses_timestamp: u64,
 }
 
 #[contracttype]
@@ -271,6 +322,33 @@ pub struct PayoutSplit {
     pub amount: i128,
 }
 
+/// Aggregate escrow liability tracked for one SAC asset (#570).
+///
+/// `pending` is the total amount held for escrows awaiting settlement or
+/// refund. `disputed` is the subset currently under an open dispute — moved
+/// out of `pending` while the dispute is open so operators can see disputed
+/// exposure separately, and moved back on settle/refund/reject. The two
+/// buckets never overlap; `pending + disputed` is the asset's total
+/// customer liability the contract's SAC balance must cover.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetLiability {
+    pub pending: i128,
+    pub disputed: i128,
+}
+
+/// Read-only solvency snapshot for one asset (#570). `surplus` is
+/// `actual_balance - tracked_liability`: rounding dust, accidental direct
+/// transfers, or other non-customer balance. A negative surplus means the
+/// contract's SAC balance no longer covers its tracked liabilities.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetSolvency {
+    pub tracked_liability: i128,
+    pub actual_balance: i128,
+    pub surplus: i128,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PurchaseDispute {
@@ -293,6 +371,12 @@ pub struct Purchase {
     pub transfer_count: u32,
     pub last_transferred_at: u64,
     pub expires_at: u64,
+    /// The listing revision number at the time of purchase.
+    /// Immutable snapshot binding buyer to the prompt metadata version they accepted (#731).
+    pub purchased_revision: u32,
+    /// Hash of the license terms accepted at purchase time.
+    /// Empty BytesN<32> for purchases made before license versioning shipped (#731).
+    pub license_terms_hash: BytesN<32>,
 }
 
 #[contracttype]
@@ -329,8 +413,17 @@ pub struct ListingConfig {
     pub tags: Vec<String>,
     /// Maximum number of licenses that can be sold (0 = unlimited).
     pub max_supply: u64,
+    /// Hash of the license terms offered with this listing (#731).
+    /// Creators must provide this when creating/updating listings.
+    pub license_terms_hash: BytesN<32>,
 }
 
+/// On-chain listing record.
+///
+/// `creator` is intentionally immutable: license fees (`buy_prompt`) always
+/// route to the address that created the listing. Changing who operates a
+/// listing is coordinated OFF-chain (indexed `Prompt.owner` re-pointing,
+/// see docs/architecture.md) and never mutates this struct.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Prompt {
@@ -359,6 +452,9 @@ pub struct Prompt {
     pub revision: u32,
     /// Search tags used for marketplace discovery. Tags should be lowercase kebab-case.
     pub tags: Vec<String>,
+    /// Hash of the current license terms offered with this listing.
+    /// Stored on-chain so buyers can verify what terms they're accepting (#731).
+    pub license_terms_hash: BytesN<32>,
 }
 
 #[contracttype]
@@ -568,11 +664,6 @@ pub enum GovernanceAction {
     SetReferralPercentage(u32),
 }
 
-/// A proposed governance action awaiting its observation window (#569).
-///
-/// `expected_state_hash` pins the configuration the proposal was written
-/// against, so execution fails if the current configuration has since drifted.
-/// Cancellable by the governance role and queryable while pending.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GovernanceProposal {
@@ -585,6 +676,34 @@ pub struct GovernanceProposal {
     pub expiry_ledger: u32,
     pub expected_state_hash: BytesN<32>,
     pub nonce: BytesN<32>,
+}
+
+/// Report describing detected drift between canonical prompt records and secondary indexes (#652).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndexDriftReport {
+    pub start_id: u64,
+    pub end_id: u64,
+    pub total_prompts_scanned: u64,
+    pub missing_in_all: u32,
+    pub missing_in_active: u32,
+    pub stale_in_active: u32,
+    pub missing_in_category: u32,
+    pub missing_in_tags: u32,
+    pub missing_in_creator: u32,
+    pub next_cursor: Option<u64>,
+}
+
+/// Result of an admin-authorized catalog secondary index repair operation (#652).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IndexRepairSummary {
+    pub start_id: u64,
+    pub end_id: u64,
+    pub prompts_processed: u64,
+    pub repairs_applied: u32,
+    pub is_dry_run: bool,
+    pub next_cursor: Option<u64>,
 }
 
 pub trait PromptHashTrait {
@@ -622,7 +741,16 @@ pub trait PromptHashTrait {
         admin: Address,
         prompt_id: u64,
         status: PromptSaleStatus,
+        reason: ModerationReason,
+        policy_reference: String,
+        reverses_timestamp: u64,
     ) -> Result<(), Error>;
+
+    fn get_moderation_record(
+        env: Env,
+        prompt_id: u64,
+        timestamp: u64,
+    ) -> Result<ModerationRecord, Error>;
 
     fn set_prompt_max_supply(
         env: Env,
@@ -702,6 +830,16 @@ pub trait PromptHashTrait {
         payment_amounts: Vec<i128>,
         referrer: Option<Address>,
     ) -> Result<(), Error>;
+
+    /// Dry-run validation for bulk purchases without state mutation.
+    /// Returns per-item validity status so frontend can filter invalid IDs before submitting.
+    /// Does not require auth (read-only check).
+    fn validate_bulk_purchase(
+        env: Env,
+        buyer: Address,
+        prompt_ids: Vec<u64>,
+        payment_amounts: Vec<i128>,
+    ) -> Result<Vec<bool>, Error>;
 
     fn create_bundle(
         env: Env,
@@ -805,6 +943,17 @@ pub trait PromptHashTrait {
 
     fn has_access(env: Env, user: Address, prompt_id: u64) -> Result<bool, Error>;
     fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error>;
+
+    /// Canonical SHA-256 hash of the current listing state (owner, price, asset,
+    /// version/revision, expiry). Buyers sign this hash off-chain so a drifted
+    /// listing cannot be used to replay a stale purchase authorization (#698).
+    fn listing_snapshot_hash(env: Env, prompt_id: u64) -> Result<BytesN<32>, Error>;
+    /// Returns true iff `expected` equals the current listing snapshot hash.
+    fn verify_listing_snapshot(
+        env: Env,
+        prompt_id: u64,
+        expected: BytesN<32>,
+    ) -> Result<bool, Error>;
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_category(env: Env, category: String) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_tag(env: Env, tag: String) -> Result<Vec<Prompt>, Error>;
@@ -832,6 +981,35 @@ pub trait PromptHashTrait {
         cursor: Option<String>,
         limit: u64,
     ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_prompts_by_creator_paginated(
+        env: Env,
+        creator: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+    fn get_prompts_by_buyer_paginated(
+        env: Env,
+        buyer: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error>;
+
+    // Secondary index drift verification and admin repair (#652).
+    fn verify_catalog_indexes(
+        env: Env,
+        start_id: u64,
+        batch_size: u64,
+    ) -> Result<IndexDriftReport, Error>;
+    fn repair_catalog_indexes(
+        env: Env,
+        admin: Address,
+        start_id: u64,
+        batch_size: u64,
+        dry_run: bool,
+    ) -> Result<IndexRepairSummary, Error>;
+
+    // Checked accounting counter reconciliation (#653).
+    fn reconcile_sales_counter(env: Env, admin: Address, prompt_id: u64) -> Result<u64, Error>;
 
     // TTL maintenance (operator utilities).
     fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error>;
@@ -858,6 +1036,28 @@ pub trait PromptHashTrait {
         buyer: Address,
     ) -> Result<(), Error>;
     fn get_purchase_escrow(env: Env, prompt_id: u64, buyer: Address) -> Option<PurchaseEscrow>;
+    /// Open a dispute against an access pass purchase (#564).
+    fn open_access_pass_dispute(
+        env: Env,
+        buyer: Address,
+        pass_id: u128,
+        reason: DisputeReason,
+    ) -> Result<(), Error>;
+    /// Resolve (approve refund or reject) an access pass dispute (#564).
+    fn resolve_access_pass_dispute(
+        env: Env,
+        admin: Address,
+        pass_id: u128,
+        buyer: Address,
+        refund: bool,
+    ) -> Result<(), Error>;
+    /// Settle (release funds from) a pending access pass purchase escrow (#564).
+    fn settle_access_pass_purchase(
+        env: Env,
+        caller: Address,
+        pass_id: u128,
+        buyer: Address,
+    ) -> Result<(), Error>;
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error>;
     fn get_prompts_by_buyer(env: Env, buyer: Address) -> Result<Vec<Prompt>, Error>;
     fn set_fee_wallet(env: Env, new_fee_wallet: Address) -> Result<(), Error>;
@@ -869,6 +1069,28 @@ pub trait PromptHashTrait {
     // New platform fee governance API
     fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error>;
     fn get_platform_fee(env: Env) -> u32;
+    /// One-time post-upgrade fix for deployments that hold a fee percentage
+    /// set above `MAX_PLATFORM_FEE` by the legacy `set_fee_percentage`
+    /// ceiling. Clamps it down; a no-op if already within bound (#566).
+    fn migrate_platform_fee_bound(env: Env, admin: Address) -> Result<(), Error>;
+
+    // Per-asset escrow liability and solvency reconciliation (#570).
+    fn get_asset_liability(env: Env, asset: Address) -> AssetLiability;
+    fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency;
+    /// Compares tracked liability against the contract's actual SAC balance
+    /// for `asset` and pauses the contract if the balance no longer covers
+    /// tracked liabilities. Safe to call permissionlessly as a monitor.
+    fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error>;
+    /// One-time backfill of a single pre-existing Pending/Disputed escrow
+    /// into the per-asset liability ledger, for deployments upgrading into
+    /// this feature. Idempotent — a repeat call for an already-migrated
+    /// escrow is a no-op.
+    fn migrate_asset_liability(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error>;
     fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>;
     fn is_paused(env: Env) -> bool;
     fn add_voucher(

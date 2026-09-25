@@ -50,6 +50,40 @@ describe("unlock challenge verification", () => {
     expect(msg).toContain(String(challenge.expiresAt));
   });
 
+  it.each([
+    ["origin", { origin: "https://evil.example" }, "origin mismatch"],
+    ["network", { networkPassphrase: "Public Global Stellar Network ; September 2015" }, "network mismatch"],
+    ["contract", { contractId: "CNEWCONTRACT" }, "contract mismatch"],
+    ["action", { action: "webhook" }, "action mismatch"],
+    ["prompt version", { promptVersion: "v2" }, "prompt version mismatch"],
+    ["prompt price", { expectedPriceStroops: "2000" }, "prompt price mismatch"],
+  ])("rejects cross-%s challenge replay", (_label, override, expected) => {
+    const address = Keypair.random().publicKey();
+    const context = {
+      origin: "https://app.example",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      contractId: "CPROMPTHASH",
+      action: "unlock",
+      promptVersion: "v1",
+      expectedPriceStroops: "1000",
+    };
+    const challenge = createChallengeToken(
+      SECRET,
+      address,
+      "99",
+      ISSUED_AT,
+      60_000,
+      context,
+    );
+
+    expect(() =>
+      verifyChallengeToken(SECRET, challenge.token, address, "99", WITHIN_TTL, {
+        ...context,
+        ...override,
+      }),
+    ).toThrow(expected);
+  });
+
   it("rejects expired challenge tokens", () => {
     const address = Keypair.random().publicKey();
     const challenge = createChallengeToken(SECRET, address, "7", ISSUED_AT, 1000);

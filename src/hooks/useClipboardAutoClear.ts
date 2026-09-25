@@ -122,6 +122,28 @@ export function useClipboardAutoClear(
     };
   }, [remaining > 0, clearTimer, clearClipboardIfMatch]);
 
+  // Handle visibility changes to clear clipboard promptly when tab regains focus
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden || remaining <= 0) return;
+
+      const now = Date.now();
+      const secsLeft = Math.max(0, Math.ceil((endTimeRef.current - now) / 1000));
+
+      if (secsLeft <= 0) {
+        clearTimer();
+        clearClipboardIfMatch();
+      }
+    };
+
+    if (remaining > 0) {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      return () => {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      };
+    }
+  }, [remaining, clearTimer, clearClipboardIfMatch]);
+
   const toggle = useCallback(() => {
     setEnabled((prev) => {
       if (prev) cancel();

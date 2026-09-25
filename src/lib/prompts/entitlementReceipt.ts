@@ -42,6 +42,8 @@ export interface SignedPurchaseReceiptData {
   receipt: PurchaseReceiptData;
   signature: string;
   signerPublicKey: string;
+  purchaseStatus?: string;
+  disputeResolution?: string | null;
 }
 
 /**

@@ -1,5 +1,5 @@
-use super::types::PromptSaleStatus;
-use soroban_sdk::{contractevent, Address, BytesN, Env};
+use super::types::{ModerationReason, PromptSaleStatus};
+use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 
 #[contractevent]
 struct PromptCreated {
@@ -23,6 +23,10 @@ struct PromptAdminModerated {
     pub prompt_id: u64,
     pub admin: Address,
     pub status: PromptSaleStatus,
+    pub previous_state: PromptSaleStatus,
+    pub reason: ModerationReason,
+    pub policy_reference: String,
+    pub reverses_timestamp: u64,
 }
 
 #[contractevent]
@@ -93,11 +97,27 @@ struct FeeWalletUpdated {
     pub new_fee_wallet: Address,
 }
 
+/// Canonical platform-fee-change event (#566). Emitted by every fee-update
+/// entrypoint (`set_fee_percentage`, `update_platform_fee`,
+/// `migrate_platform_fee_bound`) so there is exactly one event shape to
+/// index regardless of which entrypoint a caller used.
 #[contractevent]
 struct PlatformFeeUpdated {
     pub old_fee: u32,
     pub new_fee: u32,
     pub admin: Address,
+    pub effective_ledger: u32,
+}
+
+/// Emitted when `check_asset_solvency` finds the contract's actual SAC
+/// balance for an asset no longer covers its tracked liability, and the
+/// contract has been paused as a result (#570).
+#[contractevent]
+struct SolvencyViolationDetected {
+    #[topic]
+    pub asset: Address,
+    pub tracked_liability: i128,
+    pub actual_balance: i128,
 }
 
 #[contractevent]
@@ -148,6 +168,26 @@ struct ListingRevised {
 struct SplitsUpdated {
     #[topic]
     pub prompt_id: u64,
+}
+
+/// Emitted when catalog secondary indexes are verified or repaired (#652).
+#[contractevent]
+struct CatalogIndexesRepaired {
+    #[topic]
+    pub admin: Address,
+    pub start_id: u64,
+    pub end_id: u64,
+    pub repairs_applied: u32,
+    pub is_dry_run: bool,
+}
+
+/// Emitted when a sales counter is reconciled against immutable records (#653).
+#[contractevent]
+struct SalesCounterReconciled {
+    #[topic]
+    pub prompt_id: u64,
+    pub old_count: u64,
+    pub new_count: u64,
 }
 
 #[contractevent]
@@ -255,11 +295,19 @@ impl Events {
         prompt_id: u64,
         admin: Address,
         status: PromptSaleStatus,
+        previous_state: PromptSaleStatus,
+        reason: ModerationReason,
+        policy_reference: String,
+        reverses_timestamp: u64,
     ) {
         PromptAdminModerated {
             prompt_id,
             admin,
             status,
+            previous_state,
+            reason,
+            policy_reference,
+            reverses_timestamp,
         }
         .publish(env);
     }
@@ -353,11 +401,32 @@ impl Events {
         FeeWalletUpdated { new_fee_wallet }.publish(env);
     }
 
-    pub fn emit_platform_fee_updated(env: &Env, old_fee: u32, new_fee: u32, admin: Address) {
+    pub fn emit_platform_fee_updated(
+        env: &Env,
+        old_fee: u32,
+        new_fee: u32,
+        admin: Address,
+        effective_ledger: u32,
+    ) {
         PlatformFeeUpdated {
             old_fee,
             new_fee,
             admin,
+            effective_ledger,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_solvency_violation_detected(
+        env: &Env,
+        asset: Address,
+        tracked_liability: i128,
+        actual_balance: i128,
+    ) {
+        SolvencyViolationDetected {
+            asset,
+            tracked_liability,
+            actual_balance,
         }
         .publish(env);
     }
@@ -509,6 +578,38 @@ impl Events {
         PromptMaxSupplyUpdated {
             prompt_id,
             max_supply,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_catalog_indexes_repaired(
+        env: &Env,
+        admin: Address,
+        start_id: u64,
+        end_id: u64,
+        repairs_applied: u32,
+        is_dry_run: bool,
+    ) {
+        CatalogIndexesRepaired {
+            admin,
+            start_id,
+            end_id,
+            repairs_applied,
+            is_dry_run,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_sales_counter_reconciled(
+        env: &Env,
+        prompt_id: u64,
+        old_count: u64,
+        new_count: u64,
+    ) {
+        SalesCounterReconciled {
+            prompt_id,
+            old_count,
+            new_count,
         }
         .publish(env);
     }

@@ -1,11 +1,15 @@
 use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
-    AccessPass, Bundle, CatalogPassPurchase, DataKey, DisputeReason, DisputeStatus, Error,
-    ListingConfig, ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus,
-    PurchaseDispute, PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
+    AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey, DisputeReason,
+    DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig,
+    ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute,
+    PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::{
+    contract, contractimpl, token, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec,
+};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 
@@ -35,6 +39,23 @@ const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 // pending escrow. After it elapses with no open dispute, settlement becomes
 // permissionless (#541).
 const DISPUTE_WINDOW_SECS: u64 = 3 * 24 * 60 * 60;
+
+/// Canonical listing snapshot hash over the fields a buyer signs: id, owner,
+/// price, asset, version (revision), and expiry. Mirrors the off-chain
+/// `computeListingSnapshotHash` so the same listing always hashes identically
+/// across environments, binding off-chain purchase authorizations to the exact
+/// on-chain listing state (#698).
+fn listing_snapshot_hash(env: &Env, prompt: &Prompt) -> BytesN<32> {
+    let mut buf: Vec<Val> = Vec::new(env);
+    buf.push_back((prompt.id as u128).into_val(env));
+    buf.push_back(prompt.creator.to_val());
+    buf.push_back(prompt.price_stroops.into_val(env));
+    buf.push_back(prompt.asset.to_val());
+    buf.push_back((prompt.revision as u128).into_val(env));
+    buf.push_back((prompt.expires_at as u128).into_val(env));
+    let raw = env.crypto().sha256(&buf.to_xdr(env));
+    BytesN::from_array(env, &raw.to_array())
+}
 
 #[contract]
 pub struct PromptHashContract;
@@ -122,6 +143,7 @@ impl PromptHashTrait for PromptHashContract {
             splits: listing.splits,
             revision: 0,
             tags: listing.tags,
+            license_terms_hash: listing.license_terms_hash.clone(),
         };
 
         Storage::save_prompt(&env, &prompt)?;
@@ -149,6 +171,7 @@ impl PromptHashTrait for PromptHashContract {
 
         prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
+        Storage::update_status_indexes(&env, &prompt);
         Events::emit_prompt_sale_status_updated(&env, prompt_id, status);
         Ok(())
     }
@@ -159,10 +182,16 @@ impl PromptHashTrait for PromptHashContract {
         admin: Address,
         prompt_id: u64,
         status: PromptSaleStatus,
+        reason: super::types::ModerationReason,
+        policy_reference: soroban_sdk::String,
+        reverses_timestamp: u64,
     ) -> Result<(), Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
+
+        // Ensure structured evidence reference is provided
+        ensure(!policy_reference.is_empty(), Error::InvalidMetadata)?;
 
         let mut prompt = Storage::require_prompt(&env, prompt_id)?;
         ensure(
@@ -171,10 +200,49 @@ impl PromptHashTrait for PromptHashContract {
         )?;
         ensure(prompt.status != status, Error::InvalidStatusTransition)?;
 
+        // If this action reverses a prior moderation decision, verify the original action record exists
+        if reverses_timestamp != 0 {
+            let _orig = Storage::get_moderation_record(&env, prompt_id, reverses_timestamp)?;
+        }
+
+        let previous_state = prompt.status.clone();
+        let now = env.ledger().timestamp();
+
+        // Store moderation audit record with durable evidence trail and reversal link
+        let moderation_record = super::types::ModerationRecord {
+            prompt_id,
+            moderator: admin.clone(),
+            action: status.clone(),
+            previous_state: previous_state.clone(),
+            reason: reason.clone(),
+            policy_reference: policy_reference.clone(),
+            timestamp: now,
+            reverses_timestamp,
+        };
+        Storage::set_moderation_record(&env, &moderation_record);
+
         prompt.status = status.clone();
         Storage::update_prompt(&env, &prompt);
-        Events::emit_prompt_admin_moderated(&env, prompt_id, admin, status);
+        Storage::update_status_indexes(&env, &prompt);
+        Events::emit_prompt_admin_moderated(
+            &env,
+            prompt_id,
+            admin,
+            status,
+            previous_state,
+            reason,
+            policy_reference,
+            reverses_timestamp,
+        );
         Ok(())
+    }
+
+    fn get_moderation_record(
+        env: Env,
+        prompt_id: u64,
+        timestamp: u64,
+    ) -> Result<super::types::ModerationRecord, Error> {
+        Storage::get_moderation_record(&env, prompt_id, timestamp)
     }
 
     fn set_prompt_max_supply(
@@ -484,6 +552,17 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
+    fn validate_bulk_purchase(
+        env: Env,
+        buyer: Address,
+        prompt_ids: Vec<u64>,
+        payment_amounts: Vec<i128>,
+    ) -> Result<Vec<bool>, Error> {
+        // No auth required — read-only dry-run check
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        validate_bulk_purchase_items(&env, &buyer, &prompt_ids, &payment_amounts)
+    }
+
     fn create_bundle(
         env: Env,
         creator: Address,
@@ -654,20 +733,40 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &bundle.creator, &creator_amount);
         }
 
-        // Update prompt sales counts and grant access for newly purchased prompts
+        // Update prompt sales counts and grant access for newly purchased prompts.
+        //
+        // Split payment_amount_stroops evenly across the prompts that actually
+        // need a new purchase record.  Integer division would silently drop the
+        // remainder ("dust"), so we give any leftover stroops to the first
+        // prompt — the sum of all stored original_price values then equals the
+        // total payment exactly (#596).
+        let new_count = prompts
+            .iter()
+            .filter(|p| !Storage::has_active_purchase(&env, p.id, &buyer, now))
+            .count() as i128;
+        ensure(new_count > 0, Error::AlreadyPurchased)?;
+        let per_prompt = payment_amount_stroops
+            .checked_div(new_count)
+            .ok_or(Error::InvalidPaymentAmount)?;
+        let remainder = payment_amount_stroops
+            .checked_rem(new_count)
+            .ok_or(Error::InvalidPaymentAmount)?;
+        let mut first_new = true;
         for index in 0..prompts.len() {
             let prompt = prompts.get(index).unwrap();
             if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
                 Storage::update_prompt(&env, &prompt);
-                Storage::grant_purchase(
-                    &env,
-                    &prompt,
-                    &buyer,
-                    payment_amount_stroops
-                        .checked_div(prompts.len() as i128)
-                        .ok_or(Error::InvalidPaymentAmount)?,
-                    MAX_ACCESS_EXPIRY,
-                );
+                // Give the dust remainder to the first new prompt so the
+                // recorded prices sum exactly to payment_amount_stroops.
+                let this_price = if first_new {
+                    first_new = false;
+                    per_prompt
+                        .checked_add(remainder)
+                        .ok_or(Error::ArithmeticOverflow)?
+                } else {
+                    per_prompt
+                };
+                Storage::grant_purchase(&env, &prompt, &buyer, this_price, MAX_ACCESS_EXPIRY);
             }
         }
 
@@ -678,6 +777,8 @@ impl PromptHashTrait for PromptHashContract {
         Storage::update_bundle(&env, &bundle);
 
         // Create escrow with payout plan for unified dispute/settlement (#564)
+        // Bundles now have the same Pending/dispute_deadline escrow lifecycle as individual
+        // purchases (#595), giving buyers the full dispute window before settlement.
         let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
         let payout_plan = super::types::PayoutPlan {
             creator: bundle.creator.clone(),
@@ -688,23 +789,30 @@ impl PromptHashTrait for PromptHashContract {
             splits: payout_splits,
             creator_amount,
         };
+        let dispute_deadline = now
+            .checked_add(DISPUTE_WINDOW_SECS)
+            .ok_or(Error::ArithmeticOverflow)?;
         let escrow = PurchaseEscrow {
             prompt_id: 0, // Bundles don't have a single prompt ID
             buyer: buyer.clone(),
             amount: payment_amount_stroops,
             asset: bundle.asset.clone(),
             referrer: None,
-            status: SettlementStatus::Settled,
+            status: SettlementStatus::Pending,
             created_at: now,
-            settled_at: now,
-            // Bundle funds settle immediately — there is no pending window (#541).
-            dispute_deadline: now,
+            settled_at: 0, // Not yet settled
+            dispute_deadline,
             creator_amount,
             fee_amount,
             referral_amount: 0,
             payout_plan,
         };
         Storage::save_purchase_escrow(&env, &escrow);
+        // Track the escrowed bundle funds as pending liability (#570)
+        Storage::add_pending_liability(&env, &bundle.asset, payment_amount_stroops)?;
+        // Store bundle prompt IDs and mapping for later refund processing (#595)
+        Storage::save_bundle_purchase_prompts(&env, &buyer, bundle_id, &bundle.prompt_ids);
+        Storage::save_bundle_escrow_id(&env, &buyer, now, bundle_id);
 
         InstanceStorage::clear_reentrancy_guard(&env);
 
@@ -893,8 +1001,8 @@ impl PromptHashTrait for PromptHashContract {
         Storage::save_catalog_pass_purchase(&env, &catalog_pass);
 
         // Create escrow with payout plan for unified dispute/settlement (#564).
-        // sales_count was already advanced by reserve_pass_supply above (#538)
-        // — do not increment it again here.
+        // Store separately from prompt escrows to avoid key collisions — access pass
+        // escrows use (pass_id, buyer) to support multiple pass purchases by the buyer.
         let payout_plan = super::types::PayoutPlan {
             creator: access_pass.creator.clone(),
             fee_wallet: fee_wallet.clone(),
@@ -904,23 +1012,28 @@ impl PromptHashTrait for PromptHashContract {
             splits: Vec::new(&env),
             creator_amount,
         };
+        let dispute_deadline = now
+            .checked_add(DISPUTE_WINDOW_SECS)
+            .ok_or(Error::ArithmeticOverflow)?;
         let escrow = PurchaseEscrow {
-            prompt_id: 0, // Access passes don't have prompt IDs
+            prompt_id: pass_id as u64, // Use pass_id as the unique identifier within AccessPassEscrow
             buyer: buyer.clone(),
             amount: payment_amount_stroops,
             asset: access_pass.asset.clone(),
             referrer: None,
-            status: SettlementStatus::Settled,
+            status: SettlementStatus::Pending,
             created_at: now,
-            settled_at: now,
-            // Access-pass funds settle immediately — there is no pending window (#541).
-            dispute_deadline: now,
+            settled_at: 0, // Not yet settled
+            dispute_deadline,
             creator_amount,
             fee_amount,
             referral_amount: 0,
             payout_plan,
         };
-        Storage::save_purchase_escrow(&env, &escrow);
+        Storage::save_access_pass_escrow(&env, pass_id, &buyer, &escrow);
+        // Track the escrowed funds as pending liability (#570)
+        Storage::add_pending_liability(&env, &access_pass.asset, payment_amount_stroops)?;
+
         Storage::update_access_pass(&env, &access_pass);
         InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_access_pass_purchased(&env, pass_id, buyer, access_pass.creator, expires_at);
@@ -1041,8 +1154,9 @@ impl PromptHashTrait for PromptHashContract {
         };
         Storage::save_listing_revision(&env, &snapshot);
 
+        let old_category = prompt.category.clone();
         prompt.title = title;
-        prompt.category = category;
+        prompt.category = category.clone();
         prompt.preview_text = preview_text;
         prompt.image_url = image_url;
         prompt.price_stroops = price_stroops;
@@ -1052,6 +1166,10 @@ impl PromptHashTrait for PromptHashContract {
             .ok_or(Error::ArithmeticOverflow)?;
 
         Storage::update_prompt(&env, &prompt);
+        if old_category != category {
+            Storage::remove_from_category_index(&env, &old_category, prompt_id);
+            Storage::update_category_index(&env, &prompt);
+        }
         Events::emit_listing_revised(&env, prompt_id, prompt.revision);
         Ok(prompt.revision)
     }
@@ -1096,6 +1214,20 @@ impl PromptHashTrait for PromptHashContract {
 
     fn get_prompt(env: Env, prompt_id: u64) -> Result<Prompt, Error> {
         Storage::require_prompt(&env, prompt_id)
+    }
+
+    fn listing_snapshot_hash(env: Env, prompt_id: u64) -> Result<BytesN<32>, Error> {
+        let prompt = Storage::require_prompt(&env, prompt_id)?;
+        Ok(listing_snapshot_hash(&env, &prompt))
+    }
+
+    fn verify_listing_snapshot(
+        env: Env,
+        prompt_id: u64,
+        expected: BytesN<32>,
+    ) -> Result<bool, Error> {
+        let current = Self::listing_snapshot_hash(env, prompt_id)?;
+        Ok(current == expected)
     }
 
     fn get_all_prompts(env: Env) -> Result<Vec<Prompt>, Error> {
@@ -1227,6 +1359,112 @@ impl PromptHashTrait for PromptHashContract {
         Ok((prompts, next_cursor))
     }
 
+    fn get_prompts_by_creator_paginated(
+        env: Env,
+        creator: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::CreatorPrompts(creator.clone());
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(&env, last_id, IndexType::Creator))
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    fn get_prompts_by_buyer_paginated(
+        env: Env,
+        buyer: Address,
+        cursor: Option<String>,
+        limit: u64,
+    ) -> Result<(Vec<Prompt>, Option<String>), Error> {
+        use crate::pagination::{decode_cursor, encode_cursor, IndexType};
+
+        let cursor_id = if let Some(c) = cursor {
+            let parsed = decode_cursor(&env, &c)?;
+            Some(parsed.last_id)
+        } else {
+            None
+        };
+
+        let key = crate::types::DataKey::BuyerPrompts(buyer.clone());
+        let prompts = Storage::get_prompts_paginated(&env, &key, cursor_id, limit);
+
+        let next_cursor = if !prompts.is_empty() {
+            let last_id = prompts.last().ok_or(Error::PromptNotFound)?.id;
+            Some(encode_cursor(&env, last_id, IndexType::Buyer))
+        } else {
+            None
+        };
+
+        Ok((prompts, next_cursor))
+    }
+
+    // ====== SECONDARY INDEX VERIFICATION AND REPAIR (#652) ======
+
+    fn verify_catalog_indexes(
+        env: Env,
+        start_id: u64,
+        batch_size: u64,
+    ) -> Result<IndexDriftReport, Error> {
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        Ok(Storage::verify_catalog_indexes(&env, start_id, batch_size))
+    }
+
+    #[only_owner]
+    fn repair_catalog_indexes(
+        env: Env,
+        admin: Address,
+        start_id: u64,
+        batch_size: u64,
+        dry_run: bool,
+    ) -> Result<IndexRepairSummary, Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        let summary = Storage::repair_catalog_indexes(&env, start_id, batch_size, dry_run);
+        Events::emit_catalog_indexes_repaired(
+            &env,
+            admin,
+            summary.start_id,
+            summary.end_id,
+            summary.repairs_applied,
+            summary.is_dry_run,
+        );
+        Ok(summary)
+    }
+
+    // ====== ACCOUNTING INVARIANT RECONCILIATION (#653) ======
+
+    #[only_owner]
+    fn reconcile_sales_counter(env: Env, admin: Address, prompt_id: u64) -> Result<u64, Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        let count = Storage::reconcile_sales_counter(&env, prompt_id)?;
+        Events::emit_sales_counter_reconciled(&env, prompt_id, count, count);
+        Ok(count)
+    }
+
     // ====== TTL MAINTENANCE (OPERATOR UTILITIES) ======
 
     fn renew_critical_keys(env: Env, cursor: Option<u64>) -> Result<(u32, Option<u64>), Error> {
@@ -1248,24 +1486,43 @@ impl PromptHashTrait for PromptHashContract {
         buyer.require_auth();
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
         let now = env.ledger().timestamp();
-        Storage::require_purchase(&env, prompt_id, &buyer)?;
-        // Purchases with a pending escrow (direct/bulk buys) may only be
+
+        // Bundle disputes (#595) have prompt_id == 0 and no individual purchase record
+        let is_bundle_dispute = prompt_id == 0 && Storage::get_prompt(&env, 0).is_none();
+        if !is_bundle_dispute {
+            Storage::require_purchase(&env, prompt_id, &buyer)?;
+        }
+
+        // Purchases with a pending escrow (direct/bulk buys, now bundles #595) may only be
         // disputed within the purchase-relative window; once it closes the
         // escrow is eligible for permissionless settlement (#541). Purchases
-        // without a pending escrow (leases, bundles, passes) are unaffected.
+        // without a pending escrow (leases, access passes) are unaffected.
+        let mut escrow_liability_move: Option<(Address, i128)> = None;
         if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
             if escrow.status == SettlementStatus::Pending {
                 ensure(now <= escrow.dispute_deadline, Error::DisputeWindowClosed)?;
+                escrow_liability_move = Some((escrow.asset, escrow.amount));
             } else {
                 // Already settled or refunded — nothing left to dispute.
                 return Err(Error::DisputeWindowClosed);
             }
+        } else if !is_bundle_dispute {
+            // Non-bundle purchases without an escrow shouldn't be disputed
+            return Err(Error::DisputeWindowClosed);
         }
         if let Some(dispute) = Storage::get_dispute(&env, prompt_id, &buyer) {
             ensure(
                 dispute.status != DisputeStatus::Open,
                 Error::DisputeAlreadyOpen,
             )?;
+        }
+        // The escrowed amount is now at risk of refund rather than
+        // settlement — move it out of `pending` into `disputed` so per-asset
+        // liability reflects the dispute (#570). Applied only once every
+        // other guard above has passed, so a rejected duplicate-open attempt
+        // never touches the ledger.
+        if let Some((asset, amount)) = escrow_liability_move {
+            Storage::move_pending_to_disputed(&env, &asset, amount)?;
         }
         let dispute = PurchaseDispute {
             prompt_id,
@@ -1290,46 +1547,122 @@ impl PromptHashTrait for PromptHashContract {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
-        let mut prompt = Storage::require_prompt(&env, prompt_id)?;
-        let purchase = Storage::require_purchase(&env, prompt_id, &buyer)?;
+        // Refunds move customer funds — must respect the pause flag like
+        // every other mutating entry point, including an invariant-triggered
+        // pause from `check_asset_solvency` (#570).
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        InstanceStorage::set_reentrancy_guard(&env)?;
+
+        // Bundle disputes (#595) have prompt_id == 0 and require special refund handling
+        let is_bundle_dispute = prompt_id == 0 && Storage::get_prompt(&env, 0).is_none();
         let mut dispute = Storage::require_dispute(&env, prompt_id, &buyer)?;
         ensure(
             dispute.status == DisputeStatus::Open,
             Error::DisputeResolved,
         )?;
         dispute.resolved_at = env.ledger().timestamp();
+
         if refund {
-            let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
-            // Refund from the contract's escrowed balance (#454).  The
-            // funds were routed to the contract during purchase so that
-            // a refund is always possible without additional auth.
-            asset_client.transfer(
-                &env.current_contract_address(),
-                &buyer,
-                &purchase.original_price,
-            );
+            if is_bundle_dispute {
+                // Handle bundle dispute refund (#595)
+                if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                    let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
+                    // Refund the full bundle amount to the buyer
+                    asset_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
 
-            // Mark the purchase as revoked so the buyer can no longer claim access.
-            Storage::remove_purchase(&env, prompt_id, &buyer);
-            Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
-            dispute.status = DisputeStatus::Refunded;
+                    // Look up the bundle ID to access its prompts
+                    if let Some(bundle_id) =
+                        Storage::get_bundle_escrow_id(&env, &buyer, escrow.created_at)
+                    {
+                        if let Some(bundle_prompts) =
+                            Storage::get_bundle_purchase_prompts(&env, &buyer, bundle_id)
+                        {
+                            // Revoke access and release supply for each prompt in the bundle
+                            for index in 0..bundle_prompts.len() {
+                                let prompt_in_bundle = bundle_prompts.get(index).unwrap();
+                                Storage::remove_purchase(&env, prompt_in_bundle, &buyer);
+                                Storage::remove_prompt_from_buyer(&env, &buyer, prompt_in_bundle);
 
-            // Release the reserved supply unit back to the pool so another
-            // buyer can acquire it (#538).
-            prompt.sales_count = prompt.sales_count.saturating_sub(1);
-            Storage::update_prompt(&env, &prompt);
+                                if let Some(mut prompt) =
+                                    Storage::get_prompt(&env, prompt_in_bundle)
+                                {
+                                    prompt.sales_count = prompt
+                                        .sales_count
+                                        .checked_sub(1)
+                                        .ok_or(Error::ArithmeticOverflow)?;
+                                    Storage::update_prompt(&env, &prompt);
+                                }
+                            }
+                        }
+                    }
 
-            // Update the escrow record so the settlement admin knows
-            // the funds were already returned to the buyer.
-            if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
-                escrow.status = SettlementStatus::Refunded;
-                escrow.settled_at = env.ledger().timestamp();
-                Storage::save_purchase_escrow(&env, &escrow);
+                    // Also remove the purchase record for prompt_id == 0
+                    Storage::remove_purchase(&env, prompt_id, &buyer);
+                    dispute.status = DisputeStatus::Refunded;
+
+                    // Update the escrow record
+                    let mut escrow_updated = escrow;
+                    Storage::remove_disputed_liability(
+                        &env,
+                        &escrow_updated.asset,
+                        escrow_updated.amount,
+                    )?;
+                    escrow_updated.status = SettlementStatus::Refunded;
+                    escrow_updated.settled_at = env.ledger().timestamp();
+                    Storage::save_purchase_escrow(&env, &escrow_updated);
+                }
+            } else {
+                // Handle single prompt dispute refund
+                let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+                let purchase = Storage::require_purchase(&env, prompt_id, &buyer)?;
+                let asset_client = token::StellarAssetClient::new(&env, &prompt.asset);
+                // Refund from the contract's escrowed balance (#454).  The
+                // funds were routed to the contract during purchase so that
+                // a refund is always possible without additional auth.
+                asset_client.transfer(
+                    &env.current_contract_address(),
+                    &buyer,
+                    &purchase.original_price,
+                );
+
+                // Mark the purchase as revoked so the buyer can no longer claim access.
+                Storage::remove_purchase(&env, prompt_id, &buyer);
+                Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
+                dispute.status = DisputeStatus::Refunded;
+
+                // Release the reserved supply unit back to the pool so another
+                // buyer may purchase it (#541).
+                ensure(prompt.sales_count > 0, Error::ArithmeticOverflow)?;
+                prompt.sales_count = prompt
+                    .sales_count
+                    .checked_sub(1)
+                    .ok_or(Error::ArithmeticOverflow)?;
+                Storage::update_prompt(&env, &prompt);
+
+                // If this purchase had an escrow, transition it to `Refunded`
+                // and clear the tracked disputed liability (#541, #570).
+                if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                    Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+                    escrow.status = SettlementStatus::Refunded;
+                    escrow.settled_at = env.ledger().timestamp();
+                    Storage::save_purchase_escrow(&env, &escrow);
+                }
             }
         } else {
             dispute.status = DisputeStatus::Rejected;
+            // The escrow stays Pending, awaiting a future `settle_purchase`
+            // call — move its amount back out of `disputed` into `pending`
+            // (#570).
+            if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+                if escrow.status == SettlementStatus::Pending {
+                    Storage::move_disputed_to_pending(&env, &escrow.asset, escrow.amount)?;
+                }
+            }
         }
         Storage::save_dispute(&env, &dispute);
+        InstanceStorage::clear_reentrancy_guard(&env);
+
         Events::emit_dispute_resolved(&env, prompt_id, buyer, refund);
         Ok(())
     }
@@ -1348,8 +1681,18 @@ impl PromptHashTrait for PromptHashContract {
         buyer: Address,
     ) -> Result<(), Error> {
         caller.require_auth();
+        // Settlement moves customer funds — must respect the pause flag like
+        // every other mutating entry point, including an invariant-triggered
+        // pause from `check_asset_solvency` (#570).
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        InstanceStorage::set_reentrancy_guard(&env)?;
+
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
-        let prompt = Storage::require_prompt(&env, prompt_id)?;
+
+        // Bundle settlements (#595) have prompt_id == 0 and cannot use creator auth
+        let is_bundle_settle = prompt_id == 0 && Storage::get_prompt(&env, 0).is_none();
+        let prompt_option = Storage::get_prompt(&env, prompt_id);
 
         let mut escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
         ensure(
@@ -1367,7 +1710,10 @@ impl PromptHashTrait for PromptHashContract {
         }
 
         let now = env.ledger().timestamp();
-        let is_privileged = caller == owner || caller == prompt.creator;
+        let is_privileged = caller == owner
+            || (!is_bundle_settle
+                && prompt_option.is_some()
+                && caller == prompt_option.unwrap().creator);
         if !is_privileged {
             // Permissionless fallback: once the dispute window has closed
             // with no open dispute, anyone may finalize the escrow — this
@@ -1410,14 +1756,20 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
         }
 
+        // The escrow guards above guarantee this amount was still in the
+        // pending bucket (Pending status, no open dispute) — release it
+        // from tracked liability now that it's been paid out (#570).
+        Storage::remove_pending_liability(&env, &escrow.asset, escrow.amount)?;
+
         escrow.status = SettlementStatus::Settled;
         escrow.settled_at = now;
         Storage::save_purchase_escrow(&env, &escrow);
+        InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_prompt_purchased(
             &env,
             prompt_id,
             buyer,
-            prompt.creator,
+            plan.creator.clone(),
             escrow.amount,
             escrow.referrer,
         );
@@ -1432,6 +1784,190 @@ impl PromptHashTrait for PromptHashContract {
         Storage::get_purchase_escrow(&env, prompt_id, &buyer)
     }
 
+    /// Open a dispute against an access pass purchase. Similar to open_dispute
+    /// but uses the separate AccessPassEscrow storage to support multiple passes
+    /// per buyer (#564).
+    fn open_access_pass_dispute(
+        env: Env,
+        buyer: Address,
+        pass_id: u128,
+        reason: DisputeReason,
+    ) -> Result<(), Error> {
+        buyer.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        let now = env.ledger().timestamp();
+
+        // Verify the access pass purchase exists
+        let escrow = Storage::require_access_pass_escrow(&env, pass_id, &buyer)?;
+
+        // Only pending escrows can be disputed
+        ensure(
+            escrow.status == SettlementStatus::Pending,
+            Error::DisputeWindowClosed,
+        )?;
+
+        // Ensure within dispute window
+        ensure(now <= escrow.dispute_deadline, Error::DisputeWindowClosed)?;
+
+        // Check if a dispute is already open
+        if let Some(dispute) = Storage::get_access_pass_dispute(&env, pass_id, &buyer) {
+            ensure(
+                dispute.status != DisputeStatus::Open,
+                Error::DisputeAlreadyOpen,
+            )?;
+        }
+
+        // Move amount from pending to disputed liability
+        Storage::move_pending_to_disputed(&env, &escrow.asset, escrow.amount)?;
+
+        let dispute = PurchaseDispute {
+            prompt_id: pass_id as u64,
+            buyer: buyer.clone(),
+            reason,
+            opened_at: now,
+            resolved_at: 0,
+            status: DisputeStatus::Open,
+        };
+        Storage::save_access_pass_dispute(&env, pass_id, &buyer, &dispute);
+        Events::emit_dispute_opened(&env, pass_id as u64, buyer);
+        Ok(())
+    }
+
+    /// Resolve an access pass purchase dispute. Admin-only, similar to
+    /// resolve_dispute but for pass escrows (#564).
+    fn resolve_access_pass_dispute(
+        env: Env,
+        admin: Address,
+        pass_id: u128,
+        buyer: Address,
+        refund: bool,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        InstanceStorage::set_reentrancy_guard(&env)?;
+
+        let escrow = Storage::require_access_pass_escrow(&env, pass_id, &buyer)?;
+        let mut dispute = Storage::require_access_pass_dispute(&env, pass_id, &buyer)?;
+        ensure(
+            dispute.status == DisputeStatus::Open,
+            Error::DisputeResolved,
+        )?;
+
+        let now = env.ledger().timestamp();
+        dispute.resolved_at = now;
+
+        if refund {
+            // Refund to the buyer
+            let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
+            asset_client.transfer(&env.current_contract_address(), &buyer, &escrow.amount);
+
+            dispute.status = DisputeStatus::Refunded;
+
+            // Remove the disputed liability since it's now paid out
+            Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+
+            // Revoke the catalog pass grant so buyer can't use it anymore
+            if Storage::get_catalog_pass_purchase(&env, &escrow.payout_plan.creator, &buyer)
+                .is_some()
+            {
+                // Clear the catalog pass by removing it
+                let key = DataKey::CatalogPass(escrow.payout_plan.creator.clone(), buyer.clone());
+                env.storage().persistent().remove(&key);
+            }
+
+            // Update escrow to Refunded
+            let mut updated_escrow = escrow.clone();
+            updated_escrow.status = SettlementStatus::Refunded;
+            updated_escrow.settled_at = now;
+            Storage::save_access_pass_escrow(&env, pass_id, &buyer, &updated_escrow);
+        } else {
+            dispute.status = DisputeStatus::Rejected;
+            // Move amount back from disputed to pending
+            Storage::move_disputed_to_pending(&env, &escrow.asset, escrow.amount)?;
+        }
+
+        Storage::save_access_pass_dispute(&env, pass_id, &buyer, &dispute);
+        InstanceStorage::clear_reentrancy_guard(&env);
+        Events::emit_dispute_resolved(&env, pass_id as u64, buyer, refund);
+        Ok(())
+    }
+
+    /// Settle (release funds from) a pending access pass purchase escrow.
+    /// Similar to settle_purchase but for pass escrows (#564).
+    fn settle_access_pass_purchase(
+        env: Env,
+        caller: Address,
+        pass_id: u128,
+        buyer: Address,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+
+        InstanceStorage::set_reentrancy_guard(&env)?;
+
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        let access_pass = Storage::require_access_pass(&env, pass_id)?;
+
+        let mut escrow = Storage::require_access_pass_escrow(&env, pass_id, &buyer)?;
+        ensure(
+            escrow.status == SettlementStatus::Pending,
+            Error::DisputeResolved,
+        )?;
+
+        // Check if there's an open dispute
+        if let Some(dispute) = Storage::get_access_pass_dispute(&env, pass_id, &buyer) {
+            ensure(
+                dispute.status != DisputeStatus::Open,
+                Error::DisputeAlreadyOpen,
+            )?;
+        }
+
+        let now = env.ledger().timestamp();
+        let is_privileged = caller == owner || caller == access_pass.creator;
+
+        if !is_privileged {
+            // Permissionless settlement only after dispute window closes
+            ensure(
+                now > escrow.dispute_deadline,
+                Error::DisputeWindowNotElapsed,
+            )?;
+        }
+
+        let this_contract = env.current_contract_address();
+        let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
+        let plan = &escrow.payout_plan;
+
+        // Distribute funds according to payout plan
+        if plan.fee_amount > 0 {
+            asset_client.transfer(&this_contract, &plan.fee_wallet, &plan.fee_amount);
+        }
+
+        if plan.creator_amount > 0 {
+            asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
+        }
+
+        // Remove from pending liability since it's now been paid out
+        Storage::remove_pending_liability(&env, &escrow.asset, escrow.amount)?;
+
+        escrow.status = SettlementStatus::Settled;
+        escrow.settled_at = now;
+        Storage::save_access_pass_escrow(&env, pass_id, &buyer, &escrow);
+        InstanceStorage::clear_reentrancy_guard(&env);
+
+        Events::emit_prompt_purchased(
+            &env,
+            pass_id as u64,
+            buyer,
+            plan.creator.clone(),
+            escrow.amount,
+            None,
+        );
+        Ok(())
+    }
+
     fn get_prompts_by_creator(env: Env, creator: Address) -> Result<Vec<Prompt>, Error> {
         Ok(Storage::get_prompts_by_creator(&env, &creator))
     }
@@ -1440,12 +1976,15 @@ impl PromptHashTrait for PromptHashContract {
         Ok(Storage::get_prompts_by_buyer(&env, &buyer))
     }
 
+    /// Canonical, bounded fee-configuration entrypoint (#566). Both this
+    /// function and the deprecated `update_platform_fee` alias route through
+    /// `set_platform_fee_internal`, so every caller is held to the same
+    /// `MAX_PLATFORM_FEE` ceiling and emits the same canonical event —
+    /// neither entrypoint can be used to bypass the other's policy.
     #[only_owner]
     fn set_fee_percentage(env: Env, new_fee_percentage: u32) -> Result<(), Error> {
-        ensure(new_fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
-        InstanceStorage::set_fee_percentage(&env, &new_fee_percentage);
-        Events::emit_fee_updated(&env, new_fee_percentage);
-        Ok(())
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        set_platform_fee_internal(&env, owner, new_fee_percentage)
     }
 
     #[only_owner]
@@ -1463,21 +2002,38 @@ impl PromptHashTrait for PromptHashContract {
         InstanceStorage::get_fee_wallet(&env)
     }
 
+    /// Deprecated alias for `set_fee_percentage` (#566), kept because removing
+    /// a public entrypoint is a breaking ABI change. Delegates to the same
+    /// internal helper, so it enforces the identical bound/auth/event as the
+    /// canonical entrypoint rather than a looser or divergent policy.
     #[only_owner]
     fn update_platform_fee(env: Env, admin: Address, new_fee: u32) -> Result<(), Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
-        ensure(new_fee <= MAX_PLATFORM_FEE, Error::FeeExceedsMaximum)?;
-
-        let old_fee = InstanceStorage::get_fee_percentage(&env);
-        InstanceStorage::set_fee_percentage(&env, &new_fee);
-        Events::emit_platform_fee_updated(&env, old_fee, new_fee, admin);
-        Ok(())
+        set_platform_fee_internal(&env, admin, new_fee)
     }
 
     fn get_platform_fee(env: Env) -> u32 {
         InstanceStorage::get_fee_percentage(&env)
+    }
+
+    /// One-time post-upgrade fix for deployments where the legacy
+    /// `set_fee_percentage` (previously bounded only by `MAX_BPS`, i.e. up to
+    /// 100%) left a stored fee above the now-unified `MAX_PLATFORM_FEE`
+    /// ceiling. Clamps that value down; a no-op if it's already within
+    /// bound, so it is safe to call repeatedly (#566).
+    #[only_owner]
+    fn migrate_platform_fee_bound(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        let current_fee = InstanceStorage::get_fee_percentage(&env);
+        if current_fee <= MAX_PLATFORM_FEE {
+            return Ok(());
+        }
+        set_platform_fee_internal(&env, admin, MAX_PLATFORM_FEE)
     }
 
     fn get_xlm_sac(env: Env) -> Option<Address> {
@@ -1659,10 +2215,105 @@ impl PromptHashTrait for PromptHashContract {
         Storage::extend_all_ttl(&env);
         Ok(())
     }
+
+    fn get_asset_liability(env: Env, asset: Address) -> AssetLiability {
+        Storage::get_asset_liability(&env, &asset)
+    }
+
+    fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency {
+        compute_asset_solvency(&env, &asset)
+    }
+
+    /// Permissionless invariant check: compares tracked liability against the
+    /// contract's actual SAC balance for `asset` and pauses the contract if
+    /// the balance no longer covers what's owed (#570). Intended to be
+    /// callable by an off-chain operational monitor on a schedule, not just
+    /// the owner — catching drift early matters more than gating who can look.
+    fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error> {
+        let solvency = compute_asset_solvency(&env, &asset);
+        if solvency.surplus < 0 {
+            InstanceStorage::set_pause_status(&env, true);
+            Events::emit_contract_paused_state_changed(&env, true);
+            Events::emit_solvency_violation_detected(
+                &env,
+                asset,
+                solvency.tracked_liability,
+                solvency.actual_balance,
+            );
+        }
+        Ok(solvency)
+    }
+
+    /// One-time backfill for a deployment upgrading into this feature: adds a
+    /// single pre-existing Pending/Disputed escrow's amount into the
+    /// per-asset liability ledger. A no-op (Ok) if this exact escrow was
+    /// already migrated, so it is safe to retry (#570).
+    #[only_owner]
+    fn migrate_asset_liability(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        if Storage::is_escrow_liability_migrated(&env, prompt_id, &buyer) {
+            return Ok(());
+        }
+
+        let escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
+        if escrow.status == SettlementStatus::Pending {
+            let dispute_open = Storage::get_dispute(&env, prompt_id, &buyer)
+                .map(|d| d.status == DisputeStatus::Open)
+                .unwrap_or(false);
+            if dispute_open {
+                Storage::add_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+            } else {
+                Storage::add_pending_liability(&env, &escrow.asset, escrow.amount)?;
+            }
+        }
+        Storage::mark_escrow_liability_migrated(&env, prompt_id, &buyer);
+        Ok(())
+    }
 }
 
 #[contractimpl(contracttrait)]
 impl Ownable for PromptHashContract {}
+
+/// Single write path for the platform fee (#566). `set_fee_percentage`,
+/// `update_platform_fee`, and `migrate_platform_fee_bound` all delegate here
+/// so the bound, storage key, and emitted event can never diverge between
+/// entrypoints.
+fn set_platform_fee_internal(env: &Env, actor: Address, new_fee: u32) -> Result<(), Error> {
+    ensure(new_fee <= MAX_PLATFORM_FEE, Error::FeeExceedsMaximum)?;
+    let old_fee = InstanceStorage::get_fee_percentage(env);
+    InstanceStorage::set_fee_percentage(env, &new_fee);
+    Events::emit_platform_fee_updated(env, old_fee, new_fee, actor, env.ledger().sequence());
+    Ok(())
+}
+
+/// Compares tracked per-asset liability against the contract's actual SAC
+/// balance for `asset` (#570). `surplus` is the excess above what's owed —
+/// rounding dust or an accidental direct transfer, not customer liability —
+/// and goes negative only if the balance no longer covers tracked liability.
+fn compute_asset_solvency(env: &Env, asset: &Address) -> AssetSolvency {
+    let liability = Storage::get_asset_liability(env, asset);
+    let tracked_liability = liability
+        .pending
+        .checked_add(liability.disputed)
+        .unwrap_or(i128::MAX);
+    let actual_balance = token::Client::new(env, asset).balance(&env.current_contract_address());
+    let surplus = actual_balance
+        .checked_sub(tracked_liability)
+        .unwrap_or(i128::MIN);
+    AssetSolvency {
+        tracked_liability,
+        actual_balance,
+        surplus,
+    }
+}
 
 fn execute_buy(
     env: &Env,
@@ -1875,6 +2526,9 @@ fn execute_buy_with_required_price(
         payout_plan,
     };
     Storage::save_purchase_escrow(env, &escrow);
+    // Escrow was just created Pending — its full amount is now tracked
+    // liability for this asset until settled or refunded (#570).
+    Storage::add_pending_liability(env, &escrow.asset, escrow.amount)?;
 
     InstanceStorage::clear_reentrancy_guard(env);
 
@@ -2031,6 +2685,53 @@ fn validate_no_duplicate_recipients(splits: &Vec<Split>) -> Result<(), Error> {
     Ok(())
 }
 
+/**
+ * Dry-run validation for bulk purchases (#438).
+ * Validates each prompt ID without state mutation, returns per-item validity.
+ * Frontend uses this to filter invalid IDs before submitting the bulk purchase.
+ */
+fn validate_bulk_purchase_items(
+    env: &Env,
+    buyer: &Address,
+    prompt_ids: &Vec<u64>,
+    payment_amounts: &Vec<i128>,
+) -> Result<Vec<bool>, Error> {
+    ensure(
+        prompt_ids.len() == payment_amounts.len(),
+        Error::InvalidPrice,
+    )?;
+    ensure(
+        !prompt_ids.is_empty() && prompt_ids.len() <= MAX_BULK_PURCHASE_SIZE,
+        Error::BulkPurchaseTooLarge,
+    )?;
+    validate_no_duplicate_prompt_ids(prompt_ids)?;
+
+    let mut validity = Vec::new(env);
+    let now = env.ledger().timestamp();
+
+    for i in 0..prompt_ids.len() {
+        let prompt_id = prompt_ids.get(i).unwrap();
+        let payment_amount = payment_amounts.get(i).unwrap();
+
+        // Check each condition independently; record true if all pass
+        let is_valid = match Storage::get_prompt(env, prompt_id) {
+            Some(prompt) => {
+                prompt.status == PromptSaleStatus::Active
+                    && prompt.creator != *buyer
+                    && !Storage::has_active_purchase(env, prompt_id, buyer, now)
+                    && (prompt.expires_at == 0 || prompt.expires_at >= now)
+                    && payment_amount >= prompt.price_stroops
+                    && reserve_supply(prompt.sales_count, prompt.max_supply).is_ok()
+            }
+            None => false,
+        };
+
+        validity.push_back(is_valid);
+    }
+
+    Ok(validity)
+}
+
 fn validate_no_duplicate_prompt_ids(prompt_ids: &Vec<u64>) -> Result<(), Error> {
     for i in 0..prompt_ids.len() {
         for j in (i + 1)..prompt_ids.len() {
@@ -2059,7 +2760,7 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
 /// (#540/#565). There is no plain-build API for a contract's raw identity
 /// hash, so this hashes the current contract address's string encoding —
 /// available without enabling the SDK's `hazmat-address` feature.
-fn current_contract_id_hash(env: &Env) -> BytesN<32> {
+pub fn current_contract_id_hash(env: &Env) -> BytesN<32> {
     env.crypto()
         .sha256(&env.current_contract_address().to_string().to_bytes())
         .to_bytes()

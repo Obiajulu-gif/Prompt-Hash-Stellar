@@ -1,8 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { withObservability } from "../../src/lib/observability/wrapper";
-import { buildAndSignReceipt, type ReceiptContractConfig } from "../../src/lib/stellar/receipts";
+import {
+  buildAndSignReceipt,
+  type ReceiptContractConfig,
+} from "../../src/lib/stellar/receipts";
 import connectDb from "../../server/src/db/connectDb";
 import Purchase from "../../server/src/models/Purchase";
+import {
+  RECEIPT_ERROR_KEYS,
+  PURCHASE_KEYS,
+} from "../../src/lib/i18n/serverMessages";
 
 /**
  * GET /api/prompts/receipt?promptId=&buyerWallet=&txHash=
@@ -11,6 +18,8 @@ import Purchase from "../../server/src/models/Purchase";
  * optional — when omitted, the most recent matching `Purchase` record is
  * used only to look up the transaction hash; every other field on the
  * receipt is re-derived from Stellar RPC, never from the database row.
+ *
+ * Error responses include i18n keys for user-facing messages.
  */
 function getServerConfig(): ReceiptContractConfig {
   const rpcUrl =
@@ -47,26 +56,29 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
 
   try {
     let txHash = typeof txHashParam === "string" ? txHashParam : undefined;
+    let purchase = null;
 
-    if (!txHash) {
-      await connectDb();
-      const purchase = await Purchase.findOne({
-        promptId: String(promptId),
-        buyerWallet: String(buyerWallet).toLowerCase(),
-      }).sort({ createdAt: -1 });
+    await connectDb();
+    purchase = await Purchase.findOne({
+      promptId: String(promptId),
+      buyerWallet: String(buyerWallet).toLowerCase(),
+    }).sort({ createdAt: -1 });
 
-      if (!purchase?.txHash) {
-        res
-          .status(404)
-          .json({ error: "No purchase transaction found for this prompt/buyer." });
-        return;
-      }
-      txHash = purchase.txHash;
+    if (!txHash && !purchase?.txHash) {
+      res.status(404).json({
+        error: RECEIPT_ERROR_KEYS.NOT_FOUND,
+        code: "RECEIPT_NOT_FOUND",
+      });
+      return;
     }
+    txHash = txHash || purchase?.txHash;
 
     const config = getServerConfig();
     if (!config.promptHashContractId) {
-      res.status(500).json({ error: "PUBLIC_PROMPT_HASH_CONTRACT_ID is not configured." });
+      res.status(500).json({
+        error: RECEIPT_ERROR_KEYS.CONFIG_MISSING,
+        code: "CONFIGURATION_ERROR",
+      });
       return;
     }
 
@@ -77,10 +89,36 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       txHash,
     });
 
-    res.status(200).json(signed);
+    // Map status/resolution to i18n keys for frontend
+    const purchaseStatus = purchase?.status || "purchased";
+    const statusKey =
+      (PURCHASE_KEYS.STATUS as Record<string, string>)[
+        purchaseStatus.toUpperCase()
+      ] || PURCHASE_KEYS.STATUS.PURCHASED;
+
+    const disputeResolution = purchase?.disputeResolution;
+    const resolutionKey = disputeResolution
+      ? (PURCHASE_KEYS.RESOLUTION as Record<string, string>)[
+          disputeResolution.toUpperCase()
+        ]
+      : null;
+
+    res.status(200).json({
+      ...signed,
+      purchaseStatus,
+      purchaseStatusKey: statusKey,
+      disputeResolution,
+      disputeResolutionKey: resolutionKey,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to build receipt.";
-    res.status(400).json({ error: message });
+    const message =
+      error instanceof Error ? error.message : RECEIPT_ERROR_KEYS.BUILD_FAILED;
+    req.logger?.error({ error: message }, "Receipt build failed");
+    res.status(400).json({
+      error: RECEIPT_ERROR_KEYS.BUILD_FAILED,
+      code: "RECEIPT_BUILD_FAILED",
+      details: message,
+    });
   }
 }
 

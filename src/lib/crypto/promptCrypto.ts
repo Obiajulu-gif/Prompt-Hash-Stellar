@@ -3,6 +3,8 @@ import sodium from "libsodium-wrappers";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const ENVELOPE_VERSION = 2;
+const ENVELOPE_ALGORITHM = "AES-256-GCM";
 
 function cloneBytes(value: Uint8Array) {
   return Uint8Array.from(value);
@@ -73,6 +75,40 @@ export async function hashPromptPlaintext(plaintext: string) {
   return bytesToHex(new Uint8Array(digest));
 }
 
+export interface PromptEnvelopeMetadata {
+  promptId: string;
+  creator: string;
+  networkPassphrase: string;
+  contentHash: string;
+  keyId: string;
+}
+
+export interface EncryptedPromptEnvelope extends PromptEnvelopeMetadata {
+  version: typeof ENVELOPE_VERSION;
+  algorithm: typeof ENVELOPE_ALGORITHM;
+  nonce: string;
+  ciphertext: string;
+}
+
+function canonicalizeEnvelopeAad(metadata: PromptEnvelopeMetadata) {
+  return JSON.stringify({
+    contentHash: metadata.contentHash,
+    creator: metadata.creator,
+    keyId: metadata.keyId,
+    networkPassphrase: metadata.networkPassphrase,
+    promptId: metadata.promptId,
+  });
+}
+
+function assertSupportedEnvelope(envelope: EncryptedPromptEnvelope) {
+  if (envelope.version !== ENVELOPE_VERSION) {
+    throw new Error(`Unsupported encrypted prompt envelope version: ${envelope.version}`);
+  }
+  if (envelope.algorithm !== ENVELOPE_ALGORITHM) {
+    throw new Error(`Unsupported encrypted prompt envelope algorithm: ${envelope.algorithm}`);
+  }
+}
+
 /** Normalize on-chain or API content hashes to lowercase hex (64 chars). */
 export function normalizeContentHash(hash: string | Uint8Array): string {
   if (hash instanceof Uint8Array) {
@@ -117,6 +153,41 @@ export async function encryptPromptPlaintext(
   };
 }
 
+export async function encryptPromptEnvelope(
+  plaintext: string,
+  metadata: Omit<PromptEnvelopeMetadata, "contentHash"> & { contentHash?: string },
+  rawKey?: Uint8Array,
+) {
+  const contentHash = metadata.contentHash ?? (await hashPromptPlaintext(plaintext));
+  const envelopeMetadata: PromptEnvelopeMetadata = {
+    promptId: metadata.promptId,
+    creator: metadata.creator,
+    networkPassphrase: metadata.networkPassphrase,
+    contentHash,
+    keyId: metadata.keyId,
+  };
+  const keyBytes = rawKey ?? (await generateAesKey());
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const importedKey = await importAesKey(keyBytes, ["encrypt"]);
+  const aad = encoder.encode(canonicalizeEnvelopeAad(envelopeMetadata));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: cloneBytes(iv), additionalData: cloneBytes(aad) },
+    importedKey,
+    cloneBytes(encoder.encode(plaintext)),
+  );
+
+  return {
+    keyBytes,
+    envelope: {
+      version: ENVELOPE_VERSION,
+      algorithm: ENVELOPE_ALGORITHM,
+      nonce: bytesToBase64(iv),
+      ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+      ...envelopeMetadata,
+    } satisfies EncryptedPromptEnvelope,
+  };
+}
+
 export async function decryptPromptCiphertext(
   encryptedPrompt: string,
   encryptionIv: string,
@@ -127,6 +198,36 @@ export async function decryptPromptCiphertext(
     { name: "AES-GCM", iv: cloneBytes(base64ToBytes(encryptionIv)) },
     importedKey,
     cloneBytes(base64ToBytes(encryptedPrompt)),
+  );
+
+  return decoder.decode(plaintext);
+}
+
+export async function decryptPromptEnvelope(
+  envelope: EncryptedPromptEnvelope,
+  rawKey: Uint8Array,
+  expectedMetadata: Partial<PromptEnvelopeMetadata> = {},
+) {
+  assertSupportedEnvelope(envelope);
+  for (const [field, expected] of Object.entries(expectedMetadata)) {
+    if (
+      expected !== undefined &&
+      envelope[field as keyof PromptEnvelopeMetadata] !== expected
+    ) {
+      throw new Error(`Encrypted prompt envelope ${field} mismatch.`);
+    }
+  }
+
+  const importedKey = await importAesKey(rawKey, ["decrypt"]);
+  const aad = encoder.encode(canonicalizeEnvelopeAad(envelope));
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: cloneBytes(base64ToBytes(envelope.nonce)),
+      additionalData: cloneBytes(aad),
+    },
+    importedKey,
+    cloneBytes(base64ToBytes(envelope.ciphertext)),
   );
 
   return decoder.decode(plaintext);

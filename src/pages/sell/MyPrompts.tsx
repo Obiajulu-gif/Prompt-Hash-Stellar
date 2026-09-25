@@ -2,16 +2,23 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   CalendarDays,
+  CheckSquare,
   Eye,
+  Flag,
   Loader2,
   LockKeyhole,
   PackagePlus,
+  Pause,
+  Play,
   ShoppingBag,
+  Square,
   ToggleLeft,
   ToggleRight,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -51,6 +58,31 @@ interface MyPromptsProps {
   onCreateNew?: () => void;
 }
 
+/** Fetch DB-backed moderation state for a creator's prompts. */
+async function fetchCreatorModeration(
+  walletAddress: string,
+): Promise<Record<string, { status: string; reason: string | null }>> {
+  try {
+    const res = await fetch(
+      `/api/prompts/index?walletAddress=${encodeURIComponent(walletAddress)}`,
+    );
+    if (!res.ok) return {};
+    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const byId: Record<string, { status: string; reason: string | null }> = {};
+    for (const item of list) {
+      const key = String(item.onChainId ?? "");
+      if (!key) continue;
+      byId[key] = {
+        status: typeof item.moderationStatus === "string" ? item.moderationStatus : "none",
+        reason: typeof item.moderationReason === "string" ? item.moderationReason : null,
+      };
+    }
+    return byId;
+  } catch {
+    return {};
+  }
+}
+
 const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const queryClient = useQueryClient();
   const { address, signMessage, signTransaction } = useWallet();
@@ -85,6 +117,10 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     queryFn: async () =>
       address ? getPromptsByCreator(browserStellarConfig, address) : [],
     enabled: Boolean(address),
+    // Moderation state changes must not be served from a stale cache.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
   });
 
   const purchasedQuery = useQuery({
@@ -94,8 +130,29 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     enabled: Boolean(address),
   });
 
+  // Creator-facing moderation state (DB-backed). Re-fetched on focus so a
+  // restrict/reinstate action is reflected without a manual refresh.
+  const moderationQuery = useQuery({
+    queryKey: ["creator-moderation", address],
+    queryFn: async () =>
+      address ? fetchCreatorModeration(address) : {},
+    enabled: Boolean(address),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
+  });
+
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
+  const moderationByPromptId = moderationQuery.data ?? {};
+
+  // Ensure creator dashboard + detail caches are cleared when the page mounts so
+  // moderation decisions are never served from a stale persisted cache.
+  useEffect(() => {
+    if (!address) return;
+    queryClient.invalidateQueries({ queryKey: ["created-prompts", address] });
+    queryClient.invalidateQueries({ queryKey: ["creator-moderation", address] });
+  }, [queryClient, address]);
 
   useEffect(() => {
     if (address) {
@@ -562,22 +619,44 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
       </section>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-semibold text-white">Created by me</h2>
             <p className="mt-2 text-sm text-slate-400">
               Update pricing, pause listings, and track license sales without changing ownership.
             </p>
           </div>
-          {archivedCreatedPrompts.length > 0 && (
-            <button
-              onClick={() => setShowArchived((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
-            >
-              <Archive className="h-3.5 w-3.5" />
-              {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {activeCreatedPrompts.length > 0 && (
+              <button
+                type="button"
+                onClick={
+                  selectedPromptIds.size === activeCreatedPrompts.length
+                    ? handleDeselectAll
+                    : handleSelectAllActive
+                }
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition border border-white/10 rounded-lg px-3 py-2 bg-white/5"
+              >
+                {selectedPromptIds.size === activeCreatedPrompts.length ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Square className="h-3.5 w-3.5 text-slate-400" />
+                )}
+                {selectedPromptIds.size === activeCreatedPrompts.length
+                  ? "Deselect All"
+                  : `Select All (${activeCreatedPrompts.length})`}
+              </button>
+            )}
+            {archivedCreatedPrompts.length > 0 && (
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
+              </button>
+            )}
+          </div>
         </div>
 
         <BulkListingActionsBar
@@ -651,17 +730,32 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                           </p>
                         </div>
                         {/* Status badge */}
-                        {prompt.active ? (
-                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
-                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                            Inactive
-                          </span>
-                        )}
+                        {(() => {
+                          const mod = moderationByPromptId[prompt.id.toString()];
+                          if (mod && mod.status && mod.status !== "none") {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                                <Flag className="h-3 w-3" />
+                                {mod.status === "retired" ? "Retired" : "Restricted"}
+                                {mod.reason ? ` · ${mod.reason.replace(/_/g, " ")}` : ""}
+                              </span>
+                            );
+                          }
+                          if (prompt.active) {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                                Active
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                              Inactive
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
                         <div>
@@ -747,7 +841,8 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       </Button>
                     </CardFooter>
                   </Card>
-                ))}
+                );
+              })}
               </div>
             )}
 
@@ -796,6 +891,12 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           </div>
         )}
       </section>
+
+      <OwnershipTransferPanel
+        walletAddress={address}
+        createdPrompts={createdPrompts}
+        signMessage={signMessage ?? undefined}
+      />
 
       <section className="space-y-4">
         <div>

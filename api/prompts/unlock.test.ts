@@ -1,10 +1,11 @@
 // @vitest-environment node
 
 import { Buffer } from "buffer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   buildChallengeMessage,
+  computeListingSnapshotHash,
   createChallengeToken,
   globalNonceLedger,
 } from "../../src/lib/auth/challenge";
@@ -52,6 +53,7 @@ vi.mock("../../src/lib/observability/metrics", () => ({
     trackUnlockSuccess: vi.fn(),
     trackUnlockFailure: vi.fn(),
     trackRateLimitHit: vi.fn(),
+    trackUnlockLatency: vi.fn(),
   },
 }));
 
@@ -59,11 +61,17 @@ vi.mock("../../server/src/services/auditTrail", () => ({
   recordAuditEvent: vi.fn(),
 }));
 
-vi.mock("../../server/src/services/webhookDispatcher", () => ({
-  dispatchEvent: vi.fn().mockResolvedValue(undefined),
-}));
-
 import handler from "./unlock";
+
+const TEST_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+const TEST_CONTRACT_ID =
+  "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const TEST_CHALLENGE_CONTEXT = {
+  origin: "",
+  networkPassphrase: TEST_NETWORK_PASSPHRASE,
+  contractId: TEST_CONTRACT_ID,
+  action: "unlock",
+};
 
 async function setupUnlockFixture(plaintext = PLAINTEXT) {
   const buyer = Keypair.random();
@@ -72,8 +80,8 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
   process.env.CHALLENGE_TOKEN_SECRET = "integration-test-challenge-secret";
   process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
   process.env.UNLOCK_PRIVATE_KEY = "e".repeat(32);
-  process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID =
-    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+  process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID = TEST_CONTRACT_ID;
+  process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE = TEST_NETWORK_PASSPHRASE;
   process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT = buyer.publicKey();
   process.env.PUBLIC_STELLAR_RPC_URL = "https://soroban-testnet.stellar.org";
 
@@ -82,6 +90,9 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
     process.env.CHALLENGE_TOKEN_SECRET,
     buyer.publicKey(),
     promptId,
+    Date.now(),
+    5 * 60 * 1000,
+    TEST_CHALLENGE_CONTEXT,
   );
   const signedMessage = Buffer.from(
     buyer.sign(Buffer.from(challenge.challenge, "utf8")),
@@ -92,7 +103,7 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
     ledgerSequence: 123456,
     ledgerHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
     networkId: "testnet",
-    contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    contractId: TEST_CONTRACT_ID,
     checkedAt: Date.now(),
   });
   hasAccessMock.mockResolvedValue(true);
@@ -235,10 +246,11 @@ describe("unlock challenge message contract", () => {
       nonce: "nonce-123",
       issuedAt: 1_700_000_000_000,
       expiresAt: 1_700_000_000_000,
+      ...TEST_CHALLENGE_CONTEXT,
     };
 
     expect(buildChallengeMessage(payload)).toBe(
-      "prompt-hash unlock:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7:nonce-123:1700000000000:1700000000000",
+      "prompt-hash:unlock::Test SDF Network ; September 2015:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC:GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789:7::::nonce-123:1700000000000:1700000000000",
     );
   });
 });
@@ -285,6 +297,7 @@ describe("unlock API replay, expiry, and missing-field rejection", () => {
       promptId,
       Date.now() - 60_000, // 1 minute ago
       1000,                 // 1 second TTL
+      TEST_CHALLENGE_CONTEXT,
     );
 
     const { statusCode, responseData } = await invokeUnlock({
@@ -466,6 +479,7 @@ describe("unlock API idempotency", () => {
       promptId,
       Date.now() - 60_000,
       1000,
+      TEST_CHALLENGE_CONTEXT,
     );
 
     // First request — fails with expired challenge
@@ -583,5 +597,263 @@ describe("unlock API ledger state verification (#545)", () => {
 
     expect(statusCode).toBe(403);
     expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+  });
+});
+
+describe("unlock API challenge-token secret rotation grace period (#609)", () => {
+  const PREVIOUS_SECRET = "rotation-test-previous-secret";
+  const BASE_TIME = 1_700_000_000_000;
+  const LONG_TTL_MS = 10 * 60 * 1000; // outlives every rotation window used below
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS;
+    delete process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP;
+    delete process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS;
+  });
+
+  it("accepts a token signed with the current secret regardless of rotation state", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+  });
+
+  it("accepts a token signed with the previous secret while inside the grace period", async () => {
+    const { buyer, promptId } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const challenge = createChallengeToken(
+      PREVIOUS_SECRET,
+      buyer.publicKey(),
+      promptId,
+      BASE_TIME,
+      LONG_TTL_MS,
+      TEST_CHALLENGE_CONTEXT,
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    vi.setSystemTime(BASE_TIME + 500); // 500ms after rotation, inside the 1000ms grace window
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+    expect(responseData.plaintext).toBeDefined();
+  });
+
+  it("rejects a token signed with the previous secret once the grace period has elapsed", async () => {
+    const { buyer, promptId } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP = String(BASE_TIME);
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const challenge = createChallengeToken(
+      PREVIOUS_SECRET,
+      buyer.publicKey(),
+      promptId,
+      BASE_TIME,
+      LONG_TTL_MS,
+      TEST_CHALLENGE_CONTEXT,
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    vi.setSystemTime(BASE_TIME + 1500); // 1500ms after rotation, past the 1000ms grace window
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.TEMPORARY_FAILURE);
+  });
+
+  it("disables the previous-secret fallback entirely when CHALLENGE_TOKEN_ROTATION_TIMESTAMP is missing", async () => {
+    const { buyer, promptId } = await setupUnlockFixture();
+    process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS = PREVIOUS_SECRET;
+    delete process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP;
+    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS = "1000";
+
+    const challenge = createChallengeToken(
+      PREVIOUS_SECRET,
+      buyer.publicKey(),
+      promptId,
+      BASE_TIME,
+      LONG_TTL_MS,
+      TEST_CHALLENGE_CONTEXT,
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    vi.setSystemTime(BASE_TIME + 10); // well inside what would have been the grace window
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(400);
+    expect(responseData.code).toBe(ErrorCode.TEMPORARY_FAILURE);
+  });
+});
+
+describe("unlock API listing snapshot binding (#698)", () => {
+  const CREATOR = "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalNonceLedger.clear();
+    clearIdempotencyCache();
+  });
+
+  const snapshot = {
+    promptId: "42",
+    owner: CREATOR,
+    priceStroops: "1234567",
+    asset: "ASSET-1",
+    version: "3",
+    expiresAt: "1700000000",
+  };
+
+  it("accepts a valid purchase when the current listing matches the signed snapshot", async () => {
+    const buyer = Keypair.random();
+    const promptId = "42";
+    process.env.CHALLENGE_TOKEN_SECRET = "snapshot-test-secret";
+    process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
+    process.env.UNLOCK_PRIVATE_KEY = "e".repeat(32);
+
+    const signedHash = computeListingSnapshotHash(snapshot);
+    const challenge = createChallengeToken(
+      process.env.CHALLENGE_TOKEN_SECRET,
+      buyer.publicKey(),
+      promptId,
+      Date.now(),
+      5 * 60 * 1000,
+      { ...TEST_CHALLENGE_CONTEXT, listingSnapshotHash: signedHash },
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    verifyEntitlementMock.mockResolvedValue({ hasAccess: true, ledgerSequence: 1, checkedAt: Date.now() });
+    hasAccessMock.mockResolvedValue(true);
+    getPromptMock.mockResolvedValue({
+      id: 42n,
+      creator: CREATOR,
+      title: "Test",
+      contentHash: CONTENT_HASH,
+      encryptedPrompt: "encrypted",
+      encryptionIv: "iv",
+      wrappedKey: "wrapped",
+      priceStroops: 1234567n,
+      asset: "ASSET-1",
+      revision: 3,
+      expiresAt: 1700000000,
+    });
+    unwrapPromptKeyMock.mockResolvedValue(new Uint8Array(32));
+    decryptPromptCiphertextMock.mockResolvedValue(PLAINTEXT);
+    hashPromptPlaintextMock.mockResolvedValue(CONTENT_HASH);
+
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(200);
+  });
+
+  it("rejects a stale listing when the current listing drifted from the signed snapshot", async () => {
+    const buyer = Keypair.random();
+    const promptId = "42";
+    process.env.CHALLENGE_TOKEN_SECRET = "snapshot-test-secret";
+    process.env.UNLOCK_PUBLIC_KEY = "d".repeat(32);
+    process.env.UNLOCK_PRIVATE_KEY = "e".repeat(32);
+
+    const signedHash = computeListingSnapshotHash(snapshot);
+    const challenge = createChallengeToken(
+      process.env.CHALLENGE_TOKEN_SECRET,
+      buyer.publicKey(),
+      promptId,
+      Date.now(),
+      5 * 60 * 1000,
+      { ...TEST_CHALLENGE_CONTEXT, listingSnapshotHash: signedHash },
+    );
+    const signedMessage = Buffer.from(
+      buyer.sign(Buffer.from(challenge.challenge, "utf8")),
+    ).toString("base64");
+
+    verifyEntitlementMock.mockResolvedValue({ hasAccess: true, ledgerSequence: 1, checkedAt: Date.now() });
+    hasAccessMock.mockResolvedValue(true);
+    // Current on-chain price no longer matches the snapshot the buyer signed.
+    getPromptMock.mockResolvedValue({
+      id: 42n,
+      creator: CREATOR,
+      title: "Test",
+      contentHash: CONTENT_HASH,
+      encryptedPrompt: "encrypted",
+      encryptionIv: "iv",
+      wrappedKey: "wrapped",
+      priceStroops: 9999999n,
+      asset: "ASSET-1",
+      revision: 3,
+      expiresAt: 1700000000,
+    });
+
+    const { statusCode, responseData } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+
+    expect(statusCode).toBe(409);
+    expect(responseData.code).toBe(ErrorCode.STALE_PROMPT_TERMS);
+    expect(String(responseData.error)).toContain("listing changed");
+  });
+
+  it("is backward compatible when a challenge carries no listing snapshot hash", async () => {
+    const { buyer, promptId, challenge, signedMessage } = await setupUnlockFixture();
+    const { statusCode } = await invokeUnlock({
+      token: challenge.token,
+      promptId,
+      address: buyer.publicKey(),
+      signedMessage,
+    });
+    expect(statusCode).toBe(200);
   });
 });

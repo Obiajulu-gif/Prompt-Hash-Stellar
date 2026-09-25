@@ -320,6 +320,19 @@ For large-scale deployments:
 - Use HTTPS for all API communications
 - Implement authentication for admin endpoints
 
+## Atomic Listing Updates & Index Refresh
+
+To prevent search result inconsistencies when creators update listing prices or sale status:
+
+1. **State Machine (`searchIndexStatus`)**:
+   - `pending`: Listing changes submitted; search index refresh in progress.
+   - `synced`: MongoDB records, query cache invalidations, and search indexes are fully synchronized with on-chain state.
+   - `failed`: An indexing or cache invalidation error occurred. Contains `searchIndexError` detailing the failure.
+
+2. **Retry & Repair Path**:
+   - `refreshPromptIndex(promptId)` atomically transitions status and refreshes caches.
+   - `retryFailedIndexRefreshes()` scans failed index statuses and automatically triggers retries.
+
 ## Future Enhancements
 
 Potential improvements:

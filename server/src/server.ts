@@ -1,6 +1,6 @@
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
-import express from "express";
+import express, { type Application } from "express";
 import { TestPromptProxy } from "./controllers/controllers";
 import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
@@ -13,9 +13,19 @@ import searchRouter from "./routes/searchRoutes";
 import { fulfillmentRouter } from "./routes/fulfillmentRoutes";
 import { reviewRouter } from "./routes/reviewRoutes";
 import { notificationRouter } from "./routes/notificationRoutes";
+import { adminRateLimitRouter } from "./routes/adminRateLimitRoutes";
+import { payoutLedgerRouter } from "./routes/payoutLedgerRoutes";
+import { entitlementRouter } from "./routes/entitlementRoutes";
+import { bundleRouter } from "./routes/bundleRoutes";
+import { jobRouter } from "./routes/jobRoutes";
+import {
+  GetOpenApiSchema,
+  GetOpenApiExplorer,
+} from "./controllers/docsControllers";
 import { runBackup, getBackupHealth } from "./services/backupService";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
+import { startWebhookOutboxWorker } from "./services/webhookOutboxWorker";
 import connectDb from "./db/connectDb";
 import { runMigrations } from "./db/migrationRunner";
 import {
@@ -24,6 +34,7 @@ import {
   strictLimiter,
   chatLimiter,
 } from "./middleware/rateLimiter";
+import { correlationMiddleware } from "./middleware/correlation";
 
 // ── Sentry backend monitoring (#332) ─────────────────────────────────────────
 // Set SENTRY_DSN in the server .env to enable exception capture.
@@ -31,7 +42,9 @@ if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV ?? "development",
-    tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1"),
+    tracesSampleRate: parseFloat(
+      process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1",
+    ),
   });
 }
 
@@ -41,6 +54,7 @@ const port = 5000;
 
 // Sentry error handler should be registered after routes (#332).
 app.use(express.json());
+app.use(correlationMiddleware);
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
 // Global rate limit: 100 requests per 15 minutes per IP.
@@ -60,6 +74,15 @@ app.use("/api/search", searchRouter);
 app.use("/api/fulfillment", strictLimiter, fulfillmentRouter);
 app.use("/api/reviews", reviewRouter);
 app.use("/api/notifications", authLimiter, notificationRouter);
+app.use("/api/admin/rate-limits", adminRateLimitRouter);
+app.use("/api/payouts", payoutLedgerRouter);
+app.use("/api/entitlements", entitlementRouter);
+app.use("/api/bundles", bundleRouter);
+app.use("/api/jobs", jobRouter);
+
+// Machine-readable API schema + interactive explorer (#713).
+app.get("/api/openapi.json", GetOpenApiSchema);
+app.get("/api/docs", GetOpenApiExplorer);
 
 app.post("/api/test-prompt", strictLimiter, TestPromptProxy);
 
@@ -81,12 +104,52 @@ app.get("/health", async (req, res) => {
 // Sentry error handler must be registered after all routes (#332).
 // expressErrorHandler is available in @sentry/node v7; v8+ uses setupExpressErrorHandler.
 if (process.env.SENTRY_DSN) {
-  if (typeof (Sentry as Record<string, unknown>).setupExpressErrorHandler === "function") {
-    (Sentry as unknown as { setupExpressErrorHandler: (app: typeof app) => void }).setupExpressErrorHandler(app);
-  } else if (typeof (Sentry as Record<string, unknown>).expressErrorHandler === "function") {
-    app.use((Sentry as unknown as { expressErrorHandler: () => import("express").ErrorRequestHandler }).expressErrorHandler());
+  if (
+    typeof (Sentry as Record<string, unknown>).setupExpressErrorHandler ===
+    "function"
+  ) {
+    (
+      Sentry as unknown as {
+        setupExpressErrorHandler: (app: typeof app) => void;
+      }
+    ).setupExpressErrorHandler(app);
+  } else if (
+    typeof (Sentry as Record<string, unknown>).expressErrorHandler ===
+    "function"
+  ) {
+    app.use(
+      (
+        Sentry as unknown as {
+          expressErrorHandler: () => import("express").ErrorRequestHandler;
+        }
+      ).expressErrorHandler(),
+    );
   }
 }
+
+// Global Express error handler to print error logs with Correlation IDs
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    const correlationId = req.correlationId;
+    console.error(
+      `[Express Global Error] Correlation ID: ${correlationId} |`,
+      err,
+    );
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: err.message || "Internal Server Error",
+        correlationId,
+      });
+    } else {
+      next(err);
+    }
+  },
+);
 
 async function start() {
   try {
@@ -107,13 +170,19 @@ async function start() {
         console.error("Failed to start Soroban Indexer:", err);
       });
 
+      // Start the durable webhook outbox delivery worker (#536).
+      startWebhookOutboxWorker();
+
       // DAILY AUTOMATED BACKUP — runs immediately on startup then every 24 h.
       // Use BACKUP_S3_BUCKET env var to enable; silently skips if not configured.
       if (process.env.BACKUP_S3_BUCKET) {
         const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
         const triggerBackup = () => {
           runBackup().catch((err) => {
-            console.error("[backup] Scheduled backup failed:", err?.message ?? err);
+            console.error(
+              "[backup] Scheduled backup failed:",
+              err?.message ?? err,
+            );
           });
         };
         // Run once on startup, then on a 24-hour interval.
@@ -123,7 +192,10 @@ async function start() {
       }
     });
   } catch (err) {
-    console.error("❌ Critical: Server failed to start due to database/migration error:", err);
+    console.error(
+      "❌ Critical: Server failed to start due to database/migration error:",
+      err,
+    );
     process.exit(1);
   }
 }

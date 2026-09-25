@@ -1,5 +1,10 @@
 # PromptHash Stellar
 
+[![CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/ci.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/ci.yml)
+[![Frontend CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/frontend.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/frontend.yml)
+[![Contracts CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/contracts.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/contracts.yml)
+[![Backend CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/backend.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/backend.yml)
+
 PromptHash Stellar is a Soroban-based marketplace for selling reusable AI prompt licenses with XLM payments and wallet-verified unlocks.
 
 ## Overview

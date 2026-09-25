@@ -6,19 +6,33 @@ interface RateLimitConfig {
   windowMs: number;
 }
 
-// Unauthenticated (no wallet address provided) requests get stricter limits.
-const limits: Record<string, { authenticated: RateLimitConfig; unauthenticated: RateLimitConfig }> = {
+/**
+ * Classification: 'security' controls fail closed when Redis is unavailable.
+ * 'best-effort' controls degrade to in-memory.
+ */
+type ControlClassification = "security" | "best-effort";
+
+const limits: Record<
+  string,
+  {
+    authenticated: RateLimitConfig;
+    unauthenticated: RateLimitConfig;
+    classification: ControlClassification;
+  }
+> = {
   challenge: {
     unauthenticated: { max: 5, windowMs: 60_000 },
     authenticated: { max: 10, windowMs: 60_000 },
+    classification: "security", // Challenge tokens — replay protection is security-critical
   },
   unlock: {
     unauthenticated: { max: 3, windowMs: 60_000 },
     authenticated: { max: 5, windowMs: 60_000 },
+    classification: "security", // Unlock — payment-gated, must not be bypassed
   },
 };
 
-// In-memory LRU fallback used when Redis is unavailable.
+// In-memory LRU fallback for best-effort controls only.
 const fallbackCaches = new Map<string, LRUCache<string, number>>();
 
 function getFallbackCache(key: string, config: RateLimitConfig) {
@@ -26,6 +40,19 @@ function getFallbackCache(key: string, config: RateLimitConfig) {
     fallbackCaches.set(key, new LRUCache<string, number>({ max: 1000, ttl: config.windowMs }));
   }
   return fallbackCaches.get(key)!;
+}
+
+/**
+ * Optional overrides for composite (buyer/prompt/failure) throttling.
+ *
+ * `scope` is appended to the bucket key so distinct concerns get independent
+ * counters. `maxOverride`/`windowOverride` let a composite bucket use a tighter
+ * or looser window than the base `type` without adding a whole new limits entry.
+ */
+export interface ScopedRateLimitOptions {
+  scope?: string;
+  maxOverride?: number;
+  windowOverride?: number;
 }
 
 function inMemoryCheck(
@@ -64,20 +91,50 @@ async function redisCheck(
   return { success: true, limit: config.max, remaining: Math.max(0, config.max - count), reset };
 }
 
+function failClosedResult(type: string): {
+  success: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+} {
+  console.warn(
+    `[rateLimiter] Redis unavailable for security-critical control "${type}" — failing closed`,
+  );
+  return { success: false, limit: 0, remaining: 0, reset: 0 };
+}
+
 export async function checkRateLimit(
   type: "challenge" | "unlock",
   identifier: string,
   authenticated = false,
+  options: ScopedRateLimitOptions = {},
 ): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
-  const config = limits[type][authenticated ? "authenticated" : "unauthenticated"];
-  const bucketKey = `${type}:${identifier}`;
+  const entry = limits[type];
+  const baseConfig = entry[authenticated ? "authenticated" : "unauthenticated"];
 
+  // Apply composite overrides when a scoped bucket is requested (e.g. per-prompt
+  // or per-failure-reason throttling for unlock). The classification stays tied
+  // to the base `type` so security controls still fail closed.
+  const config: RateLimitConfig = {
+    max: options.maxOverride ?? baseConfig.max,
+    windowMs: options.windowOverride ?? baseConfig.windowMs,
+  };
+  const bucketKey = `${type}:${identifier}${options.scope ? `:${options.scope}` : ""}`;
+
+  let redisAvailable = false;
   try {
     const redis = await getRedisClient();
-    if (redis) return await redisCheck(redis, bucketKey, config);
+    if (redis) {
+      redisAvailable = true;
+      return await redisCheck(redis, bucketKey, config);
+    }
   } catch {
-    // Redis unavailable — fall back to in-memory.
+    // Redis connection error
   }
 
+  // Redis unavailable
+  if (entry.classification === "security") {
+    return failClosedResult(type);
+  }
   return inMemoryCheck(bucketKey, config);
 }

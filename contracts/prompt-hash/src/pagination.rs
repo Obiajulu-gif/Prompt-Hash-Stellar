@@ -12,13 +12,14 @@ pub struct Cursor {
     pub index_type: IndexType,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum IndexType {
     Creator = 0,
     Category = 1,
     Tag = 2,
     Active = 3,
     All = 4,
+    Buyer = 5,
 }
 
 impl IndexType {
@@ -29,6 +30,7 @@ impl IndexType {
             2 => Some(IndexType::Tag),
             3 => Some(IndexType::Active),
             4 => Some(IndexType::All),
+            5 => Some(IndexType::Buyer),
             _ => None,
         }
     }
@@ -48,6 +50,7 @@ pub fn encode_cursor(env: &Env, last_id: u64, index_type: IndexType) -> SorobanS
         IndexType::Tag => 2u8,
         IndexType::Active => 3u8,
         IndexType::All => 4u8,
+        IndexType::Buyer => 5u8,
     };
     let mut bytes = [0u8; CURSOR_LEN];
     bytes[0..8].copy_from_slice(&last_id.to_be_bytes());
