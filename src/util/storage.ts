@@ -15,6 +15,13 @@ type Schema = {
   walletAddress: string;
   walletNetwork: string;
   networkPassphrase: string;
+  offlineQueue: Array<{
+    id: string;
+    type: "DRAFT_SAVE" | "ARCHIVE_DRAFT";
+    payload: any;
+    timestamp: number;
+    status: "pending" | "failed";
+  }>;
 };
 
 /**

@@ -8,7 +8,8 @@ import { unlockPrompt } from "../../lib/prompts/unlock";
 import { Skeleton } from "../../components/Skeleton";
 import { StatusBanner } from "../../components/StatusBanner";
 import { UnlockExplainer } from "../../components/UnlockExplainer";
-import { CheckoutFeeBreakdown } from "../../components/checkout/CheckoutFeeBreakdown";
+import { MultiCurrencyQuoteBreakdown } from "../../components/checkout/MultiCurrencyQuoteBreakdown";
+import { PriceQuote, validateQuoteForPurchase } from "../../lib/checkout/priceQuoter";
 import { copyToClipboard } from "../../lib/clipboard/secureClipboard";
 import { ReportDialog } from "../../components/prompts/ReportDialog";
 import {
@@ -66,10 +67,13 @@ import { ReviewForm } from "../../components/prompts/ReviewForm";
 import { ReviewList } from "../../components/prompts/ReviewList";
 import { StarRating } from "../../components/prompts/StarRating";
 import { UnlockErrorBanner } from "../../components/UnlockErrorBanner";
+import { ErrorCode } from "../../lib/api/errorCodes";
+import type { UnlockError } from "../../lib/errors/unlockErrors";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
+import { getCreatorThumbRating, saveCreatorThumbRating, type ThumbRating } from "../../lib/reputation/creatorReputation";
+import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
@@ -299,6 +303,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [creatorThumbRating, setCreatorThumbRating] =
     useState<ThumbRating | null>(null);
+  const [currentQuote, setCurrentQuote] = useState<PriceQuote | null>(null);
+  const [isQuoteValid, setIsQuoteValid] = useState<boolean>(true);
   const [copyFeedback, setCopyFeedback] = useState<{
     visible: boolean;
     success: boolean;
@@ -428,6 +434,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
       onError: () => setStatus("PURCHASED_LOCKED"),
     },
   );
+  const unlockErrorStructured = unlockError as UnlockError | null;
 
   const {
     execute: runPurchase,
@@ -452,12 +459,26 @@ export const PromptModal: React.FC<PromptModalProps> = ({
         throw new Error("Please connect your wallet first");
       }
 
+      if (currentQuote) {
+        const quoteValidation = validateQuoteForPurchase(currentQuote, {
+          promptId: itemId,
+          requestedAsset: currentQuote.quoteAsset,
+        });
+        if (!quoteValidation.isValid) {
+          throw new Error(
+            quoteValidation.errorMessage ||
+              "Expired quotes cannot be used for purchase settlement. Please refresh quote.",
+          );
+        }
+      }
+
       setStatus("AWAITING_APPROVAL");
       return await PromptHashClient.purchasePrompt(
         itemId,
         wallet.address,
         { signTransaction: wallet.signTransaction },
         browserStellarConfig,
+        currentQuote || undefined,
       );
     },
     {
@@ -561,10 +582,16 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Fee & Payment Breakdown before wallet signing (#455) */}
-                  <CheckoutFeeBreakdown
-                    promptTitle={prompt.title}
-                    priceXlm={(prompt.priceStroops / 10000000).toString()}
+                  {/* Multi-Currency Price Quote & Breakdown before wallet signing (#760) */}
+                  <MultiCurrencyQuoteBreakdown
+                    promptTitle={promptDetail?.title || "Prompt License"}
+                    promptId={itemId}
+                    basePriceStroops={promptDetail?.priceStroops || 0n}
+                    buyerAddress={wallet?.address}
+                    onQuoteChange={(quote, isValid) => {
+                      setCurrentQuote(quote);
+                      setIsQuoteValid(isValid);
+                    }}
                   />
 
                   {status === "ERROR" &&
@@ -592,6 +619,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     disabled={
                       isPurchasing ||
                       !isOnline ||
+                      !isQuoteValid ||
                       detectNetworkMismatch(
                         !!wallet?.address,
                         wallet?.network,
@@ -657,7 +685,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       walletAddress={wallet?.address || ""}
                       txHash={txHash}
                       isPendingIndexing={
-                        !!unlockError?.message?.includes("ACCESS_NOT_PURCHASED")
+                        unlockErrorStructured?.code === ErrorCode.ACCESS_NOT_PURCHASED
                       }
                     />
                   ) : (
@@ -675,16 +703,16 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                   <UnlockExplainer
                     state="signing"
                     onRetry={
-                      unlockError
+                      unlockErrorStructured
                         ? () => runUnlock(txHash || "existing")
                         : undefined
                     }
                   />
 
-                  {unlockError &&
-                    !unlockError?.message?.includes("ACCESS_NOT_PURCHASED") && (
+                  {unlockErrorStructured &&
+                    unlockErrorStructured?.code !== ErrorCode.ACCESS_NOT_PURCHASED && (
                       <UnlockErrorBanner
-                        message={unlockError.message}
+                        error={unlockErrorStructured}
                         onRetry={() =>
                           runUnlock(txHash || "existing").catch(() => {})
                         }
@@ -701,7 +729,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     {isUnlocking
                       ? "Unlocking..."
                       : txHash &&
-                          unlockError?.message?.includes("ACCESS_NOT_PURCHASED")
+                        unlockErrorStructured?.code === ErrorCode.ACCESS_NOT_PURCHASED
                         ? "Retry Unlock (Wait for Indexing)"
                         : "Decrypt Content"}
                   </button>

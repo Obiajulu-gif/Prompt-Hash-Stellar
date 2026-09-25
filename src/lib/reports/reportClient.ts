@@ -15,13 +15,22 @@ export const REPORT_REASONS: Record<ReportReason, string> = {
   other: "Other reason",
 };
 
+export type ReportStatus = "pending" | "investigating" | "resolved" | "dismissed";
+
+export interface ReportEvidence {
+  url: string;
+  kind: "image" | "pdf" | "link" | "text";
+  addedBy?: string;
+}
+
 export interface PromptReport {
   _id?: string;
   promptId: string;
   reporterAddress: string;
   reason: ReportReason;
   description?: string;
-  status?: "pending" | "investigating" | "resolved" | "dismissed";
+  evidence?: ReportEvidence[];
+  status?: ReportStatus;
   adminNotes?: string;
   createdAt: string;
 }
@@ -30,6 +39,7 @@ export interface ReportResponse {
   success: boolean;
   message: string;
   reportId?: string;
+  evidenceCount?: number;
 }
 
 export class ReportClient {
@@ -40,7 +50,8 @@ export class ReportClient {
     promptId: string,
     reporterAddress: string,
     reason: ReportReason,
-    description?: string
+    description?: string,
+    evidence?: ReportEvidence[]
   ): Promise<ReportResponse> {
     try {
       const response = await fetch("/api/prompts/reports", {
@@ -53,6 +64,7 @@ export class ReportClient {
           reporterAddress,
           reason,
           description,
+          evidence,
         }),
       });
 

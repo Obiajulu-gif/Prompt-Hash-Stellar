@@ -1,8 +1,10 @@
 import { lazy, Suspense, useState } from "react";
-import { Outlet, Route, Routes, Navigate } from "react-router-dom";
+import { Outlet, Route, Routes, Navigate, useLocation } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import Home from "./pages/Home";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsModal } from "./components/KeyboardShortcutsModal";
+import PageTransition from "./components/PageTransition";
 
 // Code Splitting / Lazy Loading Router Configurations
 const BrowsePage = lazy(() => import("./pages/browse/page.tsx"));
@@ -24,12 +26,19 @@ const AdminConfigPage = lazy(
 
 import { OfflineBanner } from "./components/OfflineBanner";
 
-const AppLayout = () => (
-  <main className="min-h-screen bg-slate-950 text-white">
-    <OfflineBanner />
-    <Outlet />
-  </main>
-);
+const AppLayout = () => {
+  const location = useLocation();
+  return (
+    <main className="min-h-screen bg-slate-950 text-white">
+      <OfflineBanner />
+      <AnimatePresence mode="wait">
+        <PageTransition key={location.pathname}>
+          <Outlet />
+        </PageTransition>
+      </AnimatePresence>
+    </main>
+  );
+};
 
 function App() {
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);

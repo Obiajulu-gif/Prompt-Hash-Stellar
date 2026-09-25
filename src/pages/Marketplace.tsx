@@ -171,11 +171,13 @@ export default function Marketplace() {
                           ) : (
                             t('marketplace.buy')
                           )}
-                        </div>
-                      </div>
-                    );
-                  })}
-          </div>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+      </div>
 
       {/* Purchase in-progress global hint */}
       {isPurchasing && (

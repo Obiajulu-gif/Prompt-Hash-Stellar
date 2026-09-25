@@ -7,16 +7,17 @@ async function main() {
   const command = args[0] || "up";
   const targetIndex = args.indexOf("--target");
   const targetVersion = targetIndex !== -1 ? parseInt(args[targetIndex + 1], 10) : undefined;
+  const dryRun = args.includes("--dry-run");
 
   if (command !== "up" && command !== "down") {
-    console.error("Usage: ts-node migrateCli.ts [up|down] [--target <version>]");
+    console.error("Usage: ts-node migrateCli.ts [up|down] [--target <version>] [--dry-run]");
     process.exit(1);
   }
 
-  console.log(`[migration-cli] Running database migrations in direction: ${command.toUpperCase()}${targetVersion !== undefined ? ` (target: ${targetVersion})` : ""}`);
+  console.log(`[migration-cli] Running database migrations in direction: ${command.toUpperCase()}${targetVersion !== undefined ? ` (target: ${targetVersion})` : ""}${dryRun ? " [dry-run]" : ""}`);
 
   try {
-    await runMigrations(undefined, command, targetVersion);
+    await runMigrations(undefined, command, targetVersion, { dryRun });
     console.log("[migration-cli] Completed migrations successfully.");
     await mongoose.disconnect();
     process.exit(0);

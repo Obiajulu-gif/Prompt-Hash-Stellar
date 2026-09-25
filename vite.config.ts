@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
@@ -50,27 +50,38 @@ export default defineConfig({
       sourcemap: true,
       rollupOptions: {
         output: {
-          manualChunks: {
-            "vendor-react": ["react", "react-dom", "react-router-dom"],
-            "vendor-radix": [
-              "@radix-ui/react-avatar",
-              "@radix-ui/react-dialog",
-              "@radix-ui/react-dropdown-menu",
-              "@radix-ui/react-progress",
-              "@radix-ui/react-select",
-              "@radix-ui/react-slider",
-              "@radix-ui/react-slot",
-              "@radix-ui/react-tabs",
-              "@radix-ui/react-tooltip",
-            ],
-            "vendor-stellar": [
-              "@stellar/stellar-sdk",
-              "@stellar/stellar-base",
-              "@creit.tech/stellar-wallets-kit",
-            ],
-            "vendor-animation": ["framer-motion"],
-            "vendor-charts": ["chart.js", "react-chartjs-2"],
-            "vendor-markdown": ["react-markdown", "remark-gfm", "rehype-sanitize"],
+          manualChunks(id: string) {
+            if (id.includes("node_modules")) {
+              if (
+                id.includes("react-router-dom") ||
+                id.includes("/react/") ||
+                id.includes("/react-dom/")
+              ) {
+                return "vendor-react";
+              }
+              if (id.includes("@radix-ui")) {
+                return "vendor-radix";
+              }
+              if (
+                id.includes("@stellar") ||
+                id.includes("@creit.tech/stellar-wallets-kit")
+              ) {
+                return "vendor-stellar";
+              }
+              if (id.includes("framer-motion")) {
+                return "vendor-animation";
+              }
+              if (id.includes("chart.js") || id.includes("react-chartjs-2")) {
+                return "vendor-charts";
+              }
+              if (
+                id.includes("react-markdown") ||
+                id.includes("remark-gfm") ||
+                id.includes("rehype-sanitize")
+              ) {
+                return "vendor-markdown";
+              }
+            }
           },
         },
       },

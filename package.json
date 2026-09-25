@@ -11,8 +11,8 @@
   "scripts": {
     "dev": "node scripts/check-local-setup.mjs --warn-only && vite",
     "start": "vite",
-    "build": "node scripts/check-no-mocks.mjs && vite build",
-    "prebuild": "node scripts/check-local-setup.mjs",
+    "build": "vite build",
+    "prebuild": "node scripts/policy-scanner.mjs && node scripts/check-local-setup.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:frontend": "vitest run",
@@ -24,10 +24,15 @@
     "format": "prettier . --write",
     "prepare": "node -e \"try { require('fs').existsSync('.husky/') && process.exit(0) } catch(e) {}\" && husky || true",
     "check:setup": "node scripts/check-local-setup.mjs",
+    "check:policy": "node scripts/policy-scanner.mjs",
+    "check:ttl": "node scripts/check-ttl-readiness.mjs",
+    "renew:ttl": "node scripts/renew-critical-keys.mjs",
+    "seed:preview": "node server/scripts/seedPreview.mjs",
     "verify:smoke": "node scripts/smoke-verification.mjs"
   },
   "dependencies": {
-    "@creit.tech/stellar-wallets-kit": "^1.9.5",
+    "@prompthash/schema": "file:./packages/schema",
+    "@creit.tech/stellar-wallets-kit": "^2.5.0",
     "@hookform/resolvers": "^5.5.7",
     "@jadonamite/automata-sdk": "^1.0.1",
     "@radix-ui/react-avatar": "^1.2.1",
@@ -41,11 +46,13 @@
     "@radix-ui/react-tooltip": "^1.2.11",
     "@sentry/react": "^10.62.0",
     "@sentry/vite-plugin": "^5.3.0",
-    "@stellar/design-system": "^3.2.8",
-    "@stellar/stellar-base": "^14.0.2",
-    "@stellar/stellar-sdk": "^14.6.1",
+    "@stellar/design-system": "^4.0.2",
+    "@stellar/stellar-base": "^15.0.0",
+    "@stellar/stellar-sdk": "^16.1.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/query-sync-storage-persister": "^5.101.4",
+    "@tanstack/react-query": "^5.103.2",
+    "@tanstack/react-query-persist-client": "^5.101.4",
     "boring-avatars": "^2.0.4",
     "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",
@@ -62,6 +69,7 @@
     "react-i18next": "^17.0.8",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.2",
+    "recharts": "^2.15.4",
     "redis": "^6.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
@@ -82,6 +90,7 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/uuid": "^10.0.0",
     "@vercel/node": "^5.8.22",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.0",
@@ -91,6 +100,7 @@
     "husky": "^9.1.7",
     "jsdom": "^30.0.0",
     "lint-staged": "^17.2.0",
+    "mongodb-memory-server": "^11.3.0",
     "mongoose": "^9.7.3",
     "node-mock-http": "^1.0.4",
     "postcss": "^8.5.10",
@@ -120,6 +130,6 @@
   ],
   "packageManager": "yarn@4.9.2+sha512.1fc009bc09d13cfd0e19efa44cbfc2b9cf6ca61482725eb35bbc5e257e093ebf4130db6dfe15d604ff4b79efd8e1e8e99b25fa7d0a6197c9f9826358d4d65c3c",
   "resolutions": {
-    "@stellar/stellar-sdk": "14.6.1"
+    "@stellar/stellar-sdk": "16.1.0"
   }
 }

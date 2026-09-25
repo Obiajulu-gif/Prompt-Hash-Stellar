@@ -5,10 +5,12 @@ import Purchase from "../models/Purchase";
 import { cacheDel } from "../services/cacheService";
 import { CACHE_KEYS } from "../services/cacheService";
 
+import { reviewLimiter } from "../middleware/rateLimiter";
+
 export const reviewRouter = express.Router();
 
 // POST /api/reviews/submit
-reviewRouter.post("/submit", async (req: Request, res: Response) => {
+reviewRouter.post("/submit", reviewLimiter, async (req: Request, res: Response) => {
   try {
     await connectDb();
 

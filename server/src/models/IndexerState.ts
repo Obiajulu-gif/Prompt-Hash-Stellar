@@ -9,6 +9,9 @@ const indexerStateSchema = new mongoose.Schema(
     leaseHolder: { type: String, default: null },   // replica/process identity holding the lease
     leaseExpiresAt: { type: Date, default: null },  // wall-clock expiry; null = no active lease
     fencingToken: { type: Number, default: 0 },     // monotonically increasing; old holders are rejected
+    // Quarantine checkpoint metrics (#654)
+    quarantinedCount: { type: Number, default: 0 },
+    quarantinedLedgers: { type: [Number], default: [] },
   },
   { timestamps: true },
 );

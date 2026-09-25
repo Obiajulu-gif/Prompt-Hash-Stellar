@@ -95,6 +95,23 @@ describe("PromptDetailPage — issue #497 deep links", () => {
     );
   });
 
+  it("credits and links to the source listing for a remix", async () => {
+    getPromptMock.mockResolvedValue(
+      makePrompt({
+        id: 42n,
+        title: "Remixed launch plan",
+        sourcePromptId: "7",
+      }),
+    );
+
+    renderDetailPage("/prompts/42");
+
+    expect(
+      await screen.findByRole("link", { name: /prompt #7/i }),
+    ).toHaveAttribute("href", "/prompts/7");
+    expect(screen.getByText(/inspired by/i)).toBeInTheDocument();
+  });
+
   it("falls back to a plain /browse link when no marketplace filters were remembered", async () => {
     const prompt = makePrompt({ id: 7n, title: "Some prompt" });
     getPromptMock.mockResolvedValue(prompt);

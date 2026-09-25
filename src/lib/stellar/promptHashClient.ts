@@ -2,13 +2,17 @@
  * Real Soroban contract client for PromptHash.
  * All reads and writes invoke the deployed contract on-chain.
  */
-import type { WalletTransactionSigner } from "./tx";
-import * as contractMethods from "./contractMethods";
+import type { WalletTransactionSigner } from "./tx.js";
+import * as contractMethods from "./contractMethods.js";
 import { Server } from "@stellar/stellar-sdk/rpc";
-import { hashKey } from "../observability/sharedStore";
+import { hashKey } from "../observability/sharedStore.js";
+import { getSourcePromptId } from "../prompts/remixAttribution.js";
+import { PriceQuote, validateQuoteForPurchase } from "../checkout/priceQuoter.js";
 
 export interface PromptHashConfig {
   rpcUrl: string;
+  rpcUrls?: string[];
+  entitlementQuorum?: number;
   networkPassphrase: string;
   allowHttp?: boolean;
   promptHashContractId: string;
@@ -28,9 +32,98 @@ export interface LedgerVerifiedEntitlement {
   networkId: string;
   contractId: string;
   checkedAt: number;
+  providerCount?: number;
+  quorum?: number;
+  divergenceReason?: string;
 }
 
 export const DEFAULT_MAX_LEDGER_AGE = 5;
+
+export interface EntitlementProviderSample {
+  providerUrl: string;
+  hasAccess: boolean;
+  ledgerSequence: number;
+  ledgerHash: string;
+  ledgerClosedAt?: number;
+}
+
+function getEntitlementRpcUrls(config: PromptHashConfig): string[] {
+  const envUrls =
+    typeof process !== "undefined"
+      ? process.env.PUBLIC_STELLAR_RPC_URLS?.split(",").map((url) => url.trim()).filter(Boolean)
+      : undefined;
+  const configured = config.rpcUrls?.length
+    ? config.rpcUrls
+    : envUrls;
+  return Array.from(new Set([...(configured?.length ? configured : [config.rpcUrl]), config.rpcUrl]));
+}
+
+export function evaluateEntitlementQuorum(
+  samples: EntitlementProviderSample[],
+  policy: {
+    quorum: number;
+    maxLedgerAge: number;
+    networkId: string;
+    contractId: string;
+    checkedAt: number;
+  },
+): LedgerVerifiedEntitlement {
+  const latest = samples.reduce<EntitlementProviderSample | null>(
+    (current, sample) =>
+      !current || sample.ledgerSequence > current.ledgerSequence ? sample : current,
+    null,
+  );
+  const base = {
+    hasAccess: false,
+    ledgerSequence: latest?.ledgerSequence ?? 0,
+    ledgerHash: latest?.ledgerHash ?? "",
+    networkId: policy.networkId,
+    contractId: policy.contractId,
+    checkedAt: policy.checkedAt,
+    providerCount: samples.length,
+    quorum: policy.quorum,
+  };
+
+  if (samples.length < policy.quorum) {
+    return { ...base, divergenceReason: "insufficient_providers" };
+  }
+
+  const maxAgeSecs = policy.maxLedgerAge * 5;
+  const freshSamples = samples.filter(
+    (sample) =>
+      sample.ledgerClosedAt === undefined ||
+      policy.checkedAt - sample.ledgerClosedAt <= maxAgeSecs,
+  );
+  if (freshSamples.length < policy.quorum) {
+    return { ...base, divergenceReason: "stale_ledger" };
+  }
+
+  const groups = new Map<string, EntitlementProviderSample[]>();
+  for (const sample of freshSamples) {
+    const identity = JSON.stringify({
+      hasAccess: sample.hasAccess,
+      ledgerHash: sample.ledgerHash,
+      ledgerSequence: sample.ledgerSequence,
+    });
+    groups.set(identity, [...(groups.get(identity) ?? []), sample]);
+  }
+
+  const winner = Array.from(groups.values()).find((group) => group.length >= policy.quorum);
+  if (!winner) {
+    return { ...base, divergenceReason: "provider_divergence" };
+  }
+
+  return {
+    hasAccess: winner[0].hasAccess,
+    ledgerSequence: winner[0].ledgerSequence,
+    ledgerHash: winner[0].ledgerHash,
+    networkId: policy.networkId,
+    contractId: policy.contractId,
+    checkedAt: policy.checkedAt,
+    providerCount: samples.length,
+    quorum: policy.quorum,
+  };
+}
 
 // Added the missing interface required by the UI
 export interface PromptRecord {
@@ -45,10 +138,12 @@ export interface PromptRecord {
   imageUrl: string;
   salesCount: number;
   active: boolean;
+  status?: string; // Draft, Active, Paused, Retired, Restricted
   contentHash: string;
   encryptedPrompt?: string;
   encryptionIv?: string;
   wrappedKey?: string;
+  sourcePromptId?: string;
 }
 
 export interface RevenueSplitInput {
@@ -103,6 +198,31 @@ export interface CreateAccessPassInput {
   priceStroops: bigint;
 }
 
+/**
+ * Error types for prompt client read failures, distinguishing between
+ * empty results and actual failures (RPC outage, malformed data, stale state).
+ */
+export enum PromptHashReadError {
+  Empty = "EMPTY",
+  RPCOutage = "RPC_OUTAGE",
+  MalformedXDR = "MALFORMED_XDR",
+  StaleData = "STALE_DATA",
+  PartialPagination = "PARTIAL_PAGINATION",
+}
+
+export interface ReadErrorResult {
+  error: PromptHashReadError;
+  message: string;
+  retryable: boolean;
+}
+
+/**
+ * Result type that distinguishes between empty results and failure results.
+ */
+export type PromptRecordResult =
+  | { success: true; records: PromptRecord[] }
+  | { success: false; error: PromptHashReadError; message: string };
+
 export class PromptHashClient {
   /**
    * Checks if the user has access to the prompt via contract.
@@ -121,7 +241,11 @@ export class PromptHashClient {
     config: PromptHashConfig,
     promptId: bigint,
   ): Promise<PromptRecord> {
-    return contractMethods.contractGetPrompt(config, promptId);
+    const prompt = await contractMethods.contractGetPrompt(config, promptId);
+    return {
+      ...prompt,
+      sourcePromptId: getSourcePromptId(promptId),
+    };
   }
 
   /**
@@ -132,7 +256,20 @@ export class PromptHashClient {
     userAddress: string,
     _walletSigner?: WalletTransactionSigner,
     config?: PromptHashConfig,
+    quote?: PriceQuote,
   ): Promise<{ txHash: string; success: boolean }> {
+    if (quote) {
+      const validation = validateQuoteForPurchase(quote, {
+        promptId: itemId,
+        requestedAsset: quote.quoteAsset,
+      });
+      if (!validation.isValid) {
+        throw new Error(
+          validation.errorMessage ||
+            "Expired quotes cannot be used for purchase settlement.",
+        );
+      }
+    }
     if (!config || !_walletSigner) {
       throw new Error(
         "Missing config or wallet signer for real contract call.",
@@ -144,6 +281,25 @@ export class PromptHashClient {
       _walletSigner,
       userAddress,
       promptId,
+    );
+  }
+
+  /**
+   * Validate bulk purchase items without state mutation.
+   * Returns per-item validity so frontend can filter before submitting.
+   * Issue #438: Per-item error surfacing.
+   */
+  static async validateBulkPurchase(
+    config: PromptHashConfig,
+    buyerAddress: string,
+    promptIds: bigint[],
+    paymentAmounts: bigint[],
+  ): Promise<boolean[]> {
+    return contractMethods.contractValidateBulkPurchase(
+      config,
+      buyerAddress,
+      promptIds,
+      paymentAmounts,
     );
   }
 
@@ -193,6 +349,19 @@ export class PromptHashClient {
     return contractMethods.contractGetAllPrompts(config);
   }
 
+  /**
+   * Paginated catalog fetch (bounded per-page RPC reads). Accumulate pages on
+   * the caller side for infinite-scroll style loading. See
+   * `contractGetAllPromptsPaginated` for cursor semantics.
+   */
+  static async getAllPromptsPaginated(
+    config: PromptHashConfig,
+    cursor?: string | null,
+    limit = 50,
+  ): Promise<{ prompts: PromptRecord[]; nextCursor: string | null }> {
+    return contractMethods.contractGetAllPromptsPaginated(config, cursor, limit);
+  }
+
   static async getPromptsByBuyer(
     config: PromptHashConfig,
     address: string,
@@ -207,17 +376,57 @@ export class PromptHashClient {
     return contractMethods.contractGetPromptsByCreator(config, address);
   }
 
-  /**
-   * Find existing prompts whose content hash matches the given hash.
-   * Returns matching records without exposing plaintext content.
-   */
+/**
+ * Find existing prompts whose content hash matches the given hash.
+ * Returns matching records without exposing plaintext content.
+ * Distinguishes between an truly empty result and a failure to fetch.
+ */
   static async findPromptByContentHash(
-    _config: PromptHashConfig,
-    _contentHash: string,
-  ): Promise<PromptRecord[]> {
-    // TODO: Implement via contract event queries or state search.
-    // For now, return empty to match contract's capability gap.
-    return [];
+    config: PromptHashConfig,
+    contentHash: string,
+  ): Promise<PromptRecordResult> {
+    try {
+      // Query the off-chain indexer API for duplicate detection
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:3001";
+      const response = await fetch(`${apiUrl}/api/prompts/hash/${contentHash}`);
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: PromptHashReadError.RPCOutage,
+          message: `HTTP ${response.status}: failed to fetch prompts by content hash`,
+        };
+      }
+
+      const data = await response.json();
+      if (!data.found) {
+        // Truly empty - no prompts with this hash exist
+        return { success: true, records: [] };
+      }
+
+      // Transform API response to PromptRecord format
+      return {
+        success: true,
+        records: data.matches.map((match: any) => ({
+          id: BigInt(match.id || 0),
+          creator: match.creator,
+          priceStroops: BigInt(0), // Not included in hash lookup response
+          title: match.title,
+          category: "",
+          previewText: "",
+          imageUrl: "",
+          salesCount: match.salesCount || 0,
+          active: match.isActive,
+          contentHash: contentHash,
+        })),
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: PromptHashReadError.RPCOutage,
+        message: error.message || "Unknown error fetching prompts by content hash",
+      };
+    }
   }
 
   static async getBundlesByCreator(
@@ -373,7 +582,7 @@ export class PromptHashClient {
       // Here we would normally parse `events.events` and decode the XDR.
       // Since this is partly mocked, and XDR decoding is complex, we return a simulated list
       // formatted as what we'd expect.
-      return events.events.map((e, i) => ({
+      return events.events.map((e: any, i: number) => ({
         id: e.id || `rpc-event-${i}`,
         type: "sale",
         title: `Prompt #${e.topic?.[1] || i}`, // Without full XDR decoding, we use placeholder
@@ -425,52 +634,48 @@ export const verifyEntitlement = async (
   maxLedgerAge: number = DEFAULT_MAX_LEDGER_AGE,
 ): Promise<LedgerVerifiedEntitlement> => {
   const promptId = typeof itemId === "bigint" ? itemId : BigInt(itemId);
-
-  const server = new Server(config.rpcUrl, { allowHttp: config.allowHttp });
   const networkId = hashKey(config.networkPassphrase);
-
-  // Get the latest ledger state
-  const latestLedger = await server.getLatestLedger();
-  const latestSequence = latestLedger.sequence;
-  const ledgerHash = latestLedger.hash?.toString() ?? "";
-
-  // Verify the RPC response is fresh (not lagging)
   const now = Math.floor(Date.now() / 1000);
-  if (latestLedger.lastLedgerCloseTimestamp) {
-    const ledgerAge = now - latestLedger.lastLedgerCloseTimestamp;
-    const maxAgeSecs = maxLedgerAge * 5; // ~5 seconds per ledger
-    if (ledgerAge > maxAgeSecs) {
-      return {
-        hasAccess: false,
-        ledgerSequence: latestSequence,
-        ledgerHash,
-        networkId,
-        contractId: config.promptHashContractId,
-        checkedAt: now,
-      };
-    }
-  }
+  const rpcUrls = getEntitlementRpcUrls(config);
+  const quorum = Math.min(config.entitlementQuorum ?? Math.min(2, rpcUrls.length), rpcUrls.length);
 
   try {
-    // Dual verification: query two independent RPC endpoints if available
-    const access = await PromptHashClient.checkAccess(config, address, itemId);
-    return {
-      hasAccess: access,
-      ledgerSequence: latestSequence,
-      ledgerHash,
+    const samples = await Promise.all(
+      rpcUrls.map(async (rpcUrl) => {
+        const providerConfig = { ...config, rpcUrl };
+        const server = new Server(rpcUrl, { allowHttp: config.allowHttp });
+        const [latestLedger, access] = await Promise.all([
+          server.getLatestLedger(),
+          PromptHashClient.checkAccess(providerConfig, address, promptId),
+        ]);
+        return {
+          providerUrl: rpcUrl,
+          hasAccess: access,
+          ledgerSequence: latestLedger.sequence,
+          ledgerHash: latestLedger.hash?.toString() ?? "",
+          ledgerClosedAt: latestLedger.lastLedgerCloseTimestamp,
+        } satisfies EntitlementProviderSample;
+      }),
+    );
+    return evaluateEntitlementQuorum(samples, {
+      quorum,
+      maxLedgerAge,
       networkId,
       contractId: config.promptHashContractId,
       checkedAt: now,
-    };
+    });
   } catch {
     // Fail-closed: RPC error = denied
     return {
       hasAccess: false,
-      ledgerSequence: latestSequence,
-      ledgerHash,
+      ledgerSequence: 0,
+      ledgerHash: "",
       networkId,
       contractId: config.promptHashContractId,
       checkedAt: now,
+      providerCount: rpcUrls.length,
+      quorum,
+      divergenceReason: "provider_error",
     };
   }
 };
@@ -478,6 +683,11 @@ export const getPrompt = async (config: PromptHashConfig, promptId: bigint) =>
   PromptHashClient.getPrompt(config, promptId);
 export const getAllPrompts = async (config: PromptHashConfig) =>
   PromptHashClient.getAllPrompts(config);
+export const getAllPromptsPaginated = async (
+  config: PromptHashConfig,
+  cursor?: string | null,
+  limit = 50,
+) => PromptHashClient.getAllPromptsPaginated(config, cursor, limit);
 export const getPromptsByBuyer = async (
   config: PromptHashConfig,
   address: string,
@@ -568,3 +778,18 @@ export const findPromptByContentHash = async (
   config: PromptHashConfig,
   contentHash: string,
 ) => PromptHashClient.findPromptByContentHash(config, contentHash);
+
+export const validateBulkPurchase = async (
+  config: PromptHashConfig,
+  buyerAddress: string,
+  promptIds: bigint[],
+  paymentAmounts: bigint[],
+) =>
+  PromptHashClient.validateBulkPurchase(
+    config,
+    buyerAddress,
+    promptIds,
+    paymentAmounts,
+  );
+
+export const PromptHashContractClient = PromptHashClient;

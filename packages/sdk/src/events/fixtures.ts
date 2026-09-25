@@ -172,12 +172,22 @@ export const EVENT_FIXTURES: EventFixture[] = [
   },
   {
     type: "PlatformFeeUpdated",
-    raw: { old_fee: 250, new_fee: 300, admin: ADDR_A },
+    raw: { old_fee: 250, new_fee: 300, admin: ADDR_A, effective_ledger: 123456 },
     expected: {
       recognized: true,
       type: "PlatformFeeUpdated",
       version: 1,
-      data: { old_fee: 250, new_fee: 300, admin: ADDR_A },
+      data: { old_fee: 250, new_fee: 300, admin: ADDR_A, effective_ledger: 123456 },
+    },
+  },
+  {
+    type: "SolvencyViolationDetected",
+    raw: { asset: ADDR_B, tracked_liability: 10_000n, actual_balance: 9_500n },
+    expected: {
+      recognized: true,
+      type: "SolvencyViolationDetected",
+      version: 1,
+      data: { asset: ADDR_B, tracked_liability: 10_000n, actual_balance: 9_500n },
     },
   },
   {

@@ -18,6 +18,7 @@ import {
 import { CreatorOnboarding } from "@/components/sell/CreatorOnboarding";
 import { PricingGuidance } from "@/components/sell/PricingGuidance";
 import { TagInput } from "@/components/sell/TagInput";
+import { PayoutReadinessBanner } from "@/components/sell/PayoutReadinessBanner";
 import { featuredPromptTemplates } from "@/data/featuredPrompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useWallet } from "@/hooks/useWallet";
 import { useDraftAutoSave } from "@/hooks/useDraftAutoSave";
+import { usePayoutReadiness } from "@/hooks/usePayoutReadiness";
 import { unlockPublicKey } from "@/lib/env";
 import {
   encryptPromptPlaintext,
@@ -54,6 +56,11 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
 import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloadSizeEstimator";
 import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
+import { getPrompt } from "@/lib/stellar/promptHashClient";
+import { saveRemixAttribution } from "@/lib/prompts/remixAttribution";
+import { useOfflineQueue } from "@/hooks/useOfflineQueue";
+
+
 
 const limits = {
   ...LISTING_LIMITS,
@@ -66,6 +73,7 @@ const categories = Array.from(
 );
 
 interface FormData {
+  sourcePromptId: string;
   imageUrl: string;
   title: string;
   category: string;
@@ -83,7 +91,8 @@ interface CreatePromptFormProps {
 
 export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const navigate = useNavigate();
-  const { address, signTransaction } = useWallet();
+  const { address, network, signTransaction } = useWallet();
+  const { readiness, isLoading: isPayoutLoading, shouldBlock } = usePayoutReadiness();
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -93,9 +102,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [isFirstListing] = useState(true);
-  const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">(
-    "write",
-  );
+
+  const [descriptionTab, setDescriptionTab] = useState<"write" | "preview">("write");
+  const [showBuyerPreview, setShowBuyerPreview] = useState(false);
 
   const {
     register,
@@ -108,6 +117,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     resolver: zodResolver(createPromptSchema),
     defaultValues: {
       imageUrl: "",
+      sourcePromptId: "",
       title: "",
       category: "",
       previewText: "",
@@ -133,6 +143,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
   } = useDraftAutoSave({
   const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
     address,
+    network,
     values: watchAllFields,
     setValue,
   });
@@ -167,6 +178,29 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const checklistHasFailures = checklistItems.some((i) => i.status === "fail");
 
+
+  const buyerPreviewPrompt = useMemo<PromptRecord>(() => {
+    const price = Number(watchAllFields.priceXlm || 0);
+    const safePrice = Number.isFinite(price) && price > 0 ? watchAllFields.priceXlm : "0";
+
+    return {
+      id: 0n,
+      creator: address || "GCREATORPREVIEW000000000000000000000000000000000000000000000000",
+      priceStroops: xlmToStroops(String(safePrice)),
+      title: watchAllFields.title || "Untitled prompt listing",
+      category: watchAllFields.category || "Uncategorized",
+      previewText: watchAllFields.previewText || "Add public preview text to show buyers what outcomes they can expect.",
+      description: watchAllFields.description || "No description has been added yet.",
+      tags: watchAllFields.tags || [],
+      imageUrl: watchAllFields.imageUrl || "",
+      salesCount: 0,
+      active: true,
+      contentHash: "preview-content-hash",
+    };
+  }, [address, watchAllFields]);
+
+  
+
   const coCreatorsList = watchAllFields.coCreators || [];
   const totalRevenueSharePercent = useMemo(
     () =>
@@ -183,8 +217,8 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     [watchAllFields.fullPrompt],
   );
 
-  const checkDuplicateHash = useCallback(
-    async (plaintext: string) => {
+  const checkSimilarity = useCallback(
+    async (plaintext: string, category: string) => {
       if (!plaintext.trim()) {
         setDuplicateWarning(null);
         return;
@@ -195,45 +229,73 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       setDuplicateConfirmed(false);
 
       try {
-        const hash = await hashPromptPlaintext(plaintext);
-        const config = browserStellarConfig;
-        const matches = await findPromptByContentHash(config, hash);
+        const response = await fetch("/api/prompts/similarity/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: plaintext, category }),
+        });
 
-        if (matches.length > 0) {
-          const owned = matches.filter((m) => m.creator === address);
-          if (owned.length > 0) {
+        if (response.ok) {
+          const result = await response.json();
+          if (result.flag === "highly_similar") {
             setDuplicateWarning(
-              `You already have a listing with this exact content (ID: ${owned[0].id}). Publishing will create a duplicate.`,
+              `This prompt is highly similar to an existing prompt (ID: ${result.similarTo}). Publishing is blocked to prevent plagiarism.`,
             );
-          } else {
+          } else if (result.flag === "suspicious") {
             setDuplicateWarning(
-              "A listing with this exact content already exists. Publishing will create a duplicate.",
+              `This prompt is similar to an existing prompt (ID: ${result.similarTo}). It will be flagged for review if published.`,
             );
           }
         }
-      } catch {
-        // Silently ignore hash-check failures — the listing can still proceed.
+      } catch (e) {
+        console.error("Similarity check failed:", e);
       } finally {
         setIsCheckingDuplicate(false);
       }
     },
-    [address],
+    [],
   );
+
+  const { isOnline } = useOfflineQueue();
 
   const onSubmit = async (data: any) => {
     setSubmitError(null);
     setSuccessMessage(null);
+
+    if (!isOnline) {
+      setSubmitError("You are offline. Publishing requires an active internet connection.");
+      return;
+    }
 
     if (!address || !signTransaction) {
       setSubmitError("Please connect your wallet first.");
       return;
     }
 
-    // Final duplicate gate: block submission if a duplicate was detected
-    // and the creator hasn't explicitly confirmed.
-    if (duplicateWarning && !duplicateConfirmed) {
+    // Draft session guard (#680): never publish under a wallet or network
+    // that does not own the current draft.
+    if (sessionGuard) {
       setSubmitError(
-        "A duplicate content hash was detected. Confirm below to proceed.",
+        sessionGuard.kind === "network-changed"
+          ? "This draft was saved on a different network. Resolve the network warning before publishing."
+          : sessionGuard.kind === "wallet-disconnected"
+            ? "Reconnect your wallet to publish this draft."
+            : "This draft belongs to another wallet. Adopt or discard it before publishing.",
+      );
+      return;
+    }
+    if (!canPublish) {
+      setSubmitError(
+        "This draft cannot be published from the current wallet session.",
+      );
+      return;
+    }
+
+    // Payout readiness validation - block paid prompt publication if not ready
+    if (shouldBlock) {
+      const blockingIssues = readiness?.blockers || ["Payout setup incomplete"];
+      setSubmitError(
+        `Complete your payout setup before publishing paid prompts: ${blockingIssues.join(", ")}`,
       );
       return;
     }
@@ -243,6 +305,49 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     setSuccessMessage("Prompt listing created successfully!");
     resetBlocker();
     try {
+      const response = await fetch("/api/prompts/similarity/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: data.fullPrompt, category: data.category }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        similarityFlag = result.flag;
+      }
+    } catch (e) {
+      console.error("Failed to check similarity before publish", e);
+    }
+
+    if (similarityFlag === "highly_similar") {
+      setSubmitError(
+        "Publishing is blocked. This prompt is highly similar to an existing prompt (plagiarism).",
+      );
+      return;
+    }
+
+    if (similarityFlag === "suspicious" && !duplicateConfirmed) {
+      setDuplicateWarning(
+        "This prompt is suspiciously similar to an existing prompt. Confirm below to proceed (will be sent to review).",
+      );
+      setSubmitError(
+        "Review similarity warning before proceeding.",
+      );
+      return;
+    }
+
+    try {
+      const sourcePromptId = data.sourcePromptId?.trim();
+      if (sourcePromptId) {
+        try {
+          await getPrompt(browserStellarConfig, BigInt(sourcePromptId));
+        } catch {
+          setSubmitError(
+            `Source prompt #${sourcePromptId} does not exist or is unavailable.`,
+          );
+          return;
+        }
+      }
+
       // Encrypt the prompt content
       const encryptionResult = await encryptPromptPlaintext(
         data.fullPrompt,
@@ -279,6 +384,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       );
 
       if (result.success) {
+        if (sourcePromptId) {
+          saveRemixAttribution(result.promptId, sourcePromptId);
+        }
         setSuccessMessage(`Prompt created! Transaction: ${result.txHash}`);
         setTimeout(() => {
           onCreated?.();
@@ -309,6 +417,55 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">
             Connect your wallet and configure `PUBLIC_PROMPT_HASH_CONTRACT_ID`
             plus `PUBLIC_UNLOCK_PUBLIC_KEY` before listing prompts.
+          </div>
+        )}
+
+        {sessionGuard && (
+          <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+            <div className="flex items-center gap-2 font-medium text-amber-200">
+              <AlertCircle className="h-4 w-4" />
+              {sessionGuard.kind === "network-changed"
+                ? "Draft saved on a different network"
+                : sessionGuard.kind === "wallet-disconnected"
+                  ? "Wallet disconnected with unsaved changes"
+                  : "Draft saved under another wallet"}
+            </div>
+            <p className="mt-1 text-xs text-amber-200/80">
+              {sessionGuard.kind === "network-changed" && sessionGuard.draftNetwork
+                ? `This draft was saved on ${sessionGuard.draftNetwork}. Publishing it on ${network} could lock assets on the wrong network.`
+                : sessionGuard.kind === "wallet-disconnected"
+                  ? "Reconnect the same wallet to keep your unsaved edits, or discard them."
+                  : sessionGuard.draftAddress
+                    ? `This draft or its live edits belong to ${sessionGuard.draftAddress}. Publishing it now would credit the wrong wallet.`
+                    : "The draft saved in this browser was created by another wallet."}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {sessionGuard.kind !== "wallet-disconnected" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-amber-300 text-slate-950 hover:bg-amber-200"
+                  onClick={() => resolveSessionGuard("adopt")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {sessionGuard.kind === "network-changed"
+                    ? "Continue on this network"
+                    : "Adopt with this wallet"}
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-white/20 text-amber-100 hover:bg-white/5"
+                onClick={() => resolveSessionGuard("discard")}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {sessionGuard.kind === "wallet-disconnected"
+                  ? "Discard unsaved edits"
+                  : "Discard draft"}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -346,6 +503,49 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
             </button>
           </div>
         )}
+
+        {conflict && isConfigured && (
+          <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+            <div className="flex items-center gap-2 font-medium text-amber-200">
+              <AlertCircle className="h-4 w-4" />
+              This draft was edited in another tab
+            </div>
+            <p className="mt-1 text-xs text-amber-200/80">
+              Your changes were made at{" "}
+              {conflict.localSavedAt
+                ? new Date(conflict.localSavedAt).toLocaleString()
+                : "an earlier time"}
+              , and a newer version was saved at{" "}
+              {conflict.storedSavedAt
+                ? new Date(conflict.storedSavedAt).toLocaleString()
+                : "another time"}
+              . Choose which version to keep.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-amber-300 text-slate-950 hover:bg-amber-200"
+                onClick={() => resolveConflict("keep-local")}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Keep my changes
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-white/20 text-amber-100 hover:bg-white/5"
+                onClick={() => resolveConflict("keep-remote")}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Keep the other changes
+              </Button>
+            </div>
+          </div>
+        )}
+        {/* Payout Readiness Status */}
+        <PayoutReadinessBanner className="mb-4" />
 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-2">
@@ -395,6 +595,32 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               </p>
             )}
           </div>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <label
+            htmlFor="sourcePromptId"
+            className="text-sm font-medium text-slate-100"
+          >
+            Source prompt ID{" "}
+            <span className="font-normal text-slate-400">(optional)</span>
+          </label>
+          <Input
+            id="sourcePromptId"
+            inputMode="numeric"
+            placeholder="e.g. 42"
+            className={errors.sourcePromptId ? "border-red-500" : ""}
+            {...register("sourcePromptId")}
+          />
+          <p className="text-xs text-slate-400">
+            Credit the listing that inspired this remix.
+          </p>
+          {errors.sourcePromptId && (
+            <p className="flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {errors.sourcePromptId.message?.toString()}
+            </p>
+          )}
         </div>
 
         <div className="grid gap-6 md:grid-cols-[1fr_220px] mt-4">
@@ -666,7 +892,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           {watchAllFields.fullPrompt && (
             <button
               type="button"
-              onClick={() => checkDuplicateHash(watchAllFields.fullPrompt)}
+              onClick={() => checkSimilarity(watchAllFields.fullPrompt, watchAllFields.category)}
               disabled={isCheckingDuplicate}
               className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
             >
@@ -695,6 +921,61 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           )}
         </div>
 
+        <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-100">Buyer-view listing preview</h3>
+              <p className="text-xs text-slate-400">Preview uses the marketplace card and buyer detail structure with unsaved public metadata only.</p>
+            </div>
+            <Button type="button" variant="outline" className="gap-2" onClick={() => setShowBuyerPreview((value) => !value)}>
+              <Eye className="h-4 w-4" /> {showBuyerPreview ? "Hide buyer preview" : "Open buyer preview"}
+            </Button>
+          </div>
+
+          {showBuyerPreview && (
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(280px,420px)_1fr]">
+              <PromptCard
+                prompt={buyerPreviewPrompt}
+                hasAccess={false}
+                openModal={() => undefined}
+                isSaved={false}
+                isSaving={false}
+                onToggleSave={() => undefined}
+              />
+              <section className="rounded-[24px] border border-white/10 bg-slate-950/80 p-5 shadow-2xl">
+                <div className="mb-4 aspect-[16/9] overflow-hidden rounded-2xl bg-slate-900">
+                  {buyerPreviewPrompt.imageUrl ? (
+                    <img src={buyerPreviewPrompt.imageUrl} alt={buyerPreviewPrompt.title} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">Fallback image state: no cover image supplied.</div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">{buyerPreviewPrompt.category}</p>
+                    <h4 className="mt-1 text-2xl font-black text-white">{buyerPreviewPrompt.title}</h4>
+                    <p className="mt-1 text-xs text-slate-500">Creator: {buyerPreviewPrompt.creator}</p>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-right">
+                    <p className="text-lg font-black text-emerald-300">{watchAllFields.priceXlm || "0"} XLM</p>
+                    <p className="text-[10px] uppercase text-slate-500">single licence</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-300">{buyerPreviewPrompt.previewText}</p>
+                <div className="mt-5 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+                  Secret prompt content is hidden in buyer preview. Only synthetic encrypted payload metadata is represented before publication.
+                </div>
+                <div className="mt-5">
+                  <h5 className="text-sm font-semibold text-slate-100">Description</h5>
+                  <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-sm text-slate-300">
+                    {buyerPreviewPrompt.description ? <MarkdownContent>{buyerPreviewPrompt.description}</MarkdownContent> : "Missing metadata fallback: no description yet."}
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+        </div>
+
         {showChecklist && <ListingQualityChecklist items={checklistItems} />}
 
         <Button
@@ -703,7 +984,11 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           disabled={
             isSubmitting ||
             (showChecklist && checklistHasFailures) ||
-            payloadEstimate.isOverLimit
+            payloadEstimate.isOverLimit ||
+            shouldBlock ||
+            isPayoutLoading ||
+            Boolean(sessionGuard) ||
+            (Boolean(address) && !canPublish)
           }
         >
           {isSubmitting ? (
@@ -711,6 +996,17 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Encrypting and submitting...
             </>
+          ) : sessionGuard ? (
+            "Resolve the draft session warning to publish"
+          ) : address && !canPublish ? (
+            "Connect the owning wallet to publish"
+          ) : isPayoutLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Checking payout setup...
+            </>
+          ) : shouldBlock ? (
+            "Complete payout setup to publish"
           ) : (
             "Create prompt listing"
           )}

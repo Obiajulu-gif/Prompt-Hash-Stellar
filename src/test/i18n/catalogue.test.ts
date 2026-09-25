@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
+import { ERROR_MESSAGES } from '../../lib/api/errorCodes';
 import { formatDate, formatDateTime, formatNumber, formatXlm } from '../../i18n/formatters';
 
 describe('i18n catalogue', () => {
@@ -11,36 +12,63 @@ describe('i18n catalogue', () => {
     expect(result.current.t('marketplace.title')).toBe('Marketplace');
   });
 
-  it('translates marketplace.title in English', () => {
+  it('translates marketplace.title in English', async () => {
     const { result } = renderHook(() => useTranslation());
-    result.current.i18n.changeLanguage('en');
+    await result.current.i18n.changeLanguage('en');
     expect(result.current.t('marketplace.title')).toBe('Marketplace');
   });
 
-  it('translates marketplace.title in Spanish', () => {
+  it("translates marketplace.title in Spanish", async () => {
     const { result } = renderHook(() => useTranslation());
-    result.current.i18n.changeLanguage('es');
+    await result.current.i18n.changeLanguage('es');
     expect(result.current.t('marketplace.title')).toBe('Mercado');
   });
 
-  it('translates marketplace.title in French', () => {
+  it("translates marketplace.title in French", async () => {
     const { result } = renderHook(() => useTranslation());
-    result.current.i18n.changeLanguage('fr');
+    await result.current.i18n.changeLanguage('fr');
     expect(result.current.t('marketplace.title')).toBe('Marché');
   });
 
-  it('translates marketplace.title in Chinese', () => {
+  it("translates marketplace.title in Chinese", async () => {
     const { result } = renderHook(() => useTranslation());
-    result.current.i18n.changeLanguage('zh');
+    await result.current.i18n.changeLanguage('zh');
     expect(result.current.t('marketplace.title')).toBe('市场');
   });
 
-  it('nav keys are present in all locales', () => {
+  it('nav keys are present in all locales', async () => {
     const { result } = renderHook(() => useTranslation());
     for (const lang of ['en', 'es', 'fr', 'zh']) {
-      result.current.i18n.changeLanguage(lang);
+      await result.current.i18n.changeLanguage(lang);
       const val = result.current.t('nav.browse');
       expect(val).not.toBe('nav.browse'); // key should not leak through
+    }
+  });
+
+  it('translates every unlock error code in all locales', async () => {
+    const { result } = renderHook(() => useTranslation());
+    const codes = Object.keys(ERROR_MESSAGES);
+    expect(codes.length).toBeGreaterThan(0);
+
+    for (const lang of ['en', 'es', 'fr', 'zh']) {
+      await result.current.i18n.changeLanguage(lang);
+      for (const code of codes) {
+        const value = result.current.t(`unlockErrors.codes.${code}`);
+        expect(value).not.toBe(`unlockErrors.codes.${code}`);
+        expect(value.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('translates unlock error categories in all locales', async () => {
+    const { result } = renderHook(() => useTranslation());
+    for (const lang of ['en', 'es', 'fr', 'zh']) {
+      await result.current.i18n.changeLanguage(lang);
+      for (const category of ['wallet', 'access', 'server']) {
+        const value = result.current.t(`unlockErrors.categories.${category}`);
+        expect(value).not.toBe(`unlockErrors.categories.${category}`);
+        expect(value.length).toBeGreaterThan(0);
+      }
     }
   });
 });

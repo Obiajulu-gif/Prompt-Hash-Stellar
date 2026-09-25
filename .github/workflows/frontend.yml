@@ -72,7 +72,7 @@ jobs:
         run: yarn lint
 
       - name: Run type checks
-        run: yarn tsc -b --pretty false
+        run: yarn typecheck
 
       - name: Run tests
         run: yarn test

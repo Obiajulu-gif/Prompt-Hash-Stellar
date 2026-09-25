@@ -4,6 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import * as StellarXdr from "./StellarXdr";
 import { prettifyJsonString } from "./prettifyJsonString";
+import { formatXdrJsonToText } from "./formatContractText";
 import {
   CONTRACT_SECTIONS,
   ContractData,
@@ -51,12 +52,12 @@ const sectionResult = (
 ) => {
   const sectionData = new Uint8Array(section);
   const sectionXdr = Buffer.from(sectionData).toString("base64");
-  const { json, xdr } = getJsonAndXdr(sectionName, sectionXdr);
+  const { json, xdr, text } = getJsonAndXdr(sectionName, sectionXdr);
 
   return {
     xdr,
     json,
-    // TODO: add text format
+    text,
   };
 };
 
@@ -78,8 +79,12 @@ const getJsonAndXdr = (sectionName: ContractSectionName, xdr: string) => {
       xdr: jsonStringArray.map((s: string) =>
         StellarXdr.encode(TYPE_VARIANT[sectionName], s),
       ),
+      text: jsonStringArray.map((s: string) =>
+        formatXdrJsonToText(sectionName, s),
+      ),
     };
   } catch (e) {
-    return { json: [], xdr: [] };
+    return { json: [], xdr: [], text: [] };
   }
 };
+

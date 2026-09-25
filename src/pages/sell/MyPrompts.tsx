@@ -2,21 +2,29 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   CalendarDays,
+  CheckSquare,
   Eye,
+  Flag,
   Loader2,
   LockKeyhole,
   PackagePlus,
+  Pause,
+  Play,
   ShoppingBag,
+  Square,
   ToggleLeft,
   ToggleRight,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CreatorDashboard } from "@/components/sell/CreatorDashboard";
+import { BulkListingActionsBar } from "@/components/sell/BulkListingActionsBar";
 import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { useWallet } from "@/hooks/useWallet";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
@@ -39,9 +47,40 @@ import {
   restorePrompt,
   getArchivedPromptIds,
 } from "@/lib/prompts/PromptArchiveStore";
+import {
+  runBulkListingAction,
+  type BulkListingAction,
+  type BulkListingResult,
+  type BulkListingTarget,
+} from "@/lib/prompts/bulkListingActions";
 
 interface MyPromptsProps {
   onCreateNew?: () => void;
+}
+
+/** Fetch DB-backed moderation state for a creator's prompts. */
+async function fetchCreatorModeration(
+  walletAddress: string,
+): Promise<Record<string, { status: string; reason: string | null }>> {
+  try {
+    const res = await fetch(
+      `/api/prompts/index?walletAddress=${encodeURIComponent(walletAddress)}`,
+    );
+    if (!res.ok) return {};
+    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const byId: Record<string, { status: string; reason: string | null }> = {};
+    for (const item of list) {
+      const key = String(item.onChainId ?? "");
+      if (!key) continue;
+      byId[key] = {
+        status: typeof item.moderationStatus === "string" ? item.moderationStatus : "none",
+        reason: typeof item.moderationReason === "string" ? item.moderationReason : null,
+      };
+    }
+    return byId;
+  } catch {
+    return {};
+  }
 }
 
 const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
@@ -64,11 +103,24 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
 
+  // Bulk listing actions (issue #500).
+  const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [isBulkActionRunning, setIsBulkActionRunning] = useState(false);
+  const [bulkActionResults, setBulkActionResults] = useState<
+    BulkListingResult[] | null
+  >(null);
+
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
     queryFn: async () =>
       address ? getPromptsByCreator(browserStellarConfig, address) : [],
     enabled: Boolean(address),
+    // Moderation state changes must not be served from a stale cache.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
   });
 
   const purchasedQuery = useQuery({
@@ -78,8 +130,29 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     enabled: Boolean(address),
   });
 
+  // Creator-facing moderation state (DB-backed). Re-fetched on focus so a
+  // restrict/reinstate action is reflected without a manual refresh.
+  const moderationQuery = useQuery({
+    queryKey: ["creator-moderation", address],
+    queryFn: async () =>
+      address ? fetchCreatorModeration(address) : {},
+    enabled: Boolean(address),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
+  });
+
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
+  const moderationByPromptId = moderationQuery.data ?? {};
+
+  // Ensure creator dashboard + detail caches are cleared when the page mounts so
+  // moderation decisions are never served from a stale persisted cache.
+  useEffect(() => {
+    if (!address) return;
+    queryClient.invalidateQueries({ queryKey: ["created-prompts", address] });
+    queryClient.invalidateQueries({ queryKey: ["creator-moderation", address] });
+  }, [queryClient, address]);
 
   useEffect(() => {
     if (address) {
@@ -186,6 +259,73 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     restorePrompt(address, promptId);
     setArchivedIds(getArchivedPromptIds(address));
     updateStatus("Prompt restored.");
+  };
+
+  const toggleListingSelection = (promptId: string) => {
+    setSelectedListingIds((current) => {
+      const next = new Set(current);
+      if (next.has(promptId)) {
+        next.delete(promptId);
+      } else {
+        next.add(promptId);
+      }
+      return next;
+    });
+  };
+
+  const clearListingSelection = () => {
+    setSelectedListingIds(new Set());
+    setBulkActionResults(null);
+  };
+
+  const handleRunBulkAction = async (action: BulkListingAction) => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before changing prompt status.");
+      return;
+    }
+
+    const targets: BulkListingTarget[] = activeCreatedPrompts
+      .filter((prompt) => selectedListingIds.has(prompt.id.toString()))
+      .map((prompt) => ({
+        id: prompt.id,
+        title: prompt.title,
+        creatorAddress: prompt.creator,
+        active: prompt.active,
+      }));
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    setIsBulkActionRunning(true);
+    setBulkActionResults(null);
+    try {
+      const results = await runBulkListingAction(action, targets, {
+        config: browserStellarConfig,
+        signer: { signTransaction },
+        address,
+      });
+      setBulkActionResults(results);
+
+      const failureCount = results.filter((r) => !r.success).length;
+      if (failureCount === 0) {
+        updateStatus(`${results.length} listing${results.length === 1 ? "" : "s"} updated.`);
+      } else if (failureCount === results.length) {
+        updateError(`Failed to update ${failureCount} listing${failureCount === 1 ? "" : "s"}.`);
+      } else {
+        updateStatus(
+          `${results.length - failureCount} updated, ${failureCount} failed. See details below.`,
+        );
+      }
+
+      if (action === "retire") {
+        setArchivedIds(address ? getArchivedPromptIds(address) : new Set());
+      }
+      await refreshPromptLists();
+      setSelectedListingIds(new Set());
+    } finally {
+      setIsBulkActionRunning(false);
+    }
   };
 
   const handleUpdatePrice = async (promptId: bigint) => {
@@ -479,23 +619,54 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
       </section>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-semibold text-white">Created by me</h2>
             <p className="mt-2 text-sm text-slate-400">
               Update pricing, pause listings, and track license sales without changing ownership.
             </p>
           </div>
-          {archivedCreatedPrompts.length > 0 && (
-            <button
-              onClick={() => setShowArchived((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
-            >
-              <Archive className="h-3.5 w-3.5" />
-              {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {activeCreatedPrompts.length > 0 && (
+              <button
+                type="button"
+                onClick={
+                  selectedPromptIds.size === activeCreatedPrompts.length
+                    ? handleDeselectAll
+                    : handleSelectAllActive
+                }
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition border border-white/10 rounded-lg px-3 py-2 bg-white/5"
+              >
+                {selectedPromptIds.size === activeCreatedPrompts.length ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Square className="h-3.5 w-3.5 text-slate-400" />
+                )}
+                {selectedPromptIds.size === activeCreatedPrompts.length
+                  ? "Deselect All"
+                  : `Select All (${activeCreatedPrompts.length})`}
+              </button>
+            )}
+            {archivedCreatedPrompts.length > 0 && (
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
+              </button>
+            )}
+          </div>
         </div>
+
+        <BulkListingActionsBar
+          selectedCount={selectedListingIds.size}
+          isRunning={isBulkActionRunning}
+          results={bulkActionResults}
+          onRunAction={(action) => void handleRunBulkAction(action)}
+          onClearSelection={clearListingSelection}
+          onDismissResults={() => setBulkActionResults(null)}
+        />
 
         {createdQuery.isLoading ? (
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
@@ -529,7 +700,18 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                     key={prompt.id.toString()}
                     className="border-white/10 bg-slate-950/70 text-white"
                   >
-                    <div className="aspect-video overflow-hidden rounded-t-xl">
+                    <div className="relative aspect-video overflow-hidden rounded-t-xl">
+                      <label
+                        className="absolute left-3 top-3 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/20 bg-slate-950/70 backdrop-blur"
+                        aria-label={`Select ${prompt.title} for bulk actions`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedListingIds.has(prompt.id.toString())}
+                          onChange={() => toggleListingSelection(prompt.id.toString())}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                        />
+                      </label>
                       <img
                         src={prompt.imageUrl || "/images/codeguru.png"}
                         alt={prompt.title}
@@ -548,17 +730,32 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                           </p>
                         </div>
                         {/* Status badge */}
-                        {prompt.active ? (
-                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
-                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                            Inactive
-                          </span>
-                        )}
+                        {(() => {
+                          const mod = moderationByPromptId[prompt.id.toString()];
+                          if (mod && mod.status && mod.status !== "none") {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                                <Flag className="h-3 w-3" />
+                                {mod.status === "retired" ? "Retired" : "Restricted"}
+                                {mod.reason ? ` · ${mod.reason.replace(/_/g, " ")}` : ""}
+                              </span>
+                            );
+                          }
+                          if (prompt.active) {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                                Active
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                              Inactive
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
                         <div>
@@ -644,7 +841,8 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       </Button>
                     </CardFooter>
                   </Card>
-                ))}
+                );
+              })}
               </div>
             )}
 
@@ -693,6 +891,12 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
           </div>
         )}
       </section>
+
+      <OwnershipTransferPanel
+        walletAddress={address}
+        createdPrompts={createdPrompts}
+        signMessage={signMessage ?? undefined}
+      />
 
       <section className="space-y-4">
         <div>

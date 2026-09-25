@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { Buffer } from "buffer";
 import { Keypair } from "@stellar/stellar-sdk";
 import { hashKey, nonceStore } from "../observability/sharedStore";
@@ -8,9 +8,65 @@ const DEFAULT_TTL_MS = 5 * 60 * 1000;
 export interface ChallengePayload {
   address: string;
   promptId: string;
+  origin: string;
+  networkPassphrase: string;
+  contractId: string;
+  action: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
+  /** Canonical hash of the listing snapshot this challenge is bound to. */
+  listingSnapshotHash?: string;
   nonce: string;
   issuedAt: number;
   expiresAt: number;
+}
+
+export interface ChallengeContext {
+  origin?: string;
+  networkPassphrase?: string;
+  contractId?: string;
+  action?: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
+  /** Canonical hash of the marketplace listing snapshot the buyer signed. */
+  listingSnapshotHash?: string;
+}
+
+/**
+ * The exact marketplace listing fields a purchase challenge must bind to so the
+ * buyer's signature cannot be replayed against a drifted listing (price, owner,
+ * asset, version, or expiry changes between challenge creation and submission).
+ */
+export interface ListingSnapshot {
+  promptId: string;
+  owner: string;
+  priceStroops: string;
+  asset: string;
+  version: string;
+  expiresAt: string;
+}
+
+/**
+ * Deterministic SHA-256 hash of a listing snapshot.
+ *
+ * The canonical string includes a fixed `listing` domain tag and every field in
+ * a stable order. Address-like fields (owner, asset) are lower-cased; numeric
+ * fields are normalized to their string form so the same listing always hashes
+ * to the same value regardless of client/precision differences.
+ */
+export function computeListingSnapshotHash(snapshot: ListingSnapshot): string {
+  const normalize = (value: unknown): string =>
+    value === undefined || value === null ? "" : String(value).trim();
+  const parts = [
+    normalize(snapshot.promptId),
+    normalize(snapshot.owner).toLowerCase(),
+    normalize(snapshot.priceStroops),
+    normalize(snapshot.asset).toLowerCase(),
+    normalize(snapshot.version),
+    normalize(snapshot.expiresAt),
+  ];
+  const canonical = `listing|${parts.join("|")}`;
+  return createHash("sha256").update(canonical).digest("hex");
 }
 
 function base64UrlEncode(value: string) {
@@ -32,7 +88,21 @@ function signPayload(secret: string, body: string) {
 }
 
 export function buildChallengeMessage(payload: ChallengePayload) {
-  return `prompt-hash unlock:${payload.address}:${payload.promptId}:${payload.nonce}:${payload.issuedAt}:${payload.expiresAt}`;
+  return [
+    "prompt-hash",
+    payload.action,
+    payload.origin,
+    payload.networkPassphrase,
+    payload.contractId,
+    payload.address,
+    payload.promptId,
+    payload.promptVersion ?? "",
+    payload.expectedPriceStroops ?? "",
+    payload.listingSnapshotHash ?? "",
+    payload.nonce,
+    payload.issuedAt,
+    payload.expiresAt,
+  ].join(":");
 }
 
 export function createChallengeToken(
@@ -41,10 +111,18 @@ export function createChallengeToken(
   promptId: string,
   now = Date.now(),
   ttlMs = DEFAULT_TTL_MS,
+  context: ChallengeContext = {},
 ) {
   const payload: ChallengePayload = {
     address,
     promptId,
+    origin: context.origin ?? "*",
+    networkPassphrase: context.networkPassphrase ?? "",
+    contractId: context.contractId ?? "",
+    action: context.action ?? "unlock",
+    promptVersion: context.promptVersion,
+    expectedPriceStroops: context.expectedPriceStroops,
+    listingSnapshotHash: context.listingSnapshotHash,
     nonce: randomUUID(),
     issuedAt: now,
     expiresAt: now + ttlMs,
@@ -68,6 +146,7 @@ export function verifyChallengeToken(
   address: string,
   promptId: string,
   now = Date.now(),
+  expectedContext: ChallengeContext = {},
 ) {
   const [encodedPayload, signature] = token.split(".");
   if (!encodedPayload || !signature) {
@@ -96,6 +175,48 @@ export function verifyChallengeToken(
   const payload = JSON.parse(base64UrlDecode(encodedPayload)) as ChallengePayload;
   if (payload.address !== address || payload.promptId !== promptId) {
     throw new Error("Challenge token does not match the requested prompt unlock.");
+  }
+  if (
+    expectedContext.origin !== undefined &&
+    payload.origin !== expectedContext.origin
+  ) {
+    throw new Error("Challenge token origin mismatch.");
+  }
+  if (
+    expectedContext.networkPassphrase !== undefined &&
+    payload.networkPassphrase !== expectedContext.networkPassphrase
+  ) {
+    throw new Error("Challenge token network mismatch.");
+  }
+  if (
+    expectedContext.contractId !== undefined &&
+    payload.contractId !== expectedContext.contractId
+  ) {
+    throw new Error("Challenge token contract mismatch.");
+  }
+  if (
+    expectedContext.action !== undefined &&
+    payload.action !== expectedContext.action
+  ) {
+    throw new Error("Challenge token action mismatch.");
+  }
+  if (
+    expectedContext.promptVersion !== undefined &&
+    payload.promptVersion !== expectedContext.promptVersion
+  ) {
+    throw new Error("Challenge token prompt version mismatch.");
+  }
+  if (
+    expectedContext.expectedPriceStroops !== undefined &&
+    payload.expectedPriceStroops !== expectedContext.expectedPriceStroops
+  ) {
+    throw new Error("Challenge token prompt price mismatch.");
+  }
+  if (
+    expectedContext.listingSnapshotHash !== undefined &&
+    payload.listingSnapshotHash !== expectedContext.listingSnapshotHash
+  ) {
+    throw new Error("Challenge token listing snapshot mismatch.");
   }
 
   if (payload.expiresAt < now) {

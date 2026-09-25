@@ -238,6 +238,24 @@ Expired challenge tokens surface as `400` with an `expired` message. The fronten
 
 ---
 
+---
+
+## Recommendation and Discovery Journey
+
+Prompt recommendations and curated discovery surfaces filter out ineligible content and apply deterministic ranking:
+
+1. **Eligibility Filtering**:
+   - **Owned content exclusion**: Prompts created by the connected wallet are omitted from recommended feeds.
+   - **Purchased content exclusion**: Prompts already purchased and unlocked by the buyer are removed from recommendation grids.
+   - **Policy and Integrity exclusions**: Listings with draft/archived status, similarity flags (`highly_similar`), content integrity corruption, or policy restrictions are excluded.
+   - **Staleness & Low-trust guards**: Listings lacking updates or from creators below the minimum trust/rating threshold are omitted.
+
+2. **Deterministic Ranking & Category Diversity**:
+   - Scores weigh prompt ratings, creator trust, verified sales, and freshness.
+   - Multi-category interleaving ensures diverse recommendations across different prompt domains (Development, Marketing, Finance, Sales, etc.).
+
+---
+
 ## Related Files and Issues
 
 | File | Purpose |
@@ -246,6 +264,7 @@ Expired challenge tokens surface as `400` with an `expired` message. The fronten
 | `src/pages/browse/FetchAllPrompts.tsx` | Reads all prompts from contract |
 | `src/pages/browse/PromptModal.tsx` | Purchase and unlock UI |
 | `src/pages/sell/MyPrompts.tsx` | Creator dashboard |
+| `src/lib/recommendations/recommendationEngine.ts` | Recommendation eligibility filters and ranking |
 | `api/auth/challenge.ts` | Challenge token issuance |
 | `api/prompts/unlock.ts` | Prompt unlock and decryption |
 | `src/lib/crypto/promptCrypto.ts` | AES-GCM encryption helpers |
@@ -262,3 +281,4 @@ Expired challenge tokens surface as `400` with an `expired` message. The fronten
 - [#155](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/155) — Standardize challenge and unlock API error codes
 - [#157](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/157) — One-command local setup validation
 - [#159](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/159) — Buyer and creator journey documentation (this file)
+- [#715](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/issues/715) — Recommendation logic controls and eligibility filtering

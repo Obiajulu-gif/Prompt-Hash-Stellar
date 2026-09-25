@@ -48,6 +48,11 @@ echo ""
 echo "🛫 Running upgrade preflight checks..."
 NETWORK="$NETWORK" CONTRACT_ID="$CONTRACT_ID" ADMIN_ALIAS="$ADMIN_ALIAS" RPC_URL="$RPC_URL" \
     python3 "$(dirname "$0")/preflight_upgrade.py" check
+
+# Pre-upgrade TTL safety gate (#685): Ensure contract entries are not near expiration
+echo ""
+echo "⏱️ Checking contract TTL readiness before upgrade..."
+node "$(dirname "$0")/check-ttl-readiness.mjs" --network "$NETWORK" --contract-id "$CONTRACT_ID" --admin "$ADMIN_ALIAS"
 echo "✅ Preflight checks passed."
 
 # Build and Optimize
@@ -92,6 +97,11 @@ PROMPTS_COUNT=$(stellar contract invoke \
     get_all_prompts)
 
 echo "✅ Upgrade verified. Current prompts count: $PROMPTS_COUNT"
+
+echo ""
+echo "⏱️ Running post-upgrade TTL readiness check..."
+node "$(dirname "$0")/check-ttl-readiness.mjs" --network "$NETWORK" --contract-id "$CONTRACT_ID" --admin "$ADMIN_ALIAS"
+
 echo "--------------------------------------------------------"
 echo "Upgrade successful!"
 echo "--------------------------------------------------------"

@@ -14,7 +14,12 @@ version = "27.0.2"
 
 [workspace.dependencies.stellar-access]
 git = "https://github.com/OpenZeppelin/stellar-contracts"
-tag = "v0.5.1"
+# v0.5.1 (and every published release through v0.8.0-rc.3) pins soroban-sdk
+# <= 26.x, which conflicts with the soroban-sdk 27.0.2 used across this
+# workspace and pulls in a second soroban-env-common version. Pin to the
+# main-branch commit that first tracks soroban-sdk 27.0.2 until OpenZeppelin
+# cuts a matching release.
+rev = "56d6e5b91aed828051163cebd92dab6c3ca2fa92"
 
 [workspace.dependencies.stellar-default-impl-macro]
 git = "https://github.com/OpenZeppelin/stellar-contracts"
@@ -26,7 +31,7 @@ tag = "v0.3.0"
 
 [workspace.dependencies.stellar-macros]
 git = "https://github.com/OpenZeppelin/stellar-contracts"
-tag = "v0.5.1"
+rev = "56d6e5b91aed828051163cebd92dab6c3ca2fa92"
 
 [workspace.dependencies.stellar-non-fungible]
 git = "https://github.com/OpenZeppelin/stellar-contracts"
@@ -42,7 +47,7 @@ tag = "v0.3.0"
 
 [workspace.dependencies.stellar-tokens]
 git = "https://github.com/OpenZeppelin/stellar-contracts"
-tag = "v0.5.1"
+rev = "56d6e5b91aed828051163cebd92dab6c3ca2fa92"
 
 [profile.release]
 opt-level = "z"

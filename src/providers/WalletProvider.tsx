@@ -9,7 +9,7 @@ import {
 import { wallet } from "../util/wallet";
 import storage from "../util/storage";
 import { stellarWalletNetwork } from "../lib/env";
-import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit";
+import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit/modules/albedo";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { classifyWalletError } from "../lib/wallet/walletErrors";
 import { useQueryClient } from "@tanstack/react-query";
@@ -38,6 +38,7 @@ export interface WalletContextType {
   disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
   signMessage: typeof wallet.signMessage;
+  sessionEpoch: number;
 }
  
 
@@ -66,7 +67,8 @@ const boundSignMessage = wallet.signMessage.bind(wallet);
 export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
-  const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage">>(initialState);
+  const [state, setState] = useState<Omit<WalletContextType, "connect" | "disconnect" | "signTransaction" | "signMessage" | "sessionEpoch">>(initialState);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
   const isConnectingRef = useRef(false);
   const queryClient = useQueryClient();
   const previousAddressRef = useRef<string | undefined>(state.address);
@@ -84,6 +86,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         storage.removeItem("walletNetwork");
         storage.removeItem("networkPassphrase");
         setState(initialState);
+        setSessionEpoch((epoch) => epoch + 1);
       }
     }
   );
@@ -150,6 +153,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           error: undefined,
           networkCompatibility: computeNetworkCompatibility(data.network, "connected"),
         });
+        setSessionEpoch((epoch) => epoch + 1);
       },
       onError: (e) => {
         console.error("Connection error:", e);
@@ -189,6 +193,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       if (address && address !== state.address) {
         storage.setItem("walletAddress", address);
         setState(prev => ({ ...prev, address }));
+        setSessionEpoch((epoch) => epoch + 1);
       }
     } catch (error) {
       console.error("Error checking extension account:", error);
@@ -240,6 +245,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
             error: undefined,
             networkCompatibility: computeNetworkCompatibility(n.network, "connected"),
           });
+          setSessionEpoch((epoch) => epoch + 1);
         } else {
           if (aborted) return;
           disconnect();
@@ -266,8 +272,9 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       signTransaction: boundSignTransaction,
       signMessage: boundSignMessage,
       networkCompatibility: state.networkCompatibility,
+      sessionEpoch,
     }),
-    [state, connect, disconnect]
+    [state, connect, disconnect, sessionEpoch]
   );
 
   return <WalletContext.Provider value={contextValue}>{children}</WalletContext.Provider>;

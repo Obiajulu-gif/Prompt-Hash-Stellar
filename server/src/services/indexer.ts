@@ -6,10 +6,15 @@ import Purchase from "../models/Purchase";
 import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
 import ProcessedEvent from "../models/ProcessedEvent";
+import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
-import { dispatchEvent } from "./webhookDispatcher";
+import { applySafetyScan } from "./safetyScannerHook";
+import { snapshotLicenseForPurchase } from "./licensingService";
+import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
+import { logger } from "./structuredLogger";
+import { createNotification, fanOutNotification } from "./notificationService";
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -17,18 +22,14 @@ const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 
 let tickInFlight = false; // single-flight guard for the current process
 
-// Entitlement decision cache — invalidated on settlement events (#545).
-// Short TTL balances freshness with RPC load.
-const entitlementCache = new Map<string, { decision: boolean; cachedAt: number }>();
-const ENTITLEMENT_CACHE_TTL_MS = 30_000;
+// Entitlement decision cache — invalidated on settlement events (#545, #602).
+// Uses Redis for multi-instance deployments; short TTL balances freshness with RPC load.
+const ENTITLEMENT_CACHE_TTL_SECS = 30;
 
-function invalidateEntitlementCacheForPrompt(promptId: string): void {
-  const prefix = `entitlement:${promptId}:`;
-  for (const key of entitlementCache.keys()) {
-    if (key.startsWith(prefix)) {
-      entitlementCache.delete(key);
-    }
-  }
+async function invalidateEntitlementCacheForPrompt(
+  promptId: string,
+): Promise<void> {
+  await cacheDelPattern(CACHE_KEYS.entitlementDecisionPattern(promptId));
 }
 
 /**
@@ -59,17 +60,28 @@ async function invalidatePromptCaches(promptId: string): Promise<void> {
   ]);
 }
 
-/** Fires a webhook to a creator/owner wallet, swallowing delivery errors. */
+/**
+ * Enqueues a durable webhook delivery for a creator/owner wallet, swallowing
+ * enqueue errors so a webhook problem never blocks indexing. `dedupeKey` is
+ * the chain event's own id — the indexer is the sole projector of on-chain
+ * marketplace events into webhooks (#536), so this is a stable identity a
+ * re-scanned ledger range can't double-enqueue.
+ */
 async function notify(
   wallet: string | undefined | null,
   event: string,
   data: Record<string, unknown>,
+  dedupeKey: string,
 ): Promise<void> {
   if (!wallet) return;
   try {
-    await dispatchEvent(wallet, event, data);
+    await enqueueWebhookEvent(wallet, event, data, dedupeKey);
   } catch (err) {
-    console.error(`[indexer] Webhook dispatch failed for ${event}:`, err);
+    logger.error("Webhook enqueue failed", {
+      action: "indexer",
+      event,
+      error: err,
+    });
   }
 }
 
@@ -86,13 +98,15 @@ export async function startIndexer(): Promise<void> {
   const contractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
 
   if (!rpcUrl || !contractId) {
-    console.warn(
-      "[indexer] PUBLIC_STELLAR_RPC_URL or PUBLIC_PROMPT_HASH_CONTRACT_ID not set — Soroban indexer disabled.",
-    );
+    logger.warn("Soroban indexer disabled - missing configuration", {
+      action: "startIndexer",
+    });
     return;
   }
 
-  const server = new StellarRpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+  const server = new StellarRpc.Server(rpcUrl, {
+    allowHttp: rpcUrl.startsWith("http://"),
+  });
 
   const state = await IndexerState.findOneAndUpdate(
     { key: "prompt_hash_contract" },
@@ -100,12 +114,17 @@ export async function startIndexer(): Promise<void> {
     { upsert: true, new: true },
   );
 
-  console.log("[indexer] Soroban event indexer started.", { replicaId: REPLICA_ID });
+  logger.info("Soroban event indexer started", {
+    action: "startIndexer",
+    replicaId: REPLICA_ID,
+  });
 
   setInterval(async () => {
     // Single-flight: skip this tick if the previous one is still running.
     if (tickInFlight) {
-      console.warn("[indexer] Tick skipped — previous tick still in flight.");
+      logger.warn("Tick skipped - previous tick still in flight", {
+        action: "indexerTick",
+      });
       return;
     }
 
@@ -120,9 +139,9 @@ export async function startIndexer(): Promise<void> {
         {
           key: "prompt_hash_contract",
           $or: [
-            { leaseHolder: REPLICA_ID },                  // we already hold it
-            { leaseExpiresAt: { $lt: now } },             // it has expired
-            { leaseHolder: null },                        // nobody holds it
+            { leaseHolder: REPLICA_ID }, // we already hold it
+            { leaseExpiresAt: { $lt: now } }, // it has expired
+            { leaseHolder: null }, // nobody holds it
           ],
         },
         {
@@ -155,7 +174,10 @@ export async function startIndexer(): Promise<void> {
       for (const event of response.events) {
         // Skip provisional events — only process finalized transactions
         if (event.inSuccessfulContractInvocation === false) {
-          console.log(`[indexer] Skipping provisional event from ledger ${event.ledger}`);
+          logger.debug("Skipping provisional event", {
+            action: "processEvent",
+            ledger: event.ledger,
+          });
           continue;
         }
         await processEvent(event);
@@ -164,9 +186,13 @@ export async function startIndexer(): Promise<void> {
 
       // Fence: only commit the checkpoint if we still hold the same lease epoch.
       // A stale replica that woke up after expiry is rejected here.
-      const current = await IndexerState.findOne({ key: "prompt_hash_contract" });
+      const current = await IndexerState.findOne({
+        key: "prompt_hash_contract",
+      });
       if (!current || current.fencingToken !== myToken) {
-        console.warn("[indexer] Fencing token mismatch — checkpoint discarded.");
+        logger.warn("Fencing token mismatch - checkpoint discarded", {
+          action: "indexerTick",
+        });
         return;
       }
 
@@ -178,7 +204,7 @@ export async function startIndexer(): Promise<void> {
       }
       await state.save();
     } catch (err) {
-      console.error("Indexer Error:", err);
+      logger.error("Indexer error", { action: "indexerTick", error: err });
     } finally {
       tickInFlight = false;
     }
@@ -186,15 +212,83 @@ export async function startIndexer(): Promise<void> {
 }
 
 /**
+ * Persists raw undecodable or unsupported contract events into quarantine with full metadata (#654).
+ * Emits alerts and updates indexer quarantine state without advancing a lossy checkpoint.
+ */
+export async function quarantineEvent(
+  event: StellarRpc.Api.EventResponse,
+  reason:
+    | "unknown_type"
+    | "unsupported_version"
+    | "malformed_xdr"
+    | "decoder_error"
+    | "processing_error",
+  errorDetails?: string,
+  rawTopic?: unknown,
+  rawData?: unknown,
+): Promise<void> {
+  const topicStr = rawTopic !== undefined ? String(rawTopic) : "unknown";
+  logger.warn("Quarantining unsupported or malformed contract event", {
+    action: "quarantineEvent",
+    eventId: event.id,
+    ledger: event.ledger,
+    topic: topicStr,
+    reason,
+    error: errorDetails,
+  });
+
+  await QuarantinedEvent.findOneAndUpdate(
+    { eventId: event.id },
+    {
+      $set: {
+        eventId: event.id,
+        ledger: event.ledger,
+        txHash: event.txHash || "",
+        contractId: event.contractId,
+        topic: topicStr,
+        rawTopic,
+        rawValue: rawData,
+        reason,
+        status: "quarantined",
+        errorDetails,
+        quarantinedAt: new Date(),
+      },
+      $inc: { retryCount: 1 },
+    },
+    { upsert: true, new: true },
+  );
+
+  await IndexerState.findOneAndUpdate(
+    { key: "prompt_hash_contract" },
+    {
+      $inc: { quarantinedCount: 1 },
+      $addToSet: { quarantinedLedgers: event.ledger },
+    },
+  );
+}
+
+/**
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
-  // Decode the topic and value from XDR to native JS types.
-  const rawTopic = scValToNative(event.topic[0]);
-  const rawData = scValToNative(event.value);
+export async function processEvent(
+  event: StellarRpc.Api.EventResponse,
+): Promise<void> {
+  let rawTopic: unknown;
+  let rawData: unknown;
+
+  // 1. Defensively decode XDR to native types. If malformed, quarantine immediately.
+  try {
+    rawTopic = scValToNative(event.topic[0]);
+    rawData = scValToNative(event.value);
+  } catch (err: any) {
+    await quarantineEvent(event, "malformed_xdr", err?.message || String(err));
+    return;
+  }
+
   const txHash = event.txHash;
 
+  // 2. Mark event processed for idempotency
   try {
     await ProcessedEvent.create({
       eventId: event.id,
@@ -205,22 +299,66 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
     });
   } catch (err: any) {
     if (err.code === 11000) {
-      console.log(`[indexer] Skipping duplicate event ${event.id}`);
+      logger.debug("Skipping duplicate event", {
+        action: "processEvent",
+        eventId: event.id,
+      });
       return;
     }
     throw err;
   }
 
-  const decoded = decodeEvent(String(rawTopic), rawData);
-  if (!decoded.recognized) {
-    console.log(`[indexer] Unrecognized event: ${rawTopic} (reason: ${decoded.reason})`, rawData);
+  // 3. Decode event against schema
+  let decoded;
+  try {
+    decoded = decodeEvent(String(rawTopic), rawData);
+  } catch (err: any) {
+    await quarantineEvent(
+      event,
+      "decoder_error",
+      err?.message || String(err),
+      rawTopic,
+      rawData,
+    );
     return;
   }
 
-  const topic = decoded.type;
-  const data = decoded.data as Record<string, any>;
+  if (!decoded.recognized) {
+    await quarantineEvent(event, decoded.reason, undefined, rawTopic, rawData);
+    return;
+  }
 
-  console.log(`Processing Event: ${topic} (v${decoded.version})`, data);
+  // 4. Route decoded event to database projections
+  try {
+    await routeDecodedEvent(
+      decoded.type,
+      decoded.data as Record<string, any>,
+      event.id,
+      txHash,
+      event.ledger,
+    );
+  } catch (err: any) {
+    await quarantineEvent(
+      event,
+      "processing_error",
+      err?.message || String(err),
+      rawTopic,
+      rawData,
+    );
+  }
+}
+
+/**
+ * Executes projections for recognized decoded contract events.
+ */
+export async function routeDecodedEvent(
+  topic: string,
+  data: Record<string, any>,
+  eventId: string,
+  txHash?: string,
+  ledger?: number,
+): Promise<void> {
+  logger.info("Processing event", { action: "processEvent", topic });
 
   switch (topic) {
     case "PromptCreated": {
@@ -262,8 +400,29 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       // Run similarity scan asynchronously — never block the indexer loop.
       if (upserted?.content) {
         const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
-        scanForSimilarity(promptId, combinedText).catch((err) =>
-          console.error("[similarity] Scan error for prompt", promptId, err),
+        scanForSimilarity(promptId, combinedText, upserted.category).catch(
+          (err) =>
+            logger.error("Similarity scan error", {
+              action: "similarityScan",
+              promptId,
+              error: err,
+            }),
+        );
+      }
+
+      // Run the prompt safety scanner asynchronously (#758) — queued or
+      // blocked prompts are hidden from the public marketplace until a
+      // maintainer overrides. The encrypted payload never enters the scanner.
+      if (upserted) {
+        applySafetyScan(promptId, {
+          title: upserted.title,
+          description: upserted.description,
+          category: upserted.category,
+          tags: upserted.tags,
+          preview: upserted.preview,
+          payload: upserted.encryptedPrompt ?? undefined,
+        }).catch((err) =>
+          logger.error("Safety scan error", { action: "safetyScan", promptId, error: err }),
         );
       }
       await invalidatePromptCaches(promptId);
@@ -271,9 +430,6 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
     }
 
     case "PromptPurchased": {
-      // The contract event always carries the prompt id; buyer / version /
-      // price fields are parsed defensively so a record is created whenever the
-      // chain provides them.
       const { prompt_id, buyer, version_index, price_stroops } = data;
       const promptId = prompt_id.toString();
 
@@ -283,12 +439,9 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         { new: true },
       ).populate("owner", "walletAddress");
 
-      // Record the individual purchase so it surfaces in buyer transaction
-      // history. De-duplicated on (promptId, buyerWallet, txHash) to keep the
-      // poll loop idempotent if the same ledger range is re-scanned.
       if (buyer) {
         const buyerWallet = String(buyer).toLowerCase();
-        await Purchase.findOneAndUpdate(
+        const purchaseDoc = await Purchase.findOneAndUpdate(
           { promptId, buyerWallet, txHash: txHash ?? "" },
           {
             $set: {
@@ -299,21 +452,78 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
               txHash: txHash ?? "",
             },
           },
-          { upsert: true },
+          { upsert: true, new: true },
+        );
+        // Freeze the license terms active at purchase time (#759).
+        // Fire-and-forget: snapshotting must never block or fail indexing.
+        snapshotLicenseForPurchase(
+          promptId,
+          buyerWallet,
+          String(purchaseDoc?._id ?? ""),
+        ).catch((err) =>
+          logger.error("license snapshot hook failed", {
+            action: "indexer",
+            promptId,
+            error: err,
+          }),
         );
       }
 
       const ownerWallet = (prompt?.owner as { walletAddress?: string } | null)
         ?.walletAddress;
-      await notify(ownerWallet, "PromptPurchased", {
-        promptId,
-        buyer: buyer ? String(buyer) : undefined,
-        priceStroops: price_stroops ? String(price_stroops) : undefined,
-        txHash,
-      });
+      const promptTitle = (prompt as { title?: string } | null)?.title ?? "";
+
+      await notify(
+        ownerWallet,
+        "PromptPurchased",
+        {
+          promptId,
+          buyer: buyer ? String(buyer) : undefined,
+          priceStroops: price_stroops ? String(price_stroops) : undefined,
+          txHash,
+        },
+        eventId,
+      );
+
+      // In-app notifications: buyer gets purchase_confirmed; creator gets
+      // a sale alert via the same event. Both use the on-chain event id as
+      // the idempotency key (suffixed per-wallet by fanOutNotification).
+      const buyerAddr = buyer ? String(buyer) : null;
+      if (buyerAddr) {
+        await createNotification({
+          recipientWallet: buyerAddr,
+          type: "purchase_confirmed",
+          message: `Your purchase of "${promptTitle || promptId}" was confirmed on-chain.`,
+          deepLink: `/prompts/${promptId}`,
+          promptId,
+          promptTitle,
+          idempotencyKey: `${eventId}:buyer:${buyerAddr.toLowerCase()}`,
+        }).catch((err) =>
+          logger.error("Failed to create purchase_confirmed notification", {
+            action: "indexer",
+            error: err,
+          }),
+        );
+      }
+      if (ownerWallet) {
+        await createNotification({
+          recipientWallet: ownerWallet,
+          type: "purchase_confirmed",
+          message: `Someone purchased your prompt "${promptTitle || promptId}".`,
+          deepLink: `/creator/analytics`,
+          promptId,
+          promptTitle,
+          idempotencyKey: `${eventId}:creator:${ownerWallet.toLowerCase()}`,
+        }).catch((err) =>
+          logger.error("Failed to create sale notification for creator", {
+            action: "indexer",
+            error: err,
+          }),
+        );
+      }
+
       await invalidatePromptCaches(promptId);
-      // Invalidate entitlement cache on settlement (refund/transfer)
-      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidateEntitlementCacheForPrompt(promptId);
       break;
     }
 
@@ -329,15 +539,48 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
         );
       }
 
-      // Notify both the previous and the new owner of the transfer.
       const payload = {
         promptId,
         from: from ? String(from) : undefined,
         to: to ? String(to) : undefined,
         txHash,
       };
-      await notify(from ? String(from) : undefined, "PromptOwnershipTransferred", payload);
-      await notify(to ? String(to) : undefined, "PromptOwnershipTransferred", payload);
+      await notify(
+        from ? String(from) : undefined,
+        "PromptOwnershipTransferred",
+        payload,
+        eventId,
+      );
+      await notify(
+        to ? String(to) : undefined,
+        "PromptOwnershipTransferred",
+        payload,
+        eventId,
+      );
+
+      // In-app notifications for both parties.
+      const transferredPrompt = await Prompt.findOne({
+        onChainId: promptId,
+      }).lean();
+      const transferTitle =
+        (transferredPrompt as { title?: string } | null)?.title ?? promptId;
+      await fanOutNotification(
+        [from ? String(from) : null, to ? String(to) : null],
+        {
+          type: "ownership_transfer",
+          message: `Ownership of "${transferTitle}" was transferred on-chain.`,
+          deepLink: `/prompts/${promptId}`,
+          promptId,
+          promptTitle: transferTitle,
+          idempotencyKey: eventId,
+        },
+      ).catch((err) =>
+        logger.error("Failed to create ownership_transfer notifications", {
+          action: "indexer",
+          error: err,
+        }),
+      );
+
       await invalidatePromptCaches(promptId);
       break;
     }
@@ -347,7 +590,6 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       const promptId = prompt_id.toString();
       const newPrice = Number(price_stroops) / 10_000_000;
 
-      // Read the current price before updating so we can record the delta.
       const current = await Prompt.findOne({ onChainId: promptId });
       const previousPrice = current?.price ?? null;
 
@@ -361,7 +603,7 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
           previousPrice,
           newPrice,
           asset: "XLM",
-          ledgerSeq: event.ledger ?? null,
+          ledgerSeq: ledger ?? null,
           txHash: txHash ?? "",
         }),
       ]);
@@ -380,8 +622,180 @@ export async function processEvent(event: StellarRpc.Api.EventResponse): Promise
       break;
     }
 
+    case "DisputeOpened": {
+      const { prompt_id, buyer } = data;
+      const promptId = prompt_id.toString();
+      const buyerWallet = String(buyer).toLowerCase();
+
+      await Purchase.findOneAndUpdate(
+        { promptId, buyerWallet },
+        { $set: { status: "disputed" } },
+      );
+
+      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidatePromptCaches(promptId);
+
+      await notify(
+        buyerWallet,
+        "DisputeOpened",
+        {
+          promptId,
+          buyer: String(buyer),
+          txHash,
+        },
+        eventId,
+      );
+
+      // In-app notification — buyer needs to know their dispute was registered.
+      const disputePrompt = await Prompt.findOne({
+        onChainId: promptId,
+      }).lean();
+      const disputeTitle =
+        (disputePrompt as { title?: string } | null)?.title ?? promptId;
+      const disputeOwnerWallet =
+        (disputePrompt as { owner?: { walletAddress?: string } } | null)?.owner
+          ?.walletAddress ?? null;
+      await fanOutNotification([buyerWallet, disputeOwnerWallet], {
+        type: "dispute_opened",
+        message: `A dispute was opened for "${disputeTitle}".`,
+        deepLink: `/prompts/${promptId}`,
+        promptId,
+        promptTitle: disputeTitle,
+        idempotencyKey: eventId,
+      }).catch((err) =>
+        logger.error("Failed to create dispute_opened notifications", {
+          action: "indexer",
+          error: err,
+        }),
+      );
+      break;
+    }
+
+    case "DisputeResolved": {
+      const { prompt_id, buyer, refunded } = data;
+      const promptId = prompt_id.toString();
+      const buyerWallet = String(buyer).toLowerCase();
+
+      const resolution = refunded ? "refunded" : "rejected";
+
+      await Purchase.findOneAndUpdate(
+        { promptId, buyerWallet },
+        {
+          $set: {
+            status: "resolved",
+            disputeResolution: resolution,
+          },
+        },
+      );
+
+      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidatePromptCaches(promptId);
+
+      await notify(
+        buyerWallet,
+        "DisputeResolved",
+        {
+          promptId,
+          buyer: String(buyer),
+          refunded,
+          txHash,
+        },
+        eventId,
+      );
+
+      // In-app notification with outcome label.
+      const resolvedPrompt = await Prompt.findOne({
+        onChainId: promptId,
+      }).lean();
+      const resolvedTitle =
+        (resolvedPrompt as { title?: string } | null)?.title ?? promptId;
+      const resolvedOwnerWallet =
+        (resolvedPrompt as { owner?: { walletAddress?: string } } | null)?.owner
+          ?.walletAddress ?? null;
+      await fanOutNotification([buyerWallet, resolvedOwnerWallet], {
+        type: "dispute_resolved",
+        message: `The dispute for "${resolvedTitle}" was resolved: ${resolution}.`,
+        deepLink: `/prompts/${promptId}`,
+        promptId,
+        promptTitle: resolvedTitle,
+        idempotencyKey: eventId,
+      }).catch((err) =>
+        logger.error("Failed to create dispute_resolved notifications", {
+          action: "indexer",
+          error: err,
+        }),
+      );
+      break;
+    }
+
     default:
-      console.log(`Unhandled event topic: ${topic}`);
+      logger.debug("Unhandled event topic", { action: "processEvent", topic });
       break;
   }
+}
+
+/**
+ * Refreshes the search index and cache for a prompt listing atomically,
+ * tracking index status ('pending' -> 'synced' | 'failed') and errors (#699).
+ */
+export async function refreshPromptIndex(
+  promptId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      { $set: { searchIndexStatus: "pending" } },
+    );
+
+    // Invalidate read caches
+    await invalidatePromptCaches(promptId);
+
+    // Update to synced
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "synced",
+          searchIndexError: null,
+          lastIndexedAt: new Date(),
+        },
+      },
+    );
+
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error?.message || "Search index refresh failed";
+    await Prompt.findOneAndUpdate(
+      { $or: [{ _id: promptId }, { onChainId: promptId }] },
+      {
+        $set: {
+          searchIndexStatus: "failed",
+          searchIndexError: errorMsg,
+        },
+      },
+    );
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Retries failed search index refreshes across all prompts (#699)
+ */
+export async function retryFailedIndexRefreshes(): Promise<{
+  retried: number;
+  succeeded: number;
+}> {
+  const failedPrompts = await Prompt.find({
+    searchIndexStatus: "failed",
+  }).limit(50);
+  let succeeded = 0;
+
+  for (const prompt of failedPrompts) {
+    const res = await refreshPromptIndex(String(prompt._id));
+    if (res.success) {
+      succeeded++;
+    }
+  }
+
+  return { retried: failedPrompts.length, succeeded };
 }
