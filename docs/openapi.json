@@ -605,6 +605,501 @@
         }
       }
     },
+    "/api/prompts/{promptId}/license": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Current license terms for a prompt (#759)",
+        "description": "Returns the license terms the prompt currently advertises. Falls back to the marketplace default when the creator has not configured one.",
+        "operationId": "getPromptLicense",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current license state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "license": {
+                      "$ref": "#/components/schemas/PromptLicenseState"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/licensing/update": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Update a prompt's license terms (#759)",
+        "description": "Creator-only. Material changes bump the prompt's `licenseVersionIndex`. Historical purchases are never mutated \u2014 they keep the immutable snapshot frozen at purchase time. Provide `templateKey` + `templateVersion` to adopt a template, or explicit terms fields for custom terms.",
+        "operationId": "updatePromptLicense",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LicenseUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated license state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "license": {
+                      "$ref": "#/components/schemas/PromptLicenseState"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload (missing fields, short terms text, template pair incomplete)."
+          },
+          "403": {
+            "description": "Caller is not the prompt owner."
+          },
+          "404": {
+            "description": "Prompt or template not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/licensing/templates": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List available license templates (#759)",
+        "description": "Returns the active license templates creators can adopt for their prompts. Templates are versioned; only the latest active versions are listed.",
+        "operationId": "getLicenseTemplates",
+        "responses": {
+          "200": {
+            "description": "Active license templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LicenseTemplate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/buyer/{walletAddress}/receipts/{promptId}": {
+      "get": {
+        "tags": [
+          "Buyer"
+        ],
+        "summary": "Buyer receipt with purchase-time license terms (#759)",
+        "description": "Returns the buyer's receipt for a prompt, including the license snapshot frozen at purchase time. Legacy purchases (made before #759) report `license.legacy: true` and show the marketplace default terms. Response is wallet-scoped personal data (`Cache-Control: private, no-store`).",
+        "operationId": "getPurchaseReceipt",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer Stellar wallet address."
+          },
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purchase receipt with license snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseReceipt"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Purchase not found for this wallet."
+          }
+        }
+      }
+    },
+    "/api/prompts/admin/licensing/{walletAddress}/disputes/{promptId}": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Admin license dispute view (#759)",
+        "description": "Pairs the license snapshot frozen at purchase time with the prompt's current terms, so a dispute reviewer can see exactly what changed after the purchase. Requires an admin token with the `moderation:read` scope.",
+        "operationId": "getLicenseDisputeView",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer Stellar wallet address."
+          },
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute view: snapshot + current terms.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseDisputeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:read scope."
+          },
+          "404": {
+            "description": "Purchase not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/moderation/{promptId}/override": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Override a scanner moderation decision (#758)",
+        "description": "Maintainer decision endpoint: approves or rejects a pending (queued) prompt. Only prompts with `moderationStatus: pending` can be overridden; decisions are appended to the ModerationReview history and the audit trail. Requires an admin token with the `moderation:write` scope.",
+        "operationId": "overrideModeration",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Indexed prompt identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModerationOverrideRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision recorded and prompt status updated."
+          },
+          "400": {
+            "description": "Invalid state machine transition or payload."
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:write scope."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/moderation/queue": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Safety-scanner moderation queue (#758)",
+        "description": "Lists prompts queued by the heuristic safety scanner, or the review history for a single prompt when `promptId` is provided. Requires an admin token with the `moderation:read` scope. Hidden-payload fields are excluded from responses.",
+        "operationId": "getModerationQueue",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "When present, returns the moderation review history for that prompt instead of the queue."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Moderation queue or per-prompt review history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationQueue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:read scope."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/cancel": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Cancel a pending ownership transfer",
+        "description": "Cancels a transfer previously requested by the caller. Requires a wallet signature.",
+        "operationId": "cancelOwnershipTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Ownership transfer identifier."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfer cancelled."
+          },
+          "404": {
+            "description": "Transfer not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/respond": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Approve or reject an ownership transfer",
+        "description": "Recipient decision for a pending ownership transfer. Approval re-points the indexed Prompt.owner, affecting analytics and payout attribution. Requires a wallet signature.",
+        "operationId": "respondOwnershipTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Ownership transfer identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "decision"
+                ],
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "signature": {
+                    "type": "string",
+                    "description": "Recipient wallet signature."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer decision recorded."
+          },
+          "404": {
+            "description": "Transfer not found or already resolved."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{walletAddress}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List ownership transfers for a wallet",
+        "description": "Returns pending and historical ownership-transfer handoffs where the wallet is sender or recipient (#708).",
+        "operationId": "getOwnershipTransfers",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar wallet address."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership transfers for the wallet."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/request": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Request an ownership transfer",
+        "description": "Starts the off-chain two-phase ownership handoff (#708). The current owner requests a transfer of an indexed prompt; the recipient approves or rejects. Requires a wallet signature.",
+        "operationId": "requestOwnershipTransfer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnershipTransferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transfer request created."
+          },
+          "400": {
+            "description": "Invalid request or signature."
+          }
+        }
+      }
+    },
+    "/api/prompts/similarity/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Semantic similarity check for anti-plagiarism",
+        "description": "Compares candidate prompt text against indexed prompts to detect near-duplicates before publishing. Off-chain advisory check; it does not gate on-chain publication.",
+        "operationId": "checkPromptSimilarity",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "Candidate prompt text to compare."
+                  },
+                  "threshold": {
+                    "type": "number",
+                    "description": "Optional similarity threshold override (0-1)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Similarity report for the candidate prompt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarityCheckResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/prompts/preview": {
       "post": {
         "tags": [
@@ -2626,6 +3121,427 @@
       }
     },
     "schemas": {
+    "LicenseTemplate": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Stable template identifier, e.g. 'standard'."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Template version; new rows are appended, never edited."
+        },
+        "name": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "termsText": {
+          "type": "string",
+          "description": "Full human-readable terms."
+        },
+        "allowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commercialUse": {
+          "type": "boolean"
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "redistributionAllowed": {
+          "type": "boolean"
+        },
+        "active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PromptLicenseState": {
+      "type": "object",
+      "properties": {
+        "licenseTemplateKey": {
+          "type": "string",
+          "nullable": true
+        },
+        "licenseTemplateVersion": {
+          "type": "integer",
+          "nullable": true
+        },
+        "licenseVersionIndex": {
+          "type": "integer",
+          "description": "Bumped on every material license change."
+        },
+        "licenseSummary": {
+          "type": "string"
+        },
+        "licenseTermsText": {
+          "type": "string"
+        },
+        "licenseAllowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "licenseCommercialUse": {
+          "type": "boolean"
+        },
+        "licenseAttributionRequired": {
+          "type": "boolean"
+        },
+        "licenseRedistributionAllowed": {
+          "type": "boolean"
+        },
+        "licenseCustomTerms": {
+          "type": "string",
+          "description": "Creator-specific clauses layered onto the template."
+        },
+        "licenseUpdatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        }
+      }
+    },
+    "LicenseUpdateRequest": {
+      "type": "object",
+      "required": [
+        "promptId",
+        "walletAddress"
+      ],
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "walletAddress": {
+          "type": "string",
+          "description": "Creator wallet; must own the prompt."
+        },
+        "templateKey": {
+          "type": "string",
+          "description": "Required together with templateVersion."
+        },
+        "templateVersion": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "termsText": {
+          "type": "string",
+          "minLength": 10
+        },
+        "allowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commercialUse": {
+          "type": "boolean"
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "redistributionAllowed": {
+          "type": "boolean"
+        },
+        "customTerms": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "PurchaseReceipt": {
+      "type": "object",
+      "properties": {
+        "purchaseId": {
+          "type": "string"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "buyerWallet": {
+          "type": "string"
+        },
+        "versionIndex": {
+          "type": "integer",
+          "description": "Prompt content version purchased."
+        },
+        "txHash": {
+          "type": "string"
+        },
+        "purchasedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "license": {
+          "type": "object",
+          "properties": {
+            "legacy": {
+              "type": "boolean",
+              "description": "True for purchases made before #759; terms are the marketplace default."
+            },
+            "licenseVersionIndex": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "termsText": {
+              "type": "string"
+            },
+            "allowedUses": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "commercialUse": {
+              "type": "boolean"
+            },
+            "attributionRequired": {
+              "type": "boolean"
+            },
+            "redistributionAllowed": {
+              "type": "boolean"
+            },
+            "customTerms": {
+              "type": "string"
+            },
+            "snapshotAt": {
+              "type": "string",
+              "format": "date-time",
+              "nullable": true
+            }
+          }
+        }
+      }
+    },
+    "LicenseDisputeView": {
+      "type": "object",
+      "properties": {
+        "purchaseId": {
+          "type": "string"
+        },
+        "purchaseStatus": {
+          "type": "string",
+          "enum": [
+            "purchased",
+            "disputed",
+            "resolved",
+            "refunded"
+          ]
+        },
+        "snapshot": {
+          "type": "object",
+          "description": "Frozen license snapshot (LicenseSnapshot document), or null for legacy purchases.",
+          "nullable": true
+        },
+        "currentPromptLicense": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "licenseVersionIndex": {
+              "type": "integer"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "termsText": {
+              "type": "string"
+            },
+            "customTerms": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "SimilarityCheckResult": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "promptId": {
+                "type": "string"
+              },
+              "similarity": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "maxSimilarity": {
+          "type": "number"
+        }
+      }
+    },
+    "OwnershipTransferRequest": {
+      "type": "object",
+      "required": [
+        "promptId",
+        "recipientWallet"
+      ],
+      "properties": {
+        "promptId": {
+          "type": "string",
+          "description": "Indexed prompt to hand off."
+        },
+        "recipientWallet": {
+          "type": "string",
+          "description": "Recipient Stellar wallet address."
+        },
+        "signature": {
+          "type": "string",
+          "description": "Current owner wallet signature."
+        }
+      }
+    },
+    "ModerationQueue": {
+      "type": "object",
+      "properties": {
+        "queue": {
+          "type": "array",
+          "description": "Prompts with moderationStatus 'pending' (queued by the safety scanner).",
+          "items": {
+            "$ref": "#/components/schemas/ModerationQueueItem"
+          }
+        },
+        "history": {
+          "type": "array",
+          "description": "Review history when promptId was provided.",
+          "items": {
+            "$ref": "#/components/schemas/ModerationReview"
+          }
+        }
+      }
+    },
+    "ModerationQueueItem": {
+      "type": "object",
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "moderationStatus": {
+          "type": "string",
+          "enum": [
+            "none",
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "scannerVerdict": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "queue",
+            "block"
+          ]
+        },
+        "scannerRuleIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scannedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "ModerationOverrideRequest": {
+      "type": "object",
+      "required": [
+        "action",
+        "reasonCode"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "enum": [
+            "false_positive",
+            "policy_exception",
+            "insufficient_evidence",
+            "policy_violation_confirmed",
+            "other"
+          ],
+          "description": "false_positive / policy_exception / insufficient_evidence can only justify approve; policy_violation_confirmed can only justify reject."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "ModerationReview": {
+      "type": "object",
+      "description": "Append-only moderation decision record.",
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "enum": [
+            "false_positive",
+            "policy_exception",
+            "insufficient_evidence",
+            "policy_violation_confirmed",
+            "other"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "actingAdmin": {
+          "type": "string"
+        },
+        "scannerRuleIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
       "Error": {
         "type": "object",
         "properties": {

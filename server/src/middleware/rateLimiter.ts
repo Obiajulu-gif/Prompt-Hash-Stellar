@@ -262,6 +262,15 @@ export const authLimiter = rateLimit({
   message: "Too many authentication attempts.",
 });
 
+export const apiKeyManagementLimiter = rateLimit({
+  actionName: "api-key-management",
+  windowMs: 60 * 60 * 1000,
+  maxRequests: 20,
+  keyGenerator: (req) =>
+    (req.headers["x-wallet-address"] as string) || req.ip || req.socket.remoteAddress || "unknown",
+  message: "Too many API key management requests.",
+});
+
 export const strictLimiter = rateLimit({
   actionName: "strict",
   windowMs: 60 * 1000,

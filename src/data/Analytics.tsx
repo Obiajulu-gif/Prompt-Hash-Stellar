@@ -10,7 +10,7 @@ import {
   BarChart,
   Bar
 } from 'recharts';
-import { mockDailySales, mockRecentSales } from '../../data/mockAnalytics';
+import { mockDailySales, mockRecentSales } from './mockAnalytics';
 
 export default function Analytics() {
   const [totalRevenue, setTotalRevenue] = useState(0);

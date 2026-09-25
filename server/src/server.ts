@@ -1,6 +1,6 @@
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
-import express from "express";
+import express, { type Application } from "express";
 import { TestPromptProxy } from "./controllers/controllers";
 import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
