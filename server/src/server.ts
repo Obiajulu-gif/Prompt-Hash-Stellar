@@ -1,6 +1,6 @@
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
-import express from "express";
+import express, { type Application } from "express";
 import { TestPromptProxy } from "./controllers/controllers";
 import { proxyrouter } from "./routes/proxyRoutes";
 import { promptRouter } from "./routes/promptRoutes";
@@ -103,7 +103,7 @@ app.get("/health", async (req, res) => {
 // expressErrorHandler is available in @sentry/node v7; v8+ uses setupExpressErrorHandler.
 if (process.env.SENTRY_DSN) {
   if (typeof (Sentry as Record<string, unknown>).setupExpressErrorHandler === "function") {
-    (Sentry as unknown as { setupExpressErrorHandler: (app: typeof app) => void }).setupExpressErrorHandler(app);
+    (Sentry as unknown as { setupExpressErrorHandler: (app: Application) => void }).setupExpressErrorHandler(app);
   } else if (typeof (Sentry as Record<string, unknown>).expressErrorHandler === "function") {
     app.use((Sentry as unknown as { expressErrorHandler: () => import("express").ErrorRequestHandler }).expressErrorHandler());
   }

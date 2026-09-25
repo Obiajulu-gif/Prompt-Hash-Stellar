@@ -170,6 +170,92 @@ const promptSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Prompt content safety scanner (#758)
+    moderationStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+      index: true,
+    },
+    scannerVerdict: {
+      // Latest scanner verdict; null when never scanned.
+      type: String,
+      enum: ["allow", "queue", "block", null],
+      default: null,
+    },
+    scannerRuleIds: {
+      type: [String],
+      default: [],
+    },
+    scannerReasons: {
+      type: [String],
+      default: [],
+    },
+    scannerScannedAt: {
+      type: Date,
+      default: null,
+    },
+    moderationDecidedAt: {
+      type: Date,
+      default: null,
+    },
+    moderationDecidedBy: {
+      type: String,
+      default: null,
+    },
+    // Versioned prompt licensing (#759) — current terms; purchases keep
+    // immutable LicenseSnapshot copies, so editing these never rewrites
+    // historical purchase terms.
+    licenseTemplateKey: {
+      type: String,
+      default: null,
+    },
+    licenseTemplateVersion: {
+      type: Number,
+      default: null,
+    },
+    licenseVersionIndex: {
+      // Monotonic counter bumped on every material license change.
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+    licenseSummary: {
+      type: String,
+      default: "",
+      maxLength: 500,
+    },
+    licenseTermsText: {
+      type: String,
+      default: "",
+      maxLength: 20000,
+    },
+    licenseAllowedUses: {
+      type: [String],
+      default: [],
+    },
+    licenseCommercialUse: {
+      type: Boolean,
+      default: false,
+    },
+    licenseAttributionRequired: {
+      type: Boolean,
+      default: false,
+    },
+    licenseRedistributionAllowed: {
+      type: Boolean,
+      default: false,
+    },
+    licenseCustomTerms: {
+      // Creator-specific clauses layered onto the template.
+      type: String,
+      default: "",
+      maxLength: 4000,
+    },
+    licenseUpdatedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

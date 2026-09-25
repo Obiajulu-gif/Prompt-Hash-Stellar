@@ -14,7 +14,8 @@ export type AuditAction =
   | "unlock_ledger_failure"
   | "unlock_stale_quote"
   | "admin_auth_success"
-  | "admin_auth_denied";
+  | "admin_auth_denied"
+  | "moderation.override";
 
 export type AuditResult = "success" | "failure" | "blocked";
 
@@ -38,6 +39,7 @@ const auditLogSchema = new mongoose.Schema(
         "unlock_stale_quote",
         "admin_auth_success",
         "admin_auth_denied",
+        "moderation.override",
       ] as AuditAction[],
       index: true,
     },
