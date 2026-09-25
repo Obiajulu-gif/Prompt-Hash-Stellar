@@ -1,46 +1,83 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-// Using the mocked client to get all available prompts
-import { PromptHashClient } from "../src/lib/stellar/promptHashClient";
-import { browserStellarConfig } from "../src/lib/stellar/browserConfig";
+import connectDb from "../server/src/db/connectDb";
+import Prompt from "../server/src/models/Prompt";
+import { buildSitemapXml, type SitemapPromptInput } from "../src/lib/seo/sitemap";
 
+/**
+ * Crawlable sitemap for public marketplace discovery (#791).
+ *
+ * Lists the marketplace home, /browse, every public prompt detail page and
+ * every creator (seller) page that currently has at least one public listing.
+ *
+ * Exclusion rules (enforced twice: in the Mongo query below and again in
+ * `buildSitemapXml` as a defensive pure-logic screen):
+ *   - inactive listings, Draft/Paused/Retired/Restricted (suspended) statuses,
+ *   - `similarityFlag: highly_similar` (plagiarism screen),
+ *   - `integrityStatus` corrupted/missing/unreachable (content verification),
+ *   - moderated prompts (`moderationStatus` pending/rejected — #758).
+ *
+ * Only buyer-visible fields are selected; hidden prompt payloads
+ * (encryptedPrompt, encryptionIv, wrappedKey, contentHash) are never loaded.
+ *
+ * Generation process: the sitemap is computed per-request and cached at the
+ * CDN (`Cache-Control: public, max-age=3600, s-maxage=86400`), so it reflects
+ * public listing changes within the cache window without hammering the DB.
+ * See docs/seo-discovery.md for the full process documentation.
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    const prompts = await PromptHashClient.getAllPrompts(browserStellarConfig);
+    await connectDb();
 
-    // Get the base URL (Vercel provides this in VERCEL_URL, or fallback to localhost for dev)
     const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
     const host = process.env.VERCEL_URL || req.headers.host || "localhost:5173";
     const baseUrl = `${protocol}://${host}`;
 
-    // Create the sitemap entries
-    const urls = prompts
-      .filter((prompt) => prompt.active)
-      .map((prompt) => {
-        return `
-  <url>
-    <loc>${baseUrl}/prompts/${prompt.id}</loc>
-    <lastmod>${new Date().toISOString().split("T")[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>`;
-      })
-      .join("");
+    // Same visibility contract as the public marketplace listing query in
+    // api/prompts/index.ts (buildMarketplaceQuery) so the sitemap can never
+    // advertise a page the marketplace itself would hide.
+    const rows = (await Prompt.find({
+      listingStatus: "published",
+      isActive: true,
+      $or: [{ moderationStatus: null }, { moderationStatus: "none" }, { moderationStatus: { $exists: false } }],
+      similarityFlag: { $ne: "highly_similar" },
+      integrityStatus: { $nin: ["corrupted", "missing", "unreachable"] },
+    })
+      .select("onChainId _id title updatedAt owner category")
+      .populate("owner", "walletAddress")
+      .sort({ updatedAt: -1 })
+      .limit(5000)
+      .lean()) as Array<{
+      _id: unknown;
+      onChainId?: number | string | null;
+      title: string;
+      updatedAt?: Date;
+      owner?: { walletAddress?: string } | null;
+    }>;
 
-    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${baseUrl}/</loc>
-    <lastmod>${new Date().toISOString().split("T")[0]}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>${baseUrl}/browse</loc>
-    <lastmod>${new Date().toISOString().split("T")[0]}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>${urls}
-</urlset>`;
+    const prompts: SitemapPromptInput[] = rows.map((r) => ({
+      id: r.onChainId ?? String(r._id),
+      title: r.title,
+      creator: r.owner?.walletAddress ?? null,
+      updatedAt: r.updatedAt ?? null,
+      // Already filtered in the query; kept explicit so the pure-logic
+      // screen in buildSitemapXml stays the single source of truth.
+      active: true,
+      status: "Active",
+    }));
+
+    // Creator pages: one entry per wallet with at least one public listing.
+    const byCreator = new Map<string, number>();
+    for (const r of rows) {
+      const wallet = r.owner?.walletAddress;
+      if (!wallet) continue;
+      byCreator.set(wallet, (byCreator.get(wallet) ?? 0) + 1);
+    }
+    const creators = [...byCreator.keys()].map((walletAddress) => ({
+      walletAddress,
+      hasPublicListings: (byCreator.get(walletAddress) ?? 0) > 0,
+    }));
+
+    const sitemap = buildSitemapXml(prompts, creators, baseUrl);
 
     res.setHeader("Content-Type", "text/xml");
     res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=86400");

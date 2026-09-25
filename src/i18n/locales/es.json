@@ -199,10 +199,111 @@
       "STALE_PROMPT_TERMS": "Este prompt cambió desde que lo abriste. Actualiza el prompt y firma de nuevo.",
       "RATE_LIMIT_IP": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
       "RATE_LIMIT_WALLET": "Demasiados intentos de desbloqueo para esta billetera. Espera un minuto e inténtalo de nuevo.",
+      "RATE_LIMIT_ENTITLEMENT": "Demasiados intentos de desbloqueo para este prompt. Espera un momento e inténtalo de nuevo.",
       "CONFIGURATION_ERROR": "Algo salió mal por nuestra parte. Inténtalo de nuevo más tarde.",
       "INTEGRITY_FAILURE": "No se pudo verificar el contenido del prompt. Contacta con soporte si esto continúa.",
       "TEMPORARY_FAILURE": "Se produjo un error temporal. Inténtalo de nuevo en un momento.",
       "IDEMPOTENCY_CONFLICT": "Esta clave de idempotencia se usó con una solicitud diferente. Usa una clave nueva."
     }
+  },
+  "receiptErrors": {
+    "notFound": "No se encontró ninguna transacción de compra para este prompt/comprador.",
+    "configMissing": "No se puede procesar el recibo. Inténtalo de nuevo más tarde.",
+    "buildFailed": "Error al crear el recibo."
+  },
+  "reviewErrors": {
+    "missingFields": "Se requieren promptId, userAddress, rating y text",
+    "signatureRequired": "Se requiere firma de billetera para enviar una reseña",
+    "invalidRating": "La calificación debe ser un número entero entre 1 y 5",
+    "textTooShort": "El texto de la reseña debe tener al menos 10 caracteres",
+    "textTooLong": "El texto de la reseña no debe superar 500 caracteres",
+    "invalidSignature": "Firma de billetera inválida separada por dominio para la reseña",
+    "accessDenied": "Solo los compradores verificados con derechos finalizados pueden enviar reseñas",
+    "methodNotAllowed": "Método no permitido"
+  },
+  "moderationStatuses": {
+    "restricted": "Restringido",
+    "active": "Activo",
+    "retired": "Retirado"
+  },
+  "moderationReasons": {
+    "copyright": "Violación de derechos de autor",
+    "abuse": "Contenido abusivo",
+    "malware": "Malware o riesgo de seguridad",
+    "policy_violation": "Violación de política",
+    "other": "Otro"
+  },
+  "purchaseStatuses": {
+    "purchased": "Comprado",
+    "disputed": "En Disputa",
+    "resolved": "Resuelto"
+  },
+  "disputeResolutions": {
+    "refunded": "Reembolsado",
+    "rejected": "Rechazado"
+  },
+  "bulkPurchaseErrors": {
+    "PromptNotFound": {
+      "title": "Lote Contiene Elementos Inválidos",
+      "message": "Uno o más prompts en el lote no existen o han sido archivados.",
+      "suggestion": "Usa la herramienta de validación para verificar cada elemento antes de reintentar. Elimina elementos inválidos y compra el resto."
+    },
+    "AlreadyPurchased": {
+      "title": "Lote Contiene Elementos Inválidos",
+      "message": "Ya has comprado uno de estos prompts. No puedes comprar el mismo prompt dos veces.",
+      "suggestion": "Usa la herramienta de validación para verificar cada elemento antes de reintentar. Elimina elementos inválidos y compra el resto."
+    },
+    "CreatorCannotBuy": {
+      "title": "Compra Fallida",
+      "message": "No puedes comprar prompts que creaste. Intenta con un lote diferente.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "PromptInactive": {
+      "title": "Compra Fallida",
+      "message": "Uno o más prompts ya no están a la venta. Verifica su estado e inténtalo de nuevo.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "InvalidPaymentAmount": {
+      "title": "Discrepancia de Pago",
+      "message": "El pago de uno o más prompts es insuficiente. Recalcula los precios e inténtalo de nuevo.",
+      "suggestion": "Asegúrate de pagar el precio completo de cada prompt. Recalcula los totales e inténtalo de nuevo."
+    },
+    "ListingExpired": {
+      "title": "Compra Fallida",
+      "message": "Uno o más prompts han alcanzado su fecha de vencimiento y ya no están disponibles.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "ContractIsPaused": {
+      "title": "Mercado Temporalmente en Pausa",
+      "message": "El mercado está temporalmente en pausa. Inténtalo de nuevo más tarde.",
+      "suggestion": "Vuelve en unos momentos e inténtalo de nuevo."
+    },
+    "BulkPurchaseTooLarge": {
+      "title": "Lote Demasiado Grande",
+      "message": "El tamaño de tu lote excede el máximo permitido (20 prompts por transacción). Divide en lotes más pequeños.",
+      "suggestion": "Intenta comprar en grupos de 10-15 prompts por transacción para obtener mejores tasas de éxito."
+    },
+    "DuplicatePromptId": {
+      "title": "Compra Fallida",
+      "message": "El mismo ID de prompt aparece varias veces en el lote. Elimina duplicados e inténtalo de nuevo.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "InvalidPrice": {
+      "title": "Discrepancia de Pago",
+      "message": "El número de montos de pago no coincide con el número de prompts. Ambas listas deben tener la misma longitud.",
+      "suggestion": "Asegúrate de pagar el precio completo de cada prompt. Recalcula los totales e inténtalo de nuevo."
+    },
+    "ArithmeticOverflow": {
+      "title": "Compra Fallida",
+      "message": "Uno o más precios son demasiado grandes para procesar. Contacta con soporte si esto persiste.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    }
+  },
+  "validationErrors": {
+    "promptNotFound": "El prompt no existe o ha sido eliminado",
+    "alreadyPurchased": "Ya posees este prompt",
+    "insufficientBalance": "Saldo insuficiente para completar todas las compras",
+    "promptInactive": "Este prompt ya no está a la venta",
+    "insufficientPayment": "El monto de pago está por debajo del precio del prompt"
   }
 }

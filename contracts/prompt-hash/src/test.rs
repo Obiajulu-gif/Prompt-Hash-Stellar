@@ -3300,7 +3300,11 @@ fn test_buy_bundle_price_allocation_evenly_divisible_unchanged() {
         (pa, pb)
     });
 
-    assert_eq!(price_a + price_b, bundle_price, "evenly-split prices must sum to bundle price");
+    assert_eq!(
+        price_a + price_b,
+        bundle_price,
+        "evenly-split prices must sum to bundle price"
+    );
     assert_eq!(price_a, 6_000, "first prompt gets equal share");
     assert_eq!(price_b, 6_000, "second prompt gets equal share");
 }
@@ -6835,7 +6839,14 @@ fn test_catalog_secondary_index_verification_and_repair() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Indexed Prompt", 1_000, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Indexed Prompt",
+        1_000,
+        &context.xlm,
+    );
 
     // Initial state: healthy indexes
     let report = client.verify_catalog_indexes(&0, &50);
@@ -6848,8 +6859,12 @@ fn test_catalog_secondary_index_verification_and_repair() {
     // Fault injection: simulate drift by clearing AllPrompts and ActivePrompts
     env.as_contract(&context.contract, || {
         let empty_vec: Vec<u64> = Vec::new(&env);
-        env.storage().persistent().set(&DataKey::AllPrompts, &empty_vec);
-        env.storage().persistent().set(&DataKey::ActivePrompts, &empty_vec);
+        env.storage()
+            .persistent()
+            .set(&DataKey::AllPrompts, &empty_vec);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ActivePrompts, &empty_vec);
     });
 
     // Detect drift
@@ -6896,7 +6911,14 @@ fn test_checked_accounting_invariant_on_double_refund_and_counters() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Unique Prompt", 2_000, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Unique Prompt",
+        2_000,
+        &context.xlm,
+    );
     fund_buyer(&xlm_client, &buyer, &context.contract, 10_000);
 
     client.buy_prompt(&buyer, &prompt_id, &None, &2_000, &None);
@@ -6905,14 +6927,19 @@ fn test_checked_accounting_invariant_on_double_refund_and_counters() {
     assert_eq!(prompt_after_buy.sales_count, 1);
 
     // Open dispute and refund
-    client.open_dispute(&buyer, &prompt_id, &DisputeReason::FailedIntegrityVerification);
+    client.open_dispute(
+        &buyer,
+        &prompt_id,
+        &DisputeReason::FailedIntegrityVerification,
+    );
     client.resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
 
     let prompt_after_refund = client.get_prompt(&prompt_id);
     assert_eq!(prompt_after_refund.sales_count, 0);
 
     // Attempting a second refund / dispute resolution on an already resolved dispute must fail
-    let double_resolve_result = client.try_resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+    let double_resolve_result =
+        client.try_resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
     assert!(double_resolve_result.is_err());
 
     // Reconcile sales counter
@@ -6927,17 +6954,29 @@ fn test_listing_snapshot_hash_binds_to_current_listing_state() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id =
-        create_prompt(&env, &client, &creator, "Snapshot Prompt", 10_000_000, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Snapshot Prompt",
+        10_000_000,
+        &context.xlm,
+    );
 
     let h1 = client.listing_snapshot_hash(&prompt_id);
     let h1_b = client.listing_snapshot_hash(&prompt_id);
-    assert_eq!(h1, h1_b, "snapshot hash must be deterministic for a stable listing");
+    assert_eq!(
+        h1, h1_b,
+        "snapshot hash must be deterministic for a stable listing"
+    );
 
     // A price change must invalidate any challenge bound to the prior snapshot.
     client.update_prompt_price(&creator, &prompt_id, &20_000_000);
     let h2 = client.listing_snapshot_hash(&prompt_id);
-    assert_ne!(h1, h2, "snapshot hash must change when the listing price drifts");
+    assert_ne!(
+        h1, h2,
+        "snapshot hash must change when the listing price drifts"
+    );
 
     // verify_listing_snapshot only matches the current listing state.
     assert!(!client.verify_listing_snapshot(&prompt_id, &h1));
@@ -7031,4 +7070,3 @@ fn test_admin_moderation_delist_restore_and_evidence_audit_trail() {
     assert_eq!(restore_record.policy_reference, evidence_ref_2);
     assert_eq!(restore_record.reverses_timestamp, delist_timestamp);
 }
-

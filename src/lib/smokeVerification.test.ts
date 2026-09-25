@@ -29,6 +29,7 @@ describe('Post-deployment smoke verification command (#466)', () => {
       rpcUrl: 'https://soroban-testnet.stellar.org',
       contractId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       json: true,
+      help: false,
     });
 
     expect(result.success).toBe(false);
@@ -60,6 +61,7 @@ describe('Post-deployment smoke verification command (#466)', () => {
       rpcUrl: 'https://soroban-testnet.stellar.org',
       contractId: 'CB3X7PROMPT1234567890123456789012345678901234567890123456',
       json: true,
+      help: false,
     });
 
     expect(result.success).toBe(true);
@@ -82,6 +84,7 @@ describe('Post-deployment smoke verification command (#466)', () => {
       rpcUrl: 'https://soroban-testnet.stellar.org',
       contractId: 'CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
       json: true,
+      help: false,
     });
 
     expect(result.success).toBe(false);

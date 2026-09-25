@@ -199,10 +199,111 @@
       "STALE_PROMPT_TERMS": "此提示词在您打开后已更改。请刷新提示词后重新签名。",
       "RATE_LIMIT_IP": "请求过多。请稍候片刻再重试。",
       "RATE_LIMIT_WALLET": "此钱包解锁尝试过多。请等一分钟再重试。",
+      "RATE_LIMIT_ENTITLEMENT": "此提示词解锁尝试过多。请稍候片刻再重试。",
       "CONFIGURATION_ERROR": "我们这边出了点问题。请稍后重试。",
       "INTEGRITY_FAILURE": "无法验证提示词内容。如果持续出现，请联系支持。",
       "TEMPORARY_FAILURE": "发生临时错误。请稍后重试。",
       "IDEMPOTENCY_CONFLICT": "此幂等键已用于不同的请求。请使用新键。"
     }
+  },
+  "receiptErrors": {
+    "notFound": "找不到此提示词/买家的购买交易。",
+    "configMissing": "无法处理收据。请稍后重试。",
+    "buildFailed": "生成收据失败。"
+  },
+  "reviewErrors": {
+    "missingFields": "需要promptId、userAddress、rating和text",
+    "signatureRequired": "提交评价需要钱包签名",
+    "invalidRating": "评分必须是1到5之间的整数",
+    "textTooShort": "评价文本必须至少10个字符",
+    "textTooLong": "评价文本不能超过500个字符",
+    "invalidSignature": "评价的钱包签名无效（域名分离）",
+    "accessDenied": "只有已验证的买家且拥有最终权限才能提交评价",
+    "methodNotAllowed": "方法不允许"
+  },
+  "moderationStatuses": {
+    "restricted": "已限制",
+    "active": "活跃",
+    "retired": "已下架"
+  },
+  "moderationReasons": {
+    "copyright": "违反版权",
+    "abuse": "辱骂内容",
+    "malware": "恶意软件或安全风险",
+    "policy_violation": "政策违规",
+    "other": "其他"
+  },
+  "purchaseStatuses": {
+    "purchased": "已购买",
+    "disputed": "争议中",
+    "resolved": "已解决"
+  },
+  "disputeResolutions": {
+    "refunded": "已退款",
+    "rejected": "已拒绝"
+  },
+  "bulkPurchaseErrors": {
+    "PromptNotFound": {
+      "title": "批次包含无效项目",
+      "message": "批次中的一个或多个提示词不存在或已被存档。",
+      "suggestion": "使用验证工具在重试前检查每个项目。删除无效项目并购买其余项目。"
+    },
+    "AlreadyPurchased": {
+      "title": "批次包含无效项目",
+      "message": "您已购买了其中一个提示词。无法购买相同的提示词两次。",
+      "suggestion": "使用验证工具在重试前检查每个项目。删除无效项目并购买其余项目。"
+    },
+    "CreatorCannotBuy": {
+      "title": "购买失败",
+      "message": "您无法购买自己创建的提示词。尝试不同的批次。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "PromptInactive": {
+      "title": "购买失败",
+      "message": "一个或多个提示词不再出售。检查它们的状态后重试。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "InvalidPaymentAmount": {
+      "title": "支付不匹配",
+      "message": "一个或多个提示词的支付不足。重新计算价格并重试。",
+      "suggestion": "确保为每个提示词支付完整价格。重新计算总额并重试。"
+    },
+    "ListingExpired": {
+      "title": "购买失败",
+      "message": "一个或多个提示词已过期且不再可用。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "ContractIsPaused": {
+      "title": "市场暂停中",
+      "message": "市场目前已暂停。请稍后重试。",
+      "suggestion": "请稍后再试。"
+    },
+    "BulkPurchaseTooLarge": {
+      "title": "批次过大",
+      "message": "批次大小超过允许的最大值（每交易20个提示词）。分成较小的批次。",
+      "suggestion": "尝试每交易购买10-15个提示词以获得更高的成功率。"
+    },
+    "DuplicatePromptId": {
+      "title": "购买失败",
+      "message": "同一提示词ID在批次中出现多次。删除重复项并重试。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "InvalidPrice": {
+      "title": "支付不匹配",
+      "message": "付款金额数与提示词数不匹配。两个列表长度必须相等。",
+      "suggestion": "确保为每个提示词支付完整价格。重新计算总额并重试。"
+    },
+    "ArithmeticOverflow": {
+      "title": "购买失败",
+      "message": "一个或多个价格过大无法处理。如果问题持续，请联系支持。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    }
+  },
+  "validationErrors": {
+    "promptNotFound": "提示词不存在或已被删除",
+    "alreadyPurchased": "您已拥有此提示词",
+    "insufficientBalance": "余额不足以完成所有购买",
+    "promptInactive": "此提示词不再出售",
+    "insufficientPayment": "支付金额低于提示词价格"
   }
 }

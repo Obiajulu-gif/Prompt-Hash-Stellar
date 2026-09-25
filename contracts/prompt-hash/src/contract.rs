@@ -2,12 +2,14 @@ use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
     AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey, DisputeReason,
-    DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig, ListingRevisionRecord,
-    Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
-    SignedDiscountAuthorization, Split,
+    DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig,
+    ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute,
+    PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec};
 use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::{
+    contract, contractimpl, token, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec,
+};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 
@@ -205,7 +207,7 @@ impl PromptHashTrait for PromptHashContract {
 
         let previous_state = prompt.status.clone();
         let now = env.ledger().timestamp();
-        
+
         // Store moderation audit record with durable evidence trail and reversal link
         let moderation_record = super::types::ModerationRecord {
             prompt_id,
@@ -764,13 +766,7 @@ impl PromptHashTrait for PromptHashContract {
                 } else {
                     per_prompt
                 };
-                Storage::grant_purchase(
-                    &env,
-                    &prompt,
-                    &buyer,
-                    this_price,
-                    MAX_ACCESS_EXPIRY,
-                );
+                Storage::grant_purchase(&env, &prompt, &buyer, this_price, MAX_ACCESS_EXPIRY);
             }
         }
 
@@ -1458,11 +1454,7 @@ impl PromptHashTrait for PromptHashContract {
     // ====== ACCOUNTING INVARIANT RECONCILIATION (#653) ======
 
     #[only_owner]
-    fn reconcile_sales_counter(
-        env: Env,
-        admin: Address,
-        prompt_id: u64,
-    ) -> Result<u64, Error> {
+    fn reconcile_sales_counter(env: Env, admin: Address, prompt_id: u64) -> Result<u64, Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
