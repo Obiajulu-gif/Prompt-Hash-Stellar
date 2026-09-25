@@ -99,6 +99,7 @@
     "husky": "^9.1.7",
     "jsdom": "^30.0.0",
     "lint-staged": "^17.2.0",
+    "mongodb-memory-server": "^11.3.0",
     "mongoose": "^9.7.3",
     "node-mock-http": "^1.0.4",
     "postcss": "^8.5.10",

@@ -13,6 +13,8 @@
     "format": "prettier --write .",
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
+    "worker": "ts-node src/jobs/index.ts",
+    "worker:build": "node build/jobs/index.js",
     "start": "node build/server.js",
     "backup": "ts-node scripts/runBackup.ts",
     "reindex": "ts-node scripts/reIndexFromLedger.ts",
@@ -56,6 +58,7 @@
     "@types/node": "^25.6.0",
     "eslint": "^10.2.1",
     "globals": "^17.5.0",
+    "mongodb-memory-server": "^11.3.0",
     "ts-node": "^10.9.2",
     "typescript-eslint": "^8.59.0",
     "vitest": "^2.1.9"

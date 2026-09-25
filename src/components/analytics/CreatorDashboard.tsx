@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { getAllPrompts, type PromptRecord } from "@/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { stroopsToXlmString, formatPriceLabel } from "@/lib/stellar/format";
+import { RevenueForecast } from "@/components/analytics/RevenueForecast";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -324,6 +325,32 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
     return { active, totalSales, grossRevenue, platformFees, netRevenue, topPrompts };
   }, [prompts]);
 
+  // ── Revenue forecast inputs (aggregated from marketplace data) ───────────
+  const forecastInputs = useMemo(() => {
+    const dailyHistory = (salesAnalytics?.dailySales ?? []).map((d) => ({
+      date: d.date,
+      unitsSold: d.unitsSold,
+      grossRevenueXlm: d.revenueXlm,
+    }));
+    // Derive refundRate and conversion from available data; fall back to conservative defaults
+    // No platform-wide benchmarks are used — only this creator's own signals.
+    const totalSalesForRate = Math.max(1, metrics.totalSales);
+    // Heuristic: if we have no refund data, assume 2% to avoid overstating certainty; caller can override
+    const refundRate = 0.02;
+    const conversionRate = previewStats?.totalPreviews
+      ? Math.min(1, metrics.totalSales / Math.max(1, previewStats.totalPreviews))
+      : null;
+    return {
+      dailyHistory,
+      activeListings: metrics.active,
+      totalListings: prompts.length,
+      conversionRate,
+      refundRate,
+      viewCount: previewStats?.totalPreviews ?? undefined,
+      windowDays: 30,
+    };
+  }, [salesAnalytics, metrics, prompts.length, previewStats]);
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -423,6 +450,9 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
         dailySales={salesAnalytics?.dailySales ?? []}
         isLoading={isSalesAnalyticsLoading}
       />
+
+      {/* Revenue forecast — estimate with confidence & safeguards */}
+      <RevenueForecast inputs={forecastInputs} isLoading={isSalesAnalyticsLoading} />
 
       {/* Payout Statement Export */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">

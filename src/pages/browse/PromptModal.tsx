@@ -71,6 +71,8 @@ import type { UnlockError } from "../../lib/errors/unlockErrors";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { stroopsToXlmString } from "../../lib/stellar/format";
+import { getCreatorThumbRating, saveCreatorThumbRating, type ThumbRating } from "../../lib/reputation/creatorReputation";
+import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
