@@ -103,13 +103,13 @@ const promptSchema = new mongoose.Schema(
     },
     listingStatus: {
       type: String,
-      enum: ['draft', 'ready', 'published', 'archived'],
-      default: 'draft',
+      enum: ["draft", "ready", "published", "archived"],
+      default: "draft",
       index: true,
     },
     savedPrompts: {
       type: [mongoose.Schema.Types.ObjectId],
-      ref: 'User',
+      ref: "User",
       default: [],
     },
     salesCount: {
@@ -167,6 +167,23 @@ const promptSchema = new mongoose.Schema(
       default: null,
     },
     lastIndexedAt: {
+      type: Date,
+      default: null,
+    },
+    // Off-chain moderation state (#moderation-queue).
+    // Kept separate from `isActive` / `listingStatus` so moderation decisions
+    // can be reversed without touching on-chain state.
+    moderationStatus: {
+      type: String,
+      enum: ["pending_review", "approved", "rejected", "hidden", "restored"],
+      default: "pending_review",
+      index: true,
+    },
+    moderationNote: {
+      type: String,
+      default: null,
+    },
+    lastModeratedAt: {
       type: Date,
       default: null,
     },

@@ -14,7 +14,13 @@ export type AuditAction =
   | "unlock_ledger_failure"
   | "unlock_stale_quote"
   | "admin_auth_success"
-  | "admin_auth_denied";
+  | "admin_auth_denied"
+  // Bulk moderation actions (#moderation-queue)
+  | "moderation_approve"
+  | "moderation_reject"
+  | "moderation_hide"
+  | "moderation_restore"
+  | "moderation_rollback";
 
 export type AuditResult = "success" | "failure" | "blocked";
 
@@ -38,6 +44,11 @@ const auditLogSchema = new mongoose.Schema(
         "unlock_stale_quote",
         "admin_auth_success",
         "admin_auth_denied",
+        "moderation_approve",
+        "moderation_reject",
+        "moderation_hide",
+        "moderation_restore",
+        "moderation_rollback",
       ] as AuditAction[],
       index: true,
     },
