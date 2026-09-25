@@ -777,3 +777,5 @@ export const validateBulkPurchase = async (
     promptIds,
     paymentAmounts,
   );
+
+export const PromptHashContractClient = PromptHashClient;

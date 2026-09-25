@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import * as Sentry from "@sentry/react";
 import "./index.css";
 import { initializeCorrelation } from "./lib/observability/correlation";
 import { applyThemeBeforeRender } from "./hooks/useTheme";
@@ -59,7 +60,6 @@ const queryClient = new QueryClient({
     mutations: {
       retry: false,
       gcTime: 1000 * 60 * 60 * 24, // 24 hours caching
-      staleTime: 1000 * 60 * 5, // 5 minutes fresh
     },
   },
 });
