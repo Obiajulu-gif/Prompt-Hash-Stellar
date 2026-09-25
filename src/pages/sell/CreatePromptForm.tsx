@@ -53,10 +53,7 @@ import {
   createPromptSchema,
 } from "@/lib/validation/listing";
 import { MarkdownContent } from "@/components/MarkdownContent";
-
-import { PromptCard } from "@/pages/browse/PromptCard";
-import type { PromptRecord } from "@/lib/stellar/promptHashClient";
-
+import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
 import { EncryptedPayloadSizeEstimator } from "@/components/sell/EncryptedPayloadSizeEstimator";
 import { estimateEncryptedPayloadSize } from "@/lib/crypto/payloadEstimator";
 import { getPrompt } from "@/lib/stellar/promptHashClient";
@@ -134,16 +131,17 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const watchAllFields = watch();
 
+  const { isActive: hasUnsavedChanges, resetBlocker } = useUnsavedChangesWarning({
+    isDirty: Object.values(watchAllFields).some(
+      (v) => v !== "" && v !== undefined && v !== null && v !== "2" && !(Array.isArray(v) && v.length === 0)
+    ),
+    disabled: !!successMessage,
   const {
     draftRestored,
     lastSavedAt,
     discardDraft,
-    conflict,
-    resolveConflict,
-    sessionGuard,
-    resolveSessionGuard,
-    canPublish,
   } = useDraftAutoSave({
+  const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
     address,
     network,
     values: watchAllFields,
@@ -302,8 +300,10 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
 
-    // Ensure similarity check has run
-    let similarityFlag = "clean";
+    console.log("Form submitted successfully:", data);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setSuccessMessage("Prompt listing created successfully!");
+    resetBlocker();
     try {
       const response = await fetch("/api/prompts/similarity/check", {
         method: "POST",
