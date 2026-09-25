@@ -17,6 +17,7 @@ import { adminRateLimitRouter } from "./routes/adminRateLimitRoutes";
 import { payoutLedgerRouter } from "./routes/payoutLedgerRoutes";
 import { entitlementRouter } from "./routes/entitlementRoutes";
 import { bundleRouter } from "./routes/bundleRoutes";
+import { integrationRouter } from "./routes/integrationRoutes";
 import {
   GetOpenApiSchema,
   GetOpenApiExplorer,
@@ -75,6 +76,7 @@ app.use("/api/admin/rate-limits", adminRateLimitRouter);
 app.use("/api/payouts", payoutLedgerRouter);
 app.use("/api/entitlements", entitlementRouter);
 app.use("/api/bundles", bundleRouter);
+app.use("/api/integrations", integrationRouter);
 
 // Machine-readable API schema + interactive explorer (#713).
 app.get("/api/openapi.json", GetOpenApiSchema);
