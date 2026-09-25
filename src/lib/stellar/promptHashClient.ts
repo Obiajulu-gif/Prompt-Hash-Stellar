@@ -2,11 +2,12 @@
  * Real Soroban contract client for PromptHash.
  * All reads and writes invoke the deployed contract on-chain.
  */
-import type { WalletTransactionSigner } from "./tx";
-import * as contractMethods from "./contractMethods";
+import type { WalletTransactionSigner } from "./tx.js";
+import * as contractMethods from "./contractMethods.js";
 import { Server } from "@stellar/stellar-sdk/rpc";
-import { hashKey } from "../observability/sharedStore";
-import { getSourcePromptId } from "../prompts/remixAttribution";
+import { hashKey } from "../observability/sharedStore.js";
+import { getSourcePromptId } from "../prompts/remixAttribution.js";
+import { PriceQuote, validateQuoteForPurchase } from "../checkout/priceQuoter.js";
 
 export interface PromptHashConfig {
   rpcUrl: string;
@@ -255,7 +256,20 @@ export class PromptHashClient {
     userAddress: string,
     _walletSigner?: WalletTransactionSigner,
     config?: PromptHashConfig,
+    quote?: PriceQuote,
   ): Promise<{ txHash: string; success: boolean }> {
+    if (quote) {
+      const validation = validateQuoteForPurchase(quote, {
+        promptId: itemId,
+        requestedAsset: quote.quoteAsset,
+      });
+      if (!validation.isValid) {
+        throw new Error(
+          validation.errorMessage ||
+            "Expired quotes cannot be used for purchase settlement.",
+        );
+      }
+    }
     if (!config || !_walletSigner) {
       throw new Error(
         "Missing config or wallet signer for real contract call.",
@@ -568,7 +582,7 @@ export class PromptHashClient {
       // Here we would normally parse `events.events` and decode the XDR.
       // Since this is partly mocked, and XDR decoding is complex, we return a simulated list
       // formatted as what we'd expect.
-      return events.events.map((e, i) => ({
+      return events.events.map((e: any, i: number) => ({
         id: e.id || `rpc-event-${i}`,
         type: "sale",
         title: `Prompt #${e.topic?.[1] || i}`, // Without full XDR decoding, we use placeholder
