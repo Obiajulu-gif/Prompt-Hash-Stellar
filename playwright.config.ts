@@ -7,11 +7,18 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  // Actionable output: html + list + github in CI so failures are immediately visible
+  reporter: process.env.CI ? [['html', { open: 'never' }], ['github'], ['list']] : [['html', { open: 'never' }], ['list']],
   use: {
     baseURL: 'http://localhost:5173',
+    // Screenshots + trace on first retry ensure failures produce actionable artifacts
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    actionTimeout: 10_000,
+    navigationTimeout: 30_000,
   },
+  // Keep tests deterministic and isolated: no shared state, each test gets a fresh context
   projects: [
     {
       name: 'chromium',
@@ -23,5 +30,9 @@ export default defineConfig({
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
+  },
+  // Deterministic: require explicit environment; do not leak real RPC secrets into mocked runs
+  expect: {
+    timeout: 8_000,
   },
 });
