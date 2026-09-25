@@ -17,7 +17,7 @@ import { adminRateLimitRouter } from "./routes/adminRateLimitRoutes";
 import { payoutLedgerRouter } from "./routes/payoutLedgerRoutes";
 import { entitlementRouter } from "./routes/entitlementRoutes";
 import { bundleRouter } from "./routes/bundleRoutes";
-import { integrationRouter } from "./routes/integrationRoutes";
+import { moderationRouter } from "./routes/moderationRoutes";
 import {
   GetOpenApiSchema,
   GetOpenApiExplorer,
@@ -42,7 +42,9 @@ if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV ?? "development",
-    tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1"),
+    tracesSampleRate: parseFloat(
+      process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1",
+    ),
   });
 }
 
@@ -76,7 +78,7 @@ app.use("/api/admin/rate-limits", adminRateLimitRouter);
 app.use("/api/payouts", payoutLedgerRouter);
 app.use("/api/entitlements", entitlementRouter);
 app.use("/api/bundles", bundleRouter);
-app.use("/api/integrations", integrationRouter);
+app.use("/api/moderation", moderationRouter);
 
 // Machine-readable API schema + interactive explorer (#713).
 app.get("/api/openapi.json", GetOpenApiSchema);
@@ -102,27 +104,52 @@ app.get("/health", async (req, res) => {
 // Sentry error handler must be registered after all routes (#332).
 // expressErrorHandler is available in @sentry/node v7; v8+ uses setupExpressErrorHandler.
 if (process.env.SENTRY_DSN) {
-  if (typeof (Sentry as Record<string, unknown>).setupExpressErrorHandler === "function") {
-    (Sentry as unknown as { setupExpressErrorHandler: (app: Application) => void }).setupExpressErrorHandler(app);
-  } else if (typeof (Sentry as Record<string, unknown>).expressErrorHandler === "function") {
-    app.use((Sentry as unknown as { expressErrorHandler: () => import("express").ErrorRequestHandler }).expressErrorHandler());
+  if (
+    typeof (Sentry as Record<string, unknown>).setupExpressErrorHandler ===
+    "function"
+  ) {
+    (
+      Sentry as unknown as {
+        setupExpressErrorHandler: (app: typeof app) => void;
+      }
+    ).setupExpressErrorHandler(app);
+  } else if (
+    typeof (Sentry as Record<string, unknown>).expressErrorHandler ===
+    "function"
+  ) {
+    app.use(
+      (
+        Sentry as unknown as {
+          expressErrorHandler: () => import("express").ErrorRequestHandler;
+        }
+      ).expressErrorHandler(),
+    );
   }
 }
 
 // Global Express error handler to print error logs with Correlation IDs
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const correlationId = req.correlationId;
-  console.error(`[Express Global Error] Correlation ID: ${correlationId} |`, err);
-  if (!res.headersSent) {
-    res.status(500).json({
-      error: err.message || "Internal Server Error",
-      correlationId,
-    });
-  } else {
-    next(err);
-  }
-});
-
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    const correlationId = req.correlationId;
+    console.error(
+      `[Express Global Error] Correlation ID: ${correlationId} |`,
+      err,
+    );
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: err.message || "Internal Server Error",
+        correlationId,
+      });
+    } else {
+      next(err);
+    }
+  },
+);
 
 async function start() {
   try {
@@ -152,7 +179,10 @@ async function start() {
         const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
         const triggerBackup = () => {
           runBackup().catch((err) => {
-            console.error("[backup] Scheduled backup failed:", err?.message ?? err);
+            console.error(
+              "[backup] Scheduled backup failed:",
+              err?.message ?? err,
+            );
           });
         };
         // Run once on startup, then on a 24-hour interval.
@@ -162,7 +192,10 @@ async function start() {
       }
     });
   } catch (err) {
-    console.error("❌ Critical: Server failed to start due to database/migration error:", err);
+    console.error(
+      "❌ Critical: Server failed to start due to database/migration error:",
+      err,
+    );
     process.exit(1);
   }
 }
