@@ -8,6 +8,8 @@ import { IndexerState } from "../models/IndexerState";
 import ProcessedEvent from "../models/ProcessedEvent";
 import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
+import { applySafetyScan } from "./safetyScannerHook";
+import { snapshotLicenseForPurchase } from "./licensingService";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
 import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
@@ -351,6 +353,22 @@ export async function routeDecodedEvent(
           logger.error("Similarity scan error", { action: "similarityScan", promptId, error: err }),
         );
       }
+
+      // Run the prompt safety scanner asynchronously (#758) — queued or
+      // blocked prompts are hidden from the public marketplace until a
+      // maintainer overrides. The encrypted payload never enters the scanner.
+      if (upserted) {
+        applySafetyScan(promptId, {
+          title: upserted.title,
+          description: upserted.description,
+          category: upserted.category,
+          tags: upserted.tags,
+          preview: upserted.preview,
+          payload: upserted.encryptedPrompt ?? undefined,
+        }).catch((err) =>
+          logger.error("Safety scan error", { action: "safetyScan", promptId, error: err }),
+        );
+      }
       await invalidatePromptCaches(promptId);
       break;
     }
@@ -367,7 +385,7 @@ export async function routeDecodedEvent(
 
       if (buyer) {
         const buyerWallet = String(buyer).toLowerCase();
-        await Purchase.findOneAndUpdate(
+        const purchaseDoc = await Purchase.findOneAndUpdate(
           { promptId, buyerWallet, txHash: txHash ?? "" },
           {
             $set: {
@@ -378,7 +396,20 @@ export async function routeDecodedEvent(
               txHash: txHash ?? "",
             },
           },
-          { upsert: true },
+          { upsert: true, new: true },
+        );
+        // Freeze the license terms active at purchase time (#759).
+        // Fire-and-forget: snapshotting must never block or fail indexing.
+        snapshotLicenseForPurchase(
+          promptId,
+          buyerWallet,
+          String(purchaseDoc?._id ?? ""),
+        ).catch((err) =>
+          logger.error("license snapshot hook failed", {
+            action: "indexer",
+            promptId,
+            error: err,
+          }),
         );
       }
 
