@@ -1,15 +1,12 @@
-const CATEGORY_ALIASES: Record<string, string> = {
-  marketing: "Marketing",
-  "creative writing": "Creative Writing",
-  programming: "Programming",
-  music: "Music",
-  gaming: "Gaming",
-  other: "Other",
-};
+import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
+
+const CATEGORY_ALIASES: Record<string, string> = Object.fromEntries(
+  PROMPT_CATEGORIES.map((category) => [category.toLowerCase(), category]),
+);
 
 const LISTING_LIMITS = {
-  image: 512,
-  title: 100,
+  image: PROMPT_METADATA_LIMITS.image.max,
+  title: PROMPT_METADATA_LIMITS.title.max,
   content: 50_000,
   category: 40,
   encryptedPayload: 4096,

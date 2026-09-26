@@ -132,21 +132,54 @@ export interface SimilarityResult {
   similarTo: string | null;
 }
 
+// Configurable cap on the maximum number of existing prompts to compare per scan.
+// Prevents O(n) performance degradation as the catalog grows. Prompts beyond
+// this cap are not checked in this scan; periodic background re-scans should
+// handle them to avoid permanently missing similar items.
+const MAX_CANDIDATES_PER_SCAN = 1000;
+
 /**
- * Scan a newly indexed prompt against all existing active prompts.
+ * Scan a newly indexed prompt against existing active prompts in the same category.
  * Updates the Prompt document with the result and returns the result.
+ *
+ * Optimization strategy:
+ * - Pre-filters candidates by category to reduce comparison count
+ * - Caps the number of comparisons to MAX_CANDIDATES_PER_SCAN to prevent O(n) slowdown
+ * - Thresholds (SIMILARITY_THRESHOLDS) remain unchanged for correctness
  *
  * @param onChainId  The on-chain ID of the newly created prompt.
  * @param content    The prompt text to compare (title + body combined).
+ * @param category   The category of the newly indexed prompt (optional, for filtering).
  */
-export async function scanForSimilarity(
-  onChainId: string,
+export async function checkSimilarityForContent(
   content: string,
+  category?: string,
+  excludeOnChainId?: string,
 ): Promise<SimilarityResult> {
-  const existing = await Prompt.find(
-    { onChainId: { $ne: onChainId } },
-    { onChainId: 1, content: 1, title: 1 },
-  ).lean();
+  const filter: Record<string, unknown> = {};
+  if (excludeOnChainId) {
+    filter.onChainId = { $ne: excludeOnChainId };
+  }
+  if (category) {
+    filter.category = category;
+  }
+
+  const existing = await Prompt.find(filter, {
+    onChainId: 1,
+    content: 1,
+    title: 1,
+  })
+    .lean()
+    .limit(MAX_CANDIDATES_PER_SCAN);
+
+  const totalInCategory = await Prompt.countDocuments(filter);
+  if (totalInCategory > MAX_CANDIDATES_PER_SCAN) {
+    console.info(
+      `[similarity] Scanned ${MAX_CANDIDATES_PER_SCAN}/${totalInCategory} ` +
+        `prompts in category ${category ?? "all"}` +
+        (excludeOnChainId ? ` (excluding ${excludeOnChainId})` : ""),
+    );
+  }
 
   let maxScore = 0;
   let mostSimilarId: string | null = null;
@@ -161,6 +194,16 @@ export async function scanForSimilarity(
   }
 
   const flag = classifyScore(maxScore);
+  return { flag, score: maxScore, similarTo: flag !== "clean" ? mostSimilarId : null };
+}
+
+export async function scanForSimilarity(
+  onChainId: string,
+  content: string,
+  category?: string,
+): Promise<SimilarityResult> {
+  const result = await checkSimilarityForContent(content, category, onChainId);
+  const { flag, score: maxScore, similarTo: mostSimilarId } = result;
 
   await Prompt.findOneAndUpdate(
     { onChainId },

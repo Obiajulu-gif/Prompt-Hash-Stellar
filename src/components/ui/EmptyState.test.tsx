@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { EmptyState } from "./EmptyState";
 import { renderWithProviders } from "@/test/render";
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 
 describe("EmptyState", () => {
   it("renders title and description", () => {

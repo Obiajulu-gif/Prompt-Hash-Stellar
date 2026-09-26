@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
 
 const promptSchema = new mongoose.Schema(
   {
@@ -11,8 +12,8 @@ const promptSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      minLength: 3,
-      maxLength: 100,
+      minLength: PROMPT_METADATA_LIMITS.title.min,
+      maxLength: PROMPT_METADATA_LIMITS.title.max,
     },
     content: {
       type: String,
@@ -60,14 +61,7 @@ const promptSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: [
-        "Marketing",
-        "Creative Writing",
-        "Programming",
-        "Music",
-        "Gaming",
-        "Other",
-      ],
+      enum: PROMPT_CATEGORIES,
       default: "Other",
     },
     currentVersionIndex: {
@@ -109,13 +103,78 @@ const promptSchema = new mongoose.Schema(
     },
     listingStatus: {
       type: String,
-      enum: ['draft', 'ready', 'published', 'archived'],
+      enum: ["draft", "ready", "published", "archived"],
+      default: "draft",
+      index: true,
+    },
+    // Prompt lifecycle state machine (Issue #786). `listingStatus` above is
+    // kept for backward compatibility with existing readers/filters and is
+    // kept in sync by promptLifecycle.ts on every transition; new code
+    // should read/write `lifecycleState` instead. See
+    // server/src/services/promptLifecycle.ts for the transition rules and
+    // docs/prompt-lifecycle.md for the state diagram.
+    lifecycleState: {
+      type: String,
+      enum: ['draft', 'review', 'published', 'hidden', 'suspended', 'archived'],
       default: 'draft',
       index: true,
     },
+    lifecycleUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    // Wallet address of the actor who made the last transition, or
+    // "system" for automated transitions.
+    lifecycleUpdatedBy: {
+      type: String,
+      default: null,
+    },
+    // Append-only record of every lifecycle transition. AuditLog (via
+    // recordAuditEvent) is the tamper-evident system of record; this is a
+    // denormalized copy for cheap reads (UI history, remediation guidance)
+    // without a second query.
+    lifecycleHistory: {
+      type: [
+        {
+          from: { type: String, required: true },
+          to: { type: String, required: true },
+          actorRole: { type: String, enum: ['creator', 'moderator', 'system'], required: true },
+          actorId: { type: String, default: null },
+          reason: { type: String, default: null },
+          at: { type: Date, required: true },
+        },
+      ],
+      default: [],
+    },
+    // Moderation metadata (Issue #786 migration note: previously written
+    // by api/prompts/moderate.ts but never declared on this schema, so
+    // mongoose's default strict mode silently dropped every write here —
+    // moderation state was never actually persisted).
+    moderationStatus: {
+      type: String,
+      enum: ['none', 'restricted', 'retired'],
+      default: 'none',
+      index: true,
+    },
+    moderatedAt: {
+      type: Date,
+      default: null,
+    },
+    moderatedBy: {
+      type: String,
+      default: null,
+    },
+    moderationReason: {
+      type: String,
+      default: null,
+    },
+    moderationNotes: {
+      type: String,
+      default: '',
+    },
     savedPrompts: {
       type: [mongoose.Schema.Types.ObjectId],
-      ref: 'User',
+      ref: "User",
       default: [],
     },
     salesCount: {
@@ -137,6 +196,61 @@ const promptSchema = new mongoose.Schema(
       type: String,
       default: "",
       trim: true,
+    },
+    // Content integrity recheck fields (#460)
+    encryptedPrompt: {
+      type: String,
+      default: null,
+    },
+    contentHash: {
+      type: String,
+      default: null,
+    },
+    integrityStatus: {
+      type: String,
+      enum: ["pending", "ok", "corrupted", "missing", "unreachable"],
+      default: "pending",
+      index: true,
+    },
+    integrityCheckedAt: {
+      type: Date,
+      default: null,
+    },
+    integrityError: {
+      type: String,
+      default: null,
+    },
+    // Search index synchronization state (#699)
+    searchIndexStatus: {
+      type: String,
+      enum: ["synced", "pending", "failed"],
+      default: "synced",
+      index: true,
+    },
+    searchIndexError: {
+      type: String,
+      default: null,
+    },
+    lastIndexedAt: {
+      type: Date,
+      default: null,
+    },
+    // Off-chain moderation state (#moderation-queue).
+    // Kept separate from `isActive` / `listingStatus` so moderation decisions
+    // can be reversed without touching on-chain state.
+    moderationStatus: {
+      type: String,
+      enum: ["pending_review", "approved", "rejected", "hidden", "restored"],
+      default: "pending_review",
+      index: true,
+    },
+    moderationNote: {
+      type: String,
+      default: null,
+    },
+    lastModeratedAt: {
+      type: Date,
+      default: null,
     },
   },
   {

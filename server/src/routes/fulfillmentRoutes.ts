@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import FulfillmentRecord, {
   FulfillmentStatus,
 } from "../models/FulfillmentRecord";
+import { requireAdminScope } from "../middleware/adminAuth";
 
 export const fulfillmentRouter = Router();
 
@@ -131,6 +132,7 @@ fulfillmentRouter.post(
  */
 fulfillmentRouter.post(
   "/:promptId/:buyerWallet/resolve",
+  requireAdminScope("fulfillment:resolve"),
   async (req: Request, res: Response) => {
     const { promptId, buyerWallet } = req.params;
     const { refund, resolutionTxHash } = req.body as {
@@ -175,20 +177,28 @@ fulfillmentRouter.post(
  * Returns all records with status=refund_requested.
  * Intended for admin dashboards.
  */
-fulfillmentRouter.get("/pending-refunds", async (_req, res: Response) => {
-  const records = await FulfillmentRecord.find({
-    status: "refund_requested",
-  }).sort({ updatedAt: -1 });
-  res.json(records);
-});
+fulfillmentRouter.get(
+  "/pending-refunds",
+  requireAdminScope("fulfillment:read"),
+  async (_req, res: Response) => {
+    const records = await FulfillmentRecord.find({
+      status: "refund_requested",
+    }).sort({ updatedAt: -1 });
+    res.json(records);
+  },
+);
 
 /**
  * POST /api/fulfillment/auto-refund-sweep
  * Marks all purchases that are still `pending` or `failed` after the
  * timeout window as `refund_requested`.  Intended to be called by a
- * cron job or a scheduled task (#335).
+ * cron job or a scheduled task (#335). Bulk-mutates many records, so it
+ * requires the same admin/service scope as other recovery actions (#542).
  */
-fulfillmentRouter.post("/auto-refund-sweep", async (_req, res: Response) => {
+fulfillmentRouter.post(
+  "/auto-refund-sweep",
+  requireAdminScope("fulfillment:sweep"),
+  async (_req, res: Response) => {
   const timeoutMs = parseInt(
     process.env.FULFILLMENT_TIMEOUT_MS ?? "600000",
     10,
@@ -213,4 +223,5 @@ fulfillmentRouter.post("/auto-refund-sweep", async (_req, res: Response) => {
   );
 
   res.json({ swept: result.modifiedCount });
-});
+  },
+);

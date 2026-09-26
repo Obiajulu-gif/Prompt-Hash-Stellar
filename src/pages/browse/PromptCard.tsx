@@ -1,25 +1,37 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { useReducedMotion } from "@/hooks/useReducedMotion";
 import {
   ArrowUpRight,
   Bookmark,
   BookmarkCheck,
+  Check,
   LockKeyhole,
+  Plus,
   ShieldCheck,
   TrendingUp,
-  Check,
-  Plus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { shortenAddress } from "@/lib/utils";
+import { StarRating } from "@/components/prompts/StarRating";
+import {
+  CreatorReputationSummary,
+  CreatorVerifiedBadge,
+} from "@/components/reputation/CreatorReputationBadge";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { ReviewClient } from "@/lib/reviews/reviewClient";
+import {
+  getCreatorDisplayName,
+  getCreatorProfile,
+} from "@/lib/profiles/creatorProfile";
+import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import type { PromptRecord } from "@/lib/stellar/promptHashClient";
-import { StarRating } from "@/components/prompts/StarRating";
 import { useQuery } from "@tanstack/react-query";
-import { ReviewClient } from "@/lib/reviews/reviewClient";
+
+const shortenAddress = (address: string) =>
+  address.length > 14 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
 
 export const PromptCard = ({
   prompt,
@@ -33,30 +45,38 @@ export const PromptCard = ({
 }: {
   prompt: PromptRecord;
   hasAccess: boolean;
+  // eslint-disable-next-line no-unused-vars
   openModal: (_prompt: PromptRecord) => void;
   isSaved: boolean;
   isSaving: boolean;
+  // eslint-disable-next-line no-unused-vars
   onToggleSave: (_prompt: PromptRecord) => void;
   isCompared?: boolean;
+  // eslint-disable-next-line no-unused-vars
   onToggleCompare?: (_prompt: PromptRecord) => void;
 }) => {
-  const isBestSeller = prompt.salesCount >= 10;
   const reducedMotion = useReducedMotion();
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Fetch review stats for this prompt
-  const { data: reviewStats } = useQuery({
-    queryKey: ["review-stats", prompt.id.toString()],
-    queryFn: () => ReviewClient.getReviewStats(prompt.id.toString()),
-    staleTime: 60_000, // Cache for 1 minute
-  });
+  const isBestSeller = prompt.salesCount >= 10;
+  const creatorProfile = getCreatorProfile(prompt.creator);
+  const creatorName = getCreatorDisplayName(prompt.creator, creatorProfile);
+  const reputation = buildCreatorReputation(prompt.creator, [prompt]);
 
   const hoverProps = reducedMotion
     ? {}
     : {
         whileHover: { y: -4, scale: 1.01 },
         whileTap: { scale: 0.98 },
-        transition: { type: "spring" as const, stiffness: 300, damping: 20 },
+        transition: { type: "spring", stiffness: 300, damping: 20 },
       };
+
+  const { data: reviewStats } = useQuery({
+    queryKey: ["review-stats", prompt.id.toString()],
+    queryFn: () => ReviewClient.getReviewStats(prompt.id.toString()),
+    staleTime: 60_000,
+  });
 
   return (
     <motion.div {...hoverProps}>
@@ -78,29 +98,57 @@ export const PromptCard = ({
         aria-label={`Open ${prompt.title}`}
       >
         {/* Visual Header */}
-        <div className="relative aspect-[16/10] overflow-hidden">
+        <div className="relative aspect-[16/10] overflow-hidden bg-slate-900">
+          {!imageLoaded && !imageError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-800 animate-pulse" />
+          )}
           <img
-            src={prompt.imageUrl || "/images/codeguru.png"}
+            src={
+              imageError
+                ? "/images/codeguru.png"
+                : prompt.imageUrl || "/images/codeguru.png"
+            }
             alt={prompt.title}
-            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+            loading="lazy"
+            decoding="async"
+            width={400}
+            height={250}
+            onLoad={() => setImageLoaded(true)}
+            onError={() => {
+              setImageError(true);
+              setImageLoaded(true);
+            }}
+            className={`absolute inset-0 h-full w-full object-cover transition-all duration-700 group-hover:scale-110 ${
+              imageLoaded ? "opacity-100" : "opacity-0"
+            }`}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-transparent to-transparent opacity-60" />
 
-          <div className="absolute top-4 left-4 flex gap-2">
-            <Badge className="bg-slate-950/80 backdrop-blur-md border-white/10 text-slate-200 hover:bg-slate-900">
-              {prompt.category}
+          <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+            <Badge className="border-white/10 bg-slate-950/80 text-slate-200 backdrop-blur-md hover:bg-slate-900">
+              {prompt.category || "Uncategorized"}
             </Badge>
             {isBestSeller && (
-              <Badge className="bg-emerald-500 text-slate-950 border-none font-bold">
-                <TrendingUp className="h-3 w-3 mr-1" /> Best Seller
+              <Badge className="border-none bg-amber-300 text-slate-950 font-bold">
+                <TrendingUp className="mr-1 h-3 w-3" /> Best seller
+              </Badge>
+            )}
+            {reputation.verified && (
+              <Badge className="border-none bg-cyan-300 text-slate-950 font-bold">
+                <ShieldCheck className="mr-1 h-3 w-3" /> Verified Creator
               </Badge>
             )}
           </div>
-          <div className="absolute top-4 right-4 flex flex-col gap-2 items-end z-10">
+
+          <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
             <Button
               size="sm"
               variant="secondary"
-              className="h-8 rounded-full border border-white/10 bg-slate-950/75 px-3 text-xs text-white shadow-lg backdrop-blur-md hover:bg-slate-900"
+              className={`h-8 rounded-full border px-3 text-xs shadow-lg backdrop-blur-md transition-all ${
+                isSaved
+                  ? "border-emerald-400 bg-emerald-500 font-bold text-slate-950 hover:bg-emerald-600"
+                  : "border-white/10 bg-slate-950/75 text-white hover:bg-slate-900"
+              }`}
               disabled={isSaving}
               onClick={(event) => {
                 event.stopPropagation();
@@ -118,10 +166,10 @@ export const PromptCard = ({
               <Button
                 size="sm"
                 variant="secondary"
-                className={`h-8 rounded-full border shadow-lg backdrop-blur-md transition-all px-3 text-xs ${
+                className={`h-8 rounded-full border px-3 text-xs shadow-lg backdrop-blur-md ${
                   isCompared
-                    ? "bg-emerald-500 text-slate-950 border-emerald-400 font-bold hover:bg-emerald-600"
-                    : "bg-slate-950/75 text-white border-white/10 hover:bg-slate-900"
+                    ? "border-emerald-400 bg-emerald-500 font-bold text-slate-950"
+                    : "border-white/10 bg-slate-950/75 text-white"
                 }`}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -129,7 +177,7 @@ export const PromptCard = ({
                 }}
               >
                 {isCompared ? (
-                  <Check className="mr-1.5 h-3.5 w-3.5 text-slate-950" />
+                  <Check className="mr-1.5 h-3.5 w-3.5" />
                 ) : (
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                 )}
@@ -141,11 +189,10 @@ export const PromptCard = ({
 
         <CardContent className="flex flex-1 flex-col p-4 pt-4 sm:p-6 sm:pt-5">
           {/* Modern Stateful Badges Row */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {/* Active/Inactive Badge */}
+          <div className="mb-3 flex flex-wrap gap-2">
             {prompt.active ? (
               <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400"
                 data-testid="badge-active"
                 title="This prompt is currently available for purchase"
               >
@@ -154,7 +201,7 @@ export const PromptCard = ({
               </span>
             ) : (
               <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-slate-500/20 bg-slate-500/10 px-2.5 py-0.5 text-xs font-semibold text-slate-400"
                 data-testid="badge-inactive"
                 title="This prompt is not currently available for purchase"
               >
@@ -163,10 +210,9 @@ export const PromptCard = ({
               </span>
             )}
 
-            {/* Purchased/Unlockable Badge */}
             {hasAccess ? (
               <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400"
                 data-testid="badge-purchased"
                 title="You have purchased a license for this prompt"
               >
@@ -174,7 +220,7 @@ export const PromptCard = ({
               </span>
             ) : (
               <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-0.5 text-xs font-semibold text-indigo-400"
                 data-testid="badge-unlockable"
                 title="Purchase a license to unlock this prompt"
               >
@@ -182,10 +228,9 @@ export const PromptCard = ({
               </span>
             )}
 
-            {/* Verification Badge */}
             {prompt.contentHash && (
               <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-400"
                 data-testid="badge-verified"
                 title="Content integrity verified on the Stellar blockchain"
               >
@@ -200,22 +245,22 @@ export const PromptCard = ({
               <h3 className="text-base font-bold leading-tight transition-colors group-hover:text-emerald-400 sm:text-lg">
                 {prompt.title}
               </h3>
-              <div className="text-right shrink-0">
+              <div className="shrink-0 text-right">
                 <p
-                  className="text-lg font-black text-emerald-400 sm:text-xl font-mono tracking-tight"
+                  className="font-mono text-lg font-black tracking-tight text-emerald-400 sm:text-xl"
                   aria-label={`Price: ${formatPriceLabel(prompt.priceStroops)}`}
                   data-testid="price-label"
                 >
                   {formatPriceLabel(prompt.priceStroops)}
                 </p>
-                <p className="text-[10px] text-slate-500 uppercase tracking-tighter">
+                <p className="text-[10px] uppercase tracking-tighter text-slate-500">
                   per license
                 </p>
               </div>
             </div>
 
-            <p className="line-clamp-2 text-sm text-slate-400 leading-relaxed">
-              {prompt.previewText}
+            <p className="line-clamp-2 text-sm leading-relaxed text-slate-400">
+              {prompt.previewText || "No public preview text provided yet."}
             </p>
 
             {/* Quality Score Display */}
@@ -237,7 +282,7 @@ export const PromptCard = ({
                   </span>
                 </div>
               ) : (
-                <span className="text-[11px] text-slate-500 italic">
+                <span className="text-[11px] italic text-slate-500">
                   No ratings yet
                 </span>
               )}
@@ -245,34 +290,38 @@ export const PromptCard = ({
           </div>
 
           {/* Purchase Info Row */}
-          <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4 sm:mt-6 sm:pt-5">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="h-6 w-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+          <div className="mt-5 space-y-3 border-t border-white/5 pt-4 sm:mt-6 sm:pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                </div>
+                <Link
+                  to={`/sellers/${encodeURIComponent(prompt.creator)}`}
+                  className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300"
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label={`View seller ${creatorName}`}
+                  title={prompt.creator}
+                >
+                  {creatorName || shortenAddress(prompt.creator)}
+                </Link>
+                {hasAccess ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="font-bold text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
+                  >
+                    Owned <ArrowUpRight className="ml-1.5 h-4 w-4" />
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <LockKeyhole className="h-3 w-3" /> Get Access
+                  </div>
+                )}
               </div>
-              <Link
-                to={`/sellers/${encodeURIComponent(prompt.creator)}`}
-                className="truncate text-xs font-medium text-slate-400 transition-colors hover:text-emerald-300"
-                onClick={(event) => event.stopPropagation()}
-                aria-label={`View seller ${prompt.creator}`}
-              >
-                {shortenAddress(prompt.creator)}
-              </Link>
+              <CreatorVerifiedBadge reputation={reputation} compact />
+              <CreatorReputationSummary reputation={reputation} />
             </div>
-
-            {hasAccess ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 font-bold"
-              >
-                Owned <ArrowUpRight className="ml-1.5 h-4 w-4" />
-              </Button>
-            ) : (
-              <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                <LockKeyhole className="h-3 w-3" /> Get Access
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>

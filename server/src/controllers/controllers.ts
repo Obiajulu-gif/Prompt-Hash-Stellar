@@ -2,13 +2,23 @@ import { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import User from "../models/User";
 import Prompt from "../models/Prompt";
+import PriceChange from "../models/PriceChange";
 import Report from "../models/Report";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { validateListingMetadata } from "../services/listingValidation";
 import {
-  validateListingMetadata,
-} from "../services/listingValidation";
-import { cacheGet, cacheSet, cacheDel, cacheDelPattern, CACHE_KEYS } from "../services/cacheService";
+  cacheGet,
+  cacheSet,
+  cacheDel,
+  cacheDelPattern,
+  CACHE_KEYS,
+} from "../services/cacheService";
+import { sendConditionalJson, markPrivate } from "../middleware/etag";
+import { notifyPromptReported } from "../services/emailNotifications";
+import { announceNewPrompt } from "../services/discordNotifications";
+import { logger } from "../services/structuredLogger";
+import { checkSimilarityForContent } from "../services/similarityDetection";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -21,7 +31,7 @@ export const ImproveProxy = async (
   try {
     const promptText = req.body;
 
-    console.log("Improve prompt request: ", promptText);
+    logger.info("Improve prompt request received", { action: "improveProxy" });
 
     const response = await fetch(`${API_BASE_URL}/api/improve-prompt`, {
       method: "POST",
@@ -36,9 +46,10 @@ export const ImproveProxy = async (
     const responseData = await response.json().catch(() => {});
     const responseText = await response.text().catch(() => {});
 
-    // Log the response for debugging
-    console.log("Improve prompt response status:", response.status);
-    console.log("Improve prompt response data:", responseData || responseText);
+    logger.debug("Improve prompt response", {
+      action: "improveProxy",
+      status: response.status,
+    });
 
     // If the response is not OK, return the error details
     if (!response.ok) {
@@ -50,7 +61,7 @@ export const ImproveProxy = async (
 
     return res.json(responseData);
   } catch (err) {
-    console.error("Error in improve-proxy:", err);
+    logger.error("Improve proxy error", { action: "improveProxy", error: err });
     return res.status(500).json({
       error: "Internal Server Error",
       message: err instanceof Error ? err.message : String(err),
@@ -61,90 +72,6 @@ export const ImproveProxy = async (
 
 /* PROMPTS CONTROLLERS */
 
-export const CreatePrompt = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-
-    const promptData = await req.body;
-    const { image, title, content, walletAddress, price, category } =
-      promptData;
-
-    // Validate required fields with specific messages
-    const missingFields = [];
-    if (!image) missingFields.push("Image URL");
-    if (!title) missingFields.push("Title");
-    if (!content) missingFields.push("Content");
-    if (!walletAddress) missingFields.push("Wallet Address");
-    if (!price) missingFields.push("Price");
-
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-      });
-    }
-
-    const { normalized, errors } = validateListingMetadata({
-      image,
-      title,
-      content,
-      price,
-      category,
-    });
-
-    if (Object.keys(errors).length > 0) {
-      return res.status(422).json({
-        error: "Invalid listing metadata",
-        fields: errors,
-      });
-    }
-
-    // Find the user by wallet address
-    const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        error: "User not found. Please connect your wallet first.",
-      });
-    }
-
-    const newPrompt = new Prompt({
-      image: normalized.image,
-      title: normalized.title,
-      content: normalized.content,
-      owner: user._id, // Set the owner as the user's ObjectId
-      price: normalized.price,
-      category: normalized.category,
-      rating: 3,
-    });
-
-    await newPrompt.save();
-
-    // Bust every listing cache variant since a new prompt was created
-    await cacheDelPattern("prompts:list:*");
-
-    // Populate the owner details in the response
-    const populatedPrompt = await newPrompt.populate(
-      "owner",
-      "username walletAddress",
-    );
-
-    return res.status(201).json({
-      message: "Prompt created successfully",
-      prompt: populatedPrompt,
-    });
-  } catch (err) {
-    console.error("Create prompt error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to create prompt",
-    });
-  }
-};
-
 export const GetPrompts = async (
   req: Request,
   res: Response,
@@ -152,16 +79,29 @@ export const GetPrompts = async (
   try {
     await connectDb();
 
-    const { searchParams } = new URL(req.url);
-    const category = searchParams.get("category");
-    const walletAddress = searchParams.get("walletAddress");
+    let category = req.query.category as string;
+    let walletAddress = req.query.walletAddress as string;
+
+    // Fallback to URL parsing if not in req.query
+    if (!category && !walletAddress && req.url.includes("?")) {
+      const searchParams = new URL(req.url, `http://${req.headers.host}`)
+        .searchParams;
+      category = searchParams.get("category") || "";
+      walletAddress = searchParams.get("walletAddress") || "";
+    }
+
+    const limitParam = req.query.limit || req.query.pageSize;
+    const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+    const cursor = req.query.cursor as string;
 
     // Build a deterministic cache key from the query params
-    const cacheKey = CACHE_KEYS.promptList(`cat=${category ?? ""}&wallet=${walletAddress ?? ""}`);
+    const cacheKey = CACHE_KEYS.promptList(
+      `cat=${category ?? ""}&wallet=${walletAddress ?? ""}`,
+    );
     const cached = await cacheGet(cacheKey);
-    if (cached) return res.json(JSON.parse(cached));
+    if (cached) return sendConditionalJson(req, res, JSON.parse(cached));
 
-    const query: any = { listingStatus: 'published', isActive: true };
+    const query: any = { listingStatus: "published", isActive: true };
 
     if (category) {
       query.category = category;
@@ -176,18 +116,91 @@ export const GetPrompts = async (
       }
     }
 
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
     const prompts = await Prompt.find(query)
       .populate("owner", "username walletAddress")
-      .sort({ createdAt: -1 });
+      .sort({ _id: -1 })
+      .limit(limit + 1);
 
-    await cacheSet(cacheKey, JSON.stringify(prompts), 60);
+    let hasNextPage = false;
+    let nextCursor = null;
 
-    return res.json(prompts);
+    if (prompts.length > limit) {
+      hasNextPage = true;
+      prompts.pop();
+      nextCursor = prompts[prompts.length - 1]._id;
+    } else if (prompts.length > 0) {
+      nextCursor = null;
+    }
+
+    return sendConditionalJson(req, res, {
+      data: prompts,
+      metadata: {
+        hasNextPage,
+        nextCursor,
+      },
+    });
   } catch (error) {
-    console.error("Fetch prompts error:", error);
+    logger.error("Fetch prompts error", { action: "getPrompts", error });
 
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch prompts",
+    });
+  }
+};
+
+export const GetOwnedPrompts = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: "Wallet address is required" });
+    }
+
+    const limitParam = req.query.limit || req.query.pageSize;
+    const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+    const cursor = req.query.cursor as string;
+
+    const query: any = { buyerWallet: walletAddress.toLowerCase() };
+
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
+    // Since we want owned prompts, let's load from Purchase
+    // assuming Purchase model exists as seen earlier
+    const purchases = await mongoose.models.Purchase.find(query)
+      .sort({ _id: -1 })
+      .limit(limit + 1);
+
+    let hasNextPage = false;
+    let nextCursor = null;
+
+    if (purchases.length > limit) {
+      hasNextPage = true;
+      purchases.pop();
+      nextCursor = purchases[purchases.length - 1]._id;
+    }
+
+    return res.json({
+      data: purchases,
+      metadata: {
+        hasNextPage,
+        nextCursor,
+      },
+    });
+  } catch (error) {
+    logger.error("Fetch owned prompts error", { action: "getOwnedPrompts", error });
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to fetch owned prompts",
     });
   }
 };
@@ -215,7 +228,7 @@ export const CreateUser = async (
     });
 
     if (existingUser) {
-      console.log("User already exists:", existingUser);
+      logger.info("User already exists", { action: "createUser" });
       return res.status(200).json({
         message: "Login successful",
       });
@@ -238,7 +251,7 @@ export const CreateUser = async (
       user: newUser,
     });
   } catch (error) {
-    console.error("Registration error:", error);
+    logger.error("Registration error", { action: "createUser", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to register user",
     });
@@ -252,29 +265,60 @@ export const GetUsers = async (
   try {
     await connectDb();
 
-    // Get wallet address from search params if provided
-    const { searchParams } = new URL(req.url);
-    const walletAddress = searchParams.get("walletAddress");
-
-    let users;
+    let walletAddress = req.query.walletAddress as string;
+    if (!walletAddress && req.url.includes("?")) {
+      const searchParams = new URL(req.url, `http://${req.headers.host}`)
+        .searchParams;
+      walletAddress = searchParams.get("walletAddress") || "";
+    }
 
     if (walletAddress) {
-      users = await User.findOne({
+      const user = await User.findOne({
         walletAddress: walletAddress.toLowerCase(),
       });
 
-      if (!users) {
+      if (!user) {
         return res.status(404).json({
           error: "User not found",
         });
       }
+      return res.json({
+        data: [user],
+        metadata: { hasNextPage: false, nextCursor: null },
+      });
     } else {
-      users = await User.find({});
-    }
+      const limitParam = req.query.limit || req.query.pageSize;
+      const limit = Math.min(parseInt(limitParam as string) || 20, 50);
+      const cursor = req.query.cursor as string;
 
-    return res.json(users);
+      const query: any = {};
+      if (cursor) {
+        query._id = { $lt: cursor };
+      }
+
+      const users = await User.find(query)
+        .sort({ _id: -1 })
+        .limit(limit + 1);
+
+      let hasNextPage = false;
+      let nextCursor = null;
+
+      if (users.length > limit) {
+        hasNextPage = true;
+        users.pop();
+        nextCursor = users[users.length - 1]._id;
+      }
+
+      return res.json({
+        data: users,
+        metadata: {
+          hasNextPage,
+          nextCursor,
+        },
+      });
+    }
   } catch (error) {
-    console.error("Fetch users error:", error);
+    logger.error("Fetch users error", { action: "getUsers", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to fetch users",
     });
@@ -302,20 +346,19 @@ export const TestPromptProxy = async (
       model: openai("gpt-4-turbo"), // Can be swapped based on creator preference
       messages: [
         { role: "system", content: systemMessage },
-        { role: "user", content: userInput }
+        { role: "user", content: userInput },
       ],
     });
 
     result.pipeTextStreamToResponse(res);
   } catch (err) {
-    console.error("Error in TestPromptProxy:", err);
+    logger.error("Test prompt proxy error", { action: "testPromptProxy", error: err });
     res.status(500).json({
       error: "Internal Server Error",
       message: err instanceof Error ? err.message : String(err),
     });
   }
 };
-
 
 /* REPORT CONTROLLERS */
 
@@ -336,7 +379,14 @@ export const SubmitPromptReport = async (
     }
 
     // Validate reason
-    const validReasons = ["quality-issue", "misleading-content", "plagiarism", "harmful-content", "copyright", "other"];
+    const validReasons = [
+      "quality-issue",
+      "misleading-content",
+      "plagiarism",
+      "harmful-content",
+      "copyright",
+      "other",
+    ];
     if (!validReasons.includes(reason)) {
       return res.status(400).json({
         error: "Invalid reason provided",
@@ -361,13 +411,22 @@ export const SubmitPromptReport = async (
 
     await newReport.save();
 
+    // Send notification to moderation team
+    await notifyPromptReported({
+      reporterWallet: reporterAddress,
+      promptTitle: prompt.title,
+      promptId: prompt._id.toString(),
+      reason,
+      description: description || "",
+    });
+
     return res.status(201).json({
       success: true,
       message: "Report submitted successfully",
       reportId: newReport._id,
     });
   } catch (err) {
-    console.error("Submit report error:", err);
+    logger.error("Submit report error", { action: "submitPromptReport", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to submit report",
     });
@@ -379,30 +438,24 @@ export const GetPromptReports = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    // Admin authentication and authorization is enforced by the
+    // `requireAdminScope("reports:read")` middleware mounted on this route
+    // (#542) — this handler only runs once that has already succeeded.
     await connectDb();
 
-    // Check admin authentication (placeholder)
-    const adminToken = req.headers.authorization?.split(" ")[1];
-    if (!adminToken) {
-      return res.status(401).json({
-        error: "Unauthorized: Admin token required",
-      });
-    }
-
-    const { searchParams } = new URL(req.url);
-    const promptId = searchParams.get("promptId");
+    const promptId =
+      typeof req.query.promptId === "string" ? req.query.promptId : undefined;
 
     const query: any = {};
     if (promptId) {
       query.promptId = promptId;
     }
 
-    const reports = await Report.find(query)
-      .sort({ createdAt: -1 });
+    const reports = await Report.find(query).sort({ createdAt: -1 });
 
     return res.json(reports);
   } catch (err) {
-    console.error("Get reports error:", err);
+    logger.error("Get reports error", { action: "getPromptReports", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch reports",
     });
@@ -428,7 +481,7 @@ export const RecordPreview = async (
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error("Record preview error:", err);
+    logger.error("Record preview error", { action: "recordPreview", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to record preview",
     });
@@ -440,6 +493,7 @@ export const GetPreviewStats = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.query;
 
@@ -468,52 +522,23 @@ export const GetPreviewStats = async (
       prompts,
     });
   } catch (err) {
-    console.error("Get preview stats error:", err);
+    logger.error("Get preview stats error", { action: "getPreviewStats", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch preview stats",
     });
   }
 };
 
-// ─── Prompt lifecycle controllers ────────────────────────────────────────────
-
-export const GetOwnedPrompts = async (
-  req: Request,
-  res: Response,
-): Promise<Response<any>> => {
-  try {
-    await connectDb();
-    const { walletAddress } = req.params;
-
-    if (!walletAddress) {
-      return res.status(400).json({ error: "walletAddress is required." });
-    }
-
-    const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
-    });
-    if (!user) {
-      return res.status(404).json({ error: "User not found." });
-    }
-
-    const prompts = await Prompt.find({ owner: user._id })
-      .populate("owner", "username walletAddress")
-      .sort({ createdAt: -1 });
-
-    return res.json(prompts);
-  } catch (err) {
-    console.error("Get owned prompts error:", err);
-    return res.status(500).json({
-      error: (err as Error).message || "Failed to fetch owned prompts",
-    });
-  }
-};
+// ─── User Preference Controllers (non-authoritative) ─────────────────────────
+// These are client-side preferences, not authoritative state.
+// They require a valid wallet signature to prevent unauthorized modification.
 
 export const GetSavedPrompts = async (
   req: Request,
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -534,7 +559,7 @@ export const GetSavedPrompts = async (
 
     return res.json(prompts);
   } catch (err) {
-    console.error("Get saved prompts error:", err);
+    logger.error("Get saved prompts error", { action: "getSavedPrompts", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch saved prompts",
     });
@@ -547,12 +572,18 @@ export const SavePrompt = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { promptId, walletAddress } = req.body;
+    const { promptId, walletAddress, signature } = req.body;
 
     if (!promptId || !walletAddress) {
       return res
         .status(400)
         .json({ error: "promptId and walletAddress are required." });
+    }
+
+    if (!signature) {
+      return res
+        .status(401)
+        .json({ error: "Wallet signature required for preference changes." });
     }
 
     const user = await User.findOne({
@@ -566,9 +597,9 @@ export const SavePrompt = async (
       $addToSet: { savedPrompts: user._id },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, authoritative: false });
   } catch (err) {
-    console.error("Save prompt error:", err);
+    logger.error("Save prompt error", { action: "savePrompt", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to save prompt",
     });
@@ -581,12 +612,18 @@ export const UnsavePrompt = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { promptId, walletAddress } = req.body;
+    const { promptId, walletAddress, signature } = req.body;
 
     if (!promptId || !walletAddress) {
       return res
         .status(400)
         .json({ error: "promptId and walletAddress are required." });
+    }
+
+    if (!signature) {
+      return res
+        .status(401)
+        .json({ error: "Wallet signature required for preference changes." });
     }
 
     const user = await User.findOne({
@@ -600,9 +637,9 @@ export const UnsavePrompt = async (
       $pull: { savedPrompts: user._id },
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, authoritative: false });
   } catch (err) {
-    console.error("Unsave prompt error:", err);
+    logger.error("Unsave prompt error", { action: "unsavePrompt", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to unsave prompt",
     });
@@ -614,6 +651,7 @@ export const GetDraftPrompts = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
+    markPrivate(res);
     await connectDb();
     const { walletAddress } = req.params;
 
@@ -637,73 +675,135 @@ export const GetDraftPrompts = async (
 
     return res.json(drafts);
   } catch (err) {
-    console.error("Get draft prompts error:", err);
+    logger.error("Get draft prompts error", { action: "getDraftPrompts", error: err });
     return res.status(500).json({
       error: (err as Error).message || "Failed to fetch drafts",
     });
   }
 };
 
-export const PublishPrompt = async (
+export const GetPriceHistory = async (
   req: Request,
   res: Response,
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { id } = req.params;
 
-    const prompt = await Prompt.findByIdAndUpdate(
-      id,
-      { listingStatus: "published", isActive: true },
-      { new: true },
-    );
+    const { onChainId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const cursor = req.query.cursor as string;
 
-    if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found." });
+    const query: any = { promptId: onChainId };
+
+    if (cursor) {
+      query._id = { $lt: cursor };
     }
 
-    await Promise.all([
-      cacheDelPattern("prompts:list:*"),
-      cacheDel(CACHE_KEYS.promptDetail(id)),
-    ]);
+    const changes = await PriceChange.find(query)
+      .sort({ _id: -1 })
+      .limit(limit + 1);
 
-    return res.json({ success: true, prompt });
-  } catch (err) {
-    console.error("Publish prompt error:", err);
+    let hasNextPage = false;
+    let nextCursor: string | null = null;
+
+    if (changes.length > limit) {
+      hasNextPage = true;
+      changes.pop();
+      nextCursor = changes[changes.length - 1]._id;
+    }
+
+    return sendConditionalJson(req, res, {
+      data: changes,
+      metadata: { hasNextPage, nextCursor },
+    });
+  } catch (error) {
+    logger.error("Fetch price history error", { action: "getPriceHistory", error });
     return res.status(500).json({
-      error: (err as Error).message || "Failed to publish prompt",
+      error: (error as Error).message || "Failed to fetch price history",
     });
   }
 };
 
-export const ArchivePrompt = async (
+/**
+ * Find prompts by content hash.
+ * Used for duplicate detection before listing (anti-plagiarism).
+ * Returns matching prompts without exposing plaintext content.
+ */
+export const GetPromptsByContentHash = async (
   req: Request,
   res: Response,
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { id } = req.params;
+    const { contentHash } = req.params;
 
-    const prompt = await Prompt.findByIdAndUpdate(
-      id,
-      { listingStatus: "archived", isActive: false },
-      { new: true },
-    );
-
-    if (!prompt) {
-      return res.status(404).json({ error: "Prompt not found." });
+    if (!contentHash) {
+      return res.status(400).json({ error: "contentHash is required." });
     }
 
-    await Promise.all([
-      cacheDelPattern("prompts:list:*"),
-      cacheDel(CACHE_KEYS.promptDetail(id)),
-    ]);
+    // Validate hash format (should be hex string, typically 32 or 64 chars)
+    if (!/^[a-f0-9]{32,128}$/i.test(contentHash)) {
+      return res.status(400).json({ error: "Invalid content hash format." });
+    }
 
-    return res.json({ success: true, prompt });
-  } catch (err) {
-    console.error("Archive prompt error:", err);
+    // Query for prompts with matching content hash
+    const matches = await Prompt.find({
+      contentHash: contentHash,
+      listingStatus: "published",
+      isActive: true,
+    }).select("_id onChainId title creator owner salesCount isActive");
+
+    // Hydrate owner wallet addresses
+    const enriched = await Promise.all(
+      matches.map(async (prompt) => {
+        const user = await User.findById(prompt.owner).select("walletAddress");
+        return {
+          id: prompt.onChainId,
+          title: prompt.title,
+          creator: user?.walletAddress || "unknown",
+          salesCount: prompt.salesCount,
+          isActive: prompt.isActive,
+        };
+      }),
+    );
+
+    return res.json({
+      found: enriched.length > 0,
+      matches: enriched,
+      count: enriched.length,
+    });
+  } catch (error) {
+    logger.error("Get prompts by content hash error", { action: "getPromptsByContentHash", error });
     return res.status(500).json({
-      error: (err as Error).message || "Failed to archive prompt",
+      error:
+        (error as Error).message || "Failed to find prompts by content hash",
+    });
+  }
+};
+
+/**
+ * Check prompt similarity for a given content string.
+ * Used for pre-publish duplicate detection (anti-plagiarism).
+ */
+
+export const CheckSimilarity = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+    const { content, category } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: "content is required." });
+    }
+
+    const result = await checkSimilarityForContent(content, category);
+    return res.json(result);
+  } catch (error) {
+    logger.error("Check similarity error", { action: "checkSimilarity", error });
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to check similarity",
     });
   }
 };

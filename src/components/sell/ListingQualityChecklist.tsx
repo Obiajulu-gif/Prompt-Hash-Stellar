@@ -93,6 +93,7 @@ export function buildChecklistItems(
     previewText: string;
     fullPrompt: string;
     priceXlm: string;
+    description?: string;
   },
   options?: ListingValidationOptions,
 ): ChecklistItem[] {

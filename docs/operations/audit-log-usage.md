@@ -47,11 +47,23 @@ Every challenge issuance and prompt unlock attempt creates a structured, immutab
 | `rate_limit_exceeded` | `challenge_rate_limited` |
 | `ip_rate_limit_exceeded` | `unlock_rate_limited` (IP bucket) |
 | `wallet_rate_limit_exceeded` | `unlock_rate_limited` (wallet bucket) |
+| `entitlement_rate_limit_exceeded` | `unlock_rate_limited` (buyer/prompt/failure composite buckets) |
 | `invalid_signature` | `unlock_invalid_signature` |
 | `expired_challenge` | `unlock_expired_challenge` |
 | `no_access` | `unlock_no_access` |
 | `integrity_failure` | `unlock_integrity_failure` |
 | `error` | `unlock_error` |
+
+### Composite (buyer / prompt / failure-reason) throttling
+
+Unlock attempts are additionally throttled on composite keys so a single buyer cannot probe one prompt repeatedly:
+
+- **IP bucket** — `checkRateLimit("unlock", clientIp)` (generic per-IP guard).
+- **Wallet bucket** — `checkRateLimit("unlock", address)` (per-buyer guard).
+- **Buyer+prompt bucket** — `checkRateLimit("unlock", address, { scope: "prompt:<id>" })` — repeated unlock attempts for the same prompt are throttled (max 8 / 60s).
+- **Failure-reason bucket** — `checkRateLimit("unlock", address, { scope: "prompt:<id>:reason:<reason>" })` for `no_access` and `ledger_verification_failed` (max 3 / 60s each).
+
+All composite buckets inherit the `unlock` classification (`security`), so they fail closed when Redis is unavailable. Legitimate retries shortly after an indexer delay remain permitted because the windows are generous relative to a normal retry cadence. Throttled composite attempts are recorded with `action: "unlock_rate_limited"` and `reason: "entitlement_rate_limit_exceeded"`.
 
 ---
 

@@ -65,4 +65,7 @@ export async function cacheDelPattern(pattern: string): Promise<void> {
 export const CACHE_KEYS = {
   promptList: (query: string) => `prompts:list:${query}`,
   promptDetail: (id: string) => `prompts:detail:${id}`,
+  entitlementDecision: (promptId: string, walletAddress: string) =>
+    `entitlement:${promptId}:${walletAddress}`,
+  entitlementDecisionPattern: (promptId: string) => `entitlement:${promptId}:*`,
 };
