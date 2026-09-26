@@ -36,6 +36,10 @@ import {
   PurchaseFailureReason,
 } from "../../src/lib/observability/purchaseFunnelMetrics";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
+import {
+  recordUnlockFailure,
+  recordUnlockSuccess,
+} from "../../server/src/services/purchaseDisputes";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { validateUnlockSecrets } from "../../src/lib/validation/envValidator";
 
@@ -389,6 +393,9 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   }
 
   const unlockStartMs = Date.now();
+  // Set once the ledger confirms the buyer paid; from then on a failure is a
+  // paid-but-undelivered purchase and opens a recoverable dispute (#755).
+  let entitlementConfirmed = false;
 
   try {
     // Support multiple active secrets during rotation grace period
@@ -619,6 +626,8 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       return;
     }
 
+    entitlementConfirmed = true;
+
     req.logger.info(
       {
         address,
@@ -742,14 +751,15 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
         clientIp,
         reason: "integrity_failure",
       });
-      res
-        .status(500)
-        .json(
-          apiError(
-            ErrorCode.INTEGRITY_FAILURE,
-            "Prompt integrity check failed.",
-          ),
-        );
+      void recordUnlockFailure({
+        promptId: String(promptId),
+        buyerWallet: String(address),
+        reason: "integrity_failure",
+        requestId: req.requestId ?? null,
+      });
+      res.status(500).json(
+        apiError(ErrorCode.INTEGRITY_FAILURE, "Prompt integrity check failed."),
+      );
       return;
     }
 
@@ -770,6 +780,11 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       requestId: req.requestId ?? null,
       clientIp,
       reason: null,
+    });
+    void recordUnlockSuccess({
+      promptId: String(promptId),
+      buyerWallet: String(address),
+      requestId: req.requestId ?? null,
     });
 
     // The Soroban indexer is the sole source of `PromptPurchased` webhook
@@ -825,6 +840,14 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       clientIp,
       reason: isExpired ? "expired_challenge" : "error",
     });
+    if (entitlementConfirmed) {
+      void recordUnlockFailure({
+        promptId: String(promptId),
+        buyerWallet: String(address),
+        reason: "unlock_error",
+        requestId: req.requestId ?? null,
+      });
+    }
 
     if (isExpired) {
       const body = apiError(

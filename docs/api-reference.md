@@ -399,6 +399,117 @@ decoded event matches every receipt field exactly — so a receipt with any
 tampered field, a wrong-network mismatch, or an orphaned/failed transaction
 fails verification.
 
+## Wallet Sessions
+
+Self-service routes that act for a wallet (buyer library, provenance
+declarations) need a short-lived session proving the caller controls it.
+
+1. `GET /api/wallet-session/challenge?walletAddress=G...` → `{ token, challenge, expiresAt }`
+2. Sign `challenge` with the wallet, then
+   `POST /api/wallet-session` with `{ walletAddress, token, signedMessage }` →
+   `{ walletAddress, sessionToken, expiresAt }` (valid for 30 minutes; each
+   challenge can be used once).
+3. Send `Authorization: Bearer <sessionToken>`. A session only works for the
+   wallet it was issued to; anything else gets `401`.
+
+## Buyer Library (#784)
+
+All routes require a wallet session for `:walletAddress`. Collections and
+archive state live in their own collections, so organising a library never
+changes purchase (ownership) records.
+
+### Get the library
+
+`GET /api/library/:walletAddress?q=&collection=&archived=exclude|only|include&health=`
+
+```json
+{
+  "entries": [
+    {
+      "promptId": "42",
+      "title": "Launch Strategy Pack",
+      "category": "Marketing",
+      "purchasedAt": "2026-09-01T10:00:00.000Z",
+      "txHash": "…",
+      "archived": false,
+      "collectionIds": ["66f0…"],
+      "entitlement": { "health": "active", "purchaseStatus": "purchased", "disputeStatus": null }
+    }
+  ],
+  "collections": [{ "id": "66f0…", "name": "Favourites", "promptIds": ["42"], "promptCount": 1 }],
+  "counts": { "total": 5, "archived": 1 }
+}
+```
+
+`health` is `active`, `recovery_needed` (paid, but the delivery is disputed),
+`refunded`, or `revoked`. Only the wallet's own purchases are ever listed or
+searched.
+
+### Organise
+
+- `POST /api/library/:walletAddress/collections` — `{ name, description?, promptIds? }`
+- `PATCH /api/library/:walletAddress/collections/:collectionId` — `{ name?, description?, addPromptIds?, removePromptIds? }`
+- `DELETE /api/library/:walletAddress/collections/:collectionId`
+- `PUT /api/library/:walletAddress/items/:promptId` — `{ archived: boolean }`
+
+Only prompts the wallet currently owns (not refunded or revoked) can be added
+to a collection (`403` otherwise). Another wallet's collections return `404`.
+
+## Disputed Purchases (#755)
+
+- `GET /api/fulfillment/:promptId/:buyerWallet` — buyer view: status, unlock
+  attempts, timeline, maintainer notes, refund eligibility. No wallet,
+  transaction, or maintainer metadata.
+- `POST /api/fulfillment/:promptId/:buyerWallet/request-refund` — `{ reason, disputeTxHash? }`
+- `GET /api/fulfillment/disputes?status=` — maintainer queue (`fulfillment:read`), oldest first with `stale` flags.
+- `POST /api/fulfillment/:promptId/:buyerWallet/retry` — `{ notes? }` (`fulfillment:resolve`)
+- `POST /api/fulfillment/:promptId/:buyerWallet/resolve` — `{ refund, resolutionTxHash?, notes? }` (`fulfillment:resolve`)
+- `POST /api/fulfillment/:promptId/:buyerWallet/close` — `{ notes }` (`fulfillment:resolve`)
+- `POST /api/fulfillment` — service report of a delivery outcome (`pending`, `delivered`, `failed`; `fulfillment:write`)
+
+Actions that are not allowed in the current state return `409`. A repeated
+action (same `Idempotency-Key`) or redelivered event returns `200` with
+`idempotent: true` and changes nothing. The state machine is documented in
+[operations/audit-log-usage.md](./operations/audit-log-usage.md#disputed-purchases).
+
+## Prompt Provenance (#753)
+
+- `GET /api/provenance/:promptId` — public lineage:
+
+  ```json
+  {
+    "promptId": "42",
+    "ancestors": [
+      { "promptId": "7", "derivedPromptId": "42", "kind": "remix", "origin": "creator", "depth": 1, "visibility": "public", "title": "…", "link": "/prompts/7" },
+      { "promptId": "3", "derivedPromptId": "7", "kind": "source", "origin": "creator", "depth": 2, "visibility": "deleted", "title": null, "link": null }
+    ],
+    "derivatives": [],
+    "derivativeCount": 0,
+    "truncated": false
+  }
+  ```
+
+  `kind` is `parent`, `fork`, `remix`, or `source`. Listings that are hidden
+  by moderation, unlisted, or deleted keep their place in the lineage, but
+  their title and link are withheld.
+- `POST /api/provenance/:promptId/relations` — `{ creatorWallet, relatedPromptId, kind }`,
+  creator's wallet session required. Returns `409` for self-references,
+  cycles, a second `parent`, or a duplicate.
+- `DELETE /api/provenance/:promptId/relations/:relatedPromptId?creatorWallet=`
+- `GET /api/provenance/admin/flags` — moderation flags (`provenance:read`):
+  `cross_creator_parent`, `deep_fork_chain`, `undeclared_similarity`,
+  `unconfirmed_attribution`.
+
+Migration `003_prompt_provenance` backfills unconfirmed `source` relations
+(`origin: "backfill"`) from existing similarity detections. Creators can
+confirm or remove them from the prompt page.
+
+## Audit Export (#783)
+
+`GET /api/audit/export` and `POST /api/audit/export/verify` (scope
+`audit:export`). Filters, schema, and the verification procedure are in
+[operations/audit-log-usage.md](./operations/audit-log-usage.md#exporting-activity-for-audits).
+
 ## Notes For Frontend Contributors
 
 - Listing metadata is normalized server-side before persistence.

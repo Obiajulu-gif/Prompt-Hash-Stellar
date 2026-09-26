@@ -5,7 +5,56 @@ import User from "../models/User";
 import Purchase from "../models/Purchase";
 import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
-import { MarketplaceIndex } from "../models/MarketplaceIndex";
+import ProcessedEvent from "../models/ProcessedEvent";
+import QuarantinedEvent from "../models/QuarantinedEvent";
+import { scanForSimilarity } from "./similarityDetection";
+import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
+import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
+import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
+import { logger } from "./structuredLogger";
+import { applyDisputeTransition } from "./purchaseDisputes";
+
+const POLL_INTERVAL_MS = 5_000;
+const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
+const REPLICA_ID = `${process.pid}@${os.hostname()}`;
+
+let tickInFlight = false; // single-flight guard for the current process
+
+// Entitlement decision cache — invalidated on settlement events (#545, #602).
+// Uses Redis for multi-instance deployments; short TTL balances freshness with RPC load.
+const ENTITLEMENT_CACHE_TTL_SECS = 30;
+
+async function invalidateEntitlementCacheForPrompt(promptId: string): Promise<void> {
+  await cacheDelPattern(CACHE_KEYS.entitlementDecisionPattern(promptId));
+}
+
+/**
+ * Resolves a wallet address to a User document, creating a minimal wallet
+ * subject if none exists yet. The subject carries only the on-chain address;
+ * no synthetic username or reputation rating is injected. Identity fields
+ * (username, displayName, rating) must be set explicitly through verified
+ * profile claims to prevent unearned reputation from landing in the index.
+ */
+async function ensureUser(walletAddress: string) {
+  const normalized = walletAddress.toLowerCase();
+  let user = await User.findOne({ walletAddress: normalized });
+  if (!user) {
+    user = await User.create({ walletAddress: normalized });
+  }
+  return user;
+}
+
+/**
+ * Invalidates the marketplace read caches for a listing after an indexed
+ * on-chain event changes it, so `GET /api/prompts` and per-prompt reads
+ * regenerate a fresh ETag on the next request instead of serving stale data.
+ */
+async function invalidatePromptCaches(promptId: string): Promise<void> {
+  await Promise.all([
+    cacheDelPattern("prompts:list:*"),
+    cacheDel(CACHE_KEYS.promptDetail(promptId)),
+  ]);
+}
 
 const CONTRACT_ID = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
 const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
@@ -467,9 +516,93 @@ export async function routeDecodedEvent(
         { onChainId: promptId },
         { $set: { isActive: active } },
       );
-      await MarketplaceIndex.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
-        { $set: { isActive: active } },
+      await invalidatePromptCaches(promptId);
+      break;
+    }
+
+    case "DisputeOpened": {
+      const { prompt_id, buyer } = data;
+      const promptId = prompt_id.toString();
+      const buyerWallet = String(buyer).toLowerCase();
+
+      await Purchase.findOneAndUpdate(
+        { promptId, buyerWallet },
+        { $set: { status: "disputed" } },
+      );
+
+      // An on-chain dispute is the buyer's refund request for an off-chain
+      // dispute record, if one exists (#755). Keyed by event id so a replayed
+      // event is a no-op.
+      await applyDisputeTransition({
+        promptId,
+        buyerWallet,
+        event: "refund_requested",
+        actor: "indexer",
+        note: "Dispute opened on-chain",
+        eventKey: `chain:${eventId}`,
+        set: txHash ? { disputeTxHash: txHash } : undefined,
+      });
+
+      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidatePromptCaches(promptId);
+
+      await notify(
+        buyerWallet,
+        "DisputeOpened",
+        {
+          promptId,
+          buyer: String(buyer),
+          txHash,
+        },
+        eventId,
+      );
+      break;
+    }
+
+    case "DisputeResolved": {
+      const { prompt_id, buyer, refunded } = data;
+      const promptId = prompt_id.toString();
+      const buyerWallet = String(buyer).toLowerCase();
+
+      const resolution = refunded ? "refunded" : "rejected";
+
+      await Purchase.findOneAndUpdate(
+        { promptId, buyerWallet },
+        {
+          $set: {
+            status: "resolved",
+            disputeResolution: resolution,
+          },
+        },
+      );
+
+      if (refunded) {
+        // Escrowed funds went back to the buyer: settle the off-chain dispute
+        // record too (#755). Idempotent if a maintainer already approved it.
+        await applyDisputeTransition({
+          promptId,
+          buyerWallet,
+          event: "refund_settled",
+          actor: "indexer",
+          note: "Refund settled on-chain",
+          eventKey: `chain:${eventId}`,
+          set: txHash ? { resolutionTxHash: txHash } : undefined,
+        });
+      }
+
+      invalidateEntitlementCacheForPrompt(promptId);
+      await invalidatePromptCaches(promptId);
+
+      await notify(
+        buyerWallet,
+        "DisputeResolved",
+        {
+          promptId,
+          buyer: String(buyer),
+          refunded,
+          txHash,
+        },
+        eventId,
       );
       break;
     }
