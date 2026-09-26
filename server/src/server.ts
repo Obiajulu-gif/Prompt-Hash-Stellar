@@ -7,6 +7,10 @@ import { chatRouter } from "./routes/chatRoutes";
 import { webhookRouter } from "./routes/webhookRoutes";
 import { versioningRouter } from "./routes/versioningRoutes";
 import { marketplaceRouter } from "./routes/marketplaceRoutes";
+import { featureFlagRouter } from "./routes/featureFlagRoutes.js";
+import { supportCaseRouter } from "./routes/supportCaseRoutes.js";
+import { qualityCheckRouter } from "./routes/qualityCheckRoutes.js";
+import { recommendationFeedbackRouter } from "./routes/recommendationFeedbackRoutes.js";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
 import { correlationMiddleware } from "./middleware/correlation";
@@ -27,6 +31,10 @@ app.use("/api/chat", chatRouter);
 app.use("/api/webhooks", webhookRouter);
 app.use("/api/versions", versioningRouter);
 app.use("/api/marketplace", marketplaceRouter);
+app.use("/api/flags", featureFlagRouter);
+app.use("/api/support-cases", supportCaseRouter);
+app.use("/api/quality-checks", qualityCheckRouter);
+app.use("/api/recommendations/feedback", recommendationFeedbackRouter);
 
 app.get("/health", async (req, res) => {
   const [state, backupHealth] = await Promise.all([
@@ -73,4 +81,6 @@ app.listen(port, () => {
   startIndexer().catch((err) => {
     console.error("Failed to start Soroban Indexer:", err);
   });
+startIndexer().catch((err) => {
+  console.error("Failed to start Soroban Indexer:", err);
 });
