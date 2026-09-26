@@ -33,7 +33,7 @@ describe("Wallet Connection States", () => {
     renderWithProviders(<WalletButton />, { wallet: mockWallet });
 
     expect(screen.getByRole("button")).toBeInTheDocument();
-    expect(screen.getByText(/connect/i)).toBeInTheDocument();
+    expect(screen.getByText(/sign in/i)).toBeInTheDocument();
   });
 
   it("shows connecting state during wallet connection", () => {
@@ -79,7 +79,7 @@ describe("Wallet Connection States", () => {
     renderWithProviders(<WalletButton />, { wallet: mockWallet });
 
     const connectButton = screen.getByRole("button", {
-      name: /connect wallet/i,
+      name: /sign in/i,
     });
     await user.click(connectButton);
 
