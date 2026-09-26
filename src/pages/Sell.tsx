@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { Skeleton } from "../components/Skeleton";
+import { useNetworkStatus } from "../hooks/useNetworkStatus";
 
 // 1. Mock: Fetching draft metadata/validation before listing
 const fetchDraftMetadata = async () => {
@@ -33,6 +34,7 @@ const listAssetContractCall = async (_data: any) => {
 export default function Sell() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: "", price: "", description: "" });
+  const { isOnline } = useNetworkStatus();
 
   // Fetch initial data (e.g., from local storage, IPFS, or an API)
   const { data: draftData, isLoading: isFetchingDraft } = useQuery({
@@ -71,7 +73,7 @@ export default function Sell() {
     execute(formData);
   };
 
-  const isFormDisabled = isTransacting;
+  const isFormDisabled = isTransacting || !isOnline;
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
@@ -133,7 +135,7 @@ export default function Sell() {
           disabled={isFormDisabled || isFetchingDraft}
           className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white font-bold rounded-md transition-colors shadow-lg"
         >
-          {isTransacting ? "Processing Listing..." : "List Asset"}
+          {!isOnline ? "Offline" : isTransacting ? "Processing Listing..." : "List Asset"}
         </button>
       </form>
     </div>

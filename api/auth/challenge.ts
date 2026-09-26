@@ -1,8 +1,17 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createChallengeToken } from "../../src/lib/auth/challenge";
+import {
+  createChallengeToken,
+  computeListingSnapshotHash,
+  type ListingSnapshot,
+} from "../../src/lib/auth/challenge";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import { checkRateLimit } from "../../src/lib/observability/rateLimiter";
 import { metrics } from "../../src/lib/observability/metrics";
+import {
+  purchaseFunnelTracker,
+  PurchaseFunnelStage,
+  PurchaseFailureReason,
+} from "../../src/lib/observability/purchaseFunnelMetrics";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import { isPlaceholder } from "../../src/lib/validation/envValidator";
@@ -20,6 +29,15 @@ type ExtendedRequest = VercelRequest & {
 export interface ChallengeRequest {
   address: string;
   promptId: string;
+  action?: string;
+  promptVersion?: string;
+  expectedPriceStroops?: string;
+  /**
+   * The marketplace listing snapshot the buyer observed. The server computes the
+   * canonical hash and binds it into the challenge so a drifted listing (price,
+   * owner, asset, version, or expiry) invalidates the signed challenge later.
+   */
+  listingSnapshot?: ListingSnapshot;
 }
 
 export interface ChallengeResponse {
@@ -28,13 +46,17 @@ export interface ChallengeResponse {
   issuedAt: number;
   expiresAt: number;
   nonce: string;
+  /** Canonical hash of the listing snapshot embedded in the challenge. */
+  listingSnapshotHash?: string;
 }
 
 // Fail-fast module-load validation: reject startup if secrets are missing.
 (function validateEnv(): void {
   const secret = process.env.CHALLENGE_TOKEN_SECRET;
   if (!secret || isPlaceholder(secret) || secret.length < 16) {
-    console.error("FATAL: CHALLENGE_TOKEN_SECRET is missing, placeholder, or too short (< 16 chars).");
+    console.error(
+      "FATAL: CHALLENGE_TOKEN_SECRET is missing, placeholder, or too short (< 16 chars).",
+    );
     if (process.env.NODE_ENV === "production") {
       throw new Error("CHALLENGE_TOKEN_SECRET not configured.");
     }
@@ -46,22 +68,39 @@ async function handler(
   res: VercelResponse,
 ): Promise<void> {
   if (req.method !== "POST") {
-    res.status(405).json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
+    res
+      .status(405)
+      .json(apiError(ErrorCode.METHOD_NOT_ALLOWED, "Method not allowed."));
     return;
   }
 
   const clientIp = String(
     req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
   );
-  const { address, promptId }: Partial<ChallengeRequest> = req.body ?? {};
+  const {
+    address,
+    promptId,
+    action = "unlock",
+    promptVersion,
+    expectedPriceStroops,
+    listingSnapshot,
+  }: Partial<ChallengeRequest> = req.body ?? {};
 
   const isAuthenticated = Boolean(address);
 
-  const rateLimit = await checkRateLimit("challenge", clientIp, isAuthenticated);
+  const rateLimit = await checkRateLimit(
+    "challenge",
+    clientIp,
+    isAuthenticated,
+  );
 
   if (!rateLimit.success) {
     req.logger.warn({ clientIp }, "Rate limit exceeded for challenge issuance");
     metrics.trackRateLimitHit("challenge", clientIp);
+    purchaseFunnelTracker.recordStageFailure(
+      PurchaseFunnelStage.CHALLENGE_ISSUED,
+      PurchaseFailureReason.CHALLENGE_RATE_LIMITED,
+    );
     void recordAuditEvent({
       action: "challenge_rate_limited",
       result: "blocked",
@@ -75,9 +114,13 @@ async function handler(
     res.setHeader("X-RateLimit-Remaining", 0);
     res.setHeader("X-RateLimit-Reset", rateLimit.reset);
     res.status(429).json(
-      apiError(ErrorCode.RATE_LIMIT_IP, "Too many requests. Please try again later.", {
-        reset: rateLimit.reset,
-      }),
+      apiError(
+        ErrorCode.RATE_LIMIT_IP,
+        "Too many requests. Please try again later.",
+        {
+          reset: rateLimit.reset,
+        },
+      ),
     );
     return;
   }
@@ -89,23 +132,69 @@ async function handler(
   const secret = process.env.CHALLENGE_TOKEN_SECRET;
   if (!secret || isPlaceholder(secret) || secret.length < 16) {
     req.logger.error("CHALLENGE_TOKEN_SECRET is not configured correctly.");
-    res.status(500).json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
+    res
+      .status(500)
+      .json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
     return;
   }
 
   if (!address || !promptId) {
-    res.status(400).json(
-      apiError(ErrorCode.MISSING_FIELDS, "address and promptId are required."),
-    );
+    res
+      .status(400)
+      .json(
+        apiError(
+          ErrorCode.MISSING_FIELDS,
+          "address and promptId are required.",
+        ),
+      );
     return;
   }
+
+  const challengeStartMs = Date.now();
 
   // Issue a strictly time-bound challenge (default TTL = 5 minutes).
   // The ttlMs parameter is capped at 10 minutes server-side to prevent
   // unreasonably long-lived tokens.
   const MAX_TTL_MS = 10 * 60 * 1000;
   const ttlMs = Math.min(5 * 60 * 1000, MAX_TTL_MS);
-  const challenge = createChallengeToken(secret, String(address), String(promptId), Date.now(), ttlMs);
+
+  // Bind the challenge to the exact listing snapshot the buyer observed so price,
+  // owner, asset, version, or expiry drift between challenge and submission
+  // invalidates the signed challenge (issue #698).
+  let listingSnapshotHash: string | undefined;
+  if (listingSnapshot && listingSnapshot.owner) {
+    listingSnapshotHash = computeListingSnapshotHash({
+      promptId: String(promptId),
+      owner: String(listingSnapshot.owner),
+      priceStroops: String(listingSnapshot.priceStroops ?? ""),
+      asset: String(listingSnapshot.asset ?? ""),
+      version: String(listingSnapshot.version ?? ""),
+      expiresAt: String(listingSnapshot.expiresAt ?? ""),
+    });
+  }
+
+  const challenge = createChallengeToken(
+    secret,
+    String(address),
+    String(promptId),
+    Date.now(),
+    ttlMs,
+    {
+      origin: String(req.headers.origin ?? ""),
+      networkPassphrase:
+        process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ??
+        "Test SDF Network ; September 2015",
+      contractId: process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ?? "",
+      action: String(action),
+      promptVersion:
+        promptVersion === undefined ? undefined : String(promptVersion),
+      expectedPriceStroops:
+        expectedPriceStroops === undefined
+          ? undefined
+          : String(expectedPriceStroops),
+      listingSnapshotHash,
+    },
+  );
 
   const response: ChallengeResponse = {
     token: challenge.token,
@@ -113,10 +202,17 @@ async function handler(
     issuedAt: challenge.issuedAt,
     expiresAt: challenge.expiresAt,
     nonce: challenge.nonce,
+    listingSnapshotHash,
   };
 
   metrics.trackChallengeIssued(String(address), String(promptId));
+  metrics.trackChallengeLatency(Date.now() - challengeStartMs);
   req.logger.info({ address, promptId }, "Challenge token issued successfully");
+
+  purchaseFunnelTracker.recordStageSuccess(
+    PurchaseFunnelStage.CHALLENGE_ISSUED,
+    Date.now() - challengeStartMs,
+  );
 
   void recordAuditEvent({
     action: "challenge_issued",

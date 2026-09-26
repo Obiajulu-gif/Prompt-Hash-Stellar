@@ -1,0 +1,5 @@
+# Dev Containers override: keep the web container alive so VS Code can attach
+# and the contributor starts the dev servers manually (yarn dev / npm run dev).
+services:
+  web:
+    command: sleep infinity

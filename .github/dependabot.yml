@@ -1,7 +1,6 @@
 version: 2
 updates:
-  # Frontend dependencies (npm/yarn)
-  # Keep npm dependencies up to date for the frontend
+  # ── 1. Frontend dependencies (Yarn / npm root workspace) ─────────────────────
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -15,9 +14,16 @@ updates:
     labels:
       - "dependencies"
       - "automated"
+      - "frontend"
     commit-message:
       prefix: "deps"
     groups:
+      patch-and-minor-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
       radix:
         patterns:
           - "@radix-ui/*"
@@ -32,7 +38,7 @@ updates:
         patterns:
           - "@sentry/*"
 
-  # Backend dependencies (server/)
+  # ── 2. Backend dependencies (npm server workspace) ──────────────────────────
   - package-ecosystem: "npm"
     directory: "/server"
     schedule:
@@ -41,30 +47,49 @@ updates:
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 10
+    reviewers:
+      - "Obiajulu-gif"
     labels:
       - "dependencies"
       - "automated"
       - "server"
     commit-message:
       prefix: "deps(server)"
+    groups:
+      patch-and-minor-server-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
 
-  # Rust smart contracts (Cargo)
+  # ── 3. Rust smart contracts (Cargo workspace root) ──────────────────────────
   - package-ecosystem: "cargo"
-    directory: "/contracts"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 10
+    reviewers:
+      - "Obiajulu-gif"
     labels:
       - "dependencies"
       - "automated"
       - "rust"
+      - "contracts"
     commit-message:
       prefix: "deps(contracts)"
+    groups:
+      patch-and-minor-cargo:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
 
-  # GitHub Actions
+  # ── 4. GitHub Actions Workflows ──────────────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -73,9 +98,18 @@ updates:
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 5
+    reviewers:
+      - "Obiajulu-gif"
     labels:
       - "dependencies"
       - "automated"
       - "ci"
     commit-message:
       prefix: "ci(deps)"
+    groups:
+      patch-and-minor-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"

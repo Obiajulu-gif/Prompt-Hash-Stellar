@@ -28,6 +28,18 @@ export const ErrorCode = {
   /** The wallet has not purchased access to this prompt. */
   ACCESS_NOT_PURCHASED: "ACCESS_NOT_PURCHASED",
 
+  /** The prompt price or version changed after the wallet challenge was issued. */
+  STALE_PROMPT_TERMS: "STALE_PROMPT_TERMS",
+
+  /** No prompt matches the given id. */
+  PROMPT_NOT_FOUND: "PROMPT_NOT_FOUND",
+
+  /** The action isn't allowed from the resource's current state (Issue #786: lifecycle transitions). */
+  INVALID_STATE: "INVALID_STATE",
+
+  /** The caller is authenticated but not authorized for this action. */
+  UNAUTHORIZED: "UNAUTHORIZED",
+
   // ── Rate limiting (429) ───────────────────────────────────────────────────
 
   /** Too many requests from this IP address. */
@@ -35,6 +47,9 @@ export const ErrorCode = {
 
   /** Too many requests from this wallet address. */
   RATE_LIMIT_WALLET: "RATE_LIMIT_WALLET",
+
+  /** Too many unlock attempts for a specific prompt (buyer/prompt/failure scope). */
+  RATE_LIMIT_ENTITLEMENT: "RATE_LIMIT_ENTITLEMENT",
 
   // ── Server errors (5xx) ───────────────────────────────────────────────────
 
@@ -46,6 +61,9 @@ export const ErrorCode = {
 
   /** A temporary backend failure occurred. The client may retry. */
   TEMPORARY_FAILURE: "TEMPORARY_FAILURE",
+
+  /** The idempotency key was reused with conflicting request data. */
+  IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -63,6 +81,8 @@ export interface ApiErrorResponse {
   code: ErrorCode;
   /** ISO timestamp of when the rate limit resets (only present on 429). */
   reset?: number;
+  /** Optional correlation ID for cross-service request tracking. */
+  correlationId?: string;
 }
 
 /**
@@ -87,11 +107,18 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CHALLENGE_INVALID: "The unlock session is no longer valid. Click Decrypt Content to start over.",
   INVALID_SIGNATURE: "Wallet signature did not match. Open your wallet and try signing again.",
   ACCESS_NOT_PURCHASED: "You have not purchased access to this prompt. Complete a purchase first.",
+  STALE_PROMPT_TERMS: "This prompt changed since you opened it. Refresh the prompt and sign again.",
+  PROMPT_NOT_FOUND: "That prompt could not be found.",
+  INVALID_STATE: "This action isn't allowed from the item's current status.",
+  UNAUTHORIZED: "You are not authorized to perform this action.",
   RATE_LIMIT_IP: "Too many requests. Please wait a moment, then try again.",
   RATE_LIMIT_WALLET: "Too many unlock attempts for this wallet. Please wait a minute and try again.",
+  RATE_LIMIT_ENTITLEMENT: "Too many unlock attempts for this prompt. Please wait a moment and try again.",
   CONFIGURATION_ERROR: "Something went wrong on our end. Please try again later.",
   INTEGRITY_FAILURE: "Prompt content could not be verified. Please contact support if this persists.",
   TEMPORARY_FAILURE: "A temporary error occurred. Please try again in a moment.",
+
+  IDEMPOTENCY_CONFLICT: "This idempotency key was used with a different request. Please use a new key.",
 };
 
 export type UnlockErrorCategory = "wallet" | "access" | "server";

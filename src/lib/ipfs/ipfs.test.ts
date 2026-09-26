@@ -62,7 +62,27 @@ describe("fetchCiphertextFromIpfs", () => {
     expect(result).toBe("CIPHERTEXT");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://gw.test/ipfs/bafyabc",
-      expect.anything(),
+      expect.objectContaining({
+        redirect: "error",
+        headers: expect.objectContaining({
+          "Accept-Encoding": "identity",
+        }),
+      }),
+    );
+  });
+
+  it("rejects compressed gateway responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ "content-encoding": "gzip" }),
+        text: async () => "CIPHERTEXT",
+      }),
+    );
+
+    await expect(fetchCiphertextFromIpfs("ipfs://bafyabc")).rejects.toThrow(
+      /Compressed gateway responses/,
     );
   });
 

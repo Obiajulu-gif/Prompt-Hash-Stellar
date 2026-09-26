@@ -1,11 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
   Coins,
+  Download,
   Eye,
+  FileText,
   PackageCheck,
   ShoppingBag,
   TrendingUp,
@@ -13,9 +15,11 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/Skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getAllPrompts, type PromptRecord } from "@/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { stroopsToXlmString, formatPriceLabel } from "@/lib/stellar/format";
+import { RevenueForecast } from "@/components/analytics/RevenueForecast";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -39,6 +43,16 @@ ChartJS.register(
 );
 
 const PLATFORM_FEE_RATE = 0.05;
+const chartLabelFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+
+interface DailySalesPoint {
+  date: string;
+  unitsSold: number;
+  revenueXlm: number;
+}
 
 interface MetricCardProps {
   title: string;
@@ -91,40 +105,17 @@ function MetricCard({ title, value, icon, accent = "emerald", description, isLoa
 }
 
 interface SalesChartProps {
-  prompts: PromptRecord[];
+  dailySales: DailySalesPoint[];
+  isLoading?: boolean;
 }
 
-function SalesChart({ prompts }: SalesChartProps) {
+function SalesChart({ dailySales, isLoading = false }: SalesChartProps) {
   const chartData = useMemo(() => {
-    // Generate mock daily sales data for the last 30 days
-    const days = 30;
-    const labels: string[] = [];
-    const salesData: number[] = [];
-    const revenueData: number[] = [];
-
-    const now = new Date();
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-      
-      // Generate mock sales based on prompt data
-      const daySales = prompts.reduce((sum, prompt) => {
-        const randomSales = Math.floor(Math.random() * (prompt.salesCount / days + 1));
-        return sum + randomSales;
-      }, 0);
-      
-      salesData.push(daySales);
-      
-      const dayRevenue = prompts.reduce((sum, prompt) => {
-        const xlm = Number(stroopsToXlmString(prompt.priceStroops));
-        const randomSales = Math.floor(Math.random() * (prompt.salesCount / days + 1));
-        return sum + (xlm * randomSales * (1 - PLATFORM_FEE_RATE));
-      }, 0);
-      
-      revenueData.push(dayRevenue);
-    }
+    const labels = dailySales.map((entry) =>
+      chartLabelFormatter.format(new Date(`${entry.date}T00:00:00.000Z`)),
+    );
+    const salesData = dailySales.map((entry) => entry.unitsSold);
+    const revenueData = dailySales.map((entry) => entry.revenueXlm);
 
     return {
       labels,
@@ -149,7 +140,7 @@ function SalesChart({ prompts }: SalesChartProps) {
         },
       ],
     };
-  }, [prompts]);
+  }, [dailySales]);
 
   const options = {
     responsive: true,
@@ -217,9 +208,13 @@ function SalesChart({ prompts }: SalesChartProps) {
       <h3 className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-4">
         Sales Trend (30 Days)
       </h3>
-      <div className="h-64">
-        <Line data={chartData} options={options} />
-      </div>
+      {isLoading ? (
+        <Skeleton className="h-64 w-full rounded-xl bg-white/[0.02]" />
+      ) : (
+        <div className="h-64">
+          <Line data={chartData} options={options} />
+        </div>
+      )}
     </div>
   );
 }
@@ -264,6 +259,16 @@ interface CreatorDashboardProps {
 }
 
 export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const handleDownloadStatement = () => {
+    let url = `/api/prompts/creator/${encodeURIComponent(walletAddress)}/payout-statement?format=csv`;
+    if (startDate) url += `&startDate=${encodeURIComponent(startDate)}`;
+    if (endDate) url += `&endDate=${encodeURIComponent(endDate)}`;
+    window.open(url, "_blank");
+  };
+
   const { data: allPrompts = [], isLoading, isError } = useQuery({
     queryKey: ["creator-dashboard", walletAddress],
     queryFn: () => getAllPrompts(browserStellarConfig),
@@ -277,6 +282,23 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
       const res = await fetch(`/api/prompts/preview/stats?walletAddress=${encodeURIComponent(walletAddress)}`);
       if (!res.ok) return null;
       return res.json() as Promise<{ totalPreviews: number }>;
+    },
+    staleTime: 30_000,
+    enabled: Boolean(walletAddress),
+  });
+
+  const { data: salesAnalytics, isLoading: isSalesAnalyticsLoading } = useQuery({
+    queryKey: ["creator-sales-analytics", walletAddress],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/prompts/creator/${encodeURIComponent(walletAddress)}/analytics`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to load creator sales analytics.");
+      }
+
+      return response.json() as Promise<{ dailySales: DailySalesPoint[] }>;
     },
     staleTime: 30_000,
     enabled: Boolean(walletAddress),
@@ -303,6 +325,32 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
     return { active, totalSales, grossRevenue, platformFees, netRevenue, topPrompts };
   }, [prompts]);
 
+  // ── Revenue forecast inputs (aggregated from marketplace data) ───────────
+  const forecastInputs = useMemo(() => {
+    const dailyHistory = (salesAnalytics?.dailySales ?? []).map((d) => ({
+      date: d.date,
+      unitsSold: d.unitsSold,
+      grossRevenueXlm: d.revenueXlm,
+    }));
+    // Derive refundRate and conversion from available data; fall back to conservative defaults
+    // No platform-wide benchmarks are used — only this creator's own signals.
+    const totalSalesForRate = Math.max(1, metrics.totalSales);
+    // Heuristic: if we have no refund data, assume 2% to avoid overstating certainty; caller can override
+    const refundRate = 0.02;
+    const conversionRate = previewStats?.totalPreviews
+      ? Math.min(1, metrics.totalSales / Math.max(1, previewStats.totalPreviews))
+      : null;
+    return {
+      dailyHistory,
+      activeListings: metrics.active,
+      totalListings: prompts.length,
+      conversionRate,
+      refundRate,
+      viewCount: previewStats?.totalPreviews ?? undefined,
+      windowDays: 30,
+    };
+  }, [salesAnalytics, metrics, prompts.length, previewStats]);
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -319,7 +367,7 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
         </div>
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+            <Skeleton key={i} className="h-16 w-full rounded-xl bg-white/[0.02]" />
           ))}
         </div>
       </div>
@@ -398,7 +446,59 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
       </div>
 
       {/* Sales trend chart */}
-      <SalesChart prompts={prompts} />
+      <SalesChart
+        dailySales={salesAnalytics?.dailySales ?? []}
+        isLoading={isSalesAnalyticsLoading}
+      />
+
+      {/* Revenue forecast — estimate with confidence & safeguards */}
+      <RevenueForecast inputs={forecastInputs} isLoading={isSalesAnalyticsLoading} />
+
+      {/* Payout Statement Export */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">
+            <FileText className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Sales Payout Statement</h3>
+            <p className="text-xs text-slate-400">
+              Download a CSV statement showing sale date, prompt info, buyer, gross amount, platform fee, and net payout.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="payout-start-date" className="text-xs text-slate-400">From:</label>
+            <input
+              id="payout-start-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="payout-end-date" className="text-xs text-slate-400">To:</label>
+            <input
+              id="payout-end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <Button
+            onClick={handleDownloadStatement}
+            size="sm"
+            className="bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 gap-1.5"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download Statement (CSV)
+          </Button>
+        </div>
+      </div>
 
       {/* Top-performing prompts */}
       {metrics.topPrompts.length > 0 && (

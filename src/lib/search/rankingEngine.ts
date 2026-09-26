@@ -1,7 +1,8 @@
 import type { PromptRecord } from "@/lib/stellar/promptHashClient";
 
 /**
- * Search ranking engine that prioritizes title matches and category relevance
+ * Search ranking engine that prioritizes title matches, category relevance,
+ * and applies freshness decay to stale listings (#734)
  */
 
 export interface RankingResult {
@@ -9,11 +10,75 @@ export interface RankingResult {
   score: number;
   titleMatch: boolean;
   categoryMatch: boolean;
+  freshnessScore: number;
+}
+
+/** Ranking signal weights and decay parameters (#734) */
+const RANKING_WEIGHTS = {
+  // Text relevance weights
+  EXACT_TITLE: 100,
+  TITLE_START: 80,
+  TITLE_CONTAINS: 60,
+  CATEGORY: 40,
+  SELECTED_CATEGORY: 20,
+  PREVIEW: 20,
+  DESCRIPTION: 15,
+  CREATOR: 10,
+  TAGS: 10,
+
+  // Freshness and activity weights
+  VERIFIED_BOOST: 15,
+  RECENT_ACTIVITY_BOOST: 10,
+
+  // Stale listing penalties (applied as multipliers)
+  STALE_MODERATE: 0.7, // 30 days inactive
+  STALE_SEVERE: 0.4, // 90 days inactive
+  NO_SALES: 0.9, // No sales ever
+};
+
+/** Thresholds for freshness decay (in milliseconds) */
+const FRESHNESS_THRESHOLDS = {
+  MODERATE_STALE_MS: 30 * 24 * 60 * 60 * 1000, // 30 days
+  SEVERE_STALE_MS: 90 * 24 * 60 * 60 * 1000, // 90 days
+};
+
+/**
+ * Calculate freshness decay multiplier based on listing age and activity (#734)
+ */
+function calculateFreshnessMultiplier(prompt: PromptRecord): number {
+  const now = Date.now();
+
+  // Use the most recent activity timestamp available
+  const lastActivityTime = prompt.updatedAt
+    ? new Date(prompt.updatedAt).getTime()
+    : prompt.createdAt
+      ? new Date(prompt.createdAt).getTime()
+      : now;
+
+  const ageMs = now - lastActivityTime;
+
+  // Apply decay based on age
+  let multiplier = 1.0;
+
+  if (ageMs > FRESHNESS_THRESHOLDS.SEVERE_STALE_MS) {
+    multiplier *= RANKING_WEIGHTS.STALE_SEVERE;
+  } else if (ageMs > FRESHNESS_THRESHOLDS.MODERATE_STALE_MS) {
+    multiplier *= RANKING_WEIGHTS.STALE_MODERATE;
+  }
+
+  // Additional penalty for listings with no sales
+  const salesCount = prompt.salesCount ?? 0;
+  if (salesCount === 0 && ageMs > FRESHNESS_THRESHOLDS.MODERATE_STALE_MS) {
+    multiplier *= RANKING_WEIGHTS.NO_SALES;
+  }
+
+  return multiplier;
 }
 
 /**
  * Calculate relevance score for a prompt based on search query
  * Title matches are weighted highest, followed by category, then other fields
+ * Stale listings are decayed based on inactivity (#734)
  */
 export function calculateRelevanceScore(
   prompt: PromptRecord,
@@ -28,6 +93,7 @@ export function calculateRelevanceScore(
       score: 0,
       titleMatch: false,
       categoryMatch: false,
+      freshnessScore: 1.0,
     };
   }
 
@@ -42,50 +108,66 @@ export function calculateRelevanceScore(
   const creator = prompt.creator.toLowerCase();
   const tags = (prompt.tags || []).map((t) => t.toLowerCase());
 
-  // Title match: highest weight (100 points for exact, 80 for start, 60 for contains)
+  // Title match: highest weight
   if (title === normalized) {
-    score += 100;
+    score += RANKING_WEIGHTS.EXACT_TITLE;
     titleMatch = true;
   } else if (title.startsWith(normalized)) {
-    score += 80;
+    score += RANKING_WEIGHTS.TITLE_START;
     titleMatch = true;
   } else if (title.includes(normalized)) {
-    score += 60;
+    score += RANKING_WEIGHTS.TITLE_CONTAINS;
     titleMatch = true;
   }
 
-  // Category match: high weight (40 points)
+  // Category match: high weight
   if (category === normalized || category.includes(normalized)) {
-    score += 40;
+    score += RANKING_WEIGHTS.CATEGORY;
     categoryMatch = true;
   }
 
-  // Selected category bonus (20 points if prompt matches user's selected category filter)
+  // Selected category bonus
   if (selectedCategory && prompt.category === selectedCategory) {
-    score += 20;
+    score += RANKING_WEIGHTS.SELECTED_CATEGORY;
   }
 
-  // Preview/Description match: medium weight (20 points)
+  // Preview/Description match: medium weight
   if (preview.includes(normalized)) {
-    score += 20;
+    score += RANKING_WEIGHTS.PREVIEW;
   }
   if (description.includes(normalized)) {
-    score += 15;
+    score += RANKING_WEIGHTS.DESCRIPTION;
   }
 
-  // Creator/Tags match: lower weight (10 points each)
+  // Creator/Tags match: lower weight
   if (creator.includes(normalized)) {
-    score += 10;
+    score += RANKING_WEIGHTS.CREATOR;
   }
   if (tags.some((tag) => tag === normalized || tag.includes(normalized))) {
-    score += 10;
+    score += RANKING_WEIGHTS.TAGS;
   }
+
+  // Verification boost (#734)
+  if (prompt.verified) {
+    score += RANKING_WEIGHTS.VERIFIED_BOOST;
+  }
+
+  // Recent activity boost (sales in last 30 days) (#734)
+  const salesCount = prompt.salesCount ?? 0;
+  if (salesCount > 0) {
+    score += RANKING_WEIGHTS.RECENT_ACTIVITY_BOOST;
+  }
+
+  // Apply freshness decay to final score (#734)
+  const freshnessMultiplier = calculateFreshnessMultiplier(prompt);
+  const finalScore = Math.round(score * freshnessMultiplier);
 
   return {
     prompt,
-    score,
+    score: finalScore,
     titleMatch,
     categoryMatch,
+    freshnessScore: freshnessMultiplier,
   };
 }
 

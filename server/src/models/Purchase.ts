@@ -26,6 +26,28 @@ const purchaseSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    status: {
+      type: String,
+      enum: ["purchased", "disputed", "resolved", "refunded"],
+      default: "purchased",
+      index: true,
+    },
+    disputeResolution: {
+      type: String,
+      enum: ["refunded", "rejected"],
+    },
+    // Versioned licensing (#759) — the prompt-level license version active
+    // when this purchase happened. The full frozen terms live in the
+    // LicenseSnapshot collection; legacy purchases (pre-#759) have version 1.
+    licenseVersionIndex: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+    licenseSnapshotId: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true },
 );

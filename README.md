@@ -1,5 +1,10 @@
 # PromptHash Stellar
 
+[![CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/ci.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/ci.yml)
+[![Frontend CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/frontend.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/frontend.yml)
+[![Contracts CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/contracts.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/contracts.yml)
+[![Backend CI](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/backend.yml/badge.svg)](https://github.com/Obiajulu-gif/Prompt-Hash-Stellar/actions/workflows/backend.yml)
+
 PromptHash Stellar is a Soroban-based marketplace for selling reusable AI prompt licenses with XLM payments and wallet-verified unlocks.
 
 ## Overview
@@ -136,6 +141,8 @@ PromptHash Stellar can serve as a reusable reference implementation for:
 
 PromptHash Stellar uses a three-part architecture where the Soroban smart contract is the **absolute, single source of truth** for prompt ownership, purchase records, and access rights.
 
+> For an end-to-end visual guide with diagrams covering the listing, purchase, and unlock flows, the encryption model, wallet verification, and every environment variable, see [docs/architecture-overview.md](docs/architecture-overview.md).
+
 ### 1. Soroban smart contract (authoritative source of truth)
 
 Located in `contracts/prompt-hash`.
@@ -227,6 +234,52 @@ The current contract data model includes:
 yarn install
 cd server && npm install && cd ..
 ```
+
+## Run with Docker (fastest onboarding)
+
+If you have Docker installed, you can start the full local stack — frontend,
+auxiliary API server, and MongoDB — without installing Node, Yarn, or Mongo on
+your host:
+
+```bash
+docker compose up
+```
+
+- Frontend (Vite): http://localhost:5173
+- API server: http://localhost:5000
+- MongoDB: mongodb://localhost:27017
+
+The frontend and API source directories are bind-mounted, so **edits on your
+host hot-reload inside the containers** automatically (file-watch polling is
+enabled so this works on Windows, macOS, and Linux).
+
+Need a local Stellar network with Soroban RPC (via
+[Stellar Quickstart](https://github.com/stellar/quickstart))? Start it with the
+optional `stellar` profile:
+
+```bash
+docker compose --profile stellar up
+```
+
+This exposes Horizon, Soroban RPC, and Friendbot on http://localhost:8000.
+
+Default environment values target Stellar testnet. To override them, create a
+`.env` file (see `.env.example`); `docker compose` picks it up automatically.
+
+### Dev Containers (VS Code)
+
+A [`.devcontainer`](./.devcontainer) configuration is included. Opening the repo
+in VS Code with the Dev Containers extension (or in GitHub Codespaces) gives you
+a ready-to-use environment with **Node 22, the Rust toolchain, and the Stellar
+CLI (Soroban)** already installed, plus the MongoDB and Stellar Quickstart
+services from the compose stack.
+
+#### Why the image builds quickly
+
+The Dockerfiles install dependencies in a dedicated, cached layer (manifest and
+lockfile are copied before the source). Rebuilds only re-run `yarn install` /
+`npm ci` when a lockfile changes, and BuildKit cache mounts keep the package
+caches warm between builds.
 
 ## Local Development Setup
 

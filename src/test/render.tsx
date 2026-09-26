@@ -18,11 +18,14 @@ const defaultWallet: WalletContextType = {
   networkPassphrase: undefined,
   status: "idle",
   error: undefined,
-  networkCompatibility: { compatible: true } as any, 
+  networkCompatibility: "unchecked",
+  authStatus: "unauthenticated",
+  isAuthenticated: false,
   connect: vi.fn(),
   disconnect: vi.fn(),
   signMessage: vi.fn(),
   signTransaction: vi.fn(),
+  sessionEpoch: 0,
 };
 
 export function createTestQueryClient() {

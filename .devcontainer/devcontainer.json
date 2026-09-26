@@ -1,0 +1,25 @@
+{
+  "name": "Prompt Hash Stellar",
+  "dockerComposeFile": ["../docker-compose.yml", "docker-compose.extend.yml"],
+  "service": "web",
+  "workspaceFolder": "/app",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {}
+  },
+  "onCreateCommand": ".devcontainer/install-stellar-cli.sh",
+  "forwardPorts": [5173, 5000, 27017, 8000],
+  "portsAttributes": {
+    "5173": { "label": "Frontend (Vite)" },
+    "5000": { "label": "API server" },
+    "8000": { "label": "Stellar / Soroban RPC" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  }
+}
