@@ -12,8 +12,7 @@ import { stellarWalletNetwork } from "../lib/env";
 import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit/modules/albedo";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { classifyWalletError } from "../lib/wallet/walletErrors";
-import { useQueryClient } from "@tanstack/react-query";
-import { clearWalletCache } from "../hooks/useWalletAccountChange";
+import { signInWithWallet } from "../lib/auth/walletAuth";
 
 export type WalletStatus = 
   | "idle" 
@@ -27,6 +26,11 @@ export type NetworkCompatibility =
   | "wrong-network"
   | "unchecked";
 
+export type WalletAuthStatus =
+  | "unauthenticated"
+  | "authenticating"
+  | "authenticated";
+
 export interface WalletContextType {
   address?: string;
   network?: string;
@@ -34,6 +38,8 @@ export interface WalletContextType {
   status: WalletStatus;
   error?: string;
   networkCompatibility: NetworkCompatibility;
+  authStatus: WalletAuthStatus;
+  isAuthenticated: boolean;
   connect: (_id: string) => Promise<void>;
   disconnect: () => Promise<void>;
   signTransaction: typeof wallet.signTransaction;
@@ -59,6 +65,8 @@ const initialState = {
   status: "idle" as WalletStatus,
   error: undefined,
   networkCompatibility: "unchecked" as NetworkCompatibility,
+  authStatus: "unauthenticated" as WalletAuthStatus,
+  isAuthenticated: false,
 };
 
 const boundSignTransaction = wallet.signTransaction.bind(wallet);
@@ -85,6 +93,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         storage.removeItem("walletAddress");
         storage.removeItem("walletNetwork");
         storage.removeItem("networkPassphrase");
+        storage.removeItem("walletAuthAddress");
+        storage.removeItem("walletAuthExpiresAt");
         setState(initialState);
         setSessionEpoch((epoch) => epoch + 1);
       }
@@ -128,17 +138,32 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       ]);
 
       if (!a.address) throw new Error("No address returned from wallet");
-      return { address: a.address, network: n.network, networkPassphrase: n.networkPassphrase, walletId };
+      const session = await signInWithWallet(a.address, boundSignMessage);
+      return {
+        address: a.address,
+        network: n.network,
+        networkPassphrase: n.networkPassphrase,
+        walletId,
+        authExpiresAt: session.expiresAt,
+      };
     },
     {
       pendingMessage: (walletId) => `Connecting to ${walletId}...`,
-      successMessage: "Wallet connected successfully",
+      successMessage: "Wallet signed in successfully",
       onOptimistic: () => {
-        setState(prev => ({ ...prev, status: "connecting", error: undefined }));
+        setState(prev => ({
+          ...prev,
+          status: "connecting",
+          authStatus: "authenticating",
+          isAuthenticated: false,
+          error: undefined,
+        }));
       },
       onSuccess: (data) => {
         storage.setItem("walletId", data.walletId);
         storage.setItem("walletAddress", data.address);
+        storage.setItem("walletAuthAddress", data.address);
+        storage.setItem("walletAuthExpiresAt", data.authExpiresAt);
         if (data.network) storage.setItem("walletNetwork", data.network);
         else storage.removeItem("walletNetwork");
         
@@ -152,11 +177,15 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           status: "connected",
           error: undefined,
           networkCompatibility: computeNetworkCompatibility(data.network, "connected"),
+          authStatus: "authenticated",
+          isAuthenticated: true,
         });
         setSessionEpoch((epoch) => epoch + 1);
       },
       onError: (e) => {
         console.error("Connection error:", e);
+        storage.removeItem("walletAuthAddress");
+        storage.removeItem("walletAuthExpiresAt");
         const classified = classifyWalletError(e);
         const message = classified.recoveryAction
           ? `${classified.message} ${classified.recoveryAction}`
@@ -164,6 +193,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         setState(prev => ({
           ...prev,
           status: "error",
+          authStatus: "unauthenticated",
+          isAuthenticated: false,
           error: message
         }));
       }
@@ -212,10 +243,23 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     const rehydrate = async () => {
       const savedId = storage.getItem("walletId");
       const savedAddr = storage.getItem("walletAddress");
+      const savedAuthAddress = storage.getItem("walletAuthAddress");
+      const savedAuthExpiresAt = storage.getItem("walletAuthExpiresAt");
 
       if (aborted) return;
 
-      if (!savedId || !savedAddr) {
+      const authStillValid =
+        savedAuthAddress === savedAddr &&
+        typeof savedAuthExpiresAt === "number" &&
+        savedAuthExpiresAt > Date.now();
+
+      if (!savedId || !savedAddr || !authStillValid) {
+        storage.removeItem("walletId");
+        storage.removeItem("walletAddress");
+        storage.removeItem("walletNetwork");
+        storage.removeItem("networkPassphrase");
+        storage.removeItem("walletAuthAddress");
+        storage.removeItem("walletAuthExpiresAt");
         setState(prev => ({ ...prev, status: "idle" }));
         return;
       }
@@ -234,7 +278,11 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (a.address) {
           if (a.address !== savedAddr) {
-            storage.setItem("walletAddress", a.address);
+            storage.removeItem("walletAuthAddress");
+            storage.removeItem("walletAuthExpiresAt");
+            if (aborted) return;
+            setState(initialState);
+            return;
           }
           if (aborted) return;
           setState({
@@ -244,6 +292,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
             status: "connected",
             error: undefined,
             networkCompatibility: computeNetworkCompatibility(n.network, "connected"),
+            authStatus: "authenticated",
+            isAuthenticated: true,
           });
           setSessionEpoch((epoch) => epoch + 1);
         } else {

@@ -46,7 +46,7 @@ describe('WalletProvider Session Persistence', () => {
     if (storage.clear) {
       storage.clear();
     } else {
-      ['walletId', 'walletAddress', 'walletNetwork', 'networkPassphrase']
+      ['walletId', 'walletAddress', 'walletNetwork', 'networkPassphrase', 'walletAuthAddress', 'walletAuthExpiresAt']
         .forEach(key => storage.removeItem(key as any));
     }
   });
@@ -55,6 +55,8 @@ describe('WalletProvider Session Persistence', () => {
     // 1. Mock existing storage values
     storage.setItem('walletId', 'freighter');
     storage.setItem('walletAddress', 'GABC123');
+    storage.setItem('walletAuthAddress', 'GABC123');
+    storage.setItem('walletAuthExpiresAt', Date.now() + 60_000);
 
     const TestComponent = () => {
       const context = React.useContext(WalletContext);
@@ -102,6 +104,38 @@ describe('WalletProvider Session Persistence', () => {
     await waitFor(() => {
       expect(storage.getItem('walletId')).toBeNull();
       expect(storage.getItem('walletAddress')).toBeNull();
+      expect(storage.getItem('walletAuthAddress')).toBeNull();
+      expect(storage.getItem('walletAuthExpiresAt')).toBeNull();
+    });
+  });
+
+  it('should clear stale wallet sessions when auth proof has expired', async () => {
+    storage.setItem('walletId', 'freighter');
+    storage.setItem('walletAddress', 'GABC123');
+    storage.setItem('walletAuthAddress', 'GABC123');
+    storage.setItem('walletAuthExpiresAt', Date.now() - 1_000);
+
+    const TestComponent = () => {
+      const context = React.useContext(WalletContext);
+      if (!context) return null;
+
+      return <span data-testid="status">{context.status}</span>;
+    };
+
+    render(
+      <TransactionProvider>
+        <WalletProvider>
+          <TestComponent />
+        </WalletProvider>
+      </TransactionProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('idle');
+      expect(storage.getItem('walletId')).toBeNull();
+      expect(storage.getItem('walletAddress')).toBeNull();
+      expect(storage.getItem('walletAuthAddress')).toBeNull();
+      expect(storage.getItem('walletAuthExpiresAt')).toBeNull();
     });
   });
 });

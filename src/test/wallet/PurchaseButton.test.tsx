@@ -1,27 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../render";
 import { PromptModal } from "@/pages/browse/PromptModal";
 import type { WalletContextType } from "@/providers/WalletProvider";
 import { PromptHashClient } from "@/lib/stellar/promptHashClient";
+import { submitXlmPromptPayment } from "@/lib/payments/xlmGateway";
 
 // Preserves module boundaries and provides all necessary configuration keys
 vi.mock("@/lib/env", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/env")>();
   return {
     ...actual,
-    stellarWalletNetwork: "Test SDF Network ; September 2015",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    networkPassphrase: "Test SDF Network ; September 2015",
     allowHttp: false,
-    promptHashContractId: "CCONTRACTMOCKADDRESS1234567890ABCDEF",
+    nativeAssetContractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    promptHashContractId: "CPROMPTHASH",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    simulationAccount: "GSIMULATION",
+    stellarWalletNetwork: "Test SDF Network ; September 2015",
     browserStellarConfig: {
-      stellarWalletNetwork: "Test SDF Network ; September 2015",
-      rpcUrl: "https://soroban-testnet.stellar.org",
-      networkPassphrase: "Test SDF Network ; September 2015",
       allowHttp: false,
-      promptHashContractId: "CCONTRACTMOCKADDRESS1234567890ABCDEF",
+      nativeAssetContractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      promptHashContractId: "CPROMPTHASH",
+      rpcUrl: "https://soroban-testnet.stellar.org",
+      simulationAccount: "GSIMULATION",
+      stellarWalletNetwork: "Test SDF Network ; September 2015",
     },
   };
 });
@@ -38,6 +43,10 @@ vi.mock("@/lib/stellar/promptHashClient", () => ({
 // Mock unlock function
 vi.mock("@/lib/prompts/unlock", () => ({
   unlockPrompt: vi.fn(),
+}));
+
+vi.mock("@/lib/payments/xlmGateway", () => ({
+  submitXlmPromptPayment: vi.fn(),
 }));
 
 // Mock review client
@@ -68,6 +77,11 @@ describe("Purchase Button States", () => {
     vi.clearAllMocks();
     vi.mocked(PromptHashClient.checkAccess).mockResolvedValue(false);
     vi.mocked(PromptHashClient.getPrompt).mockResolvedValue(mockPrompt);
+    vi.mocked(submitXlmPromptPayment).mockResolvedValue({
+      txHash: "test",
+      success: true,
+      status: "confirmed",
+    });
   });
 
   it("disables purchase button when wallet is disconnected", async () => {
@@ -96,6 +110,7 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
       networkCompatibility: { compatible: true } as any,
     };
@@ -118,15 +133,19 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
       networkCompatibility: { compatible: true } as any,
     };
 
-    vi.mocked(PromptHashClient.purchasePrompt).mockImplementation(
-      () =>
-        new Promise((resolve) =>
-          setTimeout(() => resolve({ txHash: "test", success: true }), 100),
-        ),
+    vi.mocked(submitXlmPromptPayment).mockImplementation(
+      ({ onStatus }) => new Promise((resolve) => {
+        onStatus?.({
+          status: "awaiting_approval",
+          message: "Review and approve the XLM payment in your wallet.",
+        });
+        setTimeout(() => resolve({ txHash: "test", success: true, status: "confirmed" }), 100);
+      })
     );
 
     renderWithProviders(
@@ -134,11 +153,15 @@ describe("Purchase Button States", () => {
       { wallet: mockWallet },
     );
 
-    const dialog = await screen.findByRole("dialog");
-    
-    // Fallback click simulation to jump straight across lifecycle updates safely
     await waitFor(() => {
-      expect(within(dialog).getByText(/Acquire License/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /confirm & purchase/i })).toBeInTheDocument();
+    });
+
+    const purchaseButton = screen.getByRole("button", { name: /confirm & purchase/i });
+    await user.click(purchaseButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Confirming in Wallet/i)).toBeInTheDocument();
     });
   });
 
@@ -150,12 +173,13 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
       networkCompatibility: { compatible: true } as any,
     };
 
-    vi.mocked(PromptHashClient.purchasePrompt).mockRejectedValue(
-      new Error("Insufficient XLM balance"),
+    vi.mocked(submitXlmPromptPayment).mockRejectedValue(
+      new Error("Insufficient XLM balance")
     );
 
     renderWithProviders(
@@ -163,9 +187,15 @@ describe("Purchase Button States", () => {
       { wallet: mockWallet },
     );
 
-    const dialog = await screen.findByRole("dialog");
     await waitFor(() => {
-      expect(within(dialog).getByText(/Acquire License/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /confirm & purchase/i })).toBeInTheDocument();
+    });
+
+    const purchaseButton = screen.getByRole("button", { name: /confirm & purchase/i });
+    await user.click(purchaseButton);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/does not have enough XLM/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -176,6 +206,7 @@ describe("Purchase Button States", () => {
       network: "PUBLIC",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
       networkCompatibility: { compatible: true } as any,
     };
@@ -197,6 +228,7 @@ describe("Purchase Button States", () => {
       network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
       networkCompatibility: { compatible: true } as any,
     };

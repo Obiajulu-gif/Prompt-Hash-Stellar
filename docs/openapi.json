@@ -6,25 +6,71 @@
     "description": "Read-only marketplace API for PromptHash. The Soroban contract at `contracts/prompt-hash` is the single source of truth for prompt ownership, listing state, and purchase records. This server is a read-through cache, event indexer, and user-preference store; it never originates authoritative state changes.\n\nServed by the backend at `GET /api/openapi.json`. An interactive explorer (Redoc) is available at `/api/docs`.\n\nGenerated as part of #713 so Stellar/PromptHash SDK consumers and integrators can validate requests against a machine-readable schema."
   },
   "servers": [
-    { "url": "https://prompt-hash.example.com", "description": "Production" },
-    { "url": "http://localhost:5000", "description": "Local development" }
+    {
+      "url": "https://prompt-hash.example.com",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:5000",
+      "description": "Local development"
+    }
   ],
   "tags": [
-    { "name": "Prompts", "description": "Indexed prompt listings (read-projection of on-chain state)" },
-    { "name": "Buyer", "description": "Buyer-scoped purchase history and saved prompts" },
-    { "name": "Creator", "description": "Creator-scoped analytics, metrics, and payout statements" },
-    { "name": "Reports", "description": "Off-chain moderation queue; submission is public, reading requires admin" },
-    { "name": "Reviews", "description": "Verified buyer reviews" },
-    { "name": "Webhooks", "description": "Durable outbox webhook subscriptions" },
-    { "name": "Notifications", "description": "User notifications" },
-    { "name": "Search", "description": "Prompt search, suggestions, categories, featured" },
-    { "name": "Versioning", "description": "Prompt revision history and version-gated purchases" },
-    { "name": "System", "description": "Health" }
+    {
+      "name": "Prompts",
+      "description": "Indexed prompt listings (read-projection of on-chain state)"
+    },
+    {
+      "name": "Buyer",
+      "description": "Buyer-scoped purchase history and saved prompts"
+    },
+    {
+      "name": "Creator",
+      "description": "Creator-scoped analytics, metrics, and payout statements"
+    },
+    {
+      "name": "Reports",
+      "description": "Off-chain moderation queue; submission is public, reading requires admin"
+    },
+    {
+      "name": "Reviews",
+      "description": "Verified buyer reviews"
+    },
+    {
+      "name": "Webhooks",
+      "description": "Durable outbox webhook subscriptions"
+    },
+    {
+      "name": "Notifications",
+      "description": "User notifications"
+    },
+    {
+      "name": "Search",
+      "description": "Prompt search, suggestions, categories, featured"
+    },
+    {
+      "name": "Versioning",
+      "description": "Prompt revision history and version-gated purchases"
+    },
+    {
+      "name": "System",
+      "description": "Health"
+    },
+    {
+      "name": "Moderation",
+      "description": "Bulk moderation queue — filters, bulk actions, audit records"
+    },
+    {
+      "name": "Inbound Webhooks",
+      "description": "Durable idempotent inbound webhook intake and admin retry tooling"
+    }
   ],
   "paths": {
     "/health": {
       "get": {
-        "tags": ["System"],
+        "tags": [
+          "System"
+        ],
         "summary": "Health check",
         "description": "Reports indexer state and database backup health.",
         "operationId": "getHealth",
@@ -36,12 +82,22 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string", "enum": ["ok"] },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    },
                     "indexer": {
                       "type": "object",
                       "properties": {
-                        "lastProcessedLedger": { "type": "integer" },
-                        "timestamp": { "type": "string", "format": "date-time" }
+                        "lastProcessedLedger": {
+                          "type": "integer"
+                        },
+                        "timestamp": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
                       }
                     },
                     "backup": {
@@ -58,7 +114,9 @@
     },
     "/api/prompts": {
       "get": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "List prompt listings",
         "description": "Returns all indexed prompt listings. On-chain state is authoritative.",
         "operationId": "listPrompts",
@@ -66,13 +124,22 @@
           {
             "name": "page",
             "in": "query",
-            "schema": { "type": "integer", "minimum": 1, "default": 1 },
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
             "description": "Page number"
           },
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
             "description": "Items per page"
           }
         ],
@@ -86,23 +153,35 @@
                   "properties": {
                     "prompts": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Prompt" }
+                      "items": {
+                        "$ref": "#/components/schemas/Prompt"
+                      }
                     },
-                    "page": { "type": "integer" },
-                    "total": { "type": "integer" },
-                    "totalPages": { "type": "integer" }
+                    "page": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "totalPages": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
             }
           },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/prompts/hash/{contentHash}": {
       "get": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "Find prompts by content hash",
         "description": "Duplicate-content detection for prompt search (#333).",
         "operationId": "getPromptsByHash",
@@ -111,7 +190,9 @@
             "name": "contentHash",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "SHA-256 content hash of the prompt"
           }
         ],
@@ -125,7 +206,9 @@
                   "properties": {
                     "prompts": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Prompt" }
+                      "items": {
+                        "$ref": "#/components/schemas/Prompt"
+                      }
                     }
                   }
                 }
@@ -137,7 +220,9 @@
     },
     "/api/prompts/buyer/{walletAddress}/owned": {
       "get": {
-        "tags": ["Buyer"],
+        "tags": [
+          "Buyer"
+        ],
         "summary": "List prompts owned by a wallet",
         "description": "Indexed purchase records for a buyer wallet. Buyer identity is required to scope; the response never exposes other buyers.",
         "operationId": "getOwnedPrompts",
@@ -146,7 +231,10 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "description": "Stellar public key (G...)" }
+            "schema": {
+              "type": "string",
+              "description": "Stellar public key (G...)"
+            }
           }
         ],
         "responses": {
@@ -159,7 +247,9 @@
                   "properties": {
                     "prompts": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Prompt" }
+                      "items": {
+                        "$ref": "#/components/schemas/Prompt"
+                      }
                     }
                   }
                 }
@@ -171,7 +261,9 @@
     },
     "/api/prompts/buyer/{walletAddress}/saved": {
       "get": {
-        "tags": ["Buyer"],
+        "tags": [
+          "Buyer"
+        ],
         "summary": "List prompts saved by a wallet",
         "operationId": "getSavedPrompts",
         "parameters": [
@@ -179,7 +271,9 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -192,7 +286,9 @@
                   "properties": {
                     "prompts": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Prompt" }
+                      "items": {
+                        "$ref": "#/components/schemas/Prompt"
+                      }
                     }
                   }
                 }
@@ -204,7 +300,9 @@
     },
     "/api/prompts/buyer/{walletAddress}/transactions": {
       "get": {
-        "tags": ["Buyer"],
+        "tags": [
+          "Buyer"
+        ],
         "summary": "Purchase transaction history for a buyer",
         "description": "Pairs each on-chain purchase record with the prompt it unlocked.",
         "operationId": "getPurchaseTransactions",
@@ -213,7 +311,9 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -226,20 +326,26 @@
                   "properties": {
                     "transactions": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/PurchaseTransaction" }
+                      "items": {
+                        "$ref": "#/components/schemas/PurchaseTransaction"
+                      }
                     }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
         }
       }
     },
     "/api/prompts/creator/{walletAddress}/analytics": {
       "get": {
-        "tags": ["Creator"],
+        "tags": [
+          "Creator"
+        ],
         "summary": "Creator sales analytics",
         "description": "Daily sales and revenue for the trailing 30-day window.",
         "operationId": "getCreatorSalesAnalytics",
@@ -248,7 +354,9 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -264,9 +372,17 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "date": { "type": "string", "format": "date" },
-                          "unitsSold": { "type": "number" },
-                          "revenueXlm": { "type": "number", "format": "float" }
+                          "date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "unitsSold": {
+                            "type": "number"
+                          },
+                          "revenueXlm": {
+                            "type": "number",
+                            "format": "float"
+                          }
                         }
                       }
                     }
@@ -275,13 +391,17 @@
               }
             }
           },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/prompts/creator/{walletAddress}/analytics/support-metrics": {
       "get": {
-        "tags": ["Creator"],
+        "tags": [
+          "Creator"
+        ],
         "summary": "Privacy-safe seller support metrics (#711)",
         "description": "Conversion, refund, unlock-failure, and review outcomes for a creator's listings. Buyer identities are aggregated server-side and redacted; cohorts below the minimum are suppressed.",
         "operationId": "getCreatorSupportMetrics",
@@ -290,7 +410,9 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -301,21 +423,31 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "analytics": { "$ref": "#/components/schemas/SellerAnalytics" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "analytics": {
+                      "$ref": "#/components/schemas/SellerAnalytics"
+                    }
                   }
                 }
               }
             }
           },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/prompts/creator/{walletAddress}/payout-statement": {
       "get": {
-        "tags": ["Creator"],
+        "tags": [
+          "Creator"
+        ],
         "summary": "Creator payout statement",
         "description": "Sale-date, prompt, buyer address, gross/fee/net amounts. Supports `format=csv` or `Accept: text/csv` for CSV output.",
         "operationId": "getCreatorPayoutStatement",
@@ -324,22 +456,36 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "startDate",
             "in": "query",
-            "schema": { "type": "string", "format": "date" }
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           },
           {
             "name": "endDate",
             "in": "query",
-            "schema": { "type": "string", "format": "date" }
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           },
           {
             "name": "format",
             "in": "query",
-            "schema": { "type": "string", "enum": ["json", "csv"] }
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ]
+            }
           }
         ],
         "responses": {
@@ -352,13 +498,18 @@
                   "properties": {
                     "statement": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/PayoutRow" }
+                      "items": {
+                        "$ref": "#/components/schemas/PayoutRow"
+                      }
                     }
                   }
                 }
               },
               "text/csv": {
-                "schema": { "type": "string", "description": "CSV payout statement" }
+                "schema": {
+                  "type": "string",
+                  "description": "CSV payout statement"
+                }
               }
             }
           }
@@ -367,7 +518,9 @@
     },
     "/api/prompts/creator/{walletAddress}/drafts": {
       "get": {
-        "tags": ["Creator"],
+        "tags": [
+          "Creator"
+        ],
         "summary": "List prompt drafts for a creator",
         "operationId": "getDraftPrompts",
         "parameters": [
@@ -375,7 +528,9 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -388,7 +543,9 @@
                   "properties": {
                     "prompts": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Prompt" }
+                      "items": {
+                        "$ref": "#/components/schemas/Prompt"
+                      }
                     }
                   }
                 }
@@ -400,7 +557,9 @@
     },
     "/api/prompts/{onChainId}/price-history": {
       "get": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "Price history for a listing",
         "description": "Derived from indexed `PromptPriceUpdated` events.",
         "operationId": "getPriceHistory",
@@ -409,7 +568,9 @@
             "name": "onChainId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -425,8 +586,14 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "price": { "type": "number", "format": "float" },
-                          "changedAt": { "type": "string", "format": "date-time" }
+                          "price": {
+                            "type": "number",
+                            "format": "float"
+                          },
+                          "changedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
                         }
                       }
                     }
@@ -438,9 +605,506 @@
         }
       }
     },
+    "/api/prompts/{promptId}/license": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Current license terms for a prompt (#759)",
+        "description": "Returns the license terms the prompt currently advertises. Falls back to the marketplace default when the creator has not configured one.",
+        "operationId": "getPromptLicense",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current license state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "license": {
+                      "$ref": "#/components/schemas/PromptLicenseState"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/licensing/update": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Update a prompt's license terms (#759)",
+        "description": "Creator-only. Material changes bump the prompt's `licenseVersionIndex`. Historical purchases are never mutated \u2014 they keep the immutable snapshot frozen at purchase time. Provide `templateKey` + `templateVersion` to adopt a template, or explicit terms fields for custom terms.",
+        "operationId": "updatePromptLicense",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LicenseUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated license state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "license": {
+                      "$ref": "#/components/schemas/PromptLicenseState"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload (missing fields, short terms text, template pair incomplete)."
+          },
+          "403": {
+            "description": "Caller is not the prompt owner."
+          },
+          "404": {
+            "description": "Prompt or template not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/licensing/templates": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List available license templates (#759)",
+        "description": "Returns the active license templates creators can adopt for their prompts. Templates are versioned; only the latest active versions are listed.",
+        "operationId": "getLicenseTemplates",
+        "responses": {
+          "200": {
+            "description": "Active license templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "templates": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LicenseTemplate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/buyer/{walletAddress}/receipts/{promptId}": {
+      "get": {
+        "tags": [
+          "Buyer"
+        ],
+        "summary": "Buyer receipt with purchase-time license terms (#759)",
+        "description": "Returns the buyer's receipt for a prompt, including the license snapshot frozen at purchase time. Legacy purchases (made before #759) report `license.legacy: true` and show the marketplace default terms. Response is wallet-scoped personal data (`Cache-Control: private, no-store`).",
+        "operationId": "getPurchaseReceipt",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer Stellar wallet address."
+          },
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purchase receipt with license snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseReceipt"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Purchase not found for this wallet."
+          }
+        }
+      }
+    },
+    "/api/prompts/admin/licensing/{walletAddress}/disputes/{promptId}": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Admin license dispute view (#759)",
+        "description": "Pairs the license snapshot frozen at purchase time with the prompt's current terms, so a dispute reviewer can see exactly what changed after the purchase. Requires an admin token with the `moderation:read` scope.",
+        "operationId": "getLicenseDisputeView",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Buyer Stellar wallet address."
+          },
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute view: snapshot + current terms.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseDisputeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:read scope."
+          },
+          "404": {
+            "description": "Purchase not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/moderation/{promptId}/override": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Override a scanner moderation decision (#758)",
+        "description": "Maintainer decision endpoint: approves or rejects a pending (queued) prompt. Only prompts with `moderationStatus: pending` can be overridden; decisions are appended to the ModerationReview history and the audit trail. Requires an admin token with the `moderation:write` scope.",
+        "operationId": "overrideModeration",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Indexed prompt identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModerationOverrideRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision recorded and prompt status updated."
+          },
+          "400": {
+            "description": "Invalid state machine transition or payload."
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:write scope."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/moderation/queue": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Safety-scanner moderation queue (#758)",
+        "description": "Lists prompts queued by the heuristic safety scanner, or the review history for a single prompt when `promptId` is provided. Requires an admin token with the `moderation:read` scope. Hidden-payload fields are excluded from responses.",
+        "operationId": "getModerationQueue",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "When present, returns the moderation review history for that prompt instead of the queue."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Moderation queue or per-prompt review history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationQueue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "403": {
+            "description": "Admin token lacks the moderation:read scope."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/cancel": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Cancel a pending ownership transfer",
+        "description": "Cancels a transfer previously requested by the caller. Requires a wallet signature.",
+        "operationId": "cancelOwnershipTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Ownership transfer identifier."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfer cancelled."
+          },
+          "404": {
+            "description": "Transfer not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/respond": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Approve or reject an ownership transfer",
+        "description": "Recipient decision for a pending ownership transfer. Approval re-points the indexed Prompt.owner, affecting analytics and payout attribution. Requires a wallet signature.",
+        "operationId": "respondOwnershipTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Ownership transfer identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "decision"
+                ],
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "signature": {
+                    "type": "string",
+                    "description": "Recipient wallet signature."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer decision recorded."
+          },
+          "404": {
+            "description": "Transfer not found or already resolved."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{walletAddress}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List ownership transfers for a wallet",
+        "description": "Returns pending and historical ownership-transfer handoffs where the wallet is sender or recipient (#708).",
+        "operationId": "getOwnershipTransfers",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar wallet address."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership transfers for the wallet."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/request": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Request an ownership transfer",
+        "description": "Starts the off-chain two-phase ownership handoff (#708). The current owner requests a transfer of an indexed prompt; the recipient approves or rejects. Requires a wallet signature.",
+        "operationId": "requestOwnershipTransfer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnershipTransferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transfer request created."
+          },
+          "400": {
+            "description": "Invalid request or signature."
+          }
+        }
+      }
+    },
+    "/api/prompts/similarity/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Semantic similarity check for anti-plagiarism",
+        "description": "Compares candidate prompt text against indexed prompts to detect near-duplicates before publishing. Off-chain advisory check; it does not gate on-chain publication.",
+        "operationId": "checkPromptSimilarity",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "Candidate prompt text to compare."
+                  },
+                  "threshold": {
+                    "type": "number",
+                    "description": "Optional similarity threshold override (0-1)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Similarity report for the candidate prompt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarityCheckResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/prompts/preview": {
       "post": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "Record a prompt preview (analytics)",
         "description": "Records a preview view for analytics; non-authoritative.",
         "operationId": "recordPreview",
@@ -450,23 +1114,34 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["promptId"],
+                "required": [
+                  "promptId"
+                ],
                 "properties": {
-                  "promptId": { "type": "string" },
-                  "walletAddress": { "type": "string", "description": "Optional; omitted to stay anonymous" }
+                  "promptId": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Optional; omitted to stay anonymous"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Preview recorded" }
+          "200": {
+            "description": "Preview recorded"
+          }
         }
       }
     },
     "/api/prompts/preview/stats": {
       "get": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "Preview analytics",
         "operationId": "getPreviewStats",
         "responses": {
@@ -477,10 +1152,14 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "totalPreviews": { "type": "integer" },
+                    "totalPreviews": {
+                      "type": "integer"
+                    },
                     "perPrompt": {
                       "type": "object",
-                      "additionalProperties": { "type": "integer" }
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
                     }
                   }
                 }
@@ -492,7 +1171,9 @@
     },
     "/api/prompts/reports": {
       "post": {
-        "tags": ["Reports"],
+        "tags": [
+          "Reports"
+        ],
         "summary": "Submit a prompt abuse report",
         "description": "Public — anyone can flag a listing. Off-chain moderation data only; does not affect on-chain access control.",
         "operationId": "submitPromptReport",
@@ -502,22 +1183,49 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["promptId", "reporterAddress", "reason"],
+                "required": [
+                  "promptId",
+                  "reporterAddress",
+                  "reason"
+                ],
                 "properties": {
-                  "promptId": { "type": "string" },
-                  "reporterAddress": { "type": "string" },
+                  "promptId": {
+                    "type": "string"
+                  },
+                  "reporterAddress": {
+                    "type": "string"
+                  },
                   "reason": {
                     "type": "string",
-                    "enum": ["copyright", "misleading", "duplicate", "inappropriate", "other"]
+                    "enum": [
+                      "copyright",
+                      "misleading",
+                      "duplicate",
+                      "inappropriate",
+                      "other"
+                    ]
                   },
-                  "description": { "type": "string" },
+                  "description": {
+                    "type": "string"
+                  },
                   "evidence": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "url": { "type": "string", "format": "uri" },
-                        "kind": { "type": "string", "enum": ["image", "pdf", "link", "text"] }
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "image",
+                            "pdf",
+                            "link",
+                            "text"
+                          ]
+                        }
                       }
                     },
                     "description": "Optional evidence attachments supporting the report (#714)."
@@ -535,27 +1243,44 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "enum": [true] },
-                    "report": { "$ref": "#/components/schemas/PromptReport" }
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "report": {
+                      "$ref": "#/components/schemas/PromptReport"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
         }
       },
       "get": {
-        "tags": ["Reports"],
+        "tags": [
+          "Reports"
+        ],
         "summary": "List the moderation queue (admin only)",
         "description": "Requires an admin scope token (`reports:read`). Lists reports with triage state.",
         "operationId": "getPromptReports",
-        "security": [{ "adminToken": [] }],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
         "parameters": [
           {
             "name": "status",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/ReportStatus" }
+            "schema": {
+              "$ref": "#/components/schemas/ReportStatus"
+            }
           }
         ],
         "responses": {
@@ -568,24 +1293,34 @@
                   "properties": {
                     "reports": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/PromptReport" }
+                      "items": {
+                        "$ref": "#/components/schemas/PromptReport"
+                      }
                     }
                   }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/prompts/admin/integrity-report": {
       "get": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "Content integrity recheck report (admin only)",
         "description": "Requires `integrity:read` admin scope.",
         "operationId": "getIntegrityReport",
-        "security": [{ "adminToken": [] }],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Integrity report",
@@ -603,24 +1338,34 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/prompts/admin/integrity-check": {
       "post": {
-        "tags": ["Prompts"],
+        "tags": [
+          "Prompts"
+        ],
         "summary": "Trigger a content integrity check (admin only)",
         "description": "Requires `integrity:write` admin scope. Body may include a `promptId` for a single prompt; otherwise a full sweep runs.",
         "operationId": "triggerIntegrityCheck",
-        "security": [{ "adminToken": [] }],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
-                  "promptId": { "type": "string" }
+                  "promptId": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -634,20 +1379,30 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "result": { "type": "object", "additionalProperties": true },
-                    "report": { "type": "object", "additionalProperties": true }
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "report": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
                   }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/prompts/buyer/save": {
       "post": {
-        "tags": ["Buyer"],
+        "tags": [
+          "Buyer"
+        ],
         "summary": "Save a prompt (non-authoritative preference)",
         "description": "Wallet-signed preference. Does not change on-chain access.",
         "operationId": "savePrompt",
@@ -657,10 +1412,17 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["walletAddress", "promptId"],
+                "required": [
+                  "walletAddress",
+                  "promptId"
+                ],
                 "properties": {
-                  "walletAddress": { "type": "string" },
-                  "promptId": { "type": "string" }
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "promptId": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -674,7 +1436,12 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "enum": [true] }
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
                   }
                 }
               }
@@ -685,7 +1452,9 @@
     },
     "/api/prompts/buyer/unsave": {
       "post": {
-        "tags": ["Buyer"],
+        "tags": [
+          "Buyer"
+        ],
         "summary": "Unsave a prompt (non-authoritative preference)",
         "operationId": "unsavePrompt",
         "requestBody": {
@@ -694,10 +1463,17 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["walletAddress", "promptId"],
+                "required": [
+                  "walletAddress",
+                  "promptId"
+                ],
                 "properties": {
-                  "walletAddress": { "type": "string" },
-                  "promptId": { "type": "string" }
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "promptId": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -711,7 +1487,12 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "enum": [true] }
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
                   }
                 }
               }
@@ -722,7 +1503,9 @@
     },
     "/api/reviews/submit": {
       "post": {
-        "tags": ["Reviews"],
+        "tags": [
+          "Reviews"
+        ],
         "summary": "Submit or update a verified review",
         "description": "Requires ownership — the reviewer must have a purchase record for the prompt.",
         "operationId": "submitReview",
@@ -732,12 +1515,27 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["promptId", "userAddress", "rating"],
+                "required": [
+                  "promptId",
+                  "userAddress",
+                  "rating"
+                ],
                 "properties": {
-                  "promptId": { "type": "string" },
-                  "userAddress": { "type": "string" },
-                  "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-                  "text": { "type": "string", "maxLength": 2000 }
+                  "promptId": {
+                    "type": "string"
+                  },
+                  "userAddress": {
+                    "type": "string"
+                  },
+                  "rating": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
                 }
               }
             }
@@ -751,13 +1549,25 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "enum": [true] },
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
                     "review": {
                       "type": "object",
                       "properties": {
-                        "id": { "type": "string" },
-                        "rating": { "type": "integer" },
-                        "createdAt": { "type": "string", "format": "date-time" }
+                        "id": {
+                          "type": "string"
+                        },
+                        "rating": {
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
                       }
                     }
                   }
@@ -765,12 +1575,16 @@
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "403": {
             "description": "Reviewer does not own the prompt",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
@@ -779,7 +1593,9 @@
     },
     "/api/reviews/list": {
       "get": {
-        "tags": ["Reviews"],
+        "tags": [
+          "Reviews"
+        ],
         "summary": "List reviews for a prompt with rating stats",
         "operationId": "listReviews",
         "parameters": [
@@ -787,7 +1603,9 @@
             "name": "promptId",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -800,16 +1618,25 @@
                   "properties": {
                     "reviews": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Review" }
+                      "items": {
+                        "$ref": "#/components/schemas/Review"
+                      }
                     },
                     "stats": {
                       "type": "object",
                       "properties": {
-                        "total": { "type": "integer" },
-                        "averageRating": { "type": "number", "format": "float" },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "averageRating": {
+                          "type": "number",
+                          "format": "float"
+                        },
                         "distribution": {
                           "type": "object",
-                          "additionalProperties": { "type": "integer" }
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
                         }
                       }
                     }
@@ -818,13 +1645,17 @@
               }
             }
           },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/webhooks/": {
       "post": {
-        "tags": ["Webhooks"],
+        "tags": [
+          "Webhooks"
+        ],
         "summary": "Register a webhook subscription",
         "description": "Off-chain event delivery for indexed contract events (durable outbox).",
         "operationId": "registerWebhook",
@@ -834,13 +1665,24 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["url", "walletAddress", "events"],
+                "required": [
+                  "url",
+                  "walletAddress",
+                  "events"
+                ],
                 "properties": {
-                  "url": { "type": "string", "format": "uri" },
-                  "walletAddress": { "type": "string" },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  },
                   "events": {
                     "type": "array",
-                    "items": { "type": "string" },
+                    "items": {
+                      "type": "string"
+                    },
                     "description": "Contract event names to deliver"
                   }
                 }
@@ -856,12 +1698,22 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "enum": [true] },
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
                     "subscription": {
                       "type": "object",
                       "properties": {
-                        "id": { "type": "string" },
-                        "secret": { "type": "string", "description": "Returned once on creation" }
+                        "id": {
+                          "type": "string"
+                        },
+                        "secret": {
+                          "type": "string",
+                          "description": "Returned once on creation"
+                        }
                       }
                     }
                   }
@@ -872,28 +1724,42 @@
         }
       },
       "get": {
-        "tags": ["Webhooks"],
+        "tags": [
+          "Webhooks"
+        ],
         "summary": "Get the caller's webhook subscription",
         "operationId": "getWebhook",
         "responses": {
-          "200": { "description": "Subscription" }
+          "200": {
+            "description": "Subscription"
+          }
         }
       },
       "delete": {
-        "tags": ["Webhooks"],
+        "tags": [
+          "Webhooks"
+        ],
         "summary": "Delete the caller's webhook subscription",
         "operationId": "deleteWebhook",
         "responses": {
-          "200": { "description": "Deleted" }
+          "200": {
+            "description": "Deleted"
+          }
         }
       }
     },
     "/api/webhooks/dead-letters": {
       "get": {
-        "tags": ["Webhooks"],
+        "tags": [
+          "Webhooks"
+        ],
         "summary": "List undeliverable webhook events (admin only)",
         "operationId": "listWebhookDeadLetters",
-        "security": [{ "adminToken": [] }],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Dead-letter events",
@@ -902,28 +1768,43 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "deadLetters": { "type": "array", "items": { "type": "object" } }
+                    "deadLetters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
                   }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/webhooks/{id}/rotate-secret": {
       "post": {
-        "tags": ["Webhooks"],
+        "tags": [
+          "Webhooks"
+        ],
         "summary": "Rotate a webhook signing secret (admin only)",
         "operationId": "rotateWebhookSecret",
-        "security": [{ "adminToken": [] }],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -934,19 +1815,25 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "secret": { "type": "string" }
+                    "secret": {
+                      "type": "string"
+                    }
                   }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/notifications/{walletAddress}": {
       "get": {
-        "tags": ["Notifications"],
+        "tags": [
+          "Notifications"
+        ],
         "summary": "List notifications for a wallet",
         "operationId": "getNotifications",
         "parameters": [
@@ -954,15 +1841,54 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "unread",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter to unread only"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by notification type"
           }
         ],
         "responses": {
-          "200": { "description": "Notifications" }
+          "200": {
+            "description": "Notifications"
+          }
         }
       },
       "delete": {
-        "tags": ["Notifications"],
+        "tags": [
+          "Notifications"
+        ],
         "summary": "Clear notifications for a wallet",
         "operationId": "clearNotifications",
         "parameters": [
@@ -970,17 +1896,23 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Cleared" }
+          "200": {
+            "description": "Cleared"
+          }
         }
       }
     },
     "/api/notifications/{walletAddress}/unread-count": {
       "get": {
-        "tags": ["Notifications"],
+        "tags": [
+          "Notifications"
+        ],
         "summary": "Unread notification count",
         "operationId": "getUnreadCount",
         "parameters": [
@@ -988,7 +1920,9 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -999,7 +1933,9 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "count": { "type": "integer" }
+                    "count": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
@@ -1010,7 +1946,9 @@
     },
     "/api/notifications/{walletAddress}/mark-read": {
       "post": {
-        "tags": ["Notifications"],
+        "tags": [
+          "Notifications"
+        ],
         "summary": "Mark notifications read",
         "operationId": "markNotificationsRead",
         "parameters": [
@@ -1018,17 +1956,23 @@
             "name": "walletAddress",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Marked read" }
+          "200": {
+            "description": "Marked read"
+          }
         }
       }
     },
     "/api/search/prompts": {
       "get": {
-        "tags": ["Search"],
+        "tags": [
+          "Search"
+        ],
         "summary": "Search prompts",
         "description": "Advanced filtering and pagination over indexed listings.",
         "operationId": "searchPrompts",
@@ -1036,40 +1980,60 @@
           {
             "name": "query",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "category",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "minPrice",
             "in": "query",
-            "schema": { "type": "number" }
+            "schema": {
+              "type": "number"
+            }
           },
           {
             "name": "maxPrice",
             "in": "query",
-            "schema": { "type": "number" }
+            "schema": {
+              "type": "number"
+            }
           },
           {
             "name": "sortBy",
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["recent", "price-low", "price-high", "sales", "rating"]
+              "enum": [
+                "recent",
+                "price-low",
+                "price-high",
+                "sales",
+                "rating"
+              ]
             }
           },
           {
             "name": "page",
             "in": "query",
-            "schema": { "type": "integer", "default": 1 }
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
           },
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "default": 20 }
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
           }
         ],
         "responses": {
@@ -1082,11 +2046,19 @@
                   "properties": {
                     "results": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/Prompt" }
+                      "items": {
+                        "$ref": "#/components/schemas/Prompt"
+                      }
                     },
-                    "total": { "type": "integer" },
-                    "page": { "type": "integer" },
-                    "totalPages": { "type": "integer" }
+                    "total": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "totalPages": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
@@ -1097,56 +2069,78 @@
     },
     "/api/search/suggestions": {
       "get": {
-        "tags": ["Search"],
+        "tags": [
+          "Search"
+        ],
         "summary": "Search suggestions",
         "operationId": "getSearchSuggestions",
         "parameters": [
           {
             "name": "query",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "default": 5 }
+            "schema": {
+              "type": "integer",
+              "default": 5
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Suggestions" }
+          "200": {
+            "description": "Suggestions"
+          }
         }
       }
     },
     "/api/search/categories": {
       "get": {
-        "tags": ["Search"],
+        "tags": [
+          "Search"
+        ],
         "summary": "Listing categories with counts",
         "operationId": "getCategories",
         "responses": {
-          "200": { "description": "Categories" }
+          "200": {
+            "description": "Categories"
+          }
         }
       }
     },
     "/api/search/featured": {
       "get": {
-        "tags": ["Search"],
+        "tags": [
+          "Search"
+        ],
         "summary": "Featured prompts",
         "operationId": "getFeaturedPrompts",
         "parameters": [
           {
             "name": "limit",
             "in": "query",
-            "schema": { "type": "integer", "default": 6 }
+            "schema": {
+              "type": "integer",
+              "default": 6
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Featured prompts" }
+          "200": {
+            "description": "Featured prompts"
+          }
         }
       }
     },
     "/api/versions/{promptId}/history": {
       "get": {
-        "tags": ["Versioning"],
+        "tags": [
+          "Versioning"
+        ],
         "summary": "Prompt revision history",
         "operationId": "getPromptVersionHistory",
         "parameters": [
@@ -1154,7 +2148,9 @@
             "name": "promptId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1165,7 +2161,12 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "versions": { "type": "array", "items": { "type": "object" } }
+                    "versions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
                   }
                 }
               }
@@ -1176,31 +2177,936 @@
     },
     "/api/versions/update": {
       "post": {
-        "tags": ["Versioning"],
+        "tags": [
+          "Versioning"
+        ],
         "summary": "Record an off-chain prompt update",
         "operationId": "recordPromptUpdate",
         "responses": {
-          "200": { "description": "Recorded" }
+          "200": {
+            "description": "Recorded"
+          }
         }
       }
     },
     "/api/versions/purchase": {
       "post": {
-        "tags": ["Versioning"],
+        "tags": [
+          "Versioning"
+        ],
         "summary": "Record a version-gated purchase",
         "operationId": "recordVersionPurchase",
         "responses": {
-          "200": { "description": "Recorded" }
+          "200": {
+            "description": "Recorded"
+          }
         }
       }
     },
     "/api/versions/buyer-version": {
       "get": {
-        "tags": ["Versioning"],
+        "tags": [
+          "Versioning"
+        ],
         "summary": "Version entitlement for a buyer",
         "operationId": "getBuyerVersion",
         "responses": {
-          "200": { "description": "Buyer version entitlement" }
+          "200": {
+            "description": "Buyer version entitlement"
+          }
+        }
+      }
+    },
+    "/api/notifications/{walletAddress}/preferences": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get notification preferences",
+        "operationId": "getNotificationPreferences",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preferences document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Update notification preferences",
+        "operationId": "updateNotificationPreferences",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferencesUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No valid preference fields provided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/webhooks/inbound": {
+      "post": {
+        "tags": [
+          "Inbound Webhooks"
+        ],
+        "summary": "Receive inbound webhook event",
+        "description": "Accepts raw webhook deliveries from external sources. Verifies HMAC-SHA256 signature before processing. Idempotent — duplicate X-PromptHash-Event-Id values return 202 without reprocessing.",
+        "operationId": "receiveInboundWebhook",
+        "parameters": [
+          {
+            "name": "X-PromptHash-Event-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable idempotency key for this event"
+          },
+          {
+            "name": "X-PromptHash-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "HMAC-SHA256 signature (sha256=<hex>)"
+          },
+          {
+            "name": "X-PromptHash-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "X-PromptHash-Event",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Event type label"
+          },
+          {
+            "name": "X-PromptHash-Delivery",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event received and processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundEventResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Event already processed (idempotent replay)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundEventResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required headers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "HMAC signature verification failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Inbound webhook intake is not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/inbound/failed": {
+      "get": {
+        "tags": [
+          "Inbound Webhooks"
+        ],
+        "summary": "List failed inbound events (admin)",
+        "operationId": "listFailedInboundEvents",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "eventType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated failed events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/InboundWebhookEvent"
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/webhooks/inbound/{id}/retry": {
+      "post": {
+        "tags": [
+          "Inbound Webhooks"
+        ],
+        "summary": "Retry a failed inbound event (admin)",
+        "description": "Resets a failed event to pending for reprocessing. Signature is NOT re-checked — only business logic reruns.",
+        "operationId": "retryFailedInboundEvent",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event reset to pending for reprocessing"
+          },
+          "404": {
+            "description": "Not found or not in failed state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/webhooks/inbound/{id}": {
+      "get": {
+        "tags": [
+          "Inbound Webhooks"
+        ],
+        "summary": "Inspect an inbound event record (admin)",
+        "operationId": "getInboundEvent",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inbound event document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundWebhookEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/moderation/queue": {
+      "get": {
+        "tags": [
+          "Moderation"
+        ],
+        "summary": "Get moderation queue (admin)",
+        "description": "Returns filtered, paginated prompts for moderation review. Supports filtering by moderationStatus, similarityFlag, creatorWallet, and date range. Stale-query protection: all filters are applied server-side at query time.",
+        "operationId": "getModerationQueue",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending_review",
+                "approved",
+                "rejected",
+                "hidden",
+                "restored"
+              ]
+            }
+          },
+          {
+            "name": "similarityFlag",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "clean",
+                "suspicious",
+                "highly_similar"
+              ]
+            }
+          },
+          {
+            "name": "creatorWallet",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Moderation queue page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prompts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ModerationPromptRow"
+                      }
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "totalPages": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/moderation/bulk": {
+      "post": {
+        "tags": [
+          "Moderation"
+        ],
+        "summary": "Bulk moderation action (admin)",
+        "description": "Applies approve, reject, hide, or restore to a batch of selected prompts. Only eligible prompts (matching expected current state) are acted upon — ineligible ones are counted as skipped. Every decision is recorded in ModerationDecision with actor, reason, and timestamp. Rolls back by reversing the moderationStatus via /decisions/{id}/rollback.",
+        "operationId": "bulkModerationAction",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkModerationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk action result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkModerationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — missing or invalid fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/moderation/decisions": {
+      "get": {
+        "tags": [
+          "Moderation"
+        ],
+        "summary": "List moderation decisions (admin)",
+        "operationId": "listModerationDecisions",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actorWallet",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject",
+                "hide",
+                "restore"
+              ]
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Decision records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModerationDecision"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/moderation/decisions/{id}/rollback": {
+      "post": {
+        "tags": [
+          "Moderation"
+        ],
+        "summary": "Rollback a moderation decision (admin)",
+        "description": "Reverses a previous decision by restoring the prompt's prior moderationStatus and recording a rollback audit entry.",
+        "operationId": "rollbackModerationDecision",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision rolled back successfully"
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Decision not found or already rolled back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/similarity/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Check prompt similarity",
+        "description": "Anti-plagiarism semantic similarity check against the indexed prompt corpus.",
+        "operationId": "checkSimilarity",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Similarity check result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "similarityFlag": {
+                      "type": "string",
+                      "enum": [
+                        "clean",
+                        "suspicious",
+                        "highly_similar"
+                      ]
+                    },
+                    "similarityScore": {
+                      "type": "number"
+                    },
+                    "similarTo": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/request": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Request ownership transfer",
+        "operationId": "requestOwnershipTransfer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fromWallet",
+                  "toWallet",
+                  "promptId"
+                ],
+                "properties": {
+                  "fromWallet": {
+                    "type": "string"
+                  },
+                  "toWallet": {
+                    "type": "string"
+                  },
+                  "promptId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transfer request created"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{walletAddress}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List ownership transfers for a wallet",
+        "operationId": "getOwnershipTransfers",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfer records"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/respond": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Respond to an ownership transfer request",
+        "operationId": "respondOwnershipTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "accept"
+                ],
+                "properties": {
+                  "accept": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer response recorded"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/cancel": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Cancel an ownership transfer request",
+        "operationId": "cancelOwnershipTransfer",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfer cancelled"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     }
@@ -1215,143 +3121,1038 @@
       }
     },
     "schemas": {
+    "LicenseTemplate": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Stable template identifier, e.g. 'standard'."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Template version; new rows are appended, never edited."
+        },
+        "name": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "termsText": {
+          "type": "string",
+          "description": "Full human-readable terms."
+        },
+        "allowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commercialUse": {
+          "type": "boolean"
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "redistributionAllowed": {
+          "type": "boolean"
+        },
+        "active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PromptLicenseState": {
+      "type": "object",
+      "properties": {
+        "licenseTemplateKey": {
+          "type": "string",
+          "nullable": true
+        },
+        "licenseTemplateVersion": {
+          "type": "integer",
+          "nullable": true
+        },
+        "licenseVersionIndex": {
+          "type": "integer",
+          "description": "Bumped on every material license change."
+        },
+        "licenseSummary": {
+          "type": "string"
+        },
+        "licenseTermsText": {
+          "type": "string"
+        },
+        "licenseAllowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "licenseCommercialUse": {
+          "type": "boolean"
+        },
+        "licenseAttributionRequired": {
+          "type": "boolean"
+        },
+        "licenseRedistributionAllowed": {
+          "type": "boolean"
+        },
+        "licenseCustomTerms": {
+          "type": "string",
+          "description": "Creator-specific clauses layered onto the template."
+        },
+        "licenseUpdatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        }
+      }
+    },
+    "LicenseUpdateRequest": {
+      "type": "object",
+      "required": [
+        "promptId",
+        "walletAddress"
+      ],
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "walletAddress": {
+          "type": "string",
+          "description": "Creator wallet; must own the prompt."
+        },
+        "templateKey": {
+          "type": "string",
+          "description": "Required together with templateVersion."
+        },
+        "templateVersion": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "termsText": {
+          "type": "string",
+          "minLength": 10
+        },
+        "allowedUses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commercialUse": {
+          "type": "boolean"
+        },
+        "attributionRequired": {
+          "type": "boolean"
+        },
+        "redistributionAllowed": {
+          "type": "boolean"
+        },
+        "customTerms": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "PurchaseReceipt": {
+      "type": "object",
+      "properties": {
+        "purchaseId": {
+          "type": "string"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "buyerWallet": {
+          "type": "string"
+        },
+        "versionIndex": {
+          "type": "integer",
+          "description": "Prompt content version purchased."
+        },
+        "txHash": {
+          "type": "string"
+        },
+        "purchasedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "license": {
+          "type": "object",
+          "properties": {
+            "legacy": {
+              "type": "boolean",
+              "description": "True for purchases made before #759; terms are the marketplace default."
+            },
+            "licenseVersionIndex": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "termsText": {
+              "type": "string"
+            },
+            "allowedUses": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "commercialUse": {
+              "type": "boolean"
+            },
+            "attributionRequired": {
+              "type": "boolean"
+            },
+            "redistributionAllowed": {
+              "type": "boolean"
+            },
+            "customTerms": {
+              "type": "string"
+            },
+            "snapshotAt": {
+              "type": "string",
+              "format": "date-time",
+              "nullable": true
+            }
+          }
+        }
+      }
+    },
+    "LicenseDisputeView": {
+      "type": "object",
+      "properties": {
+        "purchaseId": {
+          "type": "string"
+        },
+        "purchaseStatus": {
+          "type": "string",
+          "enum": [
+            "purchased",
+            "disputed",
+            "resolved",
+            "refunded"
+          ]
+        },
+        "snapshot": {
+          "type": "object",
+          "description": "Frozen license snapshot (LicenseSnapshot document), or null for legacy purchases.",
+          "nullable": true
+        },
+        "currentPromptLicense": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "licenseVersionIndex": {
+              "type": "integer"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "termsText": {
+              "type": "string"
+            },
+            "customTerms": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "SimilarityCheckResult": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "promptId": {
+                "type": "string"
+              },
+              "similarity": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "maxSimilarity": {
+          "type": "number"
+        }
+      }
+    },
+    "OwnershipTransferRequest": {
+      "type": "object",
+      "required": [
+        "promptId",
+        "recipientWallet"
+      ],
+      "properties": {
+        "promptId": {
+          "type": "string",
+          "description": "Indexed prompt to hand off."
+        },
+        "recipientWallet": {
+          "type": "string",
+          "description": "Recipient Stellar wallet address."
+        },
+        "signature": {
+          "type": "string",
+          "description": "Current owner wallet signature."
+        }
+      }
+    },
+    "ModerationQueue": {
+      "type": "object",
+      "properties": {
+        "queue": {
+          "type": "array",
+          "description": "Prompts with moderationStatus 'pending' (queued by the safety scanner).",
+          "items": {
+            "$ref": "#/components/schemas/ModerationQueueItem"
+          }
+        },
+        "history": {
+          "type": "array",
+          "description": "Review history when promptId was provided.",
+          "items": {
+            "$ref": "#/components/schemas/ModerationReview"
+          }
+        }
+      }
+    },
+    "ModerationQueueItem": {
+      "type": "object",
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "moderationStatus": {
+          "type": "string",
+          "enum": [
+            "none",
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "scannerVerdict": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "queue",
+            "block"
+          ]
+        },
+        "scannerRuleIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scannedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "ModerationOverrideRequest": {
+      "type": "object",
+      "required": [
+        "action",
+        "reasonCode"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "enum": [
+            "false_positive",
+            "policy_exception",
+            "insufficient_evidence",
+            "policy_violation_confirmed",
+            "other"
+          ],
+          "description": "false_positive / policy_exception / insufficient_evidence can only justify approve; policy_violation_confirmed can only justify reject."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "ModerationReview": {
+      "type": "object",
+      "description": "Append-only moderation decision record.",
+      "properties": {
+        "promptId": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "reject"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "enum": [
+            "false_positive",
+            "policy_exception",
+            "insufficient_evidence",
+            "policy_violation_confirmed",
+            "other"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "actingAdmin": {
+          "type": "string"
+        },
+        "scannerRuleIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
       "Error": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" },
-          "correlationId": { "type": "string", "description": "Present on 500 responses (correlation middleware)" }
+          "error": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "description": "Present on 500 responses (correlation middleware)"
+          }
         }
       },
       "Prompt": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "onChainId": { "type": "string" },
-          "title": { "type": "string" },
-          "category": { "type": "string" },
-          "price": { "type": "number", "format": "float" },
-          "image": { "type": "string" },
-          "previewText": { "type": "string" },
-          "salesCount": { "type": "integer" },
+          "id": {
+            "type": "string"
+          },
+          "onChainId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "format": "float"
+          },
+          "image": {
+            "type": "string"
+          },
+          "previewText": {
+            "type": "string"
+          },
+          "salesCount": {
+            "type": "integer"
+          },
           "status": {
             "type": "string",
-            "enum": ["draft", "active", "paused", "retired"]
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "retired"
+            ]
           },
-          "owner": { "type": "string", "description": "Creator wallet address" },
-          "createdAt": { "type": "string", "format": "date-time" },
-          "averageRating": { "type": "number", "format": "float" }
+          "owner": {
+            "type": "string",
+            "description": "Creator wallet address"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "averageRating": {
+            "type": "number",
+            "format": "float"
+          }
         }
       },
       "PurchaseTransaction": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "promptId": { "type": "string" },
-          "promptTitle": { "type": "string" },
-          "promptImage": { "type": "string" },
-          "amountXlm": { "type": ["number", "null"] },
-          "versionIndex": { "type": "integer" },
-          "txHash": { "type": "string" },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string"
+          },
+          "promptId": {
+            "type": "string"
+          },
+          "promptTitle": {
+            "type": "string"
+          },
+          "promptImage": {
+            "type": "string"
+          },
+          "amountXlm": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "versionIndex": {
+            "type": "integer"
+          },
+          "txHash": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "PayoutRow": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "saleDate": { "type": "string", "format": "date-time" },
-          "promptTitle": { "type": "string" },
-          "promptId": { "type": "string" },
-          "buyerAddress": { "type": "string" },
-          "grossAmount": { "type": "number", "format": "float" },
-          "platformFee": { "type": "number", "format": "float" },
-          "creatorAmount": { "type": "number", "format": "float" },
-          "txHash": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "saleDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "promptTitle": {
+            "type": "string"
+          },
+          "promptId": {
+            "type": "string"
+          },
+          "buyerAddress": {
+            "type": "string"
+          },
+          "grossAmount": {
+            "type": "number",
+            "format": "float"
+          },
+          "platformFee": {
+            "type": "number",
+            "format": "float"
+          },
+          "creatorAmount": {
+            "type": "number",
+            "format": "float"
+          },
+          "txHash": {
+            "type": "string"
+          }
         }
       },
       "SellerAnalytics": {
         "type": "object",
         "description": "Privacy-safe seller metrics (#711). Buyer identities are never included.",
         "properties": {
-          "windowDays": { "type": "integer" },
+          "windowDays": {
+            "type": "integer"
+          },
           "cohort": {
             "type": "object",
             "properties": {
-              "activeBuyers": { "type": "integer" },
-              "buyerIdentitiesRedacted": { "type": "boolean", "enum": [true] }
+              "activeBuyers": {
+                "type": "integer"
+              },
+              "buyerIdentitiesRedacted": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              }
             }
           },
           "totals": {
             "type": "object",
             "properties": {
-              "views": { "type": "integer" },
-              "purchases": { "type": "integer" },
-              "refunds": { "type": "integer" },
-              "unlockFailures": { "type": "integer" },
-              "reviews": { "type": "integer" }
+              "views": {
+                "type": "integer"
+              },
+              "purchases": {
+                "type": "integer"
+              },
+              "refunds": {
+                "type": "integer"
+              },
+              "unlockFailures": {
+                "type": "integer"
+              },
+              "reviews": {
+                "type": "integer"
+              }
             }
           },
           "metrics": {
             "type": "object",
             "properties": {
-              "conversionRate": { "type": "number", "format": "float" },
-              "refundRate": { "type": "number", "format": "float" },
-              "unlockSuccessRate": { "type": "number", "format": "float" },
-              "satisfactionRate": { "type": "number", "format": "float" },
-              "averageRating": { "type": "number", "format": "float" }
+              "conversionRate": {
+                "type": "number",
+                "format": "float"
+              },
+              "refundRate": {
+                "type": "number",
+                "format": "float"
+              },
+              "unlockSuccessRate": {
+                "type": "number",
+                "format": "float"
+              },
+              "satisfactionRate": {
+                "type": "number",
+                "format": "float"
+              },
+              "averageRating": {
+                "type": "number",
+                "format": "float"
+              }
             }
           },
           "unlockFailuresByReason": {
             "type": "object",
-            "additionalProperties": { "type": "integer" }
+            "additionalProperties": {
+              "type": "integer"
+            }
           }
         }
       },
       "ReportStatus": {
         "type": "string",
-        "enum": ["pending", "investigating", "resolved", "dismissed"],
+        "enum": [
+          "pending",
+          "investigating",
+          "resolved",
+          "dismissed"
+        ],
         "description": "Triage lifecycle (#714): reports enter `pending`, move to `investigating` when an admin picks them up, then to `resolved` or `dismissed`."
       },
       "Evidence": {
         "type": "object",
         "properties": {
-          "url": { "type": "string", "format": "uri" },
-          "kind": { "type": "string", "enum": ["image", "pdf", "link", "text"] },
-          "addedBy": { "type": "string", "description": "Wallet address or `maintainer`" }
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "pdf",
+              "link",
+              "text"
+            ]
+          },
+          "addedBy": {
+            "type": "string",
+            "description": "Wallet address or `maintainer`"
+          }
         }
       },
       "PromptReport": {
         "type": "object",
         "properties": {
-          "_id": { "type": "string" },
-          "promptId": { "type": "string" },
-          "reporterAddress": { "type": "string" },
+          "_id": {
+            "type": "string"
+          },
+          "promptId": {
+            "type": "string"
+          },
+          "reporterAddress": {
+            "type": "string"
+          },
           "reason": {
             "type": "string",
-            "enum": ["copyright", "misleading", "duplicate", "inappropriate", "other"]
+            "enum": [
+              "copyright",
+              "misleading",
+              "duplicate",
+              "inappropriate",
+              "other"
+            ]
           },
-          "description": { "type": "string" },
+          "description": {
+            "type": "string"
+          },
           "evidence": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Evidence" },
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
             "description": "Captured evidence attachments (#714)."
           },
-          "status": { "$ref": "#/components/schemas/ReportStatus" },
-          "adminNotes": { "type": "string" },
-          "createdAt": { "type": "string", "format": "date-time" },
-          "updatedAt": { "type": "string", "format": "date-time" }
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "adminNotes": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "Review": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "promptId": { "type": "string" },
-          "userAddress": { "type": "string" },
-          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-          "text": { "type": "string" },
-          "createdAt": { "type": "integer", "description": "Unix millisecond timestamp" },
-          "verified": { "type": "boolean" }
+          "id": {
+            "type": "string"
+          },
+          "promptId": {
+            "type": "string"
+          },
+          "userAddress": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "description": "Unix millisecond timestamp"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string"
+          },
+          "mutedTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "prompt_update",
+                "purchase_confirmed",
+                "dispute_opened",
+                "dispute_resolved",
+                "payout_available",
+                "moderation_action",
+                "ownership_transfer",
+                "system"
+              ]
+            }
+          },
+          "emailEnabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NotificationPreferencesUpdate": {
+        "type": "object",
+        "properties": {
+          "mutedTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "emailEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "InboundEventResult": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processed",
+              "skipped",
+              "failed",
+              "verification_failed"
+            ]
+          },
+          "alreadyProcessed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "InboundWebhookEvent": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "verificationStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "verified",
+              "verification_failed"
+            ]
+          },
+          "processingStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "processed",
+              "failed",
+              "skipped"
+            ]
+          },
+          "rawHeaders": {
+            "type": "object",
+            "description": "Non-sensitive request headers retained for debugging"
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          },
+          "attemptCount": {
+            "type": "integer"
+          },
+          "lastAttemptAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "processedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ModerationPromptRow": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "onChainId": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "moderationStatus": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "approved",
+              "rejected",
+              "hidden",
+              "restored"
+            ]
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "similarityFlag": {
+            "type": "string",
+            "enum": [
+              "clean",
+              "suspicious",
+              "highly_similar"
+            ]
+          },
+          "integrityStatus": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BulkModerationRequest": {
+        "type": "object",
+        "required": [
+          "action",
+          "promptIds",
+          "reason"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject",
+              "hide",
+              "restore"
+            ],
+            "description": "Action to apply to all selected prompts"
+          },
+          "promptIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "MongoDB _id values of the prompts to act on"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "evidenceNote": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Optional supporting evidence note stored with each decision"
+          }
+        }
+      },
+      "BulkModerationResult": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "requested": {
+            "type": "integer",
+            "description": "Number of prompt IDs submitted"
+          },
+          "applied": {
+            "type": "integer",
+            "description": "Number of prompts successfully acted upon"
+          },
+          "skipped": {
+            "type": "integer",
+            "description": "Number of prompts skipped (ineligible state)"
+          },
+          "decisionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "ModerationDecision IDs created"
+          }
+        }
+      },
+      "ModerationDecision": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "promptId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject",
+              "hide",
+              "restore"
+            ]
+          },
+          "actorWallet": {
+            "type": "string",
+            "description": "SHA-256 hash of the admin wallet address"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "evidenceNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "previousStatus": {
+            "type": "string"
+          },
+          "newStatus": {
+            "type": "string"
+          },
+          "rolledBack": {
+            "type": "boolean"
+          },
+          "rollbackReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "rollbackAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
     },
@@ -1360,7 +4161,9 @@
         "description": "Bad request",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
           }
         }
       },
@@ -1368,7 +4171,9 @@
         "description": "Missing or invalid admin scope token",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
           }
         }
       },
@@ -1376,7 +4181,9 @@
         "description": "Resource not found",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
           }
         }
       },
@@ -1384,7 +4191,9 @@
         "description": "Internal server error",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
           }
         }
       }

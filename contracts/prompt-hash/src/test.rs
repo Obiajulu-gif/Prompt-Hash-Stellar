@@ -4,7 +4,10 @@ extern crate std;
 
 use crate::contract::{PromptHashContract, PromptHashContractClient};
 use crate::mock_asset::FungibleTokenContract;
-use crate::types::{DataKey, DisputeReason, Error, ListingConfig, PromptSaleStatus, Split};
+use crate::types::Error;
+extern crate std;
+use soroban_sdk::{testutils::Address as _, testutils::Ledger, token, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::{Address as _, Ledger}, token, Address, BytesN, Env, String};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token, Address, Bytes, BytesN, Env, String, Vec,
@@ -86,8 +89,8 @@ fn create_prompt(
     creator: &Address,
     title: &str,
     price_stroops: i128,
-    asset: &Address,
-) -> u64 {
+    expires_at: Option<u64> = None,
+) -> u128 {
     client.create_prompt(
         creator,
         &String::from_str(env, "https://example.com/image.png"),
@@ -98,48 +101,8 @@ fn create_prompt(
         &String::from_str(env, "iv"),
         &String::from_str(env, "wrapped-key"),
         &hash(env, 7),
-        &ListingConfig {
-            price: price_stroops,
-            asset: asset.clone(),
-            expires_at: 0,
-            splits: Vec::new(env),
-            tags: Vec::new(env),
-            max_supply: 0,
-            license_terms_hash: hash(env, 0),
-        },
-    )
-}
-
-fn create_prompt_with_supply(
-    env: &Env,
-    client: &PromptHashContractClient,
-    creator: &Address,
-    max_supply: u32,
-    price: i128,
-) -> u64 {
-    let asset = {
-        let admin = Address::generate(env);
-        env.register_stellar_asset_contract_v2(admin).address()
-    };
-    client.create_prompt(
-        creator,
-        &String::from_str(env, "https://example.com/image.png"),
-        &String::from_str(env, "Supply Prompt"),
-        &String::from_str(env, "Software Development"),
-        &String::from_str(env, "preview"),
-        &String::from_str(env, "encrypted"),
-        &String::from_str(env, "iv"),
-        &String::from_str(env, "wrapped-key"),
-        &hash(env, 8),
-        &ListingConfig {
-            price,
-            asset,
-            expires_at: 0,
-            splits: Vec::new(env),
-            tags: Vec::new(env),
-            max_supply: max_supply as u64,
-            license_terms_hash: hash(env, 0),
-        },
+        &price_stroops,
+        &expires_at,
     )
 }
 
@@ -651,7 +614,118 @@ fn test_license_owner_can_transfer_and_creator_receives_royalty() {
 }
 
 #[test]
-fn test_non_owner_cannot_transfer_license() {
+fn test_prompt_with_no_expiry_never_expires() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let prompt_id = create_prompt(&env, &client, &creator, "Never Expires", 5_000, None);
+
+    // Advance time far into the future
+    env.ledger().set_timestamp(1_000_000_000);
+
+    // Should still appear in all prompts
+    let all = client.get_all_prompts();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all.get(0).unwrap().id, prompt_id);
+}
+
+#[test]
+fn test_expired_prompt_is_filtered() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Expires Soon", 5_000, Some(expiry));
+
+    // Before expiry: present
+    assert_eq!(client.get_all_prompts().len(), 1);
+
+    // After expiry
+    env.ledger().set_timestamp(1_020);
+    let all = client.get_all_prompts();
+    assert_eq!(all.len(), 0);
+
+    // get_prompt still returns the prompt (even expired)
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.id, prompt_id);
+}
+
+#[test]
+fn test_buying_expired_prompt_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Buy Expired", 5_000, Some(expiry));
+
+    // Expire it
+    env.ledger().set_timestamp(1_020);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 100_000);
+    let result = client.try_buy_prompt(&buyer, &prompt_id);
+    match result {
+        Err(Ok(Error::PromptExpired)) => {},
+        other => panic!("expected PromptExpired, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_extend_listing_without_fee() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Extend No Fee", 5_000, Some(expiry));
+
+    // Extend by 2 days
+    let extension_days: u64 = 2;
+    client.extend_listing(&creator, &prompt_id, &extension_days, &None);
+
+    let expected = 1_010u64 + (extension_days * 86400);
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.expires_at, Some(expected));
+}
+
+#[test]
+fn test_extend_expired_listing_sets_expiry_from_now() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Expired Then Extended", 5_000, Some(expiry));
+
+    // Let it expire
+    env.ledger().set_timestamp(2_000);
+
+    let extension_days: u64 = 1;
+    client.extend_listing(&creator, &prompt_id, &extension_days, &None);
+
+    // New expiry should be from current time (2000) + 1 day
+    let expected = 2_000u64 + 86400;
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.expires_at, Some(expected));
+}
+
+#[test]
+fn test_extend_listing_with_fee_transfers_correct_amount() {
+fn test_global_pause_blocks_mutations_but_not_reads() {
     let env: Env = Default::default();
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
@@ -698,6 +772,71 @@ fn test_transfer_license_rejects_zero_price_and_self_transfer() {
     let context = setup(&env);
     let client = PromptHashContractClient::new(&env, &context.contract);
     let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+
+    let creator = Address::generate(&env);
+    let price: i128 = 10_000;
+    let fee_bps: u32 = 500; // 5%
+    let fee_amount = price * fee_bps as i128 / 10_000; // 500
+
+    // Fund creator
+    xlm_client.mint(&creator, &(price * 2));
+    xlm_client.approve(&creator, &context.contract, &(fee_amount + 1), &1_000);
+
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Fee Extension", price, Some(expiry));
+
+    let fee_wallet_balance_before = xlm_client.balance(&context.fee_wallet);
+
+    let extension_days: u64 = 1;
+    client.extend_listing(&creator, &prompt_id, &extension_days, &Some(fee_bps));
+
+    let fee_wallet_balance_after = xlm_client.balance(&context.fee_wallet);
+    assert_eq!(fee_wallet_balance_after, fee_wallet_balance_before + fee_amount);
+
+    let expected_expiry = 1_010u64 + 86400;
+    let prompt = client.get_prompt(&prompt_id);
+    assert_eq!(prompt.expires_at, Some(expected_expiry));
+}
+
+#[test]
+fn test_extend_listing_unauthorized_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Protected Extension", 5_000, Some(expiry));
+
+    let result = client.try_extend_listing(&stranger, &prompt_id, &1u64, &None);
+    match result {
+        Err(Ok(Error::Unauthorized)) => {},
+        other => panic!("expected Unauthorized, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_extend_listing_invalid_duration_fails() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+
+    let creator = Address::generate(&env);
+    env.ledger().set_timestamp(1_000);
+    let expiry = 1_010u64;
+    let prompt_id = create_prompt(&env, &client, &creator, "Invalid Duration", 5_000, Some(expiry));
+
+    let result = client.try_extend_listing(&creator, &prompt_id, &0u64, &None);
+    match result {
+        Err(Ok(Error::InvalidExtensionDuration)) => {},
+        other => panic!("expected InvalidExtensionDuration, got {:?}", other),
+    }
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = 1_000;
+    });
 
     let creator = Address::generate(&env);
     let owner = Address::generate(&env);
@@ -3300,7 +3439,11 @@ fn test_buy_bundle_price_allocation_evenly_divisible_unchanged() {
         (pa, pb)
     });
 
-    assert_eq!(price_a + price_b, bundle_price, "evenly-split prices must sum to bundle price");
+    assert_eq!(
+        price_a + price_b,
+        bundle_price,
+        "evenly-split prices must sum to bundle price"
+    );
     assert_eq!(price_a, 6_000, "first prompt gets equal share");
     assert_eq!(price_b, 6_000, "second prompt gets equal share");
 }
@@ -6835,7 +6978,14 @@ fn test_catalog_secondary_index_verification_and_repair() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id = create_prompt(&env, &client, &creator, "Indexed Prompt", 1_000, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Indexed Prompt",
+        1_000,
+        &context.xlm,
+    );
 
     // Initial state: healthy indexes
     let report = client.verify_catalog_indexes(&0, &50);
@@ -6848,8 +6998,12 @@ fn test_catalog_secondary_index_verification_and_repair() {
     // Fault injection: simulate drift by clearing AllPrompts and ActivePrompts
     env.as_contract(&context.contract, || {
         let empty_vec: Vec<u64> = Vec::new(&env);
-        env.storage().persistent().set(&DataKey::AllPrompts, &empty_vec);
-        env.storage().persistent().set(&DataKey::ActivePrompts, &empty_vec);
+        env.storage()
+            .persistent()
+            .set(&DataKey::AllPrompts, &empty_vec);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ActivePrompts, &empty_vec);
     });
 
     // Detect drift
@@ -6896,7 +7050,14 @@ fn test_checked_accounting_invariant_on_double_refund_and_counters() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let prompt_id = create_prompt(&env, &client, &creator, "Unique Prompt", 2_000, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Unique Prompt",
+        2_000,
+        &context.xlm,
+    );
     fund_buyer(&xlm_client, &buyer, &context.contract, 10_000);
 
     client.buy_prompt(&buyer, &prompt_id, &None, &2_000, &None);
@@ -6905,14 +7066,19 @@ fn test_checked_accounting_invariant_on_double_refund_and_counters() {
     assert_eq!(prompt_after_buy.sales_count, 1);
 
     // Open dispute and refund
-    client.open_dispute(&buyer, &prompt_id, &DisputeReason::FailedIntegrityVerification);
+    client.open_dispute(
+        &buyer,
+        &prompt_id,
+        &DisputeReason::FailedIntegrityVerification,
+    );
     client.resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
 
     let prompt_after_refund = client.get_prompt(&prompt_id);
     assert_eq!(prompt_after_refund.sales_count, 0);
 
     // Attempting a second refund / dispute resolution on an already resolved dispute must fail
-    let double_resolve_result = client.try_resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+    let double_resolve_result =
+        client.try_resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
     assert!(double_resolve_result.is_err());
 
     // Reconcile sales counter
@@ -6927,17 +7093,29 @@ fn test_listing_snapshot_hash_binds_to_current_listing_state() {
     let client = PromptHashContractClient::new(&env, &context.contract);
 
     let creator = Address::generate(&env);
-    let prompt_id =
-        create_prompt(&env, &client, &creator, "Snapshot Prompt", 10_000_000, &context.xlm);
+    let prompt_id = create_prompt(
+        &env,
+        &client,
+        &creator,
+        "Snapshot Prompt",
+        10_000_000,
+        &context.xlm,
+    );
 
     let h1 = client.listing_snapshot_hash(&prompt_id);
     let h1_b = client.listing_snapshot_hash(&prompt_id);
-    assert_eq!(h1, h1_b, "snapshot hash must be deterministic for a stable listing");
+    assert_eq!(
+        h1, h1_b,
+        "snapshot hash must be deterministic for a stable listing"
+    );
 
     // A price change must invalidate any challenge bound to the prior snapshot.
     client.update_prompt_price(&creator, &prompt_id, &20_000_000);
     let h2 = client.listing_snapshot_hash(&prompt_id);
-    assert_ne!(h1, h2, "snapshot hash must change when the listing price drifts");
+    assert_ne!(
+        h1, h2,
+        "snapshot hash must change when the listing price drifts"
+    );
 
     // verify_listing_snapshot only matches the current listing state.
     assert!(!client.verify_listing_snapshot(&prompt_id, &h1));
@@ -7031,4 +7209,3 @@ fn test_admin_moderation_delist_restore_and_evidence_audit_trail() {
     assert_eq!(restore_record.policy_reference, evidence_ref_2);
     assert_eq!(restore_record.reverses_timestamp, delist_timestamp);
 }
-

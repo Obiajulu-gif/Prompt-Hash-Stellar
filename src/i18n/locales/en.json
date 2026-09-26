@@ -199,10 +199,111 @@
       "STALE_PROMPT_TERMS": "This prompt changed since you opened it. Refresh the prompt and sign again.",
       "RATE_LIMIT_IP": "Too many requests. Please wait a moment, then try again.",
       "RATE_LIMIT_WALLET": "Too many unlock attempts for this wallet. Please wait a minute and try again.",
+      "RATE_LIMIT_ENTITLEMENT": "Too many unlock attempts for this prompt. Please wait a moment and try again.",
       "CONFIGURATION_ERROR": "Something went wrong on our end. Please try again later.",
       "INTEGRITY_FAILURE": "Prompt content could not be verified. Please contact support if this persists.",
       "TEMPORARY_FAILURE": "A temporary error occurred. Please try again in a moment.",
       "IDEMPOTENCY_CONFLICT": "This idempotency key was used with a different request. Please use a new key."
     }
+  },
+  "receiptErrors": {
+    "notFound": "No purchase transaction found for this prompt/buyer.",
+    "configMissing": "Unable to process receipt. Please try again later.",
+    "buildFailed": "Failed to build receipt."
+  },
+  "reviewErrors": {
+    "missingFields": "promptId, userAddress, rating, and text are required",
+    "signatureRequired": "Wallet signature is required to submit a review",
+    "invalidRating": "Rating must be an integer between 1 and 5",
+    "textTooShort": "Review text must be at least 10 characters",
+    "textTooLong": "Review text must not exceed 500 characters",
+    "invalidSignature": "Invalid domain-separated wallet signature for review",
+    "accessDenied": "Only verified buyers with finalized entitlement can submit reviews",
+    "methodNotAllowed": "Method not allowed"
+  },
+  "moderationStatuses": {
+    "restricted": "Restricted",
+    "active": "Active",
+    "retired": "Retired"
+  },
+  "moderationReasons": {
+    "copyright": "Copyright violation",
+    "abuse": "Abusive content",
+    "malware": "Malware or security risk",
+    "policy_violation": "Policy violation",
+    "other": "Other"
+  },
+  "purchaseStatuses": {
+    "purchased": "Purchased",
+    "disputed": "Disputed",
+    "resolved": "Resolved"
+  },
+  "disputeResolutions": {
+    "refunded": "Refunded",
+    "rejected": "Rejected"
+  },
+  "bulkPurchaseErrors": {
+    "PromptNotFound": {
+      "title": "Batch Contains Invalid Items",
+      "message": "One or more prompts in the batch do not exist or have been archived.",
+      "suggestion": "Use the validation tool to check each item before retrying. Remove invalid items and purchase the rest."
+    },
+    "AlreadyPurchased": {
+      "title": "Batch Contains Invalid Items",
+      "message": "You have already purchased one of these prompts. You cannot buy the same prompt twice.",
+      "suggestion": "Use the validation tool to check each item before retrying. Remove invalid items and purchase the rest."
+    },
+    "CreatorCannotBuy": {
+      "title": "Purchase Failed",
+      "message": "You cannot purchase prompts you created. Try a different batch.",
+      "suggestion": "Try again with a smaller batch or individual purchases. Contact support if the problem persists."
+    },
+    "PromptInactive": {
+      "title": "Purchase Failed",
+      "message": "One or more prompts are no longer for sale. Check their status and try again.",
+      "suggestion": "Try again with a smaller batch or individual purchases. Contact support if the problem persists."
+    },
+    "InvalidPaymentAmount": {
+      "title": "Payment Mismatch",
+      "message": "The payment for one or more prompts is insufficient. Recalculate prices and retry.",
+      "suggestion": "Ensure each prompt price is paid in full. Recalculate totals and retry."
+    },
+    "ListingExpired": {
+      "title": "Purchase Failed",
+      "message": "One or more prompts have reached their expiration date and are no longer available.",
+      "suggestion": "Try again with a smaller batch or individual purchases. Contact support if the problem persists."
+    },
+    "ContractIsPaused": {
+      "title": "Marketplace Temporarily Paused",
+      "message": "The marketplace is temporarily paused. Please try again later.",
+      "suggestion": "Check back in a few moments and try again."
+    },
+    "BulkPurchaseTooLarge": {
+      "title": "Batch Too Large",
+      "message": "Your batch size exceeds the maximum allowed (20 prompts per transaction). Split into smaller batches.",
+      "suggestion": "Try purchasing in groups of 10-15 prompts per transaction for better success rates."
+    },
+    "DuplicatePromptId": {
+      "title": "Purchase Failed",
+      "message": "The same prompt ID appears multiple times in the batch. Remove duplicates and retry.",
+      "suggestion": "Try again with a smaller batch or individual purchases. Contact support if the problem persists."
+    },
+    "InvalidPrice": {
+      "title": "Payment Mismatch",
+      "message": "The number of payment amounts does not match the number of prompts. Both lists must be equal length.",
+      "suggestion": "Ensure each prompt price is paid in full. Recalculate totals and retry."
+    },
+    "ArithmeticOverflow": {
+      "title": "Purchase Failed",
+      "message": "One or more prices are too large to process. Contact support if this persists.",
+      "suggestion": "Try again with a smaller batch or individual purchases. Contact support if the problem persists."
+    }
+  },
+  "validationErrors": {
+    "promptNotFound": "Prompt does not exist or has been removed",
+    "alreadyPurchased": "You already own this prompt",
+    "insufficientBalance": "Insufficient balance to complete all purchases",
+    "promptInactive": "This prompt is no longer for sale",
+    "insufficientPayment": "Payment amount is below the prompt price"
   }
 }

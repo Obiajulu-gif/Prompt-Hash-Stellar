@@ -24,6 +24,7 @@ import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { formatPriceLabel } from "@/lib/stellar/format";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
+import { buildProductJsonLd } from "@/lib/seo/sitemap";
 import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
 import { CreatorVerifiedBadge } from "@/components/reputation/CreatorReputationBadge";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
@@ -145,24 +146,24 @@ export default function PromptDetailPage() {
     type: "article",
   });
 
-  const jsonLd = prompt ? {
-    "@context": "https://schema.org/",
-    "@type": "Product",
-    name: prompt.title,
-    description: prompt.previewText,
-    image: prompt.imageUrl || `${window.location.origin}${FALLBACK_IMAGE}`,
-    offers: {
-      "@type": "Offer",
-      price: (Number(prompt.priceStroops) / 10000000).toFixed(2),
-      priceCurrency: "XLM",
-      availability: prompt.active ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-    },
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: "5.0",
-      reviewCount: Math.max(1, prompt.salesCount)
-    }
-  } : null;
+  // Structured Product metadata (#791): buyer-visible fields only — the
+  // hidden payload (encrypted prompt material) is never part of the object
+  // we feed the builder.
+  const jsonLd = prompt
+    ? buildProductJsonLd(
+        {
+          id: prompt.id,
+          title: prompt.title,
+          previewText: prompt.previewText,
+          imageUrl: prompt.imageUrl || `${window.location.origin}${FALLBACK_IMAGE}`,
+          priceStroops: prompt.priceStroops,
+          creator: prompt.creator,
+          salesCount: prompt.salesCount,
+          active: prompt.active,
+        },
+        window.location.origin,
+      )
+    : null;
 
 
   const handleCopyLink = async () => {

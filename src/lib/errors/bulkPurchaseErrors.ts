@@ -1,7 +1,11 @@
 /**
  * Bulk purchase error handling and per-item error surfacing.
  * Issue #438: Clear error messages for atomicity failures.
+ *
+ * Uses i18n keys for user-facing messages; backend logs stay in English.
  */
+
+import { BULK_PURCHASE_ERROR_KEYS } from "../i18n/serverMessages";
 
 /**
  * Maps validation results to user-friendly error messages.
@@ -29,102 +33,58 @@ export function describeValidationFailure(
 ): BulkPurchaseValidationError | null {
   if (isValid) return null;
 
-  let reason = "Unknown error";
+  let reason = "validationErrors.unknown";
 
   if (reasons?.notFound) {
-    reason = "Prompt does not exist or has been removed";
+    reason = "validationErrors.promptNotFound";
   } else if (reasons?.alreadyPurchased) {
-    reason = "You already own this prompt";
+    reason = "validationErrors.alreadyPurchased";
   } else if (reasons?.insufficientBalance) {
-    reason = "Insufficient balance to complete all purchases";
+    reason = "validationErrors.insufficientBalance";
   } else if (reasons?.inactive) {
-    reason = "This prompt is no longer for sale";
+    reason = "validationErrors.promptInactive";
   } else if (reasons?.insufficientPayment) {
-    reason = "Payment amount is below the prompt price";
+    reason = "validationErrors.insufficientPayment";
   }
 
   return { promptId, reason };
 }
 
 /**
- * Contract error code documentation for bulk purchases.
- * When a bulk purchase fails, these error codes explain why.
+ * Contract error code to i18n key mapping for bulk purchases.
+ * When a bulk purchase fails, these error codes map to localized messages.
  */
 export const BULK_PURCHASE_ERROR_CODES: Record<string, string> = {
-  PromptNotFound:
-    "One or more prompts in the batch do not exist or have been archived.",
-  AlreadyPurchased:
-    "You have already purchased one of these prompts. You cannot buy the same prompt twice.",
-  CreatorCannotBuy:
-    "You cannot purchase prompts you created. Try a different batch.",
-  PromptInactive:
-    "One or more prompts are no longer for sale. Check their status and try again.",
-  InvalidPaymentAmount:
-    "The payment for one or more prompts is insufficient. Recalculate prices and retry.",
-  ListingExpired:
-    "One or more prompts have reached their expiration date and are no longer available.",
-  ContractIsPaused:
-    "The marketplace is temporarily paused. Please try again later.",
-  BulkPurchaseTooLarge:
-    "Your batch size exceeds the maximum allowed (20 prompts per transaction). Split into smaller batches.",
-  DuplicatePromptId:
-    "The same prompt ID appears multiple times in the batch. Remove duplicates and retry.",
-  InvalidPrice:
-    "The number of payment amounts does not match the number of prompts. Both lists must be equal length.",
-  ArithmeticOverflow:
-    "One or more prices are too large to process. Contact support if this persists.",
+  PromptNotFound: BULK_PURCHASE_ERROR_KEYS.PROMPT_NOT_FOUND,
+  AlreadyPurchased: BULK_PURCHASE_ERROR_KEYS.ALREADY_PURCHASED,
+  CreatorCannotBuy: BULK_PURCHASE_ERROR_KEYS.CREATOR_CANNOT_BUY,
+  PromptInactive: BULK_PURCHASE_ERROR_KEYS.PROMPT_INACTIVE,
+  InvalidPaymentAmount: BULK_PURCHASE_ERROR_KEYS.INVALID_PAYMENT_AMOUNT,
+  ListingExpired: BULK_PURCHASE_ERROR_KEYS.LISTING_EXPIRED,
+  ContractIsPaused: BULK_PURCHASE_ERROR_KEYS.CONTRACT_IS_PAUSED,
+  BulkPurchaseTooLarge: BULK_PURCHASE_ERROR_KEYS.BULK_PURCHASE_TOO_LARGE,
+  DuplicatePromptId: BULK_PURCHASE_ERROR_KEYS.DUPLICATE_PROMPT_ID,
+  InvalidPrice: BULK_PURCHASE_ERROR_KEYS.INVALID_PRICE,
+  ArithmeticOverflow: BULK_PURCHASE_ERROR_KEYS.ARITHMETIC_OVERFLOW,
 };
 
 /**
  * Helper to provide user-friendly guidance when bulk purchase fails.
- * Splits error into: what went wrong + how to fix it.
+ * Returns i18n keys for title, message, and suggestion.
+ * Frontend localizes these keys via i18next.
  */
 export function interpretBulkPurchaseError(errorCode: string): {
-  title: string;
-  message: string;
-  suggestion: string;
+  titleKey: string;
+  messageKey: string;
+  suggestionKey: string;
 } {
-  const description = BULK_PURCHASE_ERROR_CODES[errorCode] || "";
-
-  if (errorCode === "BulkPurchaseTooLarge") {
-    return {
-      title: "Batch Too Large",
-      message: description,
-      suggestion:
-        "Try purchasing in groups of 10-15 prompts per transaction for better success rates.",
-    };
-  }
-
-  if (errorCode === "PromptNotFound" || errorCode === "AlreadyPurchased") {
-    return {
-      title: "Batch Contains Invalid Items",
-      message: description,
-      suggestion:
-        "Use the validation tool to check each item before retrying. Remove invalid items and purchase the rest.",
-    };
-  }
-
-  if (errorCode === "InvalidPaymentAmount" || errorCode === "InvalidPrice") {
-    return {
-      title: "Payment Mismatch",
-      message: description,
-      suggestion:
-        "Ensure each prompt price is paid in full. Recalculate totals and retry.",
-    };
-  }
-
-  if (errorCode === "ContractIsPaused") {
-    return {
-      title: "Marketplace Temporarily Paused",
-      message: description,
-      suggestion: "Check back in a few moments and try again.",
-    };
-  }
+  const baseKey =
+    BULK_PURCHASE_ERROR_CODES[errorCode] ||
+    BULK_PURCHASE_ERROR_KEYS.PROMPT_NOT_FOUND;
 
   return {
-    title: "Purchase Failed",
-    message: description || "An error occurred during the bulk purchase.",
-    suggestion:
-      "Try again with a smaller batch or individual purchases. Contact support if the problem persists.",
+    titleKey: `${baseKey}.title`,
+    messageKey: `${baseKey}.message`,
+    suggestionKey: `${baseKey}.suggestion`,
   };
 }

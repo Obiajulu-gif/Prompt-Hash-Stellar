@@ -1,7 +1,6 @@
 import { withObservability } from "../../src/lib/observability/wrapper";
 import connectDb from "../../server/src/db/connectDb";
 import Prompt from "../../server/src/models/Prompt";
-import User from "../../server/src/models/User";
 import Purchase from "../../server/src/models/Purchase";
 import {
   getRecommendedPrompts,
@@ -67,11 +66,11 @@ async function handler(req: any, res: any) {
   try {
     await connectDb();
 
-    const { category, walletAddress } = req.query ?? {};
+    const { category, walletAddress, onChainId, recommendations, viewerWallet } =
+      req.query ?? {};
     const limitParam = req.query?.limit ?? req.query?.pageSize;
     const limit = Math.min(parseInt(limitParam as string) || 20, 50);
     const cursor = req.query?.cursor as string | undefined;
-    const { category, walletAddress, onChainId } = req.query ?? {};
 
     if (onChainId) {
       const prompt = await Prompt.findOne(
@@ -79,20 +78,6 @@ async function handler(req: any, res: any) {
       )
         .populate("owner", "username walletAddress")
         .lean();
-    const {
-      category,
-      walletAddress,
-      recommendations,
-      viewerWallet,
-      limit,
-    } = req.query ?? {};
-
-    const query: Record<string, unknown> = {
-      listingStatus: "published",
-      isActive: true,
-      similarityFlag: { $ne: "highly_similar" },
-      integrityStatus: { $nin: ["corrupted", "missing"] },
-    };
 
       res.status(200).json(prompt ? [prompt] : []);
       return;
@@ -102,21 +87,6 @@ async function handler(req: any, res: any) {
       category: category ? String(category) : undefined,
       walletAddress: walletAddress ? String(walletAddress) : undefined,
     });
-    if (walletAddress && !recommendations) {
-      const user = await User.findOne({
-        walletAddress: String(walletAddress).toLowerCase(),
-      });
-      if (!user) {
-        res
-          .status(200)
-          .json({
-            data: [],
-            metadata: { hasNextPage: false, nextCursor: null },
-          });
-        return;
-      }
-      query.owner = user._id;
-    }
 
     if (cursor) {
       query._id = { $lt: cursor };

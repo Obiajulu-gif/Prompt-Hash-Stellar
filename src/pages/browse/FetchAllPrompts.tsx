@@ -147,47 +147,6 @@ const FetchAllPrompts = ({
     },
   });
 
-  // Infinite scroll observer
-  useEffect(() => {
-    if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const target = entries[0];
-        if (!target.isIntersecting) return;
-
-        const displayed = currentPage * ITEMS_PER_PAGE;
-
-        // When the user has scrolled through everything we currently hold and
-        // the contract has more pages, fetch the next page (which appends to
-        // the accumulated catalog rather than replacing it).
-        if (
-          displayed >= filteredPrompts.length &&
-          catalog.hasNextPage &&
-          !catalog.isFetchingNextPage
-        ) {
-          void catalog.fetchNextPage();
-          return;
-        }
-
-        if (currentPage < totalPages) {
-          setCurrentPage((prev) => prev + 1);
-        }
-      },
-      { threshold: 0.1, rootMargin: "100px" },
-    );
-
-    observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [
-    currentPage,
-    totalPages,
-    filteredPrompts.length,
-    catalog.hasNextPage,
-    catalog.isFetchingNextPage,
-    catalog.fetchNextPage,
-  ]);
-
   const accessQueries = useQueries({
     queries: (address ? (promptsQuery.data ?? []) : []).map((prompt) => ({
       queryKey: ["prompt-access", address, prompt.id.toString()],
@@ -307,6 +266,44 @@ const FetchAllPrompts = ({
         (currentPage - 1) * ITEMS_PER_PAGE,
         currentPage * ITEMS_PER_PAGE,
       );
+
+  // Infinite scroll observer — must be after totalPages/filteredPrompts are defined
+  useEffect(() => {
+    if (!ENABLE_INFINITE_SCROLL || !loadMoreRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const target = entries[0];
+        if (!target.isIntersecting) return;
+
+        const displayed = currentPage * ITEMS_PER_PAGE;
+
+        if (
+          displayed >= filteredPrompts.length &&
+          catalog.hasNextPage &&
+          !catalog.isFetchingNextPage
+        ) {
+          void catalog.fetchNextPage();
+          return;
+        }
+
+        if (currentPage < totalPages) {
+          setCurrentPage((prev) => prev + 1);
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" },
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [
+    currentPage,
+    totalPages,
+    filteredPrompts.length,
+    catalog.hasNextPage,
+    catalog.isFetchingNextPage,
+    catalog.fetchNextPage,
+  ]);
 
   useEffect(() => {
     setCurrentPage(1);

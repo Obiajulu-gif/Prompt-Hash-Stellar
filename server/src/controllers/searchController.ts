@@ -1,5 +1,6 @@
 import Prompt from "../models/Prompt";
 import { cacheDelPattern } from "../services/cacheService";
+import { resolveCategory } from "../services/categoryTaxonomyService";
 
 export interface SearchFilters {
   query?: string;
@@ -26,7 +27,9 @@ export interface SearchResponse {
 /**
  * Search prompts with advanced filtering (tags, version, creator trust) and pagination (#681)
  */
-export async function searchPrompts(filters: SearchFilters): Promise<SearchResponse> {
+export async function searchPrompts(
+  filters: SearchFilters,
+): Promise<SearchResponse> {
   const {
     query = "",
     category,
@@ -47,17 +50,34 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
     price: { $gte: minPrice, $lte: maxPrice },
     similarityFlag: { $ne: "highly_similar" },
     integrityStatus: { $nin: ["corrupted", "missing"] },
+    moderationStatus: { $nin: ["flagged", "hidden"] },
+    visibility: { $ne: "private" },
   };
 
-  // Add category filter if specified
+  // Add category filter if specified (with redirect support)
   if (category && category !== "") {
-    baseQuery.category = category;
+    // Resolve category slug to active category (following redirects)
+    const resolvedCategory = await resolveCategory(category);
+    if (resolvedCategory) {
+      baseQuery.category = resolvedCategory.displayName;
+    } else {
+      // Category not found or deprecated; return empty results
+      return {
+        prompts: [],
+        total: 0,
+        page,
+        totalPages: 0,
+        hasMore: false,
+      };
+    }
   }
 
   // Add tags filter if specified
   if (tags) {
     const tagList = Array.isArray(tags) ? tags : [tags];
-    baseQuery.tags = { $in: tagList.map((t) => new RegExp(`^${t.trim()}$`, "i")) };
+    baseQuery.tags = {
+      $in: tagList.map((t) => new RegExp(`^${t.trim()}$`, "i")),
+    };
   }
 
   // Add version signals filter
@@ -88,21 +108,21 @@ export async function searchPrompts(filters: SearchFilters): Promise<SearchRespo
   let sortOptions: any;
   switch (sortBy) {
     case "price-low":
-      sortOptions = { price: 1 };
+      sortOptions = { price: 1, _id: 1 };
       break;
     case "price-high":
-      sortOptions = { price: -1 };
+      sortOptions = { price: -1, _id: 1 };
       break;
     case "sales":
-      sortOptions = { salesCount: -1 };
+      sortOptions = { salesCount: -1, rating: -1, createdAt: -1, _id: 1 };
       break;
     case "rating":
     case "trust":
-      sortOptions = { rating: -1, salesCount: -1 };
+      sortOptions = { rating: -1, salesCount: -1, createdAt: -1, _id: 1 };
       break;
     case "recent":
     default:
-      sortOptions = { createdAt: -1 };
+      sortOptions = { createdAt: -1, _id: 1 };
       break;
   }
 
@@ -188,8 +208,8 @@ export async function getSearchSuggestions(query: string, limit: number = 5) {
       .select("title")
       .limit(limit)
       .lean(),
-    Prompt.distinct("category", { category: searchRegex, isActive: true }).then((cats: string[]) =>
-      cats.slice(0, limit),
+    Prompt.distinct("category", { category: searchRegex, isActive: true }).then(
+      (cats: string[]) => cats.slice(0, limit),
     ),
   ]);
 

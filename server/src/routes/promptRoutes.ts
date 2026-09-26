@@ -28,7 +28,16 @@ import {
   RespondOwnershipTransfer,
   CancelOwnershipTransfer,
 } from "../controllers/transferControllers";
+import { GetModerationQueue, OverrideModeration } from "../services/moderationService";
+import {
+  GetLicenseTemplates,
+  GetPromptLicense,
+  GetPurchaseReceipt,
+  GetLicenseDisputeView,
+  UpdatePromptLicense,
+} from "../controllers/licensingControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
+import { reportLimiter, publishLimiter } from "../middleware/rateLimiter";
 
 export const promptRouter = express.Router();
 
@@ -83,7 +92,7 @@ promptRouter.get("/preview/stats", GetPreviewStats);
 // Report endpoints — off-chain moderation data, does not affect access control.
 // Submission is public (anyone can flag a listing); reading the queue is a
 // moderation action and requires an admin token (#542).
-promptRouter.post("/reports", SubmitPromptReport);
+promptRouter.post("/reports", reportLimiter, SubmitPromptReport);
 promptRouter.get(
   "/reports",
   requireAdminScope("reports:read"),
@@ -103,6 +112,39 @@ promptRouter.post(
   "/admin/integrity-check",
   requireAdminScope("integrity:write"),
   TriggerIntegrityCheck,
+);
+
+// ── Safety scanner moderation (#758) — maintainer override workflow ──────────
+// The scanner queues (never publishes/blocks unilaterally); a maintainer with
+// a moderation-scoped admin token approves or rejects. Every decision is
+// appended to the ModerationReview history and the audit trail. Hidden-payload
+// fields are excluded from every moderation response.
+promptRouter.get(
+  "/moderation/queue",
+  requireAdminScope("moderation:read"),
+  GetModerationQueue,
+);
+promptRouter.post(
+  "/moderation/:promptId/override",
+  requireAdminScope("moderation:write"),
+  OverrideModeration,
+);
+
+// ── Versioned prompt licensing (#759) ────────────────────────────────────────
+// License terms are versioned; purchases freeze an immutable snapshot at
+// purchase time so later edits never rewrite historical terms. Receipts are
+// wallet-scoped (private); the dispute view is admin-only for reviewers.
+promptRouter.get("/licensing/templates", GetLicenseTemplates);
+promptRouter.get("/:promptId/license", GetPromptLicense);
+promptRouter.post("/licensing/update", UpdatePromptLicense);
+promptRouter.get(
+  "/buyer/:walletAddress/receipts/:promptId",
+  GetPurchaseReceipt,
+);
+promptRouter.get(
+  "/admin/licensing/:walletAddress/disputes/:promptId",
+  requireAdminScope("moderation:read"),
+  GetLicenseDisputeView,
 );
 
 // ── Ownership transfer (#708) — OFF-CHAIN two-phase handoff ───────────────────

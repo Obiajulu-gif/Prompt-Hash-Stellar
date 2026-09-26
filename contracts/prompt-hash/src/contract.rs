@@ -2,12 +2,14 @@ use super::events::Events;
 use super::storage::{InstanceStorage, Storage};
 use super::types::{
     AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey, DisputeReason,
-    DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig, ListingRevisionRecord,
-    Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute, PurchaseEscrow, SettlementStatus,
-    SignedDiscountAuthorization, Split,
+    DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig,
+    ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute,
+    PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
 };
-use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec};
 use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::{
+    contract, contractimpl, token, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec,
+};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 
@@ -22,6 +24,8 @@ const MAX_ENCRYPTED_PROMPT_LEN: u32 = 4096;
 const MAX_WRAPPED_KEY_LEN: u32 = 256;
 const MAX_IMAGE_URL_LEN: u32 = 512;
 const MAX_IV_LEN: u32 = 64;
+const SECONDS_PER_DAY: u64 = 86400;
+const DEFAULT_EXPIRY_DAYS: u64 = 30;
 const LEASE_PRICE_BPS: u32 = 4_000;
 const MAX_ACCESS_EXPIRY: u64 = u64::MAX;
 const MAX_SPLITS: u32 = 10;
@@ -89,8 +93,10 @@ impl PromptHashTrait for PromptHashContract {
         encryption_iv: String,
         wrapped_key: String,
         content_hash: BytesN<32>,
-        listing: ListingConfig,
-    ) -> Result<u64, Error> {
+        price_stroops: i128,
+        expires_at: Option<u64>,
+        max_supply: u64, // #119: 0 = unlimited
+    ) -> Result<u128, Error> {
         creator.require_auth();
         InstanceStorage::require_config_initialized(&env)?;
         ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
@@ -136,12 +142,9 @@ impl PromptHashTrait for PromptHashContract {
             asset: listing.asset.clone(),
             status: PromptSaleStatus::Active,
             sales_count: 0,
-            max_supply: listing.max_supply,
-            expires_at: listing.expires_at,
-            splits: listing.splits,
-            revision: 0,
-            tags: listing.tags,
-            license_terms_hash: listing.license_terms_hash.clone(),
+            expires_at,
+            max_supply, // #119
+            max_supply: 0, // default unlimited; use set_prompt_max_supply to restrict
         };
 
         Storage::save_prompt(&env, &prompt)?;
@@ -205,7 +208,7 @@ impl PromptHashTrait for PromptHashContract {
 
         let previous_state = prompt.status.clone();
         let now = env.ledger().timestamp();
-        
+
         // Store moderation audit record with durable evidence trail and reversal link
         let moderation_record = super::types::ModerationRecord {
             prompt_id,
@@ -304,17 +307,18 @@ impl PromptHashTrait for PromptHashContract {
         )
     }
 
-    fn buy_prompt_with_auth(
-        env: Env,
-        buyer: Address,
-        prompt_id: u64,
-        referrer: Option<Address>,
-        payment_amount_stroops: i128,
-        authorization: SignedDiscountAuthorization,
-        creator_sig: BytesN<64>,
-    ) -> Result<(), Error> {
-        buyer.require_auth();
-        ensure(!InstanceStorage::is_paused(&env), Error::ContractIsPaused)?;
+        ensure!(prompt.active, Error::PromptInactive)?;
+        ensure!(prompt.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure!(!Storage::has_purchase(&env, prompt_id, &buyer), Error::AlreadyPurchased)?;
+        if let Some(expiry) = prompt.expires_at {
+            ensure!(env.ledger().timestamp() < expiry, Error::PromptExpired)?;
+        }
+        ensure(prompt.active, Error::PromptInactive)?;
+        ensure(prompt.creator != buyer, Error::CreatorCannotBuy)?;
+        ensure(
+            !Storage::has_active_purchase(&env, prompt_id, &buyer, now),
+            Error::AlreadyPurchased,
+        )?;
 
         let prompt = Storage::require_prompt(&env, prompt_id)?;
         let now = env.ledger().sequence();
@@ -367,9 +371,8 @@ impl PromptHashTrait for PromptHashContract {
             Error::InvalidAuthorizationSignature,
         )?;
 
-        // 6. Consume the nonce atomically so it cannot be redeemed twice.
-        env.storage().persistent().remove(&registration_key);
-        let _ = creator_sig;
+        let fee_percentage = Storage::get_fee_percentage(&env);
+        ensure!(fee_percentage <= MAX_BPS, Error::InvalidFeePercentage)?;
 
         // 8. Execute buy with discount
         let discount_amount = prompt
@@ -466,7 +469,20 @@ impl PromptHashTrait for PromptHashContract {
             asset_client.transfer(&this_contract, &fee_wallet, &fee_amount);
         }
 
-        prompt.sales_count = reserved_sales_count;
+        prompt.sales_count = prompt
+            .sales_count
+            .checked_add(1)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Storage::update_prompt(&env, &prompt);
+        Storage::grant_purchase(&env, prompt_id, &buyer);
+        Storage::clear_reentrancy_guard(&env);
+        Events::emit_prompt_purchased(
+            &env,
+            prompt_id,
+            buyer,
+            prompt.creator,
+            prompt.price_stroops,
+        );
         let expires_at = now
             .checked_add(lease_duration_secs)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -764,13 +780,7 @@ impl PromptHashTrait for PromptHashContract {
                 } else {
                     per_prompt
                 };
-                Storage::grant_purchase(
-                    &env,
-                    &prompt,
-                    &buyer,
-                    this_price,
-                    MAX_ACCESS_EXPIRY,
-                );
+                Storage::grant_purchase(&env, &prompt, &buyer, this_price, MAX_ACCESS_EXPIRY);
             }
         }
 
@@ -1458,11 +1468,7 @@ impl PromptHashTrait for PromptHashContract {
     // ====== ACCOUNTING INVARIANT RECONCILIATION (#653) ======
 
     #[only_owner]
-    fn reconcile_sales_counter(
-        env: Env,
-        admin: Address,
-        prompt_id: u64,
-    ) -> Result<u64, Error> {
+    fn reconcile_sales_counter(env: Env, admin: Address, prompt_id: u64) -> Result<u64, Error> {
         admin.require_auth();
         let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
         ensure(owner == admin, Error::Unauthorized)?;
@@ -2218,71 +2224,81 @@ impl PromptHashTrait for PromptHashContract {
         Ok(())
     }
 
-    #[only_owner]
-    fn extend_all_ttl(env: Env) -> Result<(), Error> {
-        Storage::extend_all_ttl(&env);
-        Ok(())
-    }
+fn extend_listing(
+    env: Env,
+    creator: Address,
+    prompt_id: u128,
+    extension_days: u64,
+    fee_percentage_bps: Option<u32>,
+) -> Result<(), Error> {
+    creator.require_auth();
+    let mut prompt = Storage::require_prompt(&env, prompt_id)?;
+    ensure!(prompt.creator == creator, Error::Unauthorized)?;
 
-    fn get_asset_liability(env: Env, asset: Address) -> AssetLiability {
-        Storage::get_asset_liability(&env, &asset)
-    }
+    ensure!(extension_days > 0, Error::InvalidExtensionDuration)?;
 
-    fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency {
-        compute_asset_solvency(&env, &asset)
-    }
+    let extension_seconds = extension_days
+        .checked_mul(SECONDS_PER_DAY)
+        .ok_or(Error::ArithmeticOverflow)?;
 
-    /// Permissionless invariant check: compares tracked liability against the
-    /// contract's actual SAC balance for `asset` and pauses the contract if
-    /// the balance no longer covers what's owed (#570). Intended to be
-    /// callable by an off-chain operational monitor on a schedule, not just
-    /// the owner — catching drift early matters more than gating who can look.
-    fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error> {
-        let solvency = compute_asset_solvency(&env, &asset);
-        if solvency.surplus < 0 {
-            InstanceStorage::set_pause_status(&env, true);
-            Events::emit_contract_paused_state_changed(&env, true);
-            Events::emit_solvency_violation_detected(
-                &env,
-                asset,
-                solvency.tracked_liability,
-                solvency.actual_balance,
-            );
+    let now = env.ledger().timestamp();
+    let new_expiry = if let Some(current_expiry) = prompt.expires_at {
+        if now >= current_expiry {
+            now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+        } else {
+            current_expiry.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
         }
-        Ok(solvency)
+    } else {
+        now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+    };
+
+    let mut fee_paid = 0i128;
+    if let Some(fee_bps) = fee_percentage_bps {
+        ensure!(fee_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
+        let fee = prompt
+            .price_stroops
+            .checked_mul(fee_bps as i128)
+            .ok_or(Error::ArithmeticOverflow)?
+            / MAX_BPS as i128;
+        if fee > 0 {
+            let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+            let xlm = Storage::get_stellar_asset_contract(&env)?;
+            let this_contract = env.current_contract_address();
+            xlm.transfer_from(&this_contract, &creator, &fee_wallet, &fee);
+            fee_paid = fee;
+        }
     }
 
-    /// One-time backfill for a deployment upgrading into this feature: adds a
-    /// single pre-existing Pending/Disputed escrow's amount into the
-    /// per-asset liability ledger. A no-op (Ok) if this exact escrow was
-    /// already migrated, so it is safe to retry (#570).
-    #[only_owner]
-    fn migrate_asset_liability(
-        env: Env,
-        admin: Address,
-        prompt_id: u64,
-        buyer: Address,
-    ) -> Result<(), Error> {
-        admin.require_auth();
-        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
-        ensure(owner == admin, Error::Unauthorized)?;
+    prompt.expires_at = Some(new_expiry);
+    Storage::update_prompt(&env, &prompt);
+    Events::emit_listing_extended(&env, prompt_id, creator, Some(new_expiry), extension_days, fee_paid);
+    Ok(())
+}
+        } else {
+            // No previous expiry; set from now
+            now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
+        };
 
-        if Storage::is_escrow_liability_migrated(&env, prompt_id, &buyer) {
-            return Ok(());
-        }
-
-        let escrow = Storage::require_purchase_escrow(&env, prompt_id, &buyer)?;
-        if escrow.status == SettlementStatus::Pending {
-            let dispute_open = Storage::get_dispute(&env, prompt_id, &buyer)
-                .map(|d| d.status == DisputeStatus::Open)
-                .unwrap_or(false);
-            if dispute_open {
-                Storage::add_disputed_liability(&env, &escrow.asset, escrow.amount)?;
-            } else {
-                Storage::add_pending_liability(&env, &escrow.asset, escrow.amount)?;
+        let mut fee_paid = 0i128;
+        if let Some(fee_bps) = fee_percentage_bps {
+            ensure!(fee_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
+            let fee = prompt
+                .price_stroops
+                .checked_mul(fee_bps as i128)
+                .ok_or(Error::ArithmeticOverflow)?
+                / MAX_BPS as i128;
+            if fee > 0 {
+                let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
+                let xlm = Storage::get_stellar_asset_contract(&env)?;
+                let this_contract = env.current_contract_address();
+                xlm.transfer_from(&this_contract, &creator, &fee_wallet, &fee)?;
+                fee_paid = fee;
             }
         }
-        Storage::mark_escrow_liability_migrated(&env, prompt_id, &buyer);
+
+        prompt.expires_at = Some(new_expiry);
+        Storage::update_prompt(&env, &prompt);
+        Events::emit_listing_extended(&env, prompt_id, creator, Some(new_expiry), extension_days, fee_paid);
         Ok(())
     }
 }
