@@ -27,6 +27,17 @@ Prompts are scored based on where search terms appear:
 | Creator name match      | 10     | Query matches creator username               |
 | Tag match               | 10     | Query matches one of the prompt's tags       |
 
+## Creator Trust Scoring
+
+Trust is now computed from a bounded, explainable model that uses public marketplace signals only:
+
+- Prompt quality score from buyer outcomes (0-5, capped)
+- Refund rate over recent sales (0-1, capped)
+- Moderation history count (flagged and resolved issues)
+- Sales velocity and catalog activity
+
+The score is normalized to a 0-100 band for ranking and eligibility checks, while preserving the legacy 0-5 rating fallback for older data. The system stores a snapshot of the score inputs and a plain-language explanation so ranking remains reproducible and admin reviewers can audit the logic without exposing private buyer information.
+
 ## Quality and Activity Boosts
 
 Additional points awarded for quality signals:

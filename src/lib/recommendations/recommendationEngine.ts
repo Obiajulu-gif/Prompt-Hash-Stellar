@@ -1,3 +1,8 @@
+import {
+  calculateCreatorTrustScore,
+  normalizeCreatorTrustScore,
+} from "@/lib/reputation/creatorTrustScore";
+
 export interface PromptListing {
   id: string;
   title: string;
@@ -76,10 +81,10 @@ export function isPromptEligibleForRecommendation(
 
   // 5. Creator Trust check
   const minTrust = options.minCreatorTrustScore ?? DEFAULT_MIN_CREATOR_TRUST;
-  if (
-    typeof prompt.creatorTrustScore === "number" &&
-    prompt.creatorTrustScore < minTrust
-  ) {
+  const candidateTrust = normalizeCreatorTrustScore(
+    prompt.creatorTrustScore ?? prompt.creatorRating ?? 4.0,
+  );
+  if (candidateTrust < minTrust * 20) {
     return false;
   }
 
@@ -109,14 +114,27 @@ export function isPromptEligibleForRecommendation(
  */
 export function calculateRecommendationScore(prompt: PromptListing): number {
   const ratingScore = (prompt.rating ?? 4.0) * 20; // 0-100
-  const trustScore = (prompt.creatorTrustScore ?? prompt.creatorRating ?? 4.0) * 15; // 0-75
+  const normalizedTrustScore = normalizeCreatorTrustScore(
+    prompt.creatorTrustScore ?? prompt.creatorRating ?? 4.0,
+  );
+  const trustScore = normalizedTrustScore * 0.75; // 0-75
   const popularityScore = Math.min((prompt.salesCount ?? 0) * 5, 50); // 0-50
 
   const createdTime = new Date(prompt.createdAt).getTime();
   const daysOld = Math.max(0, (Date.now() - createdTime) / (1000 * 60 * 60 * 24));
   const recencyBoost = Math.max(0, 30 - daysOld * 0.5); // 0-30
 
-  return ratingScore + trustScore + popularityScore + recencyBoost;
+  const trustSnapshot = calculateCreatorTrustScore({
+    qualityScore: prompt.rating ?? 4.0,
+    salesCount: prompt.salesCount ?? 0,
+    refundRate: 0.04,
+    moderationFlags: 0,
+    moderationActions: 0,
+    totalListings: 1,
+    isNewCreator: (prompt.salesCount ?? 0) < 3,
+  });
+
+  return ratingScore + trustScore + popularityScore + recencyBoost + trustSnapshot.recoveryBonus;
 }
 
 /**
