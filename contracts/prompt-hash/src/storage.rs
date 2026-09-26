@@ -1,7 +1,7 @@
 use super::types::{
     AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, IndexDriftReport,
     IndexRepairSummary, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
-    PurchaseEscrow,
+    PurchaseEscrow, PurchaseRoundingPlan, RevenueRoundingReport, RevenueShareKind,
 };
 use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
 
@@ -285,6 +285,138 @@ impl Storage {
     pub fn remove_purchase_escrow(env: &Env, prompt_id: u64, buyer: &Address) {
         let key = DataKey::PurchaseEscrow(prompt_id, buyer.clone());
         env.storage().persistent().remove(&key);
+    }
+
+    pub fn save_purchase_rounding_plan(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+        created_at: u64,
+        plan: &PurchaseRoundingPlan,
+    ) {
+        let key = DataKey::PurchaseRoundingPlan(prompt_id, buyer.clone(), created_at);
+        env.storage().persistent().set(&key, plan);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_purchase_rounding_plan(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+        created_at: u64,
+    ) -> Option<PurchaseRoundingPlan> {
+        let key = DataKey::PurchaseRoundingPlan(prompt_id, buyer.clone(), created_at);
+        let plan = env.storage().persistent().get(&key);
+        if plan.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        plan
+    }
+
+    pub fn remove_purchase_rounding_plan(
+        env: &Env,
+        prompt_id: u64,
+        buyer: &Address,
+        created_at: u64,
+    ) {
+        let key = DataKey::PurchaseRoundingPlan(prompt_id, buyer.clone(), created_at);
+        env.storage().persistent().remove(&key);
+    }
+
+    pub fn save_access_pass_rounding_plan(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        created_at: u64,
+        plan: &PurchaseRoundingPlan,
+    ) {
+        let key = DataKey::AccessPassRoundingPlan(pass_id, buyer.clone(), created_at);
+        env.storage().persistent().set(&key, plan);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_access_pass_rounding_plan(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        created_at: u64,
+    ) -> Option<PurchaseRoundingPlan> {
+        let key = DataKey::AccessPassRoundingPlan(pass_id, buyer.clone(), created_at);
+        let plan = env.storage().persistent().get(&key);
+        if plan.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        plan
+    }
+
+    pub fn remove_access_pass_rounding_plan(
+        env: &Env,
+        pass_id: u128,
+        buyer: &Address,
+        created_at: u64,
+    ) {
+        let key = DataKey::AccessPassRoundingPlan(pass_id, buyer.clone(), created_at);
+        env.storage().persistent().remove(&key);
+    }
+
+    pub fn get_revenue_rounding_carry(
+        env: &Env,
+        asset: &Address,
+        recipient: &Address,
+        kind: RevenueShareKind,
+        source_id: u64,
+    ) -> u32 {
+        let key =
+            DataKey::RevenueRoundingCarry(asset.clone(), recipient.clone(), kind, source_id);
+        let remainder = env.storage().persistent().get(&key).unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            Self::extend_key_ttl(env, &key);
+        }
+        remainder
+    }
+
+    pub fn save_revenue_rounding_carry(
+        env: &Env,
+        asset: &Address,
+        recipient: &Address,
+        kind: RevenueShareKind,
+        source_id: u64,
+        remainder: u32,
+    ) {
+        let key =
+            DataKey::RevenueRoundingCarry(asset.clone(), recipient.clone(), kind, source_id);
+        env.storage().persistent().set(&key, &remainder);
+        Self::extend_key_ttl(env, &key);
+    }
+
+    pub fn get_revenue_rounding_report(env: &Env, asset: &Address) -> RevenueRoundingReport {
+        let key = DataKey::RevenueRoundingReport(asset.clone());
+        let report = env.storage().persistent().get(&key);
+        if report.is_some() {
+            Self::extend_key_ttl(env, &key);
+        }
+        report.unwrap_or(RevenueRoundingReport {
+            cumulative_numerator: 0,
+            reserve_stroops: 0,
+        })
+    }
+
+    pub fn update_revenue_rounding_report(
+        env: &Env,
+        asset: &Address,
+        numerator: u128,
+        reserve_stroops: i128,
+    ) -> Result<(), Error> {
+        let mut report = Self::get_revenue_rounding_report(env, asset);
+        report.cumulative_numerator = report
+            .cumulative_numerator
+            .checked_add(numerator)
+            .ok_or(Error::ArithmeticOverflow)?;
+        report.reserve_stroops = reserve_stroops;
+        let key = DataKey::RevenueRoundingReport(asset.clone());
+        env.storage().persistent().set(&key, &report);
+        Self::extend_key_ttl(env, &key);
+        Ok(())
     }
 
     // ─── Per-Asset Escrow Liability (#570) ──────────────────────────────────

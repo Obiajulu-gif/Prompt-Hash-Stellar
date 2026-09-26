@@ -4,7 +4,8 @@ use super::types::{
     AccessPass, AssetLiability, AssetSolvency, Bundle, CatalogPassPurchase, DataKey, DisputeReason,
     DisputeStatus, Error, IndexDriftReport, IndexRepairSummary, ListingConfig,
     ListingRevisionRecord, Prompt, PromptHashTrait, PromptSaleStatus, PurchaseDispute,
-    PurchaseEscrow, SettlementStatus, SignedDiscountAuthorization, Split,
+    PurchaseEscrow, PurchaseRoundingPlan, RevenueRoundingReport, RevenueRoundingShare,
+    RevenueShareKind, SettlementStatus, SignedDiscountAuthorization, Split,
 };
 use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
@@ -41,6 +42,69 @@ const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 // pending escrow. After it elapses with no open dispute, settlement becomes
 // permissionless (#541).
 const DISPUTE_WINDOW_SECS: u64 = 3 * 24 * 60 * 60;
+const MAX_ROUNDING_SHARES: usize = (MAX_BUNDLE_PROMPTS * MAX_SPLITS + 3) as usize;
+
+fn settle_revenue_rounding(
+    env: &Env,
+    asset: &Address,
+    payment: i128,
+    contract: &Address,
+    plan: &PurchaseRoundingPlan,
+) -> Result<(), Error> {
+    if plan.shares.len() as usize > MAX_ROUNDING_SHARES {
+        return Err(Error::InvalidSplits);
+    }
+
+    let mut shares_bps = [0u32; MAX_ROUNDING_SHARES];
+    let mut previous_remainders = [0u32; MAX_ROUNDING_SHARES];
+    for index in 0..plan.shares.len() {
+        let share = plan.shares.get(index).unwrap();
+        shares_bps[index as usize] = share.bps;
+        previous_remainders[index as usize] = Storage::get_revenue_rounding_carry(
+            env,
+            asset,
+            &share.recipient,
+            share.kind,
+            share.source_id,
+        );
+    }
+
+    let report = Storage::get_revenue_rounding_report(env, asset);
+    let allocation = revenue_rounding::allocate_round(
+        payment,
+        &shares_bps,
+        &previous_remainders,
+        report.reserve_stroops,
+    )
+    .map_err(|error| match error {
+        revenue_rounding::RoundingError::SharesDoNotSumToDenominator => Error::InvalidSplits,
+        _ => Error::ArithmeticOverflow,
+    })?;
+
+    let asset_client = token::StellarAssetClient::new(env, asset);
+    for index in 0..plan.shares.len() {
+        let share = plan.shares.get(index).unwrap();
+        let amount = allocation.amounts[index as usize];
+        if amount > 0 {
+            asset_client.transfer(contract, &share.recipient, &amount);
+        }
+        Storage::save_revenue_rounding_carry(
+            env,
+            asset,
+            &share.recipient,
+            share.kind,
+            share.source_id,
+            allocation.remainders[index as usize],
+        );
+    }
+    Storage::update_revenue_rounding_report(
+        env,
+        asset,
+        allocation.rounding_numerator,
+        allocation.reserve_after,
+    )?;
+    Ok(())
+}
 
 /// Canonical listing snapshot hash over the fields a buyer signs: id, owner,
 /// price, asset, version (revision), and expiry. Mirrors the off-chain
@@ -704,47 +768,62 @@ impl PromptHashTrait for PromptHashContract {
 
         let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
 
-        // Distribute fee to the fee wallet from the contract's held balance
-        if fee_amount > 0 {
-            asset_client.transfer(&this_contract, &fee_wallet, &fee_amount);
-        }
-
-        // Distribute collaborator splits from the contract's held balance
-        let mut split_total: i128 = 0;
+        // Snapshot all basis-point shares before settlement; their sum must
+        // leave a non-negative creator share and total exactly 10,000 bps.
+        let mut allocated_bps = fee_percentage;
         let mut payout_splits: Vec<super::types::PayoutSplit> = Vec::new(&env);
+        let mut rounding_shares: Vec<RevenueRoundingShare> = Vec::new(&env);
+        if fee_percentage > 0 {
+            rounding_shares.push_back(RevenueRoundingShare {
+                recipient: fee_wallet.clone(),
+                kind: RevenueShareKind::PlatformFee,
+                source_id: 0,
+                bps: fee_percentage,
+            });
+        }
         for index in 0..prompts.len() {
             let prompt = prompts.get(index).unwrap();
             if !Storage::has_active_purchase(&env, prompt.id, &buyer, now) {
                 for split_idx in 0..prompt.splits.len() {
                     let split = prompt.splits.get(split_idx).unwrap();
+                    allocated_bps = allocated_bps
+                        .checked_add(split.bps)
+                        .ok_or(Error::ArithmeticOverflow)?;
                     let split_amount = payment_amount_stroops
                         .checked_mul(split.bps as i128)
                         .ok_or(Error::ArithmeticOverflow)?
                         / MAX_BPS as i128;
-                    split_total = split_total
-                        .checked_add(split_amount)
-                        .ok_or(Error::ArithmeticOverflow)?;
                     if split_amount > 0 {
-                        asset_client.transfer(&this_contract, &split.recipient, &split_amount);
                         payout_splits.push_back(super::types::PayoutSplit {
                             recipient: split.recipient.clone(),
                             amount: split_amount,
+                        });
+                    }
+                    if split.bps > 0 {
+                        rounding_shares.push_back(RevenueRoundingShare {
+                            recipient: split.recipient,
+                            kind: RevenueShareKind::Collaborator,
+                            source_id: prompt.id,
+                            bps: split.bps,
                         });
                     }
                 }
             }
         }
 
-        // Creator receives the remainder after all deductions
+        ensure(allocated_bps <= MAX_BPS, Error::InvalidSplits)?;
+        let creator_bps = MAX_BPS - allocated_bps;
         let creator_amount = payment_amount_stroops
-            .checked_sub(fee_amount)
-            .ok_or(Error::ArithmeticOverflow)?
-            .checked_sub(split_total)
+            .checked_mul(creator_bps as i128)
             .ok_or(Error::ArithmeticOverflow)?;
-        ensure(creator_amount >= 0, Error::InvalidSplits)?;
-
-        if creator_amount > 0 {
-            asset_client.transfer(&this_contract, &bundle.creator, &creator_amount);
+        let creator_amount = creator_amount / MAX_BPS as i128;
+        if creator_bps > 0 {
+            rounding_shares.push_back(RevenueRoundingShare {
+                recipient: bundle.creator.clone(),
+                kind: RevenueShareKind::Creator,
+                source_id: 0,
+                bps: creator_bps,
+            });
         }
 
         // Update prompt sales counts and grant access for newly purchased prompts.
@@ -793,7 +872,6 @@ impl PromptHashTrait for PromptHashContract {
         // Create escrow with payout plan for unified dispute/settlement (#564)
         // Bundles now have the same Pending/dispute_deadline escrow lifecycle as individual
         // purchases (#595), giving buyers the full dispute window before settlement.
-        let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
         let payout_plan = super::types::PayoutPlan {
             creator: bundle.creator.clone(),
             fee_wallet: fee_wallet.clone(),
@@ -822,6 +900,15 @@ impl PromptHashTrait for PromptHashContract {
             payout_plan,
         };
         Storage::save_purchase_escrow(&env, &escrow);
+        Storage::save_purchase_rounding_plan(
+            &env,
+            0,
+            &buyer,
+            now,
+            &PurchaseRoundingPlan {
+                shares: rounding_shares,
+            },
+        );
         // Track the escrowed bundle funds as pending liability (#570)
         Storage::add_pending_liability(&env, &bundle.asset, payment_amount_stroops)?;
         // Store bundle prompt IDs and mapping for later refund processing (#595)
@@ -975,19 +1062,13 @@ impl PromptHashTrait for PromptHashContract {
             .checked_mul(fee_percentage as i128)
             .ok_or(Error::ArithmeticOverflow)?
             / MAX_BPS as i128;
+        let creator_bps = MAX_BPS - fee_percentage;
         let creator_amount = payment_amount_stroops
-            .checked_sub(fee_amount)
+            .checked_mul(creator_bps as i128)
             .ok_or(Error::ArithmeticOverflow)?;
+        let creator_amount = creator_amount / MAX_BPS as i128;
 
         let fee_wallet = InstanceStorage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
-
-        // Distribute from the contract's held balance
-        if fee_amount > 0 {
-            asset_client.transfer(&this_contract, &fee_wallet, &fee_amount);
-        }
-        if creator_amount > 0 {
-            asset_client.transfer(&this_contract, &access_pass.creator, &creator_amount);
-        }
 
         // Renewing before the current grant expires extends it forward from
         // the existing expiry rather than from `now`, so the buyer never
@@ -1026,6 +1107,23 @@ impl PromptHashTrait for PromptHashContract {
             splits: Vec::new(&env),
             creator_amount,
         };
+        let mut rounding_shares = Vec::new(&env);
+        if fee_percentage > 0 {
+            rounding_shares.push_back(RevenueRoundingShare {
+                recipient: fee_wallet,
+                kind: RevenueShareKind::PlatformFee,
+                source_id: 0,
+                bps: fee_percentage,
+            });
+        }
+        if creator_bps > 0 {
+            rounding_shares.push_back(RevenueRoundingShare {
+                recipient: access_pass.creator.clone(),
+                kind: RevenueShareKind::Creator,
+                source_id: 0,
+                bps: creator_bps,
+            });
+        }
         let dispute_deadline = now
             .checked_add(DISPUTE_WINDOW_SECS)
             .ok_or(Error::ArithmeticOverflow)?;
@@ -1045,6 +1143,15 @@ impl PromptHashTrait for PromptHashContract {
             payout_plan,
         };
         Storage::save_access_pass_escrow(&env, pass_id, &buyer, &escrow);
+        Storage::save_access_pass_rounding_plan(
+            &env,
+            pass_id,
+            &buyer,
+            now,
+            &PurchaseRoundingPlan {
+                shares: rounding_shares,
+            },
+        );
         // Track the escrowed funds as pending liability (#570)
         Storage::add_pending_liability(&env, &access_pass.asset, payment_amount_stroops)?;
 
@@ -1491,6 +1598,28 @@ impl PromptHashTrait for PromptHashContract {
         Ok(Storage::compute_expiry_risks(&env))
     }
 
+    fn get_revenue_rounding_report(env: Env, asset: Address) -> RevenueRoundingReport {
+        Storage::get_revenue_rounding_report(&env, &asset)
+    }
+
+    fn get_asset_liability(env: Env, asset: Address) -> AssetLiability {
+        Storage::get_asset_liability(&env, &asset)
+    }
+
+    fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency {
+        compute_asset_solvency(&env, &asset)
+    }
+
+    fn get_revenue_rounding_remainder(
+        env: Env,
+        asset: Address,
+        recipient: Address,
+        kind: RevenueShareKind,
+        source_id: u64,
+    ) -> u32 {
+        Storage::get_revenue_rounding_carry(&env, &asset, &recipient, kind, source_id)
+    }
+
     fn open_dispute(
         env: Env,
         buyer: Address,
@@ -1622,6 +1751,12 @@ impl PromptHashTrait for PromptHashContract {
                         &escrow_updated.asset,
                         escrow_updated.amount,
                     )?;
+                    Storage::remove_purchase_rounding_plan(
+                        &env,
+                        prompt_id,
+                        &buyer,
+                        escrow_updated.created_at,
+                    );
                     escrow_updated.status = SettlementStatus::Refunded;
                     escrow_updated.settled_at = env.ledger().timestamp();
                     Storage::save_purchase_escrow(&env, &escrow_updated);
@@ -1658,6 +1793,12 @@ impl PromptHashTrait for PromptHashContract {
                 // and clear the tracked disputed liability (#541, #570).
                 if let Some(mut escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
                     Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+                    Storage::remove_purchase_rounding_plan(
+                        &env,
+                        prompt_id,
+                        &buyer,
+                        escrow.created_at,
+                    );
                     escrow.status = SettlementStatus::Refunded;
                     escrow.settled_at = env.ledger().timestamp();
                     Storage::save_purchase_escrow(&env, &escrow);
@@ -1745,29 +1886,44 @@ impl PromptHashTrait for PromptHashContract {
         // Use the snapshotted payout plan, not the current listing state (#562).
         let plan = &escrow.payout_plan;
 
-        // Distribute fee to the snapshotted fee wallet
-        if plan.fee_amount > 0 {
-            asset_client.transfer(&this_contract, &plan.fee_wallet, &plan.fee_amount);
-        }
-
-        // Distribute referral to the snapshotted referrer
-        if let Some(ref r) = plan.referrer {
-            if plan.referral_amount > 0 {
-                asset_client.transfer(&this_contract, r, &plan.referral_amount);
+        if let Some(rounding_plan) = Storage::get_purchase_rounding_plan(
+            &env,
+            prompt_id,
+            &buyer,
+            escrow.created_at,
+        ) {
+            settle_revenue_rounding(
+                &env,
+                &escrow.asset,
+                escrow.amount,
+                &this_contract,
+                &rounding_plan,
+            )?;
+            Storage::remove_purchase_rounding_plan(
+                &env,
+                prompt_id,
+                &buyer,
+                escrow.created_at,
+            );
+        } else {
+            // Legacy escrows predate rounding plans and retain their saved payouts.
+            if plan.fee_amount > 0 {
+                asset_client.transfer(&this_contract, &plan.fee_wallet, &plan.fee_amount);
             }
-        }
-
-        // Distribute collaborator splits from the snapshotted amounts
-        for i in 0..plan.splits.len() {
-            let split = plan.splits.get(i).unwrap();
-            if split.amount > 0 {
-                asset_client.transfer(&this_contract, &split.recipient, &split.amount);
+            if let Some(ref r) = plan.referrer {
+                if plan.referral_amount > 0 {
+                    asset_client.transfer(&this_contract, r, &plan.referral_amount);
+                }
             }
-        }
-
-        // Transfer the creator's escrowed share to the snapshotted creator
-        if plan.creator_amount > 0 {
-            asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
+            for i in 0..plan.splits.len() {
+                let split = plan.splits.get(i).unwrap();
+                if split.amount > 0 {
+                    asset_client.transfer(&this_contract, &split.recipient, &split.amount);
+                }
+            }
+            if plan.creator_amount > 0 {
+                asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
+            }
         }
 
         // The escrow guards above guarantee this amount was still in the
@@ -1882,6 +2038,12 @@ impl PromptHashTrait for PromptHashContract {
 
             // Remove the disputed liability since it's now paid out
             Storage::remove_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+            Storage::remove_access_pass_rounding_plan(
+                &env,
+                pass_id,
+                &buyer,
+                escrow.created_at,
+            );
 
             // Revoke the catalog pass grant so buyer can't use it anymore
             if Storage::get_catalog_pass_purchase(&env, &escrow.payout_plan.creator, &buyer)
@@ -1954,13 +2116,30 @@ impl PromptHashTrait for PromptHashContract {
         let asset_client = token::StellarAssetClient::new(&env, &escrow.asset);
         let plan = &escrow.payout_plan;
 
-        // Distribute funds according to payout plan
-        if plan.fee_amount > 0 {
-            asset_client.transfer(&this_contract, &plan.fee_wallet, &plan.fee_amount);
-        }
-
-        if plan.creator_amount > 0 {
-            asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
+        if let Some(rounding_plan) =
+            Storage::get_access_pass_rounding_plan(&env, pass_id, &buyer, escrow.created_at)
+        {
+            settle_revenue_rounding(
+                &env,
+                &escrow.asset,
+                escrow.amount,
+                &this_contract,
+                &rounding_plan,
+            )?;
+            Storage::remove_access_pass_rounding_plan(
+                &env,
+                pass_id,
+                &buyer,
+                escrow.created_at,
+            );
+        } else {
+            // Legacy escrows predate rounding plans and retain their saved payouts.
+            if plan.fee_amount > 0 {
+                asset_client.transfer(&this_contract, &plan.fee_wallet, &plan.fee_amount);
+            }
+            if plan.creator_amount > 0 {
+                asset_client.transfer(&this_contract, &plan.creator, &plan.creator_amount);
+            }
         }
 
         // Remove from pending liability since it's now been paid out
@@ -2319,14 +2498,15 @@ fn set_platform_fee_internal(env: &Env, actor: Address, new_fee: u32) -> Result<
 }
 
 /// Compares tracked per-asset liability against the contract's actual SAC
-/// balance for `asset` (#570). `surplus` is the excess above what's owed —
-/// rounding dust or an accidental direct transfer, not customer liability —
-/// and goes negative only if the balance no longer covers tracked liability.
+/// balance for `asset` (#570). The tracked amount includes pending, disputed,
+/// and backed revenue-rounding reserves.
 fn compute_asset_solvency(env: &Env, asset: &Address) -> AssetSolvency {
     let liability = Storage::get_asset_liability(env, asset);
+    let rounding_reserve = Storage::get_revenue_rounding_report(env, asset).reserve_stroops;
     let tracked_liability = liability
         .pending
         .checked_add(liability.disputed)
+        .and_then(|amount| amount.checked_add(rounding_reserve))
         .unwrap_or(i128::MAX);
     let actual_balance = token::Client::new(env, asset).balance(&env.current_contract_address());
     let surplus = actual_balance
@@ -2446,28 +2626,27 @@ fn execute_buy_with_required_price(
         0
     };
 
-    let deductions = fee_amount
-        .checked_add(referral_amount)
-        .ok_or(Error::ArithmeticOverflow)?;
-
-    let mut split_total: i128 = 0;
+    let mut allocated_bps = fee_percentage;
+    if referrer.is_some() {
+        allocated_bps = allocated_bps
+            .checked_add(referral_percentage)
+            .ok_or(Error::ArithmeticOverflow)?;
+    }
     for i in 0..prompt.splits.len() {
         let split = prompt.splits.get(i).unwrap();
-        let split_amount = payment_amount_stroops
-            .checked_mul(split.bps as i128)
-            .ok_or(Error::ArithmeticOverflow)?
-            / MAX_BPS as i128;
-        split_total = split_total
-            .checked_add(split_amount)
+        allocated_bps = allocated_bps
+            .checked_add(split.bps)
             .ok_or(Error::ArithmeticOverflow)?;
     }
 
-    let total_deductions = deductions
-        .checked_add(split_total)
+    ensure(allocated_bps <= MAX_BPS, Error::InvalidSplits)?;
+    let creator_bps = MAX_BPS
+        .checked_sub(allocated_bps)
         .ok_or(Error::ArithmeticOverflow)?;
     let creator_amount = payment_amount_stroops
-        .checked_sub(total_deductions)
-        .ok_or(Error::ArithmeticOverflow)?;
+        .checked_mul(creator_bps as i128)
+        .ok_or(Error::ArithmeticOverflow)?
+        / MAX_BPS as i128;
 
     ensure(creator_amount >= 0, Error::InvalidSplits)?;
 
@@ -2504,16 +2683,12 @@ fn execute_buy_with_required_price(
 
     // Snapshot the complete payout plan at purchase time (#562).
     let mut payout_splits: Vec<super::types::PayoutSplit> = Vec::new(env);
-    let mut split_total: i128 = 0;
     for i in 0..prompt.splits.len() {
         let split = prompt.splits.get(i).unwrap();
         let split_amount = payment_amount_stroops
             .checked_mul(split.bps as i128)
             .ok_or(Error::ArithmeticOverflow)?
             / MAX_BPS as i128;
-        split_total = split_total
-            .checked_add(split_amount)
-            .ok_or(Error::ArithmeticOverflow)?;
         if split_amount > 0 {
             payout_splits.push_back(super::types::PayoutSplit {
                 recipient: split.recipient.clone(),
@@ -2531,6 +2706,44 @@ fn execute_buy_with_required_price(
         splits: payout_splits,
         creator_amount,
     };
+    let mut rounding_shares: Vec<RevenueRoundingShare> = Vec::new(env);
+    if fee_percentage > 0 {
+        rounding_shares.push_back(RevenueRoundingShare {
+            recipient: fee_wallet.clone(),
+            kind: RevenueShareKind::PlatformFee,
+            source_id: 0,
+            bps: fee_percentage,
+        });
+    }
+    if let Some(ref referrer) = referrer {
+        if referral_percentage > 0 {
+            rounding_shares.push_back(RevenueRoundingShare {
+                recipient: referrer.clone(),
+                kind: RevenueShareKind::Referral,
+                source_id: 0,
+                bps: referral_percentage,
+            });
+        }
+    }
+    for i in 0..prompt.splits.len() {
+        let split = prompt.splits.get(i).unwrap();
+        if split.bps > 0 {
+            rounding_shares.push_back(RevenueRoundingShare {
+                recipient: split.recipient,
+                kind: RevenueShareKind::Collaborator,
+                source_id: prompt_id,
+                bps: split.bps,
+            });
+        }
+    }
+    if creator_bps > 0 {
+        rounding_shares.push_back(RevenueRoundingShare {
+            recipient: prompt.creator.clone(),
+            kind: RevenueShareKind::Creator,
+            source_id: 0,
+            bps: creator_bps,
+        });
+    }
 
     let escrow = PurchaseEscrow {
         prompt_id,
@@ -2550,6 +2763,15 @@ fn execute_buy_with_required_price(
         payout_plan,
     };
     Storage::save_purchase_escrow(env, &escrow);
+    Storage::save_purchase_rounding_plan(
+        env,
+        prompt_id,
+        buyer,
+        now,
+        &PurchaseRoundingPlan {
+            shares: rounding_shares,
+        },
+    );
     // Escrow was just created Pending — its full amount is now tracked
     // liability for this asset until settled or refunded (#570).
     Storage::add_pending_liability(env, &escrow.asset, escrow.amount)?;

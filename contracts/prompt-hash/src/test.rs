@@ -5381,6 +5381,78 @@ fn test_creator_can_settle_immediately_without_waiting() {
 // ---------- Per-asset escrow liability tests (#570) ----------
 
 #[test]
+fn test_revenue_rounding_carries_fractional_shares_into_reserved_payouts() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+    let prompt_id = create_prompt_with_splits(
+        &env,
+        &client,
+        &creator,
+        "Fractional shares",
+        1,
+        &context.xlm,
+        Vec::from_array(
+            &env,
+            [crate::types::Split {
+                recipient: collaborator.clone(),
+                bps: 2_000,
+            }],
+        ),
+    );
+
+    for round in 0..20 {
+        let buyer = Address::generate(&env);
+        fund_buyer(&xlm_client, &buyer, &context.contract, 1);
+        client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &1, &None::<Bytes>);
+        client.settle_purchase(&context.admin, &prompt_id, &buyer);
+
+        if round == 0 {
+            let first_report = client.get_revenue_rounding_report(&context.xlm);
+            assert_eq!(first_report.reserve_stroops, 1);
+            let solvency = client.get_asset_solvency(&context.xlm);
+            assert_eq!(solvency.tracked_liability, 1);
+            assert_eq!(solvency.actual_balance, 1);
+            assert_eq!(solvency.surplus, 0);
+        }
+    }
+
+    let report = client.get_revenue_rounding_report(&context.xlm);
+    assert_eq!(report.reserve_stroops, 0);
+    assert_eq!(report.cumulative_numerator, 200_000);
+    assert_eq!(xlm_client.balance(&context.fee_wallet), 1);
+    assert_eq!(xlm_client.balance(&collaborator), 4);
+    assert_eq!(xlm_client.balance(&creator), 15);
+}
+
+#[test]
+fn test_refunded_escrow_does_not_accrue_rounding_carry() {
+    let env: Env = Default::default();
+    let context = setup(&env);
+    let client = PromptHashContractClient::new(&env, &context.contract);
+    let xlm_client = token::StellarAssetClient::new(&env, &context.xlm);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let prompt_id = create_prompt(&env, &client, &creator, "Refunded fraction", 1, &context.xlm);
+
+    fund_buyer(&xlm_client, &buyer, &context.contract, 1);
+    client.buy_prompt(&buyer, &prompt_id, &None::<Address>, &1, &None::<Bytes>);
+    client.open_dispute(
+        &buyer,
+        &prompt_id,
+        &crate::types::DisputeReason::FailedIntegrityVerification,
+    );
+    client.resolve_dispute(&context.admin, &prompt_id, &buyer, &true);
+
+    let report = client.get_revenue_rounding_report(&context.xlm);
+    assert_eq!(report.cumulative_numerator, 0);
+    assert_eq!(report.reserve_stroops, 0);
+}
+
+#[test]
 fn test_asset_liability_tracks_pending_on_purchase() {
     let env: Env = Default::default();
     let context = setup(&env);
