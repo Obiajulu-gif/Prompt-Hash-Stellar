@@ -1,5 +1,12 @@
 import Prompt from "../models/Prompt";
-import { cacheDelPattern } from "../services/cacheService";
+import {
+  cacheGetJson,
+  cacheSetJson,
+  cacheDelPattern,
+  CACHE_KEYS,
+  DEFAULT_TTL_SECONDS,
+  CATEGORY_TTL_SECONDS,
+} from "../services/cacheService";
 import { resolveCategory } from "../services/categoryTaxonomyService";
 
 export interface SearchFilters {
@@ -42,6 +49,14 @@ export async function searchPrompts(
     page = 1,
     limit = 20,
   } = filters;
+
+  const cacheKey = CACHE_KEYS.searchResults(
+    `q=${query}&cat=${category ?? ""}&tags=${Array.isArray(tags) ? tags.join(",") : (tags ?? "")}&ver=${version ?? ""}&minVer=${minVersion ?? ""}&minP=${minPrice}&maxP=${maxPrice}&sort=${sortBy}&p=${page}&l=${limit}&minR=${filters.minCreatorRating ?? ""}`,
+  );
+  const cached = await cacheGetJson<SearchResponse>(cacheKey);
+  if (cached) {
+    return cached;
+  }
 
   // Build the base query
   const baseQuery: any = {
@@ -145,13 +160,17 @@ export async function searchPrompts(
   const totalPages = Math.ceil(total / limit);
   const hasMore = page < totalPages;
 
-  return {
+  const result: SearchResponse = {
     prompts,
     total,
     page,
     totalPages,
     hasMore,
   };
+
+  await cacheSetJson(cacheKey, result, DEFAULT_TTL_SECONDS);
+
+  return result;
 }
 
 /**
@@ -167,7 +186,9 @@ export async function rebuildSearchIndex(): Promise<{
     isActive: true,
   });
 
-  const bulkOps = publishedPrompts.map((prompt) => ({
+  const promptArray = Array.isArray(publishedPrompts) ? publishedPrompts : [];
+
+  const bulkOps = promptArray.map((prompt) => ({
     updateOne: {
       filter: { _id: prompt._id },
       update: {
@@ -184,10 +205,13 @@ export async function rebuildSearchIndex(): Promise<{
     await Prompt.bulkWrite(bulkOps);
   }
 
-  await cacheDelPattern("prompts:list:*");
+  await Promise.all([
+    cacheDelPattern("prompts:*"),
+    cacheDelPattern("search:*"),
+  ]);
 
   return {
-    totalIndexed: publishedPrompts.length,
+    totalIndexed: promptArray.length,
     success: true,
     rebuiltAt: new Date().toISOString(),
   };
@@ -199,6 +223,13 @@ export async function rebuildSearchIndex(): Promise<{
 export async function getSearchSuggestions(query: string, limit: number = 5) {
   if (!query || query.trim().length < 2) {
     return { titles: [], categories: [], tags: [] };
+  }
+
+  const normalized = query.trim().toLowerCase();
+  const cacheKey = CACHE_KEYS.searchSuggestions(`${normalized}:${limit}`);
+  const cached = await cacheGetJson<{ titles: string[]; categories: string[] }>(cacheKey);
+  if (cached) {
+    return cached;
   }
 
   const searchRegex = new RegExp(query.trim(), "i");
@@ -213,32 +244,52 @@ export async function getSearchSuggestions(query: string, limit: number = 5) {
     ),
   ]);
 
-  return {
+  const result = {
     titles: titles.map((p: any) => p.title),
     categories,
   };
+
+  await cacheSetJson(cacheKey, result, DEFAULT_TTL_SECONDS);
+
+  return result;
 }
 
 /**
  * Get available categories with counts
  */
 export async function getCategoriesWithCounts() {
+  const cacheKey = CACHE_KEYS.categories();
+  const cached = await cacheGetJson<{ name: string; count: number }[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const categories = await Prompt.aggregate([
     { $match: { isActive: true, listingStatus: "published" } },
     { $group: { _id: "$category", count: { $sum: 1 } } },
     { $sort: { count: -1 } },
   ]);
 
-  return categories.map((cat: any) => ({
+  const result = categories.map((cat: any) => ({
     name: cat._id,
     count: cat.count,
   }));
+
+  await cacheSetJson(cacheKey, result, CATEGORY_TTL_SECONDS);
+
+  return result;
 }
 
 /**
  * Get featured/top prompts
  */
 export async function getFeaturedPrompts(limit: number = 6) {
+  const cacheKey = CACHE_KEYS.featuredPrompts(limit);
+  const cached = await cacheGetJson<any[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const prompts = await Prompt.find({
     isActive: true,
     listingStatus: "published",
@@ -248,5 +299,8 @@ export async function getFeaturedPrompts(limit: number = 6) {
     .populate("owner", "walletAddress username rating")
     .lean();
 
+  await cacheSetJson(cacheKey, prompts, DEFAULT_TTL_SECONDS);
+
   return prompts;
 }
+

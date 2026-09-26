@@ -54,6 +54,7 @@ vi.mock("../models/Prompt", () => {
         populate: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue(mockPrompts),
         getFilter: vi.fn().mockReturnValue({}),
+        then: (resolve: any) => Promise.resolve(mockPrompts).then(resolve),
       })),
       countDocuments: vi.fn().mockResolvedValue(mockPrompts.length),
       bulkWrite: vi.fn().mockResolvedValue({ modifiedCount: 2 }),
@@ -62,7 +63,17 @@ vi.mock("../models/Prompt", () => {
 });
 
 vi.mock("../services/cacheService", () => ({
+  cacheGetJson: vi.fn().mockResolvedValue(null),
+  cacheSetJson: vi.fn().mockResolvedValue(undefined),
   cacheDelPattern: vi.fn().mockResolvedValue(undefined),
+  CACHE_KEYS: {
+    searchResults: (key: string) => `search:signals:${key}`,
+    searchSuggestions: (key: string) => `search:suggestions:${key}`,
+    categories: () => "prompts:categories",
+    featuredPrompts: (limit: number) => `prompts:featured:${limit}`,
+  },
+  DEFAULT_TTL_SECONDS: 60,
+  CATEGORY_TTL_SECONDS: 600,
 }));
 
 describe("Marketplace Search Signals & Index Rebuild", () => {

@@ -28,7 +28,7 @@ export function useCatalogPages(config: PromptHashConfig | null) {
     queryKey: ["marketplace-prompts", config?.promptHashContractId],
     enabled: Boolean(config),
     queryFn: ({ pageParam }) =>
-      getAllPromptsPaginated(config as PromptHashConfig, pageParam ?? null, CATALOG_PAGE_SIZE),
+      getAllPromptsPaginated(config as PromptHashConfig, pageParam as string | null, CATALOG_PAGE_SIZE),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: CATALOG_CACHE_STALE_MS,

@@ -1,3 +1,4 @@
+import { PromptCard } from "../browse/PromptCard";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
@@ -82,7 +83,6 @@ interface FormData {
   fullPrompt: string;
   priceXlm: string;
   tags: string[];
-  coCreators: RevenueSplitFormInput[];
 }
 
 interface CreatePromptFormProps {
@@ -124,7 +124,6 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       description: "",
       fullPrompt: "",
       priceXlm: "2",
-      coCreators: [],
     },
     mode: "onChange",
   });
@@ -136,12 +135,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       (v) => v !== "" && v !== undefined && v !== null && v !== "2" && !(Array.isArray(v) && v.length === 0)
     ),
     disabled: !!successMessage,
-  const {
-    draftRestored,
-    lastSavedAt,
-    discardDraft,
-  } = useDraftAutoSave({
-  const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
+  });
+
+  const { draftRestored, lastSavedAt, discardDraft, conflict, resolveConflict, sessionGuard, canPublish } = useDraftAutoSave({
     address,
     network,
     values: watchAllFields,
@@ -169,7 +165,6 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           imageUrl: watchAllFields.imageUrl || "",
           category: watchAllFields.category || "",
           previewText: watchAllFields.previewText || "",
-          coCreators: watchAllFields.coCreators || [],
         },
         { offChainStorage },
       ),
@@ -351,10 +346,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       // Encrypt the prompt content
       const encryptionResult = await encryptPromptPlaintext(
         data.fullPrompt,
-        unlockPublicKey,
       );
 
-      const hash = await hashPromptPlaintext(data.fullPrompt);
+      const hash = encryptionResult.contentHash;
 
       // Build the contract creation payload
       const createInput = {
@@ -362,9 +356,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
         title: data.title,
         category: data.category,
         previewText: data.previewText,
-        encryptedPrompt: encryptionResult.ciphertext,
-        encryptionIv: encryptionResult.iv,
-        wrappedKey: encryptionResult.wrappedKey,
+        encryptedPrompt: encryptionResult.encryptedPrompt,
+        encryptionIv: encryptionResult.encryptionIv,
+        wrappedKey: "",
         contentHash: hash,
         priceStroops: BigInt(xlmToStroops(Number(data.priceXlm) || 0)),
         splits: (data.coCreators || [])
@@ -376,15 +370,21 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       };
 
       // Call the contract
+      const signer: any = {
+        signTransaction: async (xdr: string, opts: any) => ({
+          signedTxXdr: await signTransaction(xdr, opts),
+        }),
+      };
+
       const result = await PromptHashClient.createPrompt(
         browserStellarConfig,
-        { signTransaction },
+        signer,
         address,
         createInput,
       );
 
       if (result.success) {
-        if (sourcePromptId) {
+        if (sourcePromptId && result.promptId !== undefined) {
           saveRemixAttribution(result.promptId, sourcePromptId);
         }
         setSuccessMessage(`Prompt created! Transaction: ${result.txHash}`);

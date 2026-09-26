@@ -1,6 +1,6 @@
 {
   "_metadata": {
-    "generated_at": "2024-01-01T00:00:00Z",
+    "generated_at": "2026-09-11T06:11:31.925Z",
     "report_version": "1.0.0",
     "description": "Contract version compatibility matrix for clients"
   },
@@ -10,10 +10,9 @@
       "released_at": "2024-01-01T00:00:00Z",
       "breaking_changes": [],
       "additions": [
-        "Initial contract deployment",
-        "Core prompt marketplace functionality",
-        "Bundle and access pass features",
-        "Dispute resolution system"
+        "22 new functions added",
+        "46 new error codes added",
+        "9 new events added"
       ],
       "deprecations": [],
       "sdk_minimum_version": "0.0.1",

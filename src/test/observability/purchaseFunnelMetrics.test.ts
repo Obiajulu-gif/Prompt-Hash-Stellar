@@ -109,12 +109,12 @@ describe("Purchase Funnel Metrics", () => {
 
     it("should handle optional latency", () => {
       purchaseFunnelTracker.recordStageFailure(
-        PurchaseFunnelStage.WALLET_CONNECT_FAILED,
+        PurchaseFunnelStage.BUY_INITIATED,
         PurchaseFailureReason.WALLET_CONNECT_FAILED
       );
 
       const snapshot = purchaseFunnelTracker.getConversionSnapshot();
-      const stage = snapshot.find((s) => s.stageName === PurchaseFunnelStage.WALLET_CONNECT_FAILED);
+      const stage = snapshot.find((s) => s.stageName === PurchaseFunnelStage.BUY_INITIATED);
 
       expect(stage).toBeDefined();
       expect(stage?.avgLatencyMs).toBe(0);

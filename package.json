@@ -31,10 +31,10 @@
     "verify:smoke": "node scripts/smoke-verification.mjs"
   },
   "dependencies": {
-    "@prompthash/schema": "file:./packages/schema",
     "@creit.tech/stellar-wallets-kit": "^2.5.0",
     "@hookform/resolvers": "^5.5.7",
     "@jadonamite/automata-sdk": "^1.0.1",
+    "@prompthash/schema": "file:./packages/schema",
     "@radix-ui/react-avatar": "^1.2.1",
     "@radix-ui/react-dialog": "^1.1.18",
     "@radix-ui/react-dropdown-menu": "^2.1.19",

@@ -428,7 +428,6 @@ export function useDraftAutoSave({
     }
     // `persist` is recreated whenever its dependencies (storageKey, address,
     // network) change, which are already the effect's dependencies.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, network, storageKey]);
 
   useEffect(() => {

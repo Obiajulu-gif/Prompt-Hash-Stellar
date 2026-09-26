@@ -8,7 +8,7 @@ import {
   nativeToScVal,
   scValToNative,
   Address,
-  type xdr,
+  xdr,
 } from "@stellar/stellar-sdk";
 import { Api } from "@stellar/stellar-sdk/rpc";
 import {
@@ -431,7 +431,7 @@ export async function contractCreatePrompt(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
     promptId: undefined, // Decoded from contract result if available
   };
@@ -464,7 +464,7 @@ export async function contractPurchasePrompt(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
   };
 }
@@ -496,7 +496,7 @@ export async function contractPurchaseBundle(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
   };
 }
@@ -528,7 +528,7 @@ export async function contractPurchaseAccessPass(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
   };
 }
@@ -572,7 +572,7 @@ export async function contractCreateBundle(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
     bundleId: undefined,
   };
@@ -611,7 +611,7 @@ export async function contractCreateAccessPass(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
     passId: undefined,
   };
@@ -646,7 +646,7 @@ export async function contractSetPromptSaleStatus(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
   };
 }
@@ -680,7 +680,7 @@ export async function contractUpdatePromptPrice(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
   };
 }
@@ -714,7 +714,7 @@ export async function contractAdminSetPromptSaleStatus(
   );
 
   return {
-    txHash: txResult.hash,
+    txHash: txResult.txHash,
     success: true,
   };
 }
@@ -793,11 +793,11 @@ export async function contractValidateBulkPurchase(
     const idsVec = nativeToScVal(promptIds, {
       type: "vec",
       innerType: { type: "u64" },
-    });
+    } as any);
     const amountsVec = nativeToScVal(paymentAmounts, {
       type: "vec",
       innerType: { type: "i128" },
-    });
+    } as any);
 
     const args: xdr.ScVal[] = [
       scValArg(new Address(buyerAddress).toScVal()),
@@ -813,7 +813,7 @@ export async function contractValidateBulkPurchase(
     );
 
     // Result is a vec<bool> from the contract
-    const validity = scValToNative(result) as boolean[];
+    const validity = scValToNative(result as any) as boolean[];
     return validity;
   } catch (error) {
     console.error("Error validating bulk purchase:", error);

@@ -2579,6 +2579,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@prompthash/schema@file:./packages/schema::locator=prompt-hash-stellar%40workspace%3A.":
+  version: 0.1.0
+  resolution: "@prompthash/schema@file:./packages/schema#./packages/schema::hash=3db0dd&locator=prompt-hash-stellar%40workspace%3A."
+  dependencies:
+    zod: "npm:^4.4.3"
+  checksum: 10c0/6576fbcee90cc6a948b4f8503bfaf5a3d49214d691f3d1b19d2b212590e36f06959dfd37acdbe2b3d3e23794150431d8924c7609105229aafa40064640c8e1b0
+  languageName: node
+  linkType: hard
+
 "@radix-ui/number@npm:1.1.3":
   version: 1.1.3
   resolution: "@radix-ui/number@npm:1.1.3"
@@ -9025,6 +9034,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"fast-equals@npm:^5.0.1":
+  version: 5.4.3
+  resolution: "fast-equals@npm:5.4.3"
+  checksum: 10c0/f918d51ae407b5da5dfa038a2b59a567355cb54cc4c66a40afff8b67769af915bdc076ec1f7f424e7a38bdf912ea7643f9de9340fd61bf6f2293b865c0f99379
+  languageName: node
+  linkType: hard
+
 "fast-fifo@npm:^1.2.0, fast-fifo@npm:^1.3.2":
   version: 1.3.2
   resolution: "fast-fifo@npm:1.3.2"
@@ -12590,6 +12606,7 @@ __metadata:
     "@hookform/resolvers": "npm:^5.5.7"
     "@jadonamite/automata-sdk": "npm:^1.0.1"
     "@playwright/test": "npm:^1.61.1"
+    "@prompthash/schema": "file:./packages/schema"
     "@radix-ui/react-avatar": "npm:^1.2.1"
     "@radix-ui/react-dialog": "npm:^1.1.18"
     "@radix-ui/react-dropdown-menu": "npm:^2.1.19"

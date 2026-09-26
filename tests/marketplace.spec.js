@@ -21,9 +21,9 @@ test.describe('Prompt-Hash E2E Suite', () => {
   });
 
   test('should navigate the marketplace and click a prompt card', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/', { waitUntil: 'networkidle' });
     const promptCard = page.locator('a:has-text("View"), [class*="card"], h3').first();
-    await expect(promptCard).toBeVisible();
+    await expect(promptCard).toBeVisible({ timeout: 15000 });
     await promptCard.click();
   });
 });

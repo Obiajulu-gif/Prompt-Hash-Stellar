@@ -1,7 +1,7 @@
 import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
 
 const CATEGORY_ALIASES: Record<string, string> = Object.fromEntries(
-  PROMPT_CATEGORIES.map((category) => [category.toLowerCase(), category]),
+  PROMPT_CATEGORIES.map((category: string) => [category.toLowerCase(), category]),
 );
 
 const LISTING_LIMITS = {

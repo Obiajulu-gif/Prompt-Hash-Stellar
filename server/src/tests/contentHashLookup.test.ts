@@ -10,6 +10,12 @@ vi.mock("../db/connectDb", () => ({
 
 vi.mock("../models/Prompt");
 vi.mock("../models/User");
+vi.mock("../services/emailNotifications", () => ({
+  notifyPromptReported: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../services/discordNotifications", () => ({
+  announceNewPrompt: vi.fn().mockResolvedValue(undefined),
+}));
 
 function makeReq(params: Record<string, string> = {}): Partial<Request> {
   return {

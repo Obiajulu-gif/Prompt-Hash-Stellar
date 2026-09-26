@@ -149,7 +149,7 @@ describe("Buyer Collections UI Logic", () => {
   it("surfaces retry state on failed unlock", () => {
     // Logic for failed unlock retry is handled by UnlockExplainer, which shows the retry button
     // when unlockState is "failed", "rejected", or "expired".
-    const state = "failed";
+    const state: string = "failed";
     const showRetry = (state === "rejected" || state === "expired" || state === "failed");
     expect(showRetry).toBe(true);
   });
