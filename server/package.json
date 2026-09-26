@@ -39,9 +39,9 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
     "@prompthash/schema": "file:../packages/schema",
-    "@sentry/node": "^10.63.0",
+    "@sentry/node": "^10.75.2",
     "@stellar/stellar-sdk": "^14.6.1",
-    "@typescript-eslint/parser": "^8.62.1",
+    "@typescript-eslint/parser": "^8.70.1",
     "ai": "^6.0.168",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
