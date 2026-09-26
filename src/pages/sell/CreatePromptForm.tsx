@@ -1,3 +1,4 @@
+import { PromptCard } from "../browse/PromptCard";
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
@@ -134,12 +135,9 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       (v) => v !== "" && v !== undefined && v !== null && v !== "2" && !(Array.isArray(v) && v.length === 0)
     ),
     disabled: !!successMessage,
-  const {
-    draftRestored,
-    lastSavedAt,
-    discardDraft,
-  } = useDraftAutoSave({
-  const { draftRestored, lastSavedAt, discardDraft } = useDraftAutoSave({
+  });
+
+  const { draftRestored, lastSavedAt, discardDraft, conflict, resolveConflict, sessionGuard, canPublish } = useDraftAutoSave({
     address,
     network,
     values: watchAllFields,

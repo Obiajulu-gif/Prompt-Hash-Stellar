@@ -1,3 +1,4 @@
+import { clearWalletCache } from "@/hooks/useWalletAccountChange";
 import {
   createContext,
   useCallback,

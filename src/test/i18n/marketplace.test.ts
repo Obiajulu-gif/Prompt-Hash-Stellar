@@ -1,3 +1,4 @@
+import { describe, it, expect, vi as jest } from "vitest";
 /**
  * Localization tests for marketplace-critical text (#456).
  * 

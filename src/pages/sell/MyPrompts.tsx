@@ -1,3 +1,4 @@
+import { OwnershipTransferPanel } from "../../components/prompts/OwnershipTransferPanel";
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -261,6 +262,14 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     updateStatus("Prompt restored.");
   };
 
+  const handleSelectAllActive = () => {
+    setSelectedListingIds(new Set(activeCreatedPrompts.map(p => p.id.toString())));
+  };
+
+  const handleDeselectAll = () => {
+    clearListingSelection();
+  };
+
   const toggleListingSelection = (promptId: string) => {
     setSelectedListingIds((current) => {
       const next = new Set(current);
@@ -302,7 +311,7 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
     try {
       const results = await runBulkListingAction(action, targets, {
         config: browserStellarConfig,
-        signer: { signTransaction },
+        signer: { signTransaction: async (xdr, opts) => ({ signedTxXdr: await signTransaction(xdr, opts as any) }) },
         address,
       });
       setBulkActionResults(results);
@@ -631,18 +640,18 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
               <button
                 type="button"
                 onClick={
-                  selectedPromptIds.size === activeCreatedPrompts.length
+                  selectedListingIds.size === activeCreatedPrompts.length
                     ? handleDeselectAll
                     : handleSelectAllActive
                 }
                 className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition border border-white/10 rounded-lg px-3 py-2 bg-white/5"
               >
-                {selectedPromptIds.size === activeCreatedPrompts.length ? (
+                {selectedListingIds.size === activeCreatedPrompts.length ? (
                   <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
                 ) : (
                   <Square className="h-3.5 w-3.5 text-slate-400" />
                 )}
-                {selectedPromptIds.size === activeCreatedPrompts.length
+                {selectedListingIds.size === activeCreatedPrompts.length
                   ? "Deselect All"
                   : `Select All (${activeCreatedPrompts.length})`}
               </button>
@@ -841,8 +850,7 @@ const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
                       </Button>
                     </CardFooter>
                   </Card>
-                );
-              })}
+                ))}
               </div>
             )}
 
