@@ -1,89 +1,14 @@
-import os from "os";
-import { rpc as StellarRpc, scValToNative } from "@stellar/stellar-sdk";
+import { rpc, scValToNative } from "@stellar/stellar-sdk";
+import connectDb from "../db/connectDb";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
 import Purchase from "../models/Purchase";
 import PriceChange from "../models/PriceChange";
 import { IndexerState } from "../models/IndexerState";
-import ProcessedEvent from "../models/ProcessedEvent";
-import QuarantinedEvent from "../models/QuarantinedEvent";
-import { scanForSimilarity } from "./similarityDetection";
-import { applySafetyScan } from "./safetyScannerHook";
-import { snapshotLicenseForPurchase } from "./licensingService";
-import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
-import { cacheDel, cacheDelPattern, CACHE_KEYS } from "./cacheService";
-import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
-import { logger } from "./structuredLogger";
-import { createNotification, fanOutNotification } from "./notificationService";
+import { MarketplaceIndex } from "../models/MarketplaceIndex";
 
-const POLL_INTERVAL_MS = 5_000;
-const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
-const REPLICA_ID = `${process.pid}@${os.hostname()}`;
-
-let tickInFlight = false; // single-flight guard for the current process
-
-// Entitlement decision cache — invalidated on settlement events (#545, #602).
-// Uses Redis for multi-instance deployments; short TTL balances freshness with RPC load.
-const ENTITLEMENT_CACHE_TTL_SECS = 30;
-
-async function invalidateEntitlementCacheForPrompt(
-  promptId: string,
-): Promise<void> {
-  await cacheDelPattern(CACHE_KEYS.entitlementDecisionPattern(promptId));
-}
-
-/**
- * Resolves a wallet address to a User document, creating a minimal wallet
- * subject if none exists yet. The subject carries only the on-chain address;
- * no synthetic username or reputation rating is injected. Identity fields
- * (username, displayName, rating) must be set explicitly through verified
- * profile claims to prevent unearned reputation from landing in the index.
- */
-async function ensureUser(walletAddress: string) {
-  const normalized = walletAddress.toLowerCase();
-  let user = await User.findOne({ walletAddress: normalized });
-  if (!user) {
-    user = await User.create({ walletAddress: normalized });
-  }
-  return user;
-}
-
-/**
- * Invalidates the marketplace read caches for a listing after an indexed
- * on-chain event changes it, so `GET /api/prompts` and per-prompt reads
- * regenerate a fresh ETag on the next request instead of serving stale data.
- */
-async function invalidatePromptCaches(promptId: string): Promise<void> {
-  await Promise.all([
-    cacheDelPattern("prompts:list:*"),
-    cacheDel(CACHE_KEYS.promptDetail(promptId)),
-  ]);
-}
-
-/**
- * Enqueues a durable webhook delivery for a creator/owner wallet, swallowing
- * enqueue errors so a webhook problem never blocks indexing. `dedupeKey` is
- * the chain event's own id — the indexer is the sole projector of on-chain
- * marketplace events into webhooks (#536), so this is a stable identity a
- * re-scanned ledger range can't double-enqueue.
- */
-async function notify(
-  wallet: string | undefined | null,
-  event: string,
-  data: Record<string, unknown>,
-  dedupeKey: string,
-): Promise<void> {
-  if (!wallet) return;
-  try {
-    await enqueueWebhookEvent(wallet, event, data, dedupeKey);
-  } catch (err) {
-    logger.error("Webhook enqueue failed", {
-      action: "indexer",
-      event,
-      error: err,
-    });
-  }
-}
+const CONTRACT_ID = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
+const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
 
 /**
  * Main entry point to start the background indexing process.
@@ -93,20 +18,8 @@ async function notify(
  * transfers. Returns early (without starting the loop) when the required RPC /
  * contract configuration is missing, so it is safe to call unconditionally.
  */
-export async function startIndexer(): Promise<void> {
-  const rpcUrl = process.env.PUBLIC_STELLAR_RPC_URL;
-  const contractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
-
-  if (!rpcUrl || !contractId) {
-    logger.warn("Soroban indexer disabled - missing configuration", {
-      action: "startIndexer",
-    });
-    return;
-  }
-
-  const server = new StellarRpc.Server(rpcUrl, {
-    allowHttp: rpcUrl.startsWith("http://"),
-  });
+export async function startIndexer() {
+  await connectDb();
 
   const state = await IndexerState.findOneAndUpdate(
     { key: "prompt_hash_contract" },
@@ -130,34 +43,6 @@ export async function startIndexer(): Promise<void> {
 
     tickInFlight = true;
     try {
-      // Acquire or renew the distributed lease via a compare-and-swap write.
-      // Only one replica holds the lease at a time; others skip their tick.
-      const now = new Date();
-      const leaseExpiry = new Date(now.getTime() + LEASE_TTL_MS);
-
-      const leased = await IndexerState.findOneAndUpdate(
-        {
-          key: "prompt_hash_contract",
-          $or: [
-            { leaseHolder: REPLICA_ID }, // we already hold it
-            { leaseExpiresAt: { $lt: now } }, // it has expired
-            { leaseHolder: null }, // nobody holds it
-          ],
-        },
-        {
-          $set: { leaseHolder: REPLICA_ID, leaseExpiresAt: leaseExpiry },
-          $inc: { fencingToken: 1 },
-        },
-        { new: true },
-      );
-
-      if (!leased) {
-        // Another replica holds a valid lease — yield this tick.
-        return;
-      }
-
-      const myToken = leased.fencingToken;
-
       const latestLedger = await server.getLatestLedger();
       const startLedger = (state.lastIndexedLedger || 0) + 1;
 
@@ -271,42 +156,10 @@ export async function quarantineEvent(
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-export async function processEvent(
-  event: StellarRpc.Api.EventResponse,
-): Promise<void> {
-  let rawTopic: unknown;
-  let rawData: unknown;
-
-  // 1. Defensively decode XDR to native types. If malformed, quarantine immediately.
-  try {
-    rawTopic = scValToNative(event.topic[0]);
-    rawData = scValToNative(event.value);
-  } catch (err: any) {
-    await quarantineEvent(event, "malformed_xdr", err?.message || String(err));
-    return;
-  }
-
-  const txHash = event.txHash;
-
-  // 2. Mark event processed for idempotency
-  try {
-    await ProcessedEvent.create({
-      eventId: event.id,
-      ledger: event.ledger,
-      txHash: txHash || "",
-      contractId: event.contractId,
-      topic: String(rawTopic),
-    });
-  } catch (err: any) {
-    if (err.code === 11000) {
-      logger.debug("Skipping duplicate event", {
-        action: "processEvent",
-        eventId: event.id,
-      });
-      return;
-    }
-    throw err;
-  }
+async function processEvent(event: rpc.Api.EventResponse) {
+  // Decode the topic and value from XDR to Native JS types
+  const topic = scValToNative(event.topic[0]);
+  const data = scValToNative(event.value);
 
   // 3. Decode event against schema
   let decoded;
@@ -368,9 +221,9 @@ export async function routeDecodedEvent(
 
       const user = await ensureUser(creator);
 
-      // handles discovery of prompts created off-platform
-      const upserted = await Prompt.findOneAndUpdate(
-        { onChainId: promptId },
+      // Upsert the prompt record (handles off-platform creation)
+      const prompt = await Prompt.findOneAndUpdate(
+        { onChainId: prompt_id.toString() },
         {
           $set: {
             onChainId: promptId,
@@ -382,17 +235,23 @@ export async function routeDecodedEvent(
         { upsert: true, new: true },
       );
 
-      // Record the initial price as the first entry in the price history.
-      await PriceChange.findOneAndUpdate(
-        { promptId, ledgerSeq: 0 },
+      // Mirror into the search index
+      await MarketplaceIndex.findOneAndUpdate(
+        { onChainId: prompt_id.toString() },
         {
           $set: {
-            promptId,
-            previousPrice: null,
-            newPrice: initialPrice,
-            asset: "XLM",
-            ledgerSeq: 0,
+            onChainId: prompt_id.toString(),
+            promptId: prompt._id,
+            title: prompt.title ?? "",
+            category: prompt.category ?? "Other",
+            price: Number(price_stroops) / 10_000_000,
+            ownerWallet: creator.toLowerCase(),
+            ownerUsername: user.username ?? "",
+            rating: prompt.rating ?? 1,
+            isActive: true,
+            image: prompt.image ?? "",
           },
+          $setOnInsert: { salesCount: 0 },
         },
         { upsert: true },
       );
@@ -580,34 +439,24 @@ export async function routeDecodedEvent(
           error: err,
         }),
       );
-
-      await invalidatePromptCaches(promptId);
+      await MarketplaceIndex.findOneAndUpdate(
+        { onChainId: prompt_id.toString() },
+        { $inc: { salesCount: 1 } },
+      );
       break;
     }
 
     case "PromptPriceUpdated": {
       const { prompt_id, price_stroops } = data;
-      const promptId = prompt_id.toString();
       const newPrice = Number(price_stroops) / 10_000_000;
-
-      const current = await Prompt.findOne({ onChainId: promptId });
-      const previousPrice = current?.price ?? null;
-
-      await Promise.all([
-        Prompt.findOneAndUpdate(
-          { onChainId: promptId },
-          { $set: { price: newPrice } },
-        ),
-        PriceChange.create({
-          promptId,
-          previousPrice,
-          newPrice,
-          asset: "XLM",
-          ledgerSeq: ledger ?? null,
-          txHash: txHash ?? "",
-        }),
-      ]);
-      await invalidatePromptCaches(promptId);
+      await Prompt.findOneAndUpdate(
+        { onChainId: prompt_id.toString() },
+        { $set: { price: newPrice } },
+      );
+      await MarketplaceIndex.findOneAndUpdate(
+        { onChainId: prompt_id.toString() },
+        { $set: { price: newPrice } },
+      );
       break;
     }
 
@@ -618,112 +467,9 @@ export async function routeDecodedEvent(
         { onChainId: promptId },
         { $set: { isActive: active } },
       );
-      await invalidatePromptCaches(promptId);
-      break;
-    }
-
-    case "DisputeOpened": {
-      const { prompt_id, buyer } = data;
-      const promptId = prompt_id.toString();
-      const buyerWallet = String(buyer).toLowerCase();
-
-      await Purchase.findOneAndUpdate(
-        { promptId, buyerWallet },
-        { $set: { status: "disputed" } },
-      );
-
-      invalidateEntitlementCacheForPrompt(promptId);
-      await invalidatePromptCaches(promptId);
-
-      await notify(
-        buyerWallet,
-        "DisputeOpened",
-        {
-          promptId,
-          buyer: String(buyer),
-          txHash,
-        },
-        eventId,
-      );
-
-      // In-app notification — buyer needs to know their dispute was registered.
-      const disputePrompt = await Prompt.findOne({
-        onChainId: promptId,
-      }).lean();
-      const disputeTitle =
-        (disputePrompt as { title?: string } | null)?.title ?? promptId;
-      const disputeOwnerWallet =
-        (disputePrompt as { owner?: { walletAddress?: string } } | null)?.owner
-          ?.walletAddress ?? null;
-      await fanOutNotification([buyerWallet, disputeOwnerWallet], {
-        type: "dispute_opened",
-        message: `A dispute was opened for "${disputeTitle}".`,
-        deepLink: `/prompts/${promptId}`,
-        promptId,
-        promptTitle: disputeTitle,
-        idempotencyKey: eventId,
-      }).catch((err) =>
-        logger.error("Failed to create dispute_opened notifications", {
-          action: "indexer",
-          error: err,
-        }),
-      );
-      break;
-    }
-
-    case "DisputeResolved": {
-      const { prompt_id, buyer, refunded } = data;
-      const promptId = prompt_id.toString();
-      const buyerWallet = String(buyer).toLowerCase();
-
-      const resolution = refunded ? "refunded" : "rejected";
-
-      await Purchase.findOneAndUpdate(
-        { promptId, buyerWallet },
-        {
-          $set: {
-            status: "resolved",
-            disputeResolution: resolution,
-          },
-        },
-      );
-
-      invalidateEntitlementCacheForPrompt(promptId);
-      await invalidatePromptCaches(promptId);
-
-      await notify(
-        buyerWallet,
-        "DisputeResolved",
-        {
-          promptId,
-          buyer: String(buyer),
-          refunded,
-          txHash,
-        },
-        eventId,
-      );
-
-      // In-app notification with outcome label.
-      const resolvedPrompt = await Prompt.findOne({
-        onChainId: promptId,
-      }).lean();
-      const resolvedTitle =
-        (resolvedPrompt as { title?: string } | null)?.title ?? promptId;
-      const resolvedOwnerWallet =
-        (resolvedPrompt as { owner?: { walletAddress?: string } } | null)?.owner
-          ?.walletAddress ?? null;
-      await fanOutNotification([buyerWallet, resolvedOwnerWallet], {
-        type: "dispute_resolved",
-        message: `The dispute for "${resolvedTitle}" was resolved: ${resolution}.`,
-        deepLink: `/prompts/${promptId}`,
-        promptId,
-        promptTitle: resolvedTitle,
-        idempotencyKey: eventId,
-      }).catch((err) =>
-        logger.error("Failed to create dispute_resolved notifications", {
-          action: "indexer",
-          error: err,
-        }),
+      await MarketplaceIndex.findOneAndUpdate(
+        { onChainId: prompt_id.toString() },
+        { $set: { isActive: active } },
       );
       break;
     }
@@ -732,70 +478,4 @@ export async function routeDecodedEvent(
       logger.debug("Unhandled event topic", { action: "processEvent", topic });
       break;
   }
-}
-
-/**
- * Refreshes the search index and cache for a prompt listing atomically,
- * tracking index status ('pending' -> 'synced' | 'failed') and errors (#699).
- */
-export async function refreshPromptIndex(
-  promptId: string,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await Prompt.findOneAndUpdate(
-      { $or: [{ _id: promptId }, { onChainId: promptId }] },
-      { $set: { searchIndexStatus: "pending" } },
-    );
-
-    // Invalidate read caches
-    await invalidatePromptCaches(promptId);
-
-    // Update to synced
-    await Prompt.findOneAndUpdate(
-      { $or: [{ _id: promptId }, { onChainId: promptId }] },
-      {
-        $set: {
-          searchIndexStatus: "synced",
-          searchIndexError: null,
-          lastIndexedAt: new Date(),
-        },
-      },
-    );
-
-    return { success: true };
-  } catch (error: any) {
-    const errorMsg = error?.message || "Search index refresh failed";
-    await Prompt.findOneAndUpdate(
-      { $or: [{ _id: promptId }, { onChainId: promptId }] },
-      {
-        $set: {
-          searchIndexStatus: "failed",
-          searchIndexError: errorMsg,
-        },
-      },
-    );
-    return { success: false, error: errorMsg };
-  }
-}
-
-/**
- * Retries failed search index refreshes across all prompts (#699)
- */
-export async function retryFailedIndexRefreshes(): Promise<{
-  retried: number;
-  succeeded: number;
-}> {
-  const failedPrompts = await Prompt.find({
-    searchIndexStatus: "failed",
-  }).limit(50);
-  let succeeded = 0;
-
-  for (const prompt of failedPrompts) {
-    const res = await refreshPromptIndex(String(prompt._id));
-    if (res.success) {
-      succeeded++;
-    }
-  }
-
-  return { retried: failedPrompts.length, succeeded };
 }
