@@ -1,83 +1,407 @@
-# API Reference: Unlock Service
+# API Reference
 
-The Unlock Service is a gated delivery system that provides plaintext prompt content (or unwrapped encryption keys) only to users who have a verifiable purchase on the Stellar blockchain.
+This reference covers the marketplace and account endpoints used by the PromptHash frontend and the Express backend.
 
-## Authentication: Challenge-Response Protocol
+## New: Payout Readiness Validation
 
-The service uses a cryptographic challenge-response flow to verify wallet ownership without requiring persistent sessions or passwords.
+PromptHash now includes comprehensive payout readiness validation to ensure creators can receive earnings before publishing paid prompts. 
 
-### 1. Request Challenge
-**Endpoint:** `POST /api/unlock/challenge`
+For detailed information, see [Payout Readiness API Reference](./payout-readiness-api.md).
 
-Generates a short-lived challenge token that the user must sign with their Stellar wallet.
+**Key Integration Points:**
+- Form validation blocks paid prompt submission until setup is complete
+- Real-time validation feedback in payout settings
+- Interactive checklists guide creators through setup requirements
+- Graceful error handling with actionable remediation steps
 
-**Request Body:**
+> **Machine-readable schema (#713):** a valid OpenAPI 3.0 document covering
+> the marketplace endpoints below is published at
+> [`docs/openapi.json`](./openapi.json). It is also served live by the backend
+> and rendered as an interactive explorer:
+>
+> - `GET /api/openapi.json` — fetch the JSON schema
+> - `GET /api/docs` — interactive (Redoc) explorer
+>
+> Use the schema with code generators (`openapi-generator`, `hey-api`,
+> Postman import) to keep SDKs and integrations in sync with the API.
+
+## Common Response Rules
+
+- Successful requests return JSON.
+- Validation failures return `422` with a field-level error map when available.
+- Missing resources return `404`.
+- Auth or ownership failures return `403`.
+
+### Shared validation error shape
+
 ```json
 {
-  "address": "G...",
-  "promptId": "123"
+  "error": "Invalid listing metadata",
+  "fields": {
+    "title": "Title is required.",
+    "price": "Price must be greater than zero."
+  }
 }
 ```
 
-**Response (200 OK):**
+## Marketplace Endpoints
+
+### List prompts
+
+`GET /api/prompts`
+
+Returns published, active marketplace prompts using cursor-based pagination (keyset on the descending `_id` order — stable under concurrent inserts).
+
+Optional query parameters:
+
+- `category` — filter by prompt category
+- `walletAddress` — only prompts owned by this wallet
+- `limit` (default 20, max 50) — page size (`pageSize` is accepted as an alias)
+- `cursor` — the `nextCursor` value from a previous page; omit for the first page
+
+Example response:
+
 ```json
 {
-  "token": "base64payload.serverSignature",
-  "challenge": "prompt-hash unlock:G...:123:uuid:timestamp",
-  "expiresAt": 1714230000000
+  "data": [
+    {
+      "_id": "6650f1...",
+      "image": "https://example.com/cover.png",
+      "title": "Launch Strategy Pack",
+      "content": "Public preview text ...",
+      "owner": {
+        "username": "faithorji",
+        "walletAddress": "g..."
+      },
+      "price": 2.5,
+      "category": "Marketing",
+      "listingStatus": "published",
+      "isActive": true,
+      "salesCount": 12
+    }
+  ],
+  "metadata": {
+    "hasNextPage": false,
+    "nextCursor": null
+  }
 }
 ```
 
-### 2. Verify and Unlock
-**Endpoint:** `POST /api/unlock/verify`
+`metadata.hasNextPage` is `true` when another page follows; `metadata.nextCursor`
+then holds the `_id` to pass back as `cursor` to fetch that page. A `null`
+`nextCursor` means the last page was reached.
 
-Verifies the wallet signature and the challenge token. If the wallet has purchased the prompt (verified on-chain), it returns the decrypted content.
+### Create a prompt
 
-**Request Body:**
+`POST /api/prompts`
+
+Creates a creator listing after validating and normalizing the listing metadata.
+
+Request body:
+
 ```json
 {
-  "token": "base64payload.serverSignature",
-  "address": "G...",
-  "promptId": "123",
-  "signature": "base64_or_hex_signature"
+  "image": "https://example.com/cover.png",
+  "title": "Launch Strategy Pack",
+  "content": "Long-form prompt content",
+  "walletAddress": "g...",
+  "price": 2.5,
+  "category": "marketing"
 }
 ```
 
-**Response (200 OK):**
+Example response:
+
 ```json
 {
-  "decryptedContent": "Act as a senior engineer...",
-  "contentHash": "..."
+  "message": "Prompt created successfully",
+  "prompt": {
+    "_id": "6650f1...",
+    "title": "Launch Strategy Pack",
+    "price": 2.5,
+    "category": "Marketing"
+  }
 }
 ```
 
-**Error Responses:**
-- `401 Unauthorized`: Invalid signature or malformed token.
-- `403 Forbidden`: Wallet does not have access (no purchase recorded on-chain).
-- `410 Gone`: Challenge token has expired.
+### Publish a draft
 
----
+`POST /api/prompts/:id/publish`
 
-## Client-Side Encryption Protocol
+Publishes a draft prompt after validating required fields.
 
-To ensure privacy, prompt content is encrypted before it ever reaches the blockchain.
+Example error response:
 
-### 1. Encryption (Creator Side)
-1. Generate a random 256-bit AES key.
-2. Encrypt the prompt content using **AES-256-GCM**.
-3. Generate a content hash (SHA-256) of the plaintext.
-4. Wrap the AES key using the Unlock Service's public key (RSA-OAEP or ECIES).
-5. Submit the encrypted payload, wrapped key, and metadata to the Soroban contract.
+```json
+{
+  "error": "Prompt is not publishable",
+  "fields": {
+    "content": "Content is required."
+  }
+}
+```
 
-### 2. Decryption (Unlock Service Side)
-1. Verify the buyer's entitlement on the Soroban contract.
-2. Unwrap the AES key using the service's private key.
-3. Decrypt the ciphertext.
-4. Verify the integrity of the plaintext against the stored content hash.
-5. Return the plaintext to the authorized buyer.
+### Archive a prompt
 
-## Implementation Details
+`POST /api/prompts/:id/archive`
 
-- **AES-GCM**: Used for symmetric encryption of the prompt body.
-- **Key Wrapping**: Prevents the server from reading content unless requested by an authorized buyer (assuming the server follows the protocol).
-- **On-Chain Verification**: The service calls the `has_access` method on the `PromptHash` Soroban contract.
+Marks a prompt as archived and removes it from active workflow views.
+
+## Buyer Library Endpoints
+
+### Get owned prompts
+
+`GET /api/prompts/buyer/:walletAddress/owned`
+
+Returns prompts tied to purchases for the buyer wallet.
+
+Example response:
+
+```json
+{
+  "owned": [
+    {
+      "purchaseId": "66a1...",
+      "prompt": {
+        "_id": "6650f1...",
+        "title": "Launch Strategy Pack",
+        "content": "Public preview text ...",
+        "category": "Marketing"
+      },
+      "txHash": "tx_123",
+      "versionIndex": 1,
+      "purchasedAt": "2026-05-28T10:15:30.000Z"
+    }
+  ]
+}
+```
+
+### Get saved prompts
+
+`GET /api/prompts/buyer/:walletAddress/saved`
+
+Returns the buyer's saved marketplace listings.
+
+Example response:
+
+```json
+{
+  "saved": [
+    {
+      "purchaseId": "66a1...",
+      "prompt": {
+        "_id": "6650f1...",
+        "title": "Launch Strategy Pack",
+        "content": "Preview text ...",
+        "price": 2.5,
+        "category": "Marketing",
+        "owner": {
+          "username": "faithorji"
+        }
+      },
+      "savedAt": "2026-05-28T10:15:30.000Z"
+    }
+  ]
+}
+```
+
+### Save a prompt
+
+`POST /api/prompts/buyer/save`
+
+Request body:
+
+```json
+{
+  "walletAddress": "g...",
+  "promptId": "6650f1..."
+}
+```
+
+Example response:
+
+```json
+{ "saved": true, "purchaseId": "66a1..." }
+```
+
+### Remove a saved prompt
+
+`POST /api/prompts/buyer/unsave`
+
+Request body:
+
+```json
+{
+  "walletAddress": "g...",
+  "promptId": "6650f1..."
+}
+```
+
+Example response:
+
+```json
+{ "saved": false }
+```
+
+## Creator Workspace Endpoints
+
+### Get draft prompts
+
+`GET /api/prompts/creator/:walletAddress/drafts`
+
+Returns draft and ready-to-publish prompts for the connected creator wallet.
+
+### Creator sales analytics
+
+`GET /api/prompts/creator/:walletAddress/analytics`
+
+Returns daily sales and revenue for the trailing 30-day window:
+
+```json
+{
+  "dailySales": [
+    { "date": "2026-07-29", "unitsSold": 3, "revenueXlm": 7.5 }
+  ]
+}
+```
+
+### Privacy-safe support metrics (#711)
+
+`GET /api/prompts/creator/:walletAddress/analytics/support-metrics`
+
+Returns conversion, refund, unlock-failure, and review outcomes for the
+creator's listings. **Buyer identities are aggregated server-side and never
+returned**; cohorts below the minimum size are suppressed:
+
+```json
+{
+  "success": true,
+  "analytics": {
+    "windowDays": 30,
+    "cohort": { "activeBuyers": 12, "buyerIdentitiesRedacted": true },
+    "totals": { "views": 420, "purchases": 38, "refunds": 2, "unlockFailures": 4, "reviews": 11 },
+    "metrics": { "conversionRate": 0.0904, "refundRate": 0.0526, "unlockSuccessRate": 0.8947, "satisfactionRate": 0.8181, "averageRating": 4.3 },
+    "unlockFailuresByReason": { "integrity_failure": 3, "no_access": 1 }
+  }
+}
+```
+
+### Purchase transactions (#711)
+
+`GET /api/prompts/buyer/:walletAddress/transactions`
+
+Returns the buyer's licensing/purchase history, each row pairing an on-chain
+purchase with its prompt:
+
+```json
+{
+  "transactions": [
+    {
+      "id": "...",
+      "promptId": "123",
+      "promptTitle": "Launch Strategy Pack",
+      "promptImage": "https://...",
+      "amountXlm": 2.5,
+      "versionIndex": 1,
+      "txHash": "...",
+      "createdAt": "2026-07-29T10:15:30.000Z"
+    }
+  ]
+}
+```
+
+### Abuse reports & triage (#714)
+
+`POST /api/prompts/reports` — submit a report (public). Reporters may attach
+up to 10 evidence items:
+
+```json
+{
+  "promptId": "12345",
+  "reporterAddress": "G...",
+  "reason": "copyright",
+  "description": "Optional details",
+  "evidence": [
+    { "url": "https://source.example/original.pdf", "kind": "pdf" }
+  ]
+}
+```
+
+`GET /api/prompts/reports` — moderation queue (admin token required). Filter
+by `?status=pending|investigating|resolved|dismissed`.
+
+`PATCH /api/prompts/reports` — update triage status/notes (admin token
+required). Triage is **forward-only**: `pending → investigating →
+resolved|dismissed`; regressions and re-opens are rejected with `409`.
+
+```json
+{
+  "reportId": "report_1",
+  "status": "investigating",
+  "adminNotes": "Comparing against the provided source.",
+  "evidence": [{ "url": "https://s3.example/123.png", "kind": "image" }]
+}
+```
+
+## Version updates
+
+`POST /api/prompts/version`
+
+Creates a new version for a prompt owned by the calling wallet.
+
+## Account And Auth Flow
+
+### Challenge token
+
+`POST /api/unlock/challenge`
+
+Issues a short-lived challenge token for wallet verification.
+
+### Unlock prompt
+
+`POST /api/unlock/verify`
+
+Verifies the wallet signature and on-chain entitlement before returning decrypted content.
+
+## Purchase Receipts (#436)
+
+### Get a purchase receipt
+
+`GET /api/prompts/receipt?promptId=&buyerWallet=&txHash=`
+
+`txHash` is optional — when omitted, the most recent matching `Purchase`
+record is used only to look up the hash. Every other field is re-derived
+from the confirmed transaction and its contract event on Stellar RPC, never
+from the (mutable) database row. Responds with:
+
+```json
+{
+  "receipt": { "version": 1, "network": { ... }, "contract": { ... }, "prompt": { ... }, "buyer": "G...", "amount": { "stroops": "..." }, "transaction": { ... }, "event": { ... } },
+  "signature": "base64 Ed25519 signature over the canonicalized receipt",
+  "signerPublicKey": "base64 Ed25519 public key"
+}
+```
+
+Verify a receipt independently — against Stellar RPC only, no PromptHash API
+or database access required — with `@prompthash/sdk`:
+
+```ts
+import { verifyReceipt } from "@prompthash/sdk";
+
+const result = await verifyReceipt(receipt, signature, signerPublicKey);
+// result.valid, result.checks.{signatureValid,networkMatches,transactionFound,transactionSucceeded,eventMatches}
+// result.currentEntitlement — best-effort live has_access/dispute signal, never affects `valid`
+```
+
+`result.valid` is `true` only when the signature checks out **and** the
+referenced transaction is found, succeeded, on the claimed network, and its
+decoded event matches every receipt field exactly — so a receipt with any
+tampered field, a wrong-network mismatch, or an orphaned/failed transaction
+fails verification.
+
+## Notes For Frontend Contributors
+
+- Listing metadata is normalized server-side before persistence.
+- Category casing is canonicalized so the frontend can send user-friendly values.
+- The buyer dashboard reads from `/api/prompts/buyer/:walletAddress/saved` and `/api/prompts/buyer/:walletAddress/owned` to populate separate library sections.
+- Save and unsave actions are intentionally idempotent from the UI perspective.

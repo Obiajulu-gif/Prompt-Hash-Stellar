@@ -1,4 +1,12 @@
 import { withObservability } from "../src/lib/observability/wrapper";
+import connectDb from "../server/src/db/connectDb";
+import { IndexerState } from "../server/src/models/IndexerState";
+import {
+  runAllProbes,
+  calculateOverallHealth,
+  type ProbeResult,
+  type HealthProbeConfig,
+} from "../server/src/services/healthProbes";
 
 const STELLAR_RPC_URL =
   process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -100,25 +108,86 @@ async function handler(req: any, res: any) {
     return;
   }
 
-  const [rpc, horizon, unlock] = await Promise.all([
-    pingRpc(),
-    pingService("Horizon", HORIZON_URL),
-    pingUnlockService(),
-  ]);
+  try {
+    await connectDb();
+    
+    // Get indexer state for freshness check
+    const indexerState = await IndexerState.findOne({ key: "prompt_hash_contract" });
+    const lastIndexedLedger = indexerState?.lastIndexedLedger || 0;
 
-  const services: ServiceCheck[] = [rpc, horizon, unlock];
-  const overallStatus: ServiceStatus = services.every((s) => s.status === "up")
-    ? "up"
-    : services.some((s) => s.status === "up")
-      ? "degraded"
-      : "down";
+    // Run synthetic health probes in parallel with basic service checks
+    const [rpc, horizon, unlock, probeResults] = await Promise.all([
+      pingRpc(),
+      pingService("Horizon", HORIZON_URL),
+      pingUnlockService(),
+      runHealthProbes(lastIndexedLedger),
+    ]);
 
-  res.status(200).json({
-    status: overallStatus,
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    services,
-  });
+    const services: ServiceCheck[] = [rpc, horizon, unlock];
+    
+    // Map probe results to service checks
+    const probeServices: ServiceCheck[] = probeResults.map((probe) => ({
+      name: probe.name,
+      status: probe.status === "healthy" ? "up" : probe.status === "degraded" ? "degraded" : "down",
+      latencyMs: probe.latencyMs,
+      error: probe.error,
+    }));
+
+    const allServices = [...services, ...probeServices];
+    
+    const overallStatus: ServiceStatus = allServices.every((s) => s.status === "up")
+      ? "up"
+      : allServices.some((s) => s.status === "up")
+        ? "degraded"
+        : "down";
+
+    res.status(200).json({
+      status: overallStatus,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      services: allServices,
+      probes: probeResults, // Include detailed probe data
+      indexer: {
+        lastIndexedLedger,
+        status: indexerState?.leaseHolder ? "active" : "idle",
+      },
+    });
+  } catch (error) {
+    console.error("Status check error:", error);
+    res.status(500).json({
+      status: "down",
+      timestamp: new Date().toISOString(),
+      error: "Failed to run status checks",
+    });
+  }
+}
+
+/**
+ * Run all synthetic health probes
+ */
+async function runHealthProbes(lastIndexedLedger: number): Promise<ProbeResult[]> {
+  try {
+    const config: HealthProbeConfig = {
+      rpcUrl: process.env.PUBLIC_STELLAR_RPC_URL || STELLAR_RPC_URL,
+      networkPassphrase: process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015",
+      promptHashContractId: process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID || "",
+      simulationAccount: process.env.PUBLIC_STELLAR_SIMULATION_ACCOUNT || "",
+      horizonUrl: HORIZON_URL,
+      challengeSecret: process.env.CHALLENGE_TOKEN_SECRET || "",
+      unlockPublicKey: process.env.UNLOCK_PUBLIC_KEY || "",
+      timeoutMs: 8000,
+    };
+
+    // Skip probes if required config is missing
+    if (!config.promptHashContractId || !config.simulationAccount || !config.challengeSecret) {
+      return [];
+    }
+
+    return await runAllProbes(config, lastIndexedLedger);
+  } catch (error) {
+    console.error("Health probe execution error:", error);
+    return [];
+  }
 }
 
 export default withObservability(handler, "status");

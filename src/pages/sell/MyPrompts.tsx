@@ -1,41 +1,126 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Loader2, LockKeyhole } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  CalendarDays,
+  CheckSquare,
+  Eye,
+  Flag,
+  Loader2,
+  LockKeyhole,
+  PackagePlus,
+  Pause,
+  Play,
+  ShoppingBag,
+  Square,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CreatorDashboard } from "@/components/sell/CreatorDashboard";
+import { BulkListingActionsBar } from "@/components/sell/BulkListingActionsBar";
+import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { useWallet } from "@/hooks/useWallet";
-import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import {
   getPromptsByBuyer,
   getPromptsByCreator,
+  createAccessPass,
+  createBundle,
   setPromptSaleStatus,
   updatePromptPrice,
 } from "@/lib/stellar/promptHashClient";
-import { formatPriceLabel, stroopsToXlmString, xlmToStroops } from "@/lib/stellar/format";
+import {
+  formatPriceLabel,
+  stroopsToXlmString,
+  xlmToStroops,
+} from "@/lib/stellar/format";
 import { unlockPromptContent } from "@/lib/prompts/unlock";
+import {
+  archivePrompt,
+  restorePrompt,
+  getArchivedPromptIds,
+} from "@/lib/prompts/PromptArchiveStore";
+import {
+  runBulkListingAction,
+  type BulkListingAction,
+  type BulkListingResult,
+  type BulkListingTarget,
+} from "@/lib/prompts/bulkListingActions";
 
-const emptyState = (
-  <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
-    No prompts found yet.
-  </div>
-);
+interface MyPromptsProps {
+  onCreateNew?: () => void;
+}
 
-const MyPrompts = () => {
+/** Fetch DB-backed moderation state for a creator's prompts. */
+async function fetchCreatorModeration(
+  walletAddress: string,
+): Promise<Record<string, { status: string; reason: string | null }>> {
+  try {
+    const res = await fetch(
+      `/api/prompts/index?walletAddress=${encodeURIComponent(walletAddress)}`,
+    );
+    if (!res.ok) return {};
+    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const byId: Record<string, { status: string; reason: string | null }> = {};
+    for (const item of list) {
+      const key = String(item.onChainId ?? "");
+      if (!key) continue;
+      byId[key] = {
+        status: typeof item.moderationStatus === "string" ? item.moderationStatus : "none",
+        reason: typeof item.moderationReason === "string" ? item.moderationReason : null,
+      };
+    }
+    return byId;
+  } catch {
+    return {};
+  }
+}
+
+const MyPrompts = ({ onCreateNew }: MyPromptsProps) => {
   const queryClient = useQueryClient();
   const { address, signMessage, signTransaction } = useWallet();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
+  const [busyOffer, setBusyOffer] = useState<"bundle" | "pass" | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [unlockedPrompts, setUnlockedPrompts] = useState<Record<string, string>>({});
+  const [unlockedPrompts, setUnlockedPrompts] = useState<
+    Record<string, string>
+  >({});
+  const [bundleTitle, setBundleTitle] = useState("Creator bundle");
+  const [bundlePriceXlm, setBundlePriceXlm] = useState("5");
+  const [bundlePromptIds, setBundlePromptIds] = useState<string[]>([]);
+  const [passTitle, setPassTitle] = useState("30-day catalog pass");
+  const [passPriceXlm, setPassPriceXlm] = useState("12");
+  const [passDurationDays, setPassDurationDays] = useState("30");
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Bulk listing actions (issue #500).
+  const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [isBulkActionRunning, setIsBulkActionRunning] = useState(false);
+  const [bulkActionResults, setBulkActionResults] = useState<
+    BulkListingResult[] | null
+  >(null);
 
   const createdQuery = useQuery({
     queryKey: ["created-prompts", address],
     queryFn: async () =>
       address ? getPromptsByCreator(browserStellarConfig, address) : [],
     enabled: Boolean(address),
+    // Moderation state changes must not be served from a stale cache.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
   });
 
   const purchasedQuery = useQuery({
@@ -45,19 +130,84 @@ const MyPrompts = () => {
     enabled: Boolean(address),
   });
 
+  // Creator-facing moderation state (DB-backed). Re-fetched on focus so a
+  // restrict/reinstate action is reflected without a manual refresh.
+  const moderationQuery = useQuery({
+    queryKey: ["creator-moderation", address],
+    queryFn: async () =>
+      address ? fetchCreatorModeration(address) : {},
+    enabled: Boolean(address),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    gcTime: 30_000,
+  });
+
   const createdPrompts = createdQuery.data ?? [];
   const purchasedPrompts = purchasedQuery.data ?? [];
+  const moderationByPromptId = moderationQuery.data ?? {};
+
+  // Ensure creator dashboard + detail caches are cleared when the page mounts so
+  // moderation decisions are never served from a stale persisted cache.
+  useEffect(() => {
+    if (!address) return;
+    queryClient.invalidateQueries({ queryKey: ["created-prompts", address] });
+    queryClient.invalidateQueries({ queryKey: ["creator-moderation", address] });
+  }, [queryClient, address]);
+
+  useEffect(() => {
+    if (address) {
+      setArchivedIds(getArchivedPromptIds(address));
+    } else {
+      setArchivedIds(new Set());
+    }
+  }, [address]);
 
   const mergedDrafts = useMemo(() => {
     return Object.fromEntries(
       createdPrompts.map((prompt) => [
         prompt.id.toString(),
-        priceDrafts[prompt.id.toString()] ?? stroopsToXlmString(prompt.priceStroops),
+        priceDrafts[prompt.id.toString()] ??
+          stroopsToXlmString(prompt.priceStroops),
       ]),
     );
   }, [createdPrompts, priceDrafts]);
 
-  const refreshPromptLists = () => invalidateAllPromptQueries(queryClient);
+  const activeCreatedPrompts = useMemo(
+    () => createdPrompts.filter((p) => !archivedIds.has(p.id.toString())),
+    [createdPrompts, archivedIds],
+  );
+  const archivedCreatedPrompts = useMemo(
+    () => createdPrompts.filter((p) => archivedIds.has(p.id.toString())),
+    [createdPrompts, archivedIds],
+  );
+
+  const dashboardStats = useMemo(() => {
+    const totalSales = createdPrompts.reduce(
+      (sum, p) => sum + (p.salesCount ?? 0),
+      0,
+    );
+    const totalRevenue = createdPrompts.reduce(
+      (sum, p) => sum + p.priceStroops * BigInt(p.salesCount ?? 0),
+      BigInt(0),
+    );
+    const activeListings = activeCreatedPrompts.filter((p) => p.active).length;
+
+    return {
+      totalListings: activeCreatedPrompts.length,
+      totalSales,
+      totalRevenue: stroopsToXlmString(totalRevenue),
+      activeListings,
+    };
+  }, [createdPrompts, activeCreatedPrompts]);
+
+  const refreshPromptLists = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["created-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["purchased-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["marketplace-prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["prompt-access"] }),
+    ]);
+  };
 
   const updateStatus = (message: string) => {
     setErrorMessage(null);
@@ -81,15 +231,100 @@ const MyPrompts = () => {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
+        promptId.toString(),
         !active,
       );
       updateStatus(!active ? "Prompt reactivated." : "Prompt deactivated.");
       await refreshPromptLists();
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to update sale status.");
+      updateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update sale status.",
+      );
     } finally {
       setBusyPromptId(null);
+    }
+  };
+
+  const handleArchive = (promptId: string) => {
+    if (!address) return;
+    archivePrompt(address, promptId);
+    setArchivedIds(getArchivedPromptIds(address));
+    updateStatus("Prompt archived. It's hidden from the default view but preserved.");
+  };
+
+  const handleRestore = (promptId: string) => {
+    if (!address) return;
+    restorePrompt(address, promptId);
+    setArchivedIds(getArchivedPromptIds(address));
+    updateStatus("Prompt restored.");
+  };
+
+  const toggleListingSelection = (promptId: string) => {
+    setSelectedListingIds((current) => {
+      const next = new Set(current);
+      if (next.has(promptId)) {
+        next.delete(promptId);
+      } else {
+        next.add(promptId);
+      }
+      return next;
+    });
+  };
+
+  const clearListingSelection = () => {
+    setSelectedListingIds(new Set());
+    setBulkActionResults(null);
+  };
+
+  const handleRunBulkAction = async (action: BulkListingAction) => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before changing prompt status.");
+      return;
+    }
+
+    const targets: BulkListingTarget[] = activeCreatedPrompts
+      .filter((prompt) => selectedListingIds.has(prompt.id.toString()))
+      .map((prompt) => ({
+        id: prompt.id,
+        title: prompt.title,
+        creatorAddress: prompt.creator,
+        active: prompt.active,
+      }));
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    setIsBulkActionRunning(true);
+    setBulkActionResults(null);
+    try {
+      const results = await runBulkListingAction(action, targets, {
+        config: browserStellarConfig,
+        signer: { signTransaction },
+        address,
+      });
+      setBulkActionResults(results);
+
+      const failureCount = results.filter((r) => !r.success).length;
+      if (failureCount === 0) {
+        updateStatus(`${results.length} listing${results.length === 1 ? "" : "s"} updated.`);
+      } else if (failureCount === results.length) {
+        updateError(`Failed to update ${failureCount} listing${failureCount === 1 ? "" : "s"}.`);
+      } else {
+        updateStatus(
+          `${results.length - failureCount} updated, ${failureCount} failed. See details below.`,
+        );
+      }
+
+      if (action === "retire") {
+        setArchivedIds(address ? getArchivedPromptIds(address) : new Set());
+      }
+      await refreshPromptLists();
+      setSelectedListingIds(new Set());
+    } finally {
+      setIsBulkActionRunning(false);
     }
   };
 
@@ -106,13 +341,15 @@ const MyPrompts = () => {
         browserStellarConfig,
         { signTransaction },
         address,
-        promptId,
-        nextPrice,
+        promptId.toString(),
+        nextPrice.toString(),
       );
       updateStatus("Prompt price updated.");
       await refreshPromptLists();
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to update price.");
+      updateError(
+        error instanceof Error ? error.message : "Failed to update price.",
+      );
     } finally {
       setBusyPromptId(null);
     }
@@ -120,22 +357,109 @@ const MyPrompts = () => {
 
   const handleUnlock = async (promptId: bigint) => {
     if (!address || !signMessage) {
-      updateError("Connect a wallet with SEP-43 message signing to unlock prompts.");
+      updateError(
+        "Connect a wallet with SEP-43 message signing to unlock prompts.",
+      );
       return;
     }
 
     setBusyPromptId(promptId.toString());
     try {
-      const response = await unlockPromptContent(address, promptId, signMessage);
+      const response = await unlockPromptContent(
+        address,
+        promptId.toString(),
+        signMessage,
+      );
       setUnlockedPrompts((current) => ({
         ...current,
         [promptId.toString()]: response.plaintext,
       }));
       updateStatus("Prompt unlocked.");
     } catch (error) {
-      updateError(error instanceof Error ? error.message : "Failed to unlock prompt.");
+      updateError(
+        error instanceof Error ? error.message : "Failed to unlock prompt.",
+      );
     } finally {
       setBusyPromptId(null);
+    }
+  };
+
+  const toggleBundlePrompt = (promptId: string) => {
+    setBundlePromptIds((current) =>
+      current.includes(promptId)
+        ? current.filter((id) => id !== promptId)
+        : [...current, promptId],
+    );
+  };
+
+  const handleCreateBundle = async () => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before creating bundle offers.");
+      return;
+    }
+    if (bundlePromptIds.length < 2) {
+      updateError("Select at least two prompts for a bundle.");
+      return;
+    }
+
+    setBusyOffer("bundle");
+    try {
+      const { bundleId } = await createBundle(
+        browserStellarConfig,
+        { signTransaction },
+        address,
+        {
+          title: bundleTitle.trim(),
+          promptIds: bundlePromptIds,
+          priceStroops: xlmToStroops(bundlePriceXlm),
+        },
+      );
+      updateStatus(`Bundle #${bundleId} created.`);
+      setBundlePromptIds([]);
+      await refreshPromptLists();
+    } catch (error) {
+      updateError(
+        error instanceof Error ? error.message : "Failed to create bundle.",
+      );
+    } finally {
+      setBusyOffer(null);
+    }
+  };
+
+  const handleCreateAccessPass = async () => {
+    if (!address || !signTransaction) {
+      updateError("Connect a wallet before creating access passes.");
+      return;
+    }
+
+    const durationDays = Number(passDurationDays);
+    if (!Number.isFinite(durationDays) || durationDays <= 0) {
+      updateError("Enter a valid pass duration.");
+      return;
+    }
+
+    setBusyOffer("pass");
+    try {
+      const { passId } = await createAccessPass(
+        browserStellarConfig,
+        { signTransaction },
+        address,
+        {
+          title: passTitle.trim(),
+          durationSecs: Math.round(durationDays * 24 * 60 * 60),
+          priceStroops: xlmToStroops(passPriceXlm),
+        },
+      );
+      updateStatus(`Access pass #${passId} created.`);
+      await refreshPromptLists();
+    } catch (error) {
+      updateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to create access pass.",
+      );
+    } finally {
+      setBusyOffer(null);
     }
   };
 
@@ -149,6 +473,13 @@ const MyPrompts = () => {
 
   return (
     <div className="space-y-8">
+      <CreatorDashboard
+        stats={dashboardStats}
+        isLoading={createdQuery.isLoading}
+        isError={createdQuery.isError}
+        onRefresh={refreshPromptLists}
+      />
+
       {statusMessage ? (
         <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
           {statusMessage}
@@ -162,110 +493,417 @@ const MyPrompts = () => {
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-2xl font-semibold text-white">Created by me</h2>
+          <h2 className="text-2xl font-semibold text-white">
+            Bundles and access passes
+          </h2>
           <p className="mt-2 text-sm text-slate-400">
-            Update pricing, pause listings, and track license sales without changing ownership.
+            Group prompts into discounted bundles or sell time-bound access to
+            your catalog.
           </p>
         </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-start gap-3">
+              <PackagePlus className="mt-1 h-5 w-5 text-emerald-300" />
+              <div>
+                <h3 className="font-semibold text-white">Create bundle</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  Buyers unlock every selected prompt with one purchase.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_140px]">
+              <Input
+                value={bundleTitle}
+                onChange={(event) => setBundleTitle(event.target.value)}
+                placeholder="Bundle title"
+              />
+              <Input
+                value={bundlePriceXlm}
+                onChange={(event) => setBundlePriceXlm(event.target.value)}
+                inputMode="decimal"
+                placeholder="Price XLM"
+              />
+            </div>
+            <div className="mt-4 space-y-2">
+              {createdPrompts.length < 2 ? (
+                <p className="text-sm text-slate-400">
+                  Create at least two prompts before publishing a bundle.
+                </p>
+              ) : (
+                createdPrompts.map((prompt) => {
+                  const id = prompt.id.toString();
+                  return (
+                    <label
+                      key={id}
+                      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bundlePromptIds.includes(id)}
+                        onChange={() => toggleBundlePrompt(id)}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                      />
+                      <span className="min-w-0 flex-1 truncate">
+                        {prompt.title}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {formatPriceLabel(prompt.priceStroops)}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <Button
+              type="button"
+              className="mt-5 w-full gap-2 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+              onClick={handleCreateBundle}
+              disabled={busyOffer === "bundle" || createdPrompts.length < 2}
+            >
+              {busyOffer === "bundle" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Create bundle
+            </Button>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-start gap-3">
+              <CalendarDays className="mt-1 h-5 w-5 text-cyan-300" />
+              <div>
+                <h3 className="font-semibold text-white">
+                  Create catalog pass
+                </h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  Buyers unlock your prompts until the pass expires.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3">
+              <Input
+                value={passTitle}
+                onChange={(event) => setPassTitle(event.target.value)}
+                placeholder="Pass title"
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  value={passPriceXlm}
+                  onChange={(event) => setPassPriceXlm(event.target.value)}
+                  inputMode="decimal"
+                  placeholder="Price XLM"
+                />
+                <Input
+                  value={passDurationDays}
+                  onChange={(event) => setPassDurationDays(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="Duration days"
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-5 w-full gap-2"
+              onClick={handleCreateAccessPass}
+              disabled={busyOffer === "pass" || createdPrompts.length === 0}
+            >
+              {busyOffer === "pass" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Create access pass
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold text-white">Created by me</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Update pricing, pause listings, and track license sales without changing ownership.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {activeCreatedPrompts.length > 0 && (
+              <button
+                type="button"
+                onClick={
+                  selectedPromptIds.size === activeCreatedPrompts.length
+                    ? handleDeselectAll
+                    : handleSelectAllActive
+                }
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition border border-white/10 rounded-lg px-3 py-2 bg-white/5"
+              >
+                {selectedPromptIds.size === activeCreatedPrompts.length ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Square className="h-3.5 w-3.5 text-slate-400" />
+                )}
+                {selectedPromptIds.size === activeCreatedPrompts.length
+                  ? "Deselect All"
+                  : `Select All (${activeCreatedPrompts.length})`}
+              </button>
+            )}
+            {archivedCreatedPrompts.length > 0 && (
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition border border-white/10 rounded-lg px-3 py-2"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                {showArchived ? "Hide archived" : `Show archived (${archivedCreatedPrompts.length})`}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <BulkListingActionsBar
+          selectedCount={selectedListingIds.size}
+          isRunning={isBulkActionRunning}
+          results={bulkActionResults}
+          onRunAction={(action) => void handleRunBulkAction(action)}
+          onClearSelection={clearListingSelection}
+          onDismissResults={() => setBulkActionResults(null)}
+        />
 
         {createdQuery.isLoading ? (
           <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
             Loading created prompts...
           </div>
-        ) : createdPrompts.length === 0 ? (
-          emptyState
-        ) : (
-          <div className="grid gap-6 xl:grid-cols-2">
-            {createdPrompts.map((prompt) => (
-              <Card
-                key={prompt.id.toString()}
-                className="border-white/10 bg-slate-950/70 text-white"
+        ) : activeCreatedPrompts.length === 0 && !showArchived ? (
+          <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
+            <PackagePlus className="h-10 w-10 text-slate-500" />
+            <div>
+              <p className="text-base font-semibold text-white">No listings yet</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Publish your first prompt to start earning license fees.
+              </p>
+            </div>
+            {onCreateNew && (
+              <Button
+                className="mt-2 bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                onClick={onCreateNew}
               >
-                <div className="aspect-video overflow-hidden rounded-t-xl">
-                  <img
-                    src={prompt.imageUrl || "/images/codeguru.png"}
-                    alt={prompt.title}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <CardContent className="space-y-4 p-5">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
-                      {prompt.category}
-                    </p>
-                    <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-slate-300">
-                      {prompt.previewText}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        Sales
-                      </p>
-                      <p className="mt-2 font-medium text-slate-100">
-                        {prompt.salesCount}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        Status
-                      </p>
-                      <p className="mt-2 font-medium text-slate-100">
-                        {prompt.active ? "Active" : "Inactive"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <Input
-                      aria-label={`Price for ${prompt.title}`}
-                      value={mergedDrafts[prompt.id.toString()]}
-                      onChange={(event) =>
-                        setPriceDrafts((current) => ({
-                          ...current,
-                          [prompt.id.toString()]: event.target.value,
-                        }))
-                      }
-                      className="border-white/10 bg-white/5 text-slate-100"
-                    />
-                    <Button
-                      className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                      onClick={() => void handleUpdatePrice(prompt.id)}
-                      disabled={busyPromptId === prompt.id.toString()}
-                    >
-                      Update price
-                    </Button>
-                  </div>
-                </CardContent>
-                <CardFooter className="flex items-center justify-between p-5 pt-0">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                      Current price
-                    </p>
-                    <p className="mt-2 text-lg font-semibold text-slate-100">
-                      {formatPriceLabel(prompt.priceStroops)}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-                    onClick={() => void handleToggleSaleStatus(prompt.id, prompt.active)}
-                    disabled={busyPromptId === prompt.id.toString()}
+                Create a listing
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Active prompts grid */}
+            {activeCreatedPrompts.length > 0 && (
+              <div className="grid gap-6 xl:grid-cols-2">
+                {activeCreatedPrompts.map((prompt) => (
+                  <Card
+                    key={prompt.id.toString()}
+                    className="border-white/10 bg-slate-950/70 text-white"
                   >
-                    {prompt.active ? "Set inactive" : "Reactivate"}
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
+                    <div className="relative aspect-video overflow-hidden rounded-t-xl">
+                      <label
+                        className="absolute left-3 top-3 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/20 bg-slate-950/70 backdrop-blur"
+                        aria-label={`Select ${prompt.title} for bulk actions`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedListingIds.has(prompt.id.toString())}
+                          onChange={() => toggleListingSelection(prompt.id.toString())}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+                        />
+                      </label>
+                      <img
+                        src={prompt.imageUrl || "/images/codeguru.png"}
+                        alt={prompt.title}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <CardContent className="space-y-4 p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
+                            {prompt.category}
+                          </p>
+                          <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                          <p className="mt-3 text-sm leading-6 text-slate-300">
+                            {prompt.previewText}
+                          </p>
+                        </div>
+                        {/* Status badge */}
+                        {(() => {
+                          const mod = moderationByPromptId[prompt.id.toString()];
+                          if (mod && mod.status && mod.status !== "none") {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                                <Flag className="h-3 w-3" />
+                                {mod.status === "retired" ? "Retired" : "Restricted"}
+                                {mod.reason ? ` · ${mod.reason.replace(/_/g, " ")}` : ""}
+                              </span>
+                            );
+                          }
+                          if (prompt.active) {
+                            return (
+                              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                                Active
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                              Inactive
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                            Sales
+                          </p>
+                          <p className="mt-2 font-medium text-slate-100">
+                            {prompt.salesCount}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                            Current price
+                          </p>
+                          <p className="mt-2 font-medium text-slate-100">
+                            {formatPriceLabel(prompt.priceStroops)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                            Revision
+                          </p>
+                          <p className="mt-2 font-medium text-slate-100">
+                            {String((prompt as any).revision || 0)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <Input
+                          value={mergedDrafts[prompt.id.toString()]}
+                          onChange={(event) =>
+                            setPriceDrafts((current) => ({
+                              ...current,
+                              [prompt.id.toString()]: event.target.value,
+                            }))
+                          }
+                          className="border-white/10 bg-white/5 text-slate-100"
+                          aria-label={`Price in XLM for ${prompt.title}`}
+                        />
+                        <Button
+                          className="bg-emerald-400 text-slate-950 hover:bg-emerald-300"
+                          onClick={() => void handleUpdatePrice(prompt.id)}
+                          disabled={busyPromptId === prompt.id.toString()}
+                        >
+                          Update price
+                        </Button>
+                      </div>
+                    </CardContent>
+                    <CardFooter className="p-5 pt-0 flex flex-col gap-2">
+                      <PostVersionUpdate
+                        promptId={prompt.id.toString()}
+                        promptTitle={prompt.title}
+                        walletAddress={address ?? ""}
+                        currentVersion={Number((prompt as any).revision || 0) + 1}
+                      />
+                      <Button
+                        variant="outline"
+                        className={`w-full gap-2 border-white/10 text-slate-100 hover:bg-white/10 ${
+                          prompt.active
+                            ? "bg-white/5 hover:border-red-400/30 hover:text-red-300"
+                            : "bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-400/40 text-emerald-400"
+                        }`}
+                        onClick={() => void handleToggleSaleStatus(prompt.id, prompt.active)}
+                        disabled={busyPromptId === prompt.id.toString()}
+                      >
+                        {busyPromptId === prompt.id.toString() ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : prompt.active ? (
+                          <ToggleRight className="h-4 w-4" />
+                        ) : (
+                          <ToggleLeft className="h-4 w-4" />
+                        )}
+                        {prompt.active ? "Deactivate listing" : "Reactivate listing"}
+                      </Button>
+                      {/* #261 — Archive action */}
+                      <Button
+                        variant="outline"
+                        className="w-full gap-2 border-white/10 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-amber-300 hover:border-amber-400/30"
+                        onClick={() => handleArchive(prompt.id.toString())}
+                      >
+                        <Archive className="h-4 w-4" />
+                        Archive listing
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                );
+              })}
+              </div>
+            )}
+
+            {/* Archived prompts */}
+            {showArchived && archivedCreatedPrompts.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-3">
+                  Archived
+                </p>
+                <div className="grid gap-6 xl:grid-cols-2">
+                  {archivedCreatedPrompts.map((prompt) => (
+                    <Card
+                      key={prompt.id.toString()}
+                      className="border-white/10 bg-slate-950/40 text-white opacity-60 hover:opacity-80 transition-opacity"
+                    >
+                      <CardContent className="space-y-3 p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs uppercase tracking-[0.25em] text-slate-600">
+                              {prompt.category}
+                            </p>
+                            <h3 className="mt-1 text-lg font-semibold text-slate-300">{prompt.title}</h3>
+                          </div>
+                          <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-400">
+                            <Archive className="h-3 w-3" />
+                            Archived
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-500 leading-relaxed">{prompt.previewText}</p>
+                      </CardContent>
+                      <CardFooter className="p-5 pt-0">
+                        <Button
+                          variant="outline"
+                          className="w-full gap-2 border-amber-400/20 bg-amber-500/5 text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/40"
+                          onClick={() => handleRestore(prompt.id.toString())}
+                        >
+                          <ArchiveRestore className="h-4 w-4" />
+                          Restore listing
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>
+
+      <OwnershipTransferPanel
+        walletAddress={address}
+        createdPrompts={createdPrompts}
+        signMessage={signMessage ?? undefined}
+      />
 
       <section className="space-y-4">
         <div>
           <h2 className="text-2xl font-semibold text-white">Purchased by me</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Unlock purchased prompt text on demand. Access remains available for future sessions.
+            Unlock purchased prompt text on demand. Access remains available for
+            future sessions.
           </p>
         </div>
 
@@ -274,7 +912,23 @@ const MyPrompts = () => {
             Loading purchased prompts...
           </div>
         ) : purchasedPrompts.length === 0 ? (
-          emptyState
+          <div className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 text-center">
+            <ShoppingBag className="h-10 w-10 text-slate-500" />
+            <div>
+              <p className="text-base font-semibold text-white">
+                No purchases yet
+              </p>
+              <p className="mt-1 text-sm text-slate-400">
+                Browse the marketplace to find and unlock prompt licenses.
+              </p>
+            </div>
+            <Button
+              asChild
+              className="mt-2 bg-white/10 text-slate-100 hover:bg-white/15"
+            >
+              <Link to="/browse">Browse marketplace</Link>
+            </Button>
+          </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-2">
             {purchasedPrompts.map((prompt) => (
@@ -288,7 +942,9 @@ const MyPrompts = () => {
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                         {prompt.category}
                       </p>
-                      <h3 className="mt-2 text-xl font-semibold">{prompt.title}</h3>
+                      <h3 className="mt-2 text-xl font-semibold">
+                        {prompt.title}
+                      </h3>
                     </div>
                     <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm">
                       {formatPriceLabel(prompt.priceStroops)}
@@ -332,7 +988,8 @@ const MyPrompts = () => {
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">
-                      Unlocked plaintext appears here after the access check succeeds.
+                      Unlocked plaintext appears here after the access check
+                      succeeds.
                     </div>
                   )}
                 </CardContent>

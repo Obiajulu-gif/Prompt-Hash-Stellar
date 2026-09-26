@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Copy,
   ThumbsUp,
@@ -34,17 +34,18 @@ interface ChatAreaProps {
   isTyping: boolean;
   chatError: string | null;
   customerName: string;
-  onSendMessage: (content: string) => void;
-  onImprovePrompt: (content: string) => Promise<string>;
-  onReaction: (messageId: string, type: "like" | "dislike") => void;
+  onSendMessage: (_content: string) => void;
+  onImprovePrompt: (_content: string) => Promise<string>;
+  onReaction: (_messageId: string, _type: "like" | "dislike") => void;
   onSaveConversation: () => void;
   onCloseConversation: () => void;
   inputValue: string;
-  setInputValue: (value: string) => void;
+  setInputValue: (_value: string) => void;
   selectedModel: AIModel;
-  setSelectedModel: (model: AIModel) => void;
+  setSelectedModel: (_model: AIModel) => void;
   onToggleDetails: () => void;
 }
+ 
 
 export function ChatArea({
   conversation,

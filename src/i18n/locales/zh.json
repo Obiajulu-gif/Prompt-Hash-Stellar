@@ -1,0 +1,309 @@
+{
+  "nav": {
+    "browse": "浏览",
+    "sell": "出售",
+    "chat": "聊天",
+    "profile": "个人资料",
+    "status": "状态",
+    "create": "创建",
+    "dashboard": "仪表盘",
+    "connect": "连接钱包",
+    "disconnect": "断开连接"
+  },
+  "home": {
+    "hero_title": "发现并交易AI提示词",
+    "hero_subtitle": "在Stellar区块链上购买、出售和授权高质量AI提示词。",
+    "browse_prompts": "浏览提示词",
+    "create_prompt": "创建提示词"
+  },
+  "marketplace": {
+    "title": "市场",
+    "subtitle": "浏览并解锁AI提示词。购买在Stellar网络上结算。",
+    "listings_count_one": "{{count}} 条上架",
+    "listings_count_other": "{{count}} 条上架",
+    "load_error": "加载市场列表失败。",
+    "load_error_hint": "检查您的连接并刷新页面。",
+    "empty_title": "暂无提示词上架",
+    "empty_body": "成为第一个上架提示词的人！前往出售页面发布您的AI提示词并开始赚取XLM。",
+    "sell_link": "出售",
+    "owned": "已拥有",
+    "buy": "购买",
+    "purchasing": "购买中…",
+    "network_wait": "等待Stellar网络确认…",
+    "pending_message": "正在Stellar网络上处理购买…",
+    "success_message": "购买完成！已解锁。"
+  },
+  "prompt": {
+    "buy": "购买提示词",
+    "lease": "租用提示词",
+    "price": "价格",
+    "creator": "创作者",
+    "category": "分类",
+    "sales": "销售数量",
+    "content_hash": "内容哈希",
+    "quality_score": "质量评分",
+    "preview": "预览",
+    "no_ratings": "暂无评分 — 成为第一个评价的人。",
+    "purchase_success": "提示词购买成功！",
+    "lease_success": "提示词租用成功！",
+    "already_owned": "您已拥有此提示词。",
+    "max_supply_reached": "此提示词已达到最大供应量。",
+    "acquire_license": "获取许可证",
+    "acquire_license_subtitle": "通过Stellar智能合约解锁高质量提示词内容。",
+    "secure_purchase": "安全购买",
+    "secure_purchase_body": "资金由合约托管，直到铸造访问权限为止。平台费用已包含在价格中。",
+    "confirm_purchase": "确认并购买",
+    "offline": "离线",
+    "license_verified": "许可证已验证",
+    "license_verified_body": "链上检测到所有权。签署解锁请求以解密。",
+    "decrypt": "解密内容",
+    "unlocking": "解锁中…",
+    "copy_content": "复制内容",
+    "copied": "已复制",
+    "store_securely": "请安全保存此提示词。请勿公开分享或与未授权用户分享。",
+    "go_to_library": "前往我的库",
+    "back_to_marketplace": "返回市场",
+    "share_link": "复制分享链接",
+    "share_link_copied": "链接已复制",
+    "report": "举报提示词",
+    "write_review": "撰写评价",
+    "share_experience": "分享您的体验"
+  },
+  "receipt": {
+    "title": "购买收据",
+    "pending_indexing": "等待索引…",
+    "pending_indexing_body": "您的交易已在Stellar网络上成功，但我们的系统仍在索引更新。您很快就可以解锁提示词。",
+    "prompt_label": "提示词",
+    "creator_label": "创作者",
+    "amount_label": "金额",
+    "fee_label": "网络费用",
+    "tx_hash_label": "交易哈希",
+    "prompt_id_label": "提示词ID",
+    "content_hash_label": "内容哈希",
+    "details_heading": "交易详情",
+    "buyer_status": "买家状态",
+    "buyer_label": "买家",
+    "licensed": "已授权"
+  },
+  "sell": {
+    "title": "上架新提示词",
+    "name_label": "提示词名称",
+    "price_label": "价格（XLM）",
+    "description_label": "描述",
+    "submit": "上架资产",
+    "submitting": "处理中…",
+    "offline": "离线"
+  },
+  "create": {
+    "title": "创建提示词",
+    "prompt_title": "标题",
+    "category": "分类",
+    "preview": "预览文本",
+    "price": "价格（stroops）",
+    "max_supply": "最大供应量（0 = 无限制）",
+    "submit": "上架提示词",
+    "success": "提示词上架成功！"
+  },
+  "errors": {
+    "not_found": "未找到提示词。",
+    "unauthorized": "您无权执行此操作。",
+    "paused": "市场目前已暂停。",
+    "load_failed": "加载数据失败。",
+    "network_error": "发生网络错误，请重试。"
+  },
+  "offline": {
+    "banner": "您当前处于离线状态。正在查看缓存的公开列表。钱包操作和购买已禁用。",
+    "last_refreshed": "数据最后刷新时间：{{time}}",
+    "reconnect": "重新连接"
+  },
+  "language": {
+    "select": "语言"
+  },
+  "format": {
+    "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "加载中…",
+    "failed": "失败",
+    "error": "错误",
+    "success": "成功",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "add": "添加",
+    "remove": "移除",
+    "close": "关闭",
+    "submit": "提交",
+    "continue": "继续",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "confirm": "确认",
+    "retry": "重试"
+  },
+  "sell_form": {
+    "preview_placeholder": "添加公开预览文本，向买家展示他们可以期待的结果。",
+    "moderation_notes_placeholder": "添加审核备注...",
+    "failed_create_prompt": "创建提示词失败。",
+    "failed_update_status": "更新销售状态失败。",
+    "failed_update_price": "更新价格失败。",
+    "failed_unlock_prompt": "解锁提示词失败。",
+    "failed_create_bundle": "创建捆绑包失败。",
+    "failed_create_access_pass": "创建访问通行证失败。",
+    "draft_not_found": "未找到草稿。",
+    "failed_fetch_drafts": "获取草稿失败。",
+    "failed_publish_draft": "发布失败。",
+    "failed_archive_draft": "存档失败。",
+    "draft_restored": "已从自动保存中恢复草稿。",
+    "last_saved": "最后保存：{{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "加载您的许可提示词...",
+    "saved_listing": "已保存的列表",
+    "paused_listing": "已暂停的列表",
+    "failed_update_listing_status": "更新列表状态失败。",
+    "failed_update_listing_price": "更新价格失败。",
+    "failed_update_saved_listings": "更新已保存列表失败。",
+    "failed_unlock": "解锁提示词失败。",
+    "payout_settings": "支付设置",
+    "failed_save_payout_preferences": "保存支付偏好设置失败。"
+  },
+  "admin": {
+    "failed_load_contract_state": "加载合约状态失败。",
+    "config_dashboard_title": "合约配置",
+    "reports_title": "审核报告"
+  },
+  "forms": {
+    "error_required": "此字段为必填项。",
+    "error_invalid": "输入无效。",
+    "error_validation": "验证失败。请检查表单。"
+  },
+  "unlockErrors": {
+    "unknown": "无法解锁提示词。",
+    "network": "解锁时发生网络错误。请检查连接后重试。",
+    "withSupportReference": "（支持参考号：{{correlationId}}）",
+    "categories": {
+      "wallet": "钱包问题",
+      "access": "访问被拒绝",
+      "server": "临时错误"
+    },
+    "contactSupport": "联系支持",
+    "codes": {
+      "MISSING_FIELDS": "缺少必填字段。请检查您的请求。",
+      "METHOD_NOT_ALLOWED": "不支持此操作。",
+      "CHALLENGE_EXPIRED": "您的会话已过期。点击解密内容重试。",
+      "CHALLENGE_INVALID": "解锁会话已失效。点击解密内容重新开始。",
+      "INVALID_SIGNATURE": "钱包签名不匹配。请打开钱包重新签名。",
+      "ACCESS_NOT_PURCHASED": "您尚未购买此提示词的访问权限。请先完成购买。",
+      "STALE_PROMPT_TERMS": "此提示词在您打开后已更改。请刷新提示词后重新签名。",
+      "RATE_LIMIT_IP": "请求过多。请稍候片刻再重试。",
+      "RATE_LIMIT_WALLET": "此钱包解锁尝试过多。请等一分钟再重试。",
+      "RATE_LIMIT_ENTITLEMENT": "此提示词解锁尝试过多。请稍候片刻再重试。",
+      "CONFIGURATION_ERROR": "我们这边出了点问题。请稍后重试。",
+      "INTEGRITY_FAILURE": "无法验证提示词内容。如果持续出现，请联系支持。",
+      "TEMPORARY_FAILURE": "发生临时错误。请稍后重试。",
+      "IDEMPOTENCY_CONFLICT": "此幂等键已用于不同的请求。请使用新键。"
+    }
+  },
+  "receiptErrors": {
+    "notFound": "找不到此提示词/买家的购买交易。",
+    "configMissing": "无法处理收据。请稍后重试。",
+    "buildFailed": "生成收据失败。"
+  },
+  "reviewErrors": {
+    "missingFields": "需要promptId、userAddress、rating和text",
+    "signatureRequired": "提交评价需要钱包签名",
+    "invalidRating": "评分必须是1到5之间的整数",
+    "textTooShort": "评价文本必须至少10个字符",
+    "textTooLong": "评价文本不能超过500个字符",
+    "invalidSignature": "评价的钱包签名无效（域名分离）",
+    "accessDenied": "只有已验证的买家且拥有最终权限才能提交评价",
+    "methodNotAllowed": "方法不允许"
+  },
+  "moderationStatuses": {
+    "restricted": "已限制",
+    "active": "活跃",
+    "retired": "已下架"
+  },
+  "moderationReasons": {
+    "copyright": "违反版权",
+    "abuse": "辱骂内容",
+    "malware": "恶意软件或安全风险",
+    "policy_violation": "政策违规",
+    "other": "其他"
+  },
+  "purchaseStatuses": {
+    "purchased": "已购买",
+    "disputed": "争议中",
+    "resolved": "已解决"
+  },
+  "disputeResolutions": {
+    "refunded": "已退款",
+    "rejected": "已拒绝"
+  },
+  "bulkPurchaseErrors": {
+    "PromptNotFound": {
+      "title": "批次包含无效项目",
+      "message": "批次中的一个或多个提示词不存在或已被存档。",
+      "suggestion": "使用验证工具在重试前检查每个项目。删除无效项目并购买其余项目。"
+    },
+    "AlreadyPurchased": {
+      "title": "批次包含无效项目",
+      "message": "您已购买了其中一个提示词。无法购买相同的提示词两次。",
+      "suggestion": "使用验证工具在重试前检查每个项目。删除无效项目并购买其余项目。"
+    },
+    "CreatorCannotBuy": {
+      "title": "购买失败",
+      "message": "您无法购买自己创建的提示词。尝试不同的批次。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "PromptInactive": {
+      "title": "购买失败",
+      "message": "一个或多个提示词不再出售。检查它们的状态后重试。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "InvalidPaymentAmount": {
+      "title": "支付不匹配",
+      "message": "一个或多个提示词的支付不足。重新计算价格并重试。",
+      "suggestion": "确保为每个提示词支付完整价格。重新计算总额并重试。"
+    },
+    "ListingExpired": {
+      "title": "购买失败",
+      "message": "一个或多个提示词已过期且不再可用。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "ContractIsPaused": {
+      "title": "市场暂停中",
+      "message": "市场目前已暂停。请稍后重试。",
+      "suggestion": "请稍后再试。"
+    },
+    "BulkPurchaseTooLarge": {
+      "title": "批次过大",
+      "message": "批次大小超过允许的最大值（每交易20个提示词）。分成较小的批次。",
+      "suggestion": "尝试每交易购买10-15个提示词以获得更高的成功率。"
+    },
+    "DuplicatePromptId": {
+      "title": "购买失败",
+      "message": "同一提示词ID在批次中出现多次。删除重复项并重试。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    },
+    "InvalidPrice": {
+      "title": "支付不匹配",
+      "message": "付款金额数与提示词数不匹配。两个列表长度必须相等。",
+      "suggestion": "确保为每个提示词支付完整价格。重新计算总额并重试。"
+    },
+    "ArithmeticOverflow": {
+      "title": "购买失败",
+      "message": "一个或多个价格过大无法处理。如果问题持续，请联系支持。",
+      "suggestion": "尝试使用较小批次或单独购买。如果问题持续，请联系支持。"
+    }
+  },
+  "validationErrors": {
+    "promptNotFound": "提示词不存在或已被删除",
+    "alreadyPurchased": "您已拥有此提示词",
+    "insufficientBalance": "余额不足以完成所有购买",
+    "promptInactive": "此提示词不再出售",
+    "insufficientPayment": "支付金额低于提示词价格"
+  }
+}

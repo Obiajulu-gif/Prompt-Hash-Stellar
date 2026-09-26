@@ -13,7 +13,9 @@ const app = express();
 
 const port = 5000;
 
+// Sentry error handler should be registered after routes (#332).
 app.use(express.json());
+app.use(correlationMiddleware);
 
 app.use("/api/improve-proxy", proxyrouter);
 app.use("/api/prompts", promptRouter);
@@ -24,18 +26,45 @@ app.use("/api/versions", versioningRouter);
 app.use("/api/marketplace", marketplaceRouter);
 
 app.get("/health", async (req, res) => {
-  const state = await IndexerState.findOne({ key: "prompt_hash_contract" });
+  const [state, backupHealth] = await Promise.all([
+    IndexerState.findOne({ key: "prompt_hash_contract" }),
+    getBackupHealth(),
+  ]);
   res.json({
     status: "ok",
     indexer: {
       lastProcessedLedger: state?.lastIndexedLedger || 0,
       timestamp: new Date(),
     },
+    backup: backupHealth,
   });
 });
 
-app.listen(port, () => {
-  console.log(`Listening on port ${port}`);
+// Sentry error handler must be registered after all routes (#332).
+// expressErrorHandler is available in @sentry/node v7; v8+ uses setupExpressErrorHandler.
+if (process.env.SENTRY_DSN) {
+  if (
+    typeof (Sentry as Record<string, unknown>).setupExpressErrorHandler ===
+    "function"
+  ) {
+    (
+      Sentry as unknown as {
+        setupExpressErrorHandler: (app: typeof app) => void;
+      }
+    ).setupExpressErrorHandler(app);
+  } else if (
+    typeof (Sentry as Record<string, unknown>).expressErrorHandler ===
+    "function"
+  ) {
+    app.use(
+      (
+        Sentry as unknown as {
+          expressErrorHandler: () => import("express").ErrorRequestHandler;
+        }
+      ).expressErrorHandler(),
+    );
+  }
+}
 
   startIndexer().catch((err) => {
     console.error("Failed to start Soroban Indexer:", err);

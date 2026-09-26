@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DisplayWallet from "@/components/DisplayWallet";
 import NetworkPill from "@/components/NetworkPill";
-import { connectWallet } from "@/util/wallet";
 import { renderWithProviders } from "@/test/render";
 
 const { useWalletBalanceMock } = vi.hoisted(() => ({
@@ -22,9 +21,13 @@ vi.mock("@stellar/design-system", () => ({
   },
 }));
 
-vi.mock("@/lib/env", () => ({
-  stellarNetwork: "TESTNET",
-}));
+vi.mock("@/lib/env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/env")>();
+  return {
+    ...actual,
+    stellarNetwork: "TESTNET",
+  };
+});
 
 describe("wallet integration coverage", () => {
   it("renders the disconnected wallet CTA and opens the wallet connection flow", async () => {
@@ -33,11 +36,18 @@ describe("wallet integration coverage", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<DisplayWallet />);
+    const connectSpy = vi.fn();
+
+    renderWithProviders(<DisplayWallet />, {
+      wallet: {
+        connect: connectSpy,
+      },
+    });
 
     await userEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    await userEvent.click(screen.getByRole("button", { name: /freighter/i }));
 
-    expect(connectWallet).toHaveBeenCalledTimes(1);
+    expect(connectSpy).toHaveBeenCalledWith("freighter");
   });
 
   it("surfaces wrong-network handling when the connected wallet is on a different network", () => {

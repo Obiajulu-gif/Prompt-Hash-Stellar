@@ -2,7 +2,7 @@ import { withObservability } from "../src/lib/observability/wrapper";
 import { IndexerState } from "../server/src/models/IndexerState";
 import connectDb from "../server/src/db/connectDb";
 
-async function handler(req: any, res: any) {
+async function handler(_req: any, res: any) {
   await connectDb();
   const state = await IndexerState.findOne({ key: "prompt_hash_contract" });
 

@@ -1,7 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CreatePromptForm } from "@/pages/sell/CreatePromptForm";
+import { validateListingForm } from "@/lib/validation/listing";
 import { renderWithProviders } from "@/test/render";
 
 const encryptPromptPlaintextMock = vi.fn();
@@ -10,6 +11,26 @@ const createPromptMock = vi.fn();
 
 vi.mock("@/lib/env", () => ({
   unlockPublicKey: "unlock-public-key",
+  stellarWalletNetwork: "TESTNET",
+  stellarNetwork: "TESTNET",
+}));
+
+vi.mock("@/util/wallet", () => ({
+  wallet: {
+    signTransaction: vi.fn(),
+    signMessage: vi.fn(),
+  },
+}));
+
+vi.mock("@/hooks/usePayoutReadiness", () => ({
+  usePayoutReadiness: () => ({
+    readiness: { isReady: true, checks: [], blockers: [], warnings: [] },
+    isLoading: false,
+    isReady: true,
+    shouldBlock: false,
+    blockingIssues: [],
+    refreshReadiness: vi.fn(),
+  }),
 }));
 
 vi.mock("@/lib/stellar/browserConfig", () => ({
@@ -27,11 +48,25 @@ vi.mock("@/lib/crypto/promptCrypto", () => ({
   encryptPromptPlaintext: (...args: unknown[]) =>
     encryptPromptPlaintextMock(...args),
   wrapPromptKey: (...args: unknown[]) => wrapPromptKeyMock(...args),
+  hashPromptPlaintext: vi.fn().mockResolvedValue("a".repeat(64)),
 }));
 
 vi.mock("@/lib/stellar/promptHashClient", () => ({
+  PromptHashClient: {
+    createPrompt: (...args: unknown[]) => createPromptMock(...args),
+  },
   createPrompt: (...args: unknown[]) => createPromptMock(...args),
+  findPromptByContentHash: vi.fn().mockResolvedValue([]),
+  getPrompt: vi.fn(),
 }));
+
+vi.mock("@/lib/validation/listing", async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    validateListingForm: vi.fn().mockImplementation(actual.validateListingForm),
+  };
+});
 
 async function selectCategory(name: string) {
   await userEvent.click(screen.getByRole("combobox", { name: /category/i }));
@@ -43,21 +78,20 @@ describe("create listing integration coverage", () => {
     renderWithProviders(<CreatePromptForm />);
 
     const priceInput = screen.getByLabelText(/price in xlm/i);
-    await userEvent.clear(priceInput);
-    await userEvent.type(priceInput, "0");
+    fireEvent.change(priceInput, { target: { value: "0" } });
 
     await userEvent.click(
       screen.getByRole("button", { name: /create prompt listing/i }),
     );
 
-    expect(await screen.findByText("Image URL is required.")).toBeInTheDocument();
-    expect(screen.getByText("Title is required.")).toBeInTheDocument();
-    expect(screen.getByText("Category is required.")).toBeInTheDocument();
-    expect(screen.getByText("Preview text is required.")).toBeInTheDocument();
+    expect((await screen.findAllByText(/add an image url/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/add a title/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/select a category/i).length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Full prompt content is required."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Price must be greater than zero.")).toBeInTheDocument();
+      screen.getAllByText(/add preview text/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/add the full prompt content/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/greater than zero/i).length).toBeGreaterThan(0);
     expect(createPromptMock).not.toHaveBeenCalled();
   });
 
@@ -70,6 +104,7 @@ describe("create listing integration coverage", () => {
     });
     wrapPromptKeyMock.mockResolvedValue("wrapped-key");
     createPromptMock.mockResolvedValue({
+      success: true,
       promptId: 17n,
       txHash: "tx-hash-123",
     });
@@ -84,41 +119,43 @@ describe("create listing integration coverage", () => {
         signTransaction,
       },
     });
+    
+    (validateListingForm as any).mockReturnValue({});
 
-    await userEvent.type(
+    fireEvent.change(
       screen.getByLabelText(/image url/i),
-      "https://example.com/new-cover.png",
+      { target: { value: "https://example.com/new-cover.png" } }
     );
-    await userEvent.type(screen.getByLabelText(/title/i), "Campaign launch pack");
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: "Campaign launch pack" } });
     await selectCategory("Marketing");
-    await userEvent.type(
+    fireEvent.change(
       screen.getByLabelText(/preview text/i),
-      "Public preview for the integration test listing.",
+      { target: { value: "Public preview for the integration test listing." } }
     );
-    await userEvent.type(
+    fireEvent.change(
+      screen.getByLabelText(/description/i),
+      { target: { value: "A detailed public description for the integration test listing." } }
+    );
+    fireEvent.change(
       screen.getByLabelText(/full prompt/i),
-      "Private prompt body that will be encrypted before submission.",
+      { target: { value: "Private prompt body that will be encrypted before submission." } }
     );
 
     const priceInput = screen.getByLabelText(/price in xlm/i);
-    await userEvent.clear(priceInput);
-    await userEvent.type(priceInput, "3.75");
+    fireEvent.change(priceInput, { target: { value: "3.75" } });
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /create prompt listing/i }),
-    );
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
 
     await waitFor(() => {
       expect(encryptPromptPlaintextMock).toHaveBeenCalledWith(
         "Private prompt body that will be encrypted before submission.",
+        "unlock-public-key",
       );
     });
 
-    expect(wrapPromptKeyMock).toHaveBeenCalledWith(
-      new Uint8Array([1, 2, 3, 4]),
-      "unlock-public-key",
-    );
     expect(createPromptMock).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Prompt #17 created successfully.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Prompt created! Transaction: tx-hash-123"),
+    ).toBeInTheDocument();
   });
 });

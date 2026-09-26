@@ -5,6 +5,7 @@ import { Card, CardContent, CardFooter } from "./ui/card";
 import { Badge } from "./ui/badge";
 // import Link from "next/link";
 import { StarIcon, X, EyeIcon } from "lucide-react";
+import { PromptPlayground } from "./prompt-playground";
 
 const trendingPrompts = [
   {
@@ -74,21 +75,28 @@ function PromptModal({ prompt, onClose }) {
     >
       <div
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside modal
-        className="bg-gray-800 text-white rounded-lg shadow-lg max-w-md mx-4 p-6 relative"
+        className="bg-gray-800 text-white rounded-lg shadow-lg max-w-4xl w-full mx-4 p-6 relative max-h-[95vh] overflow-y-auto"
       >
-        <h2 className="text-2xl font-bold mb-4">{prompt.title}</h2>
-        <img
-          src={prompt.image || "/placeholder.svg"}
-          alt={prompt.title}
-          className="w-full h-auto object-cover rounded mb-4"
-        />
-        <p className="mb-4">{prompt.description}</p>
-        <div className="flex items-center justify-between">
-          <span className="font-bold">{prompt.price}</span>
-          <Button variant="outline font-bold text-purple-500" onClick={onClose}>
-            <X className="h-4 w-4 mr-2" />
-            Close
-          </Button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="flex flex-col">
+            <h2 className="text-2xl font-bold mb-4">{prompt.title}</h2>
+            <img
+              src={prompt.image || "/placeholder.svg"}
+              alt={prompt.title}
+              className="w-full h-auto object-cover rounded-lg mb-4"
+            />
+            <p className="mb-4 text-gray-300 text-sm">{prompt.description}</p>
+            <div className="flex items-center justify-between mt-auto pt-4">
+              <span className="font-bold text-xl">{prompt.price}</span>
+              <Button variant="outline" className="font-bold text-purple-500 border-purple-500/50 hover:bg-purple-500/10" onClick={onClose}>
+                <X className="h-4 w-4 mr-2" />
+                Close
+              </Button>
+            </div>
+          </div>
+          <div>
+            <PromptPlayground previewPrompt={prompt.description} title={prompt.title} />
+          </div>
         </div>
       </div>
     </div>
