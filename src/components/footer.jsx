@@ -1,7 +1,7 @@
 import { Button } from "./ui/button";
 // import Link from "next/link"
 import { Link } from "react-router-dom";
-import { Twitter } from "lucide-react";
+import { X } from "lucide-react";
 
 export function Footer() {
   return (
@@ -95,7 +95,7 @@ export function Footer() {
                 size="icon"
                 className="text-gray-400 hover:text-white"
               >
-                <Twitter className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </Button>
               <Button
                 variant="ghost"

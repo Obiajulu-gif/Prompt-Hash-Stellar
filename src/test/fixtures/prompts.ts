@@ -10,6 +10,8 @@ export function makePrompt(
     title: "Board-ready launch plan",
     category: "Marketing",
     previewText: "Public preview text for the listing.",
+    description: "A paid prompt that helps teams plan launch timelines and cross-functional delivery.",
+    tags: ["Marketing", "Launch"],
     encryptedPrompt: "ciphertext",
     encryptionIv: "iv",
     wrappedKey: "wrapped-key",

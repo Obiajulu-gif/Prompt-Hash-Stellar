@@ -19,15 +19,30 @@ interface Notification {
   message: string;
   type: NotificationType;
   isVisible: boolean;
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
+export interface NotificationActionOptions {
+  /** Label for the action button rendered inside the notification. */
+  actionLabel?: string;
+  /** Invoked when the action is pressed (typically a retry). */
+  onAction?: () => void;
 }
 
 interface NotificationContextType {
-  addNotification: (message: string, type: NotificationType) => void;
+  addNotification: (
+    _message: string,
+    _type: NotificationType,
+    _options?: NotificationActionOptions,
+  ) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(
   undefined,
 );
+
+import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
   children,
@@ -35,14 +50,29 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const addNotification = useCallback(
-    (message: string, type: NotificationType) => {
-      const newNotification = {
+    (
+      message: string,
+      type: NotificationType,
+      options?: NotificationActionOptions,
+    ) => {
+      const hasAction = Boolean(options?.actionLabel && options?.onAction);
+      const newNotification: Notification = {
         id: `${type}-${Date.now().toString()}`,
         message,
         type,
         isVisible: true,
+        actionLabel: options?.actionLabel,
+        onAction: options?.onAction,
       };
       setNotifications((prev) => [...prev, newNotification]);
+
+      if (hasAction) {
+        // Action-backed notifications stay visible so the user can act on them.
+        setTimeout(() => {
+          setNotifications(filterOut(newNotification.id));
+        }, 15000);
+        return;
+      }
 
       setTimeout(() => {
         setNotifications(markRead(newNotification.id));
@@ -58,8 +88,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
   const contextValue = useMemo(() => ({ addNotification }), [addNotification]);
 
   return (
-    <NotificationContext value={contextValue}>
+    <NotificationContext.Provider value={contextValue}>
       {children}
+      <OfflineQueueManager />
       <div className="notification-container">
         {notifications.map((notification) => (
           <div
@@ -68,12 +99,28 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
           >
             <StellarNotification
               title={notification.message}
-              variant={notification.type}
+              variant={
+                notification.type === "secondary"
+                  ? "primary"
+                  : notification.type
+              }
             />
+            {notification.actionLabel && notification.onAction && (
+              <button
+                type="button"
+                className="notification-action"
+                onClick={() => {
+                  setNotifications(filterOut(notification.id));
+                  notification.onAction?.();
+                }}
+              >
+                {notification.actionLabel}
+              </button>
+            )}
           </div>
         ))}
       </div>
-    </NotificationContext>
+    </NotificationContext.Provider>
   );
 };
 
@@ -96,3 +143,8 @@ function filterOut(
 
 export { NotificationContext };
 export type { NotificationContextType };
+
+function OfflineQueueManager() {
+  useOfflineQueue();
+  return null;
+}

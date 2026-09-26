@@ -15,7 +15,7 @@ import User from "../models/User.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type NotificationEvent = "PromptPurchased" | "PromptUpdated";
+export type NotificationEvent = "PromptPurchased" | "PromptUpdated" | "PromptReported";
 
 export interface PurchasePayload {
   buyerWallet: string;
@@ -29,6 +29,14 @@ export interface UpdatePayload {
   promptTitle: string;
   promptId: string;
   versionIndex: number;
+}
+
+export interface ReportPayload {
+  reporterWallet: string;
+  promptTitle: string;
+  promptId: string;
+  reason: string;
+  description?: string;
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────
@@ -78,6 +86,33 @@ function buildUpdateEmail(payload: UpdatePayload): { subject: string; html: stri
       </a></p>
       <hr/>
       <small>To manage your notification preferences visit your account settings.</small>
+    `,
+  };
+}
+
+function buildReportEmail(payload: ReportPayload): { subject: string; html: string } {
+  const reasonLabels: Record<string, string> = {
+    "quality-issue": "Quality Issue",
+    "misleading-content": "Misleading Content",
+    "plagiarism": "Plagiarism",
+    "harmful-content": "Harmful Content",
+    "copyright": "Copyright Violation",
+    "other": "Other",
+  };
+
+  return {
+    subject: `🚨 New Report: "${payload.promptTitle}"`,
+    html: `
+      <h2>New Prompt Report Submitted</h2>
+      <p><strong>Reporter:</strong> <code>${payload.reporterWallet.slice(0, 8)}…${payload.reporterWallet.slice(-4)}</code></p>
+      <p><strong>Prompt:</strong> ${payload.promptTitle}</p>
+      <p><strong>Reason:</strong> ${reasonLabels[payload.reason] || payload.reason}</p>
+      ${payload.description ? `<p><strong>Description:</strong> ${payload.description}</p>` : ""}
+      <p><a href="${process.env.APP_URL ?? "https://prompthash.io"}/admin/reports?promptId=${payload.promptId}">
+        Review Report
+      </a></p>
+      <hr/>
+      <small>This is an automated alert for the moderation team.</small>
     `,
   };
 }
@@ -151,4 +186,22 @@ export async function notifyPromptUpdated(
       }
     })
   );
+}
+
+/**
+ * Notify moderation team when a prompt is reported.
+ * Sends to the moderation email configured in MODERATION_EMAIL env var.
+ */
+export async function notifyPromptReported(payload: ReportPayload): Promise<void> {
+  try {
+    const moderationEmail = process.env.MODERATION_EMAIL;
+    if (!moderationEmail) {
+      console.warn("[email] MODERATION_EMAIL not configured — skipping moderation alert");
+      return;
+    }
+    const { subject, html } = buildReportEmail(payload);
+    await sendEmail(moderationEmail, subject, html);
+  } catch (err) {
+    console.error("[email] notifyPromptReported failed:", err);
+  }
 }

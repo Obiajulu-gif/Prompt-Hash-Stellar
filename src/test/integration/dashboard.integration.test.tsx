@@ -68,7 +68,7 @@ describe("creator dashboard refresh integration coverage", () => {
     expect(await screen.findByText("Revenue memo builder")).toBeInTheDocument();
     expect(screen.getByText("2 XLM")).toBeInTheDocument();
 
-    const priceInput = screen.getByLabelText("Price for Revenue memo builder");
+    const priceInput = screen.getByLabelText("Price in XLM for Revenue memo builder");
     await userEvent.clear(priceInput);
     await userEvent.type(priceInput, "3.5");
     await userEvent.click(screen.getByRole("button", { name: /update price/i }));
@@ -80,12 +80,100 @@ describe("creator dashboard refresh integration coverage", () => {
         expect.anything(),
         { signTransaction },
         "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
-        21n,
-        3_5000000n,
+        "21",
+        "35000000",
       );
       expect(getPromptsByCreatorMock).toHaveBeenCalledTimes(2);
     });
 
     expect(await screen.findByText("3.5 XLM")).toBeInTheDocument();
+  });
+
+  it("handles bulk pause and bulk activate operations on multi-selected prompts", async () => {
+    const prompt1 = makePrompt({ id: 101n, title: "Prompt Alpha", active: true });
+    const prompt2 = makePrompt({ id: 102n, title: "Prompt Beta", active: true });
+
+    getPromptsByCreatorMock.mockResolvedValue([prompt1, prompt2]);
+    getPromptsByBuyerMock.mockResolvedValue([]);
+    setPromptSaleStatusMock.mockResolvedValue({ txHash: "status-hash", success: true });
+
+    const signTransaction = vi.fn().mockResolvedValue({
+      signedTxXdr: "signed-transaction-xdr",
+    });
+
+    renderWithProviders(<MyPrompts />, {
+      wallet: {
+        address: "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+        signTransaction,
+      },
+    });
+
+    expect(await screen.findByText("Prompt Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Prompt Beta")).toBeInTheDocument();
+
+    // Select all prompts
+    const selectAllBtn = screen.getByRole("button", { name: /Select All/i });
+    await userEvent.click(selectAllBtn);
+
+    expect(screen.getByText("2 listing(s) selected")).toBeInTheDocument();
+
+    // Trigger Bulk Pause
+    const bulkPauseBtn = screen.getByRole("button", { name: /Bulk Pause/i });
+    await userEvent.click(bulkPauseBtn);
+
+    await waitFor(() => {
+      expect(setPromptSaleStatusMock).toHaveBeenCalledTimes(2);
+      expect(setPromptSaleStatusMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { signTransaction },
+        "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+        "101",
+        false,
+      );
+      expect(setPromptSaleStatusMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { signTransaction },
+        "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+        "102",
+        false,
+      );
+    });
+
+    expect(await screen.findByText("Bulk Pause Results")).toBeInTheDocument();
+    expect(screen.getByText("2 Succeeded")).toBeInTheDocument();
+  });
+
+  it("triggers confirmation modal on Bulk Retire", async () => {
+    const prompt = makePrompt({ id: 103n, title: "Prompt Gamma", active: true });
+
+    getPromptsByCreatorMock.mockResolvedValue([prompt]);
+    getPromptsByBuyerMock.mockResolvedValue([]);
+
+    const signTransaction = vi.fn().mockResolvedValue({
+      signedTxXdr: "signed-transaction-xdr",
+    });
+
+    renderWithProviders(<MyPrompts />, {
+      wallet: {
+        address: "GCREATORACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+        signTransaction,
+      },
+    });
+
+    expect(await screen.findByText("Prompt Gamma")).toBeInTheDocument();
+
+    // Select prompt
+    const selectAllBtn = screen.getByRole("button", { name: /Select All/i });
+    await userEvent.click(selectAllBtn);
+
+    // Trigger Bulk Retire button
+    const bulkRetireBtn = screen.getByRole("button", { name: /Bulk Retire/i });
+    await userEvent.click(bulkRetireBtn);
+
+    // Confirmation Modal should appear
+    expect(await screen.findByText("Confirm Permanent Listing Retire")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Warning: Retiring listings is an irreversible action/i),
+    ).toBeInTheDocument();
   });
 });

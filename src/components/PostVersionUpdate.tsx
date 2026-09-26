@@ -8,8 +8,9 @@ interface Props {
   promptTitle: string;
   walletAddress: string;
   currentVersion: number;
-  onSuccess?: (newVersion: number) => void;
+  onSuccess?: (_newVersion: number) => void;
 }
+ 
 
 export function PostVersionUpdate({ promptId, promptTitle, walletAddress, currentVersion, onSuccess }: Props) {
   const [open, setOpen] = useState(false);

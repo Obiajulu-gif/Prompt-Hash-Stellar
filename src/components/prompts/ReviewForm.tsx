@@ -6,7 +6,7 @@ import { Loader2, Send } from "lucide-react";
 
 interface ReviewFormProps {
   promptId: string;
-  onSubmit: (review: { rating: number; text: string }) => Promise<void>;
+  onSubmit: (_review: { rating: number; text: string }) => Promise<void>;
   onCancel?: () => void;
 }
 
@@ -45,20 +45,22 @@ export const ReviewForm = ({ promptId, onSubmit, onCancel }: ReviewFormProps) =>
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-semibold text-white">Your Rating</label>
+        <span id={`rating-label-${promptId}`} className="text-sm font-semibold text-white block">Your Rating</span>
         <StarRating rating={rating} onRatingChange={setRating} size="lg" />
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-semibold text-white">Your Review</label>
+        <label htmlFor={`review-textarea-${promptId}`} className="text-sm font-semibold text-white">Your Review</label>
         <Textarea
+          id={`review-textarea-${promptId}`}
           value={reviewText}
           onChange={(e) => setReviewText(e.target.value)}
           placeholder="Share your experience with this prompt..."
           className="min-h-[120px] bg-white/5 border-white/10 text-white placeholder:text-slate-500 resize-none"
           maxLength={500}
+          aria-describedby={`char-count-${promptId}`}
         />
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center" id={`char-count-${promptId}`}>
           <span className="text-xs text-slate-500">
             {reviewText.length}/500 characters
           </span>

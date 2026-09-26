@@ -11,10 +11,12 @@ import {
   ContractSectionName,
 } from "../types/types";
 import { prettifyJsonString } from "./prettifyJsonString";
+import { formatXdrJsonToText } from "./formatContractText";
 
 export interface ContractMetadata {
   contractmetav0?: { [key: string]: string };
   contractenvmetav0?: { [key: string]: string };
+  contractspecv0?: { [key: string]: string };
   wasmHash?: string;
   wasmBinary?: string;
 }
@@ -42,6 +44,12 @@ export const loadContractMetadata = async (contractId: string) => {
         wasmData && wasmData.contractenvmetav0
           ? (wasmData.contractenvmetav0 as unknown)
           : undefined,
+
+      contractspecv0:
+        wasmData && wasmData.contractspecv0
+          ? (wasmData.contractspecv0 as unknown)
+          : undefined,
+
       wasmHash,
       wasmBinary: wasm.toString("hex"),
     };
@@ -131,6 +139,9 @@ export const getWasmContractData = async (wasmBytes: Buffer) => {
             result[sectionName] = {
               ...result[sectionName],
               ...sectionContent,
+              xdr: [...(result[sectionName].xdr || []), ...sectionData.xdr],
+              json: [...(result[sectionName].json || []), ...sectionData.json],
+              text: [...(result[sectionName].text || []), ...sectionData.text],
             };
           }
         }
@@ -150,12 +161,12 @@ const sectionResult = (
 ) => {
   const sectionData = new Uint8Array(section);
   const sectionXdr = Buffer.from(sectionData).toString("base64");
-  const { json, xdr } = getJsonAndXdr(sectionName, sectionXdr);
+  const { json, xdr, text } = getJsonAndXdr(sectionName, sectionXdr);
 
   return {
     xdr,
     json,
-    // TODO: add text format
+    text,
   };
 };
 
@@ -172,9 +183,11 @@ const getJsonAndXdr = (sectionName: ContractSectionName, xdr: string) => {
     return {
       json: jsonStringArray.map((s) => prettifyJsonString(s)),
       xdr: jsonStringArray.map((s) => encode(TYPE_VARIANT[sectionName], s)),
+      text: jsonStringArray.map((s) => formatXdrJsonToText(sectionName, s)),
     };
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e) {
-    return { json: [], xdr: [] };
+    return { json: [], xdr: [], text: [] };
   }
 };
+

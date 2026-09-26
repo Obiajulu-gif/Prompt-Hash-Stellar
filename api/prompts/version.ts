@@ -4,6 +4,62 @@ import Prompt from "../../server/src/models/Prompt";
 import PromptVersion from "../../server/src/models/PromptVersion";
 import Purchase from "../../server/src/models/Purchase";
 import User from "../../server/src/models/User";
+import { getPrompt, type PromptHashConfig } from "../../src/lib/stellar/promptHashClient";
+import { computeListingSnapshotHash } from "../../src/lib/auth/challenge";
+
+/** Minimal server-side contract config built from public env vars. */
+function buildServerConfig(): PromptHashConfig {
+  const rpcUrl = process.env.PUBLIC_STELLAR_RPC_URL ?? "";
+  return {
+    rpcUrl,
+    rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")
+      .map((u) => u.trim())
+      .filter(Boolean),
+    networkPassphrase:
+      process.env.PUBLIC_STELLAR_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015",
+    promptHashContractId: process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID ?? "",
+    nativeAssetContractId: process.env.PUBLIC_NATIVE_ASSET_CONTRACT_ID ?? "",
+    simulationAccount: process.env.PUBLIC_SIMULATION_ACCOUNT ?? "",
+    allowHttp: rpcUrl.includes("localhost"),
+  };
+}
+
+/**
+ * Compute the canonical listing snapshot hash for purchase preflight (issue #698).
+ * Prefers the authoritative on-chain listing; falls back to DB-derived fields if
+ * the chain read is unavailable so the preflight is always deterministic.
+ */
+async function computePreflightSnapshot(prompt: any): Promise<string | undefined> {
+  const contractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
+  if (contractId && prompt?.onChainId) {
+    try {
+      const onChain = await getPrompt(buildServerConfig(), BigInt(prompt.onChainId));
+      if (onChain) {
+        return computeListingSnapshotHash({
+          promptId: String(onChain.id),
+          owner: String(onChain.creator),
+          priceStroops: String(onChain.priceStroops ?? ""),
+          asset: String((onChain as any).asset ?? ""),
+          version: String((onChain as any).revision ?? ""),
+          expiresAt: String((onChain as any).expiresAt ?? "0"),
+        });
+      }
+    } catch {
+      // Fall through to DB-derived snapshot below.
+    }
+  }
+
+  if (!prompt) return undefined;
+  const ownerWallet = prompt.owner?.walletAddress ?? "";
+  return computeListingSnapshotHash({
+    promptId: String(prompt.onChainId ?? prompt._id ?? ""),
+    owner: String(ownerWallet),
+    priceStroops: String(prompt.priceStroops ?? ""),
+    asset: String(prompt.asset ?? ""),
+    version: String(prompt.revision ?? ""),
+    expiresAt: String(prompt.expiresAt ?? "0"),
+  });
+}
 
 async function handler(req: any, res: any) {
   await connectDb();
@@ -31,13 +87,16 @@ async function handler(req: any, res: any) {
       versionIndex,
     });
 
-    const prompt = await Prompt.findById(promptId).lean();
+    const prompt = await Prompt.findById(promptId).populate("owner", "walletAddress").lean();
+
+    const listingSnapshotHash = await computePreflightSnapshot(prompt);
 
     res.status(200).json({
       versionIndex,
       content: version?.content ?? (prompt as any)?.content ?? null,
       changeNote: version?.changeNote ?? "",
       purchasedAt: purchase?.createdAt ?? null,
+      listingSnapshotHash,
     });
     return;
   }

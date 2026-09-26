@@ -1,6 +1,10 @@
 {
   "nav": {
     "browse": "Explorar",
+    "sell": "Vender",
+    "chat": "Chat",
+    "profile": "Perfil",
+    "status": "Estado",
     "create": "Crear",
     "dashboard": "Panel",
     "connect": "Conectar Billetera",
@@ -12,6 +16,23 @@
     "browse_prompts": "Explorar Prompts",
     "create_prompt": "Crear Prompt"
   },
+  "marketplace": {
+    "title": "Mercado",
+    "subtitle": "Explora y desbloquea prompts de IA. Las compras se liquidan en la red Stellar.",
+    "listings_count_one": "{{count}} publicación",
+    "listings_count_other": "{{count}} publicaciones",
+    "load_error": "Error al cargar las publicaciones del mercado.",
+    "load_error_hint": "Verifica tu conexión y recarga la página.",
+    "empty_title": "Aún no hay prompts publicados",
+    "empty_body": "¡Sé el primero en publicar un prompt! Ve a la página de Venta para publicar tu prompt de IA y comenzar a ganar XLM.",
+    "sell_link": "Vender",
+    "owned": "Adquirido",
+    "buy": "Comprar",
+    "purchasing": "Comprando…",
+    "network_wait": "Esperando confirmación en la red Stellar…",
+    "pending_message": "Procesando compra en la red Stellar…",
+    "success_message": "¡Compra completada! Elemento desbloqueado."
+  },
   "prompt": {
     "buy": "Comprar Prompt",
     "lease": "Arrendar Prompt",
@@ -19,10 +40,59 @@
     "creator": "Creador",
     "category": "Categoría",
     "sales": "Ventas",
+    "content_hash": "Hash del Contenido",
+    "quality_score": "Puntuación de Calidad",
+    "preview": "Vista Previa",
+    "no_ratings": "Aún sin valoraciones — sé el primero en reseñar.",
     "purchase_success": "¡Prompt comprado con éxito!",
     "lease_success": "¡Prompt arrendado con éxito!",
     "already_owned": "Ya posees este prompt.",
-    "max_supply_reached": "Se alcanzó el suministro máximo para este prompt."
+    "max_supply_reached": "Se alcanzó el suministro máximo para este prompt.",
+    "acquire_license": "Adquirir Licencia",
+    "acquire_license_subtitle": "Desbloquea contenido premium de prompts mediante contrato inteligente Stellar.",
+    "secure_purchase": "Compra Segura",
+    "secure_purchase_body": "Los fondos son retenidos por el contrato hasta que se acuñen los derechos de acceso. La tarifa de plataforma está incluida en el precio.",
+    "confirm_purchase": "Confirmar & Comprar",
+    "offline": "Sin Conexión",
+    "license_verified": "Licencia Verificada",
+    "license_verified_body": "Propiedad detectada en la cadena. Firma la solicitud de desbloqueo para descifrar.",
+    "decrypt": "Descifrar Contenido",
+    "unlocking": "Desbloqueando…",
+    "copy_content": "Copiar contenido",
+    "copied": "Copiado",
+    "store_securely": "Guarda este prompt de forma segura. No lo compartas públicamente ni con usuarios no autorizados.",
+    "go_to_library": "Ir a mi biblioteca",
+    "back_to_marketplace": "Volver al mercado",
+    "share_link": "Copiar enlace para compartir",
+    "share_link_copied": "Enlace copiado",
+    "report": "Reportar prompt",
+    "write_review": "Escribir una Reseña",
+    "share_experience": "Comparte tu Experiencia"
+  },
+  "receipt": {
+    "title": "Recibo de Compra",
+    "pending_indexing": "Indexación Pendiente…",
+    "pending_indexing_body": "Tu transacción fue exitosa en la red Stellar, pero nuestro sistema aún está indexando la actualización. Podrás desbloquear el prompt en breve.",
+    "prompt_label": "Prompt",
+    "creator_label": "Creador",
+    "amount_label": "Monto",
+    "fee_label": "Tarifa de Red",
+    "tx_hash_label": "Hash de transacción",
+    "prompt_id_label": "ID de Prompt",
+    "content_hash_label": "Hash del contenido",
+    "details_heading": "Detalles de la transacción",
+    "buyer_status": "Estado del comprador",
+    "buyer_label": "Comprador",
+    "licensed": "Licenciado"
+  },
+  "sell": {
+    "title": "Publicar un Nuevo Prompt",
+    "name_label": "Nombre del Prompt",
+    "price_label": "Precio (XLM)",
+    "description_label": "Descripción",
+    "submit": "Publicar Activo",
+    "submitting": "Procesando Publicación…",
+    "offline": "Sin Conexión"
   },
   "create": {
     "title": "Crear un Prompt",
@@ -37,9 +107,203 @@
   "errors": {
     "not_found": "Prompt no encontrado.",
     "unauthorized": "No estás autorizado.",
-    "paused": "El mercado está actualmente en pausa."
+    "paused": "El mercado está actualmente en pausa.",
+    "load_failed": "Error al cargar los datos.",
+    "network_error": "Ocurrió un error de red. Inténtalo de nuevo."
+  },
+  "offline": {
+    "banner": "Estás sin conexión. Viendo publicaciones públicas en caché. Las acciones de billetera y compras están deshabilitadas.",
+    "last_refreshed": "Datos actualizados por última vez: {{time}}",
+    "reconnect": "Reconectar"
   },
   "language": {
     "select": "Idioma"
+  },
+  "format": {
+    "xlm_amount": "{{amount}} XLM"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "failed": "Error",
+    "error": "Error",
+    "success": "Éxito",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "add": "Añadir",
+    "remove": "Remover",
+    "close": "Cerrar",
+    "submit": "Enviar",
+    "continue": "Continuar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "confirm": "Confirmar",
+    "retry": "Reintentar"
+  },
+  "sell_form": {
+    "preview_placeholder": "Añade texto de vista previa pública para mostrar a los compradores qué resultados pueden esperar.",
+    "moderation_notes_placeholder": "Añade notas de moderación...",
+    "failed_create_prompt": "Error al crear prompt.",
+    "failed_update_status": "Error al actualizar el estado de venta.",
+    "failed_update_price": "Error al actualizar el precio.",
+    "failed_unlock_prompt": "Error al desbloquear el prompt.",
+    "failed_create_bundle": "Error al crear paquete.",
+    "failed_create_access_pass": "Error al crear pase de acceso.",
+    "draft_not_found": "Borrador no encontrado.",
+    "failed_fetch_drafts": "Error al obtener borradores.",
+    "failed_publish_draft": "Error al publicar.",
+    "failed_archive_draft": "Error al archivar.",
+    "draft_restored": "Borrador restaurado desde autoguardado.",
+    "last_saved": "Último guardado: {{time}}"
+  },
+  "profile": {
+    "loading_licensed_prompts": "Cargando tus prompts licenciados...",
+    "saved_listing": "Publicación guardada",
+    "paused_listing": "Publicación pausada",
+    "failed_update_listing_status": "Error al actualizar el estado de la publicación.",
+    "failed_update_listing_price": "Error al actualizar el precio.",
+    "failed_update_saved_listings": "Error al actualizar publicaciones guardadas.",
+    "failed_unlock": "Error al desbloquear prompt.",
+    "payout_settings": "Configuración de Pagos",
+    "failed_save_payout_preferences": "Error al guardar preferencias de pago."
+  },
+  "admin": {
+    "failed_load_contract_state": "Error al cargar el estado del contrato.",
+    "config_dashboard_title": "Configuración del Contrato",
+    "reports_title": "Reportes de Moderación"
+  },
+  "forms": {
+    "error_required": "Este campo es obligatorio.",
+    "error_invalid": "Entrada inválida.",
+    "error_validation": "La validación falló. Por favor, verifica el formulario."
+  },
+  "unlockErrors": {
+    "unknown": "No se pudo desbloquear el prompt.",
+    "network": "Se produjo un error de red al desbloquear. Comprueba tu conexión e inténtalo de nuevo.",
+    "withSupportReference": "(Referencia de soporte: {{correlationId}})",
+    "categories": {
+      "wallet": "Problema con la billetera",
+      "access": "Acceso denegado",
+      "server": "Error temporal"
+    },
+    "contactSupport": "Contactar con soporte",
+    "codes": {
+      "MISSING_FIELDS": "Faltan campos obligatorios. Revisa tu solicitud.",
+      "METHOD_NOT_ALLOWED": "Esta acción no es compatible.",
+      "CHALLENGE_EXPIRED": "Tu sesión ha expirado. Haz clic en Descifrar contenido para volver a intentarlo.",
+      "CHALLENGE_INVALID": "La sesión de desbloqueo ya no es válida. Haz clic en Descifrar contenido para empezar de nuevo.",
+      "INVALID_SIGNATURE": "La firma de la billetera no coincide. Abre tu billetera e inténtalo de nuevo.",
+      "ACCESS_NOT_PURCHASED": "No has comprado acceso a este prompt. Completa una compra primero.",
+      "STALE_PROMPT_TERMS": "Este prompt cambió desde que lo abriste. Actualiza el prompt y firma de nuevo.",
+      "RATE_LIMIT_IP": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+      "RATE_LIMIT_WALLET": "Demasiados intentos de desbloqueo para esta billetera. Espera un minuto e inténtalo de nuevo.",
+      "RATE_LIMIT_ENTITLEMENT": "Demasiados intentos de desbloqueo para este prompt. Espera un momento e inténtalo de nuevo.",
+      "CONFIGURATION_ERROR": "Algo salió mal por nuestra parte. Inténtalo de nuevo más tarde.",
+      "INTEGRITY_FAILURE": "No se pudo verificar el contenido del prompt. Contacta con soporte si esto continúa.",
+      "TEMPORARY_FAILURE": "Se produjo un error temporal. Inténtalo de nuevo en un momento.",
+      "IDEMPOTENCY_CONFLICT": "Esta clave de idempotencia se usó con una solicitud diferente. Usa una clave nueva."
+    }
+  },
+  "receiptErrors": {
+    "notFound": "No se encontró ninguna transacción de compra para este prompt/comprador.",
+    "configMissing": "No se puede procesar el recibo. Inténtalo de nuevo más tarde.",
+    "buildFailed": "Error al crear el recibo."
+  },
+  "reviewErrors": {
+    "missingFields": "Se requieren promptId, userAddress, rating y text",
+    "signatureRequired": "Se requiere firma de billetera para enviar una reseña",
+    "invalidRating": "La calificación debe ser un número entero entre 1 y 5",
+    "textTooShort": "El texto de la reseña debe tener al menos 10 caracteres",
+    "textTooLong": "El texto de la reseña no debe superar 500 caracteres",
+    "invalidSignature": "Firma de billetera inválida separada por dominio para la reseña",
+    "accessDenied": "Solo los compradores verificados con derechos finalizados pueden enviar reseñas",
+    "methodNotAllowed": "Método no permitido"
+  },
+  "moderationStatuses": {
+    "restricted": "Restringido",
+    "active": "Activo",
+    "retired": "Retirado"
+  },
+  "moderationReasons": {
+    "copyright": "Violación de derechos de autor",
+    "abuse": "Contenido abusivo",
+    "malware": "Malware o riesgo de seguridad",
+    "policy_violation": "Violación de política",
+    "other": "Otro"
+  },
+  "purchaseStatuses": {
+    "purchased": "Comprado",
+    "disputed": "En Disputa",
+    "resolved": "Resuelto"
+  },
+  "disputeResolutions": {
+    "refunded": "Reembolsado",
+    "rejected": "Rechazado"
+  },
+  "bulkPurchaseErrors": {
+    "PromptNotFound": {
+      "title": "Lote Contiene Elementos Inválidos",
+      "message": "Uno o más prompts en el lote no existen o han sido archivados.",
+      "suggestion": "Usa la herramienta de validación para verificar cada elemento antes de reintentar. Elimina elementos inválidos y compra el resto."
+    },
+    "AlreadyPurchased": {
+      "title": "Lote Contiene Elementos Inválidos",
+      "message": "Ya has comprado uno de estos prompts. No puedes comprar el mismo prompt dos veces.",
+      "suggestion": "Usa la herramienta de validación para verificar cada elemento antes de reintentar. Elimina elementos inválidos y compra el resto."
+    },
+    "CreatorCannotBuy": {
+      "title": "Compra Fallida",
+      "message": "No puedes comprar prompts que creaste. Intenta con un lote diferente.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "PromptInactive": {
+      "title": "Compra Fallida",
+      "message": "Uno o más prompts ya no están a la venta. Verifica su estado e inténtalo de nuevo.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "InvalidPaymentAmount": {
+      "title": "Discrepancia de Pago",
+      "message": "El pago de uno o más prompts es insuficiente. Recalcula los precios e inténtalo de nuevo.",
+      "suggestion": "Asegúrate de pagar el precio completo de cada prompt. Recalcula los totales e inténtalo de nuevo."
+    },
+    "ListingExpired": {
+      "title": "Compra Fallida",
+      "message": "Uno o más prompts han alcanzado su fecha de vencimiento y ya no están disponibles.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "ContractIsPaused": {
+      "title": "Mercado Temporalmente en Pausa",
+      "message": "El mercado está temporalmente en pausa. Inténtalo de nuevo más tarde.",
+      "suggestion": "Vuelve en unos momentos e inténtalo de nuevo."
+    },
+    "BulkPurchaseTooLarge": {
+      "title": "Lote Demasiado Grande",
+      "message": "El tamaño de tu lote excede el máximo permitido (20 prompts por transacción). Divide en lotes más pequeños.",
+      "suggestion": "Intenta comprar en grupos de 10-15 prompts por transacción para obtener mejores tasas de éxito."
+    },
+    "DuplicatePromptId": {
+      "title": "Compra Fallida",
+      "message": "El mismo ID de prompt aparece varias veces en el lote. Elimina duplicados e inténtalo de nuevo.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    },
+    "InvalidPrice": {
+      "title": "Discrepancia de Pago",
+      "message": "El número de montos de pago no coincide con el número de prompts. Ambas listas deben tener la misma longitud.",
+      "suggestion": "Asegúrate de pagar el precio completo de cada prompt. Recalcula los totales e inténtalo de nuevo."
+    },
+    "ArithmeticOverflow": {
+      "title": "Compra Fallida",
+      "message": "Uno o más precios son demasiado grandes para procesar. Contacta con soporte si esto persiste.",
+      "suggestion": "Inténtalo de nuevo con un lote más pequeño o compras individuales. Contacta con soporte si el problema persiste."
+    }
+  },
+  "validationErrors": {
+    "promptNotFound": "El prompt no existe o ha sido eliminado",
+    "alreadyPurchased": "Ya posees este prompt",
+    "insufficientBalance": "Saldo insuficiente para completar todas las compras",
+    "promptInactive": "Este prompt ya no está a la venta",
+    "insufficientPayment": "El monto de pago está por debajo del precio del prompt"
   }
 }

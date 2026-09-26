@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useTransactionFeedback } from "./TransactionProvider";
+import { classifyWalletError } from "@/lib/wallet/walletErrors";
 
 interface StellarError {
   response?: {
@@ -19,33 +20,44 @@ interface StellarError {
  * Translates generic Stellar RPC/Horizon error codes into human-readable prompts.
  */
 const translateStellarError = (error: unknown): string => {
-  if (typeof error !== 'object' || error === null) return "An unknown error occurred while submitting.";
-  
+  if (typeof error !== 'object' || error === null) {
+    return classifyWalletError(error).message;
+  }
+
   const err = error as StellarError;
   const txCode = err.response?.data?.extras?.result_codes?.transaction;
   const opCodes = err.response?.data?.extras?.result_codes?.operations;
 
-  if (txCode === "tx_bad_auth") return "Transaction signing failed. Please check your wallet.";
+  if (txCode === "tx_bad_auth") return "Transaction signing failed. Please check your wallet is unlocked and try again.";
   if (txCode === "tx_insufficient_balance" || opCodes?.includes("op_underfunded")) {
-    return "Insufficient balance to cover transaction limits or fees.";
+    return "Insufficient XLM balance. Please add funds to your wallet and try again.";
   }
-  if (opCodes?.includes("op_no_trust")) return "A required trustline is missing for this transaction.";
-  if (opCodes?.includes("op_not_authorized")) return "Your account is not authorized to perform this operation.";
-  
+  if (opCodes?.includes("op_no_trust")) return "A required trustline is missing. Please add the asset to your wallet first.";
+  if (opCodes?.includes("op_not_authorized")) return "Your account is not authorized for this operation. Check wallet permissions.";
+
+  const classified = classifyWalletError(error);
+  if (classified.code !== "UNKNOWN") {
+    return classified.recoveryAction
+      ? `${classified.message} ${classified.recoveryAction}`
+      : classified.message;
+  }
+
   return err.message || "Failed to submit transaction to the Stellar network.";
 };
 
 interface UseAsyncTransactionOptions<TData, TVariables> {
-  onOptimistic?: (variables: TVariables) => void;
-  onSuccess?: (data: TData, variables: TVariables) => void;
-  onError?: (error: Error, variables: TVariables) => void;
-  onSettled?: (variables: TVariables, result?: TData, error?: unknown) => void;
-  pendingMessage?: string | ((variables: TVariables) => string);
-  successMessage?: string | ((data: TData) => string);
-  errorMessage?: string | ((error: Error) => string);
+  onOptimistic?: (_variables: TVariables) => void;
+  onSuccess?: (_data: TData, _variables: TVariables) => void;
+  onError?: (_error: Error, _variables: TVariables) => void;
+  onSettled?: (_variables: TVariables, _result?: TData, _error?: unknown) => void;
+  pendingMessage?: string | ((_variables: TVariables) => string);
+  successMessage?: string | ((_data: TData) => string);
+  errorMessage?: string | ((_error: Error) => string);
 }
+ 
 
 export function useAsyncTransaction<TData, TVariables = void>(
+   
   mutationFn: (variables: TVariables) => Promise<TData>,
   options?: UseAsyncTransactionOptions<TData, TVariables>
 ) {
