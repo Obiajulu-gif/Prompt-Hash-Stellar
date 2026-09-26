@@ -369,7 +369,7 @@ export const SubmitPromptReport = async (
   try {
     await connectDb();
 
-    const { promptId, reporterAddress, reason, description } = req.body;
+    const { promptId, reporterAddress, reason, description, evidence } = req.body;
 
     // Validate required fields
     if (!promptId || !reporterAddress || !reason) {
@@ -402,11 +402,33 @@ export const SubmitPromptReport = async (
     }
 
     // Create new report
+    const evidenceItems = Array.isArray(evidence)
+      ? evidence
+          .filter(
+            (item: unknown): item is { url: string; kind: string } =>
+              typeof item === "object" &&
+              item !== null &&
+              typeof (item as { url?: unknown }).url === "string" &&
+              typeof (item as { kind?: unknown }).kind === "string" &&
+              ["image", "pdf", "link", "text"].includes(
+                (item as { kind: string }).kind,
+              ),
+          )
+          .slice(0, 10)
+          .map((item: { url: string; kind: string }) => ({
+            url: item.url.trim(),
+            kind: item.kind,
+            addedBy: "reporter",
+          }))
+          .filter((item: { url: string }) => item.url.length > 0)
+      : [];
+
     const newReport = new Report({
       promptId,
       reporterAddress: reporterAddress.toLowerCase(),
       reason,
       description: description || "",
+      evidence: evidenceItems,
     });
 
     await newReport.save();
@@ -447,10 +469,14 @@ export const GetPromptReports = async (
       typeof req.query.promptId === "string" ? req.query.promptId : undefined;
 
     const query: any = {};
+    query.archivedAt = null;
     if (promptId) {
       query.promptId = promptId;
     }
 
+    if (req.query.includeArchived === "true") {
+      delete query.archivedAt;
+    }
     const reports = await Report.find(query).sort({ createdAt: -1 });
 
     return res.json(reports);

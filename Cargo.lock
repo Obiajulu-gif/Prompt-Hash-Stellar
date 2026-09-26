@@ -999,6 +999,7 @@ dependencies = [
 name = "prompt-hash"
 version = "0.0.1"
 dependencies = [
+ "revenue-rounding",
  "soroban-sdk",
  "stellar-access",
  "stellar-macros",
@@ -1043,6 +1044,10 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
 ]
+
+[[package]]
+name = "revenue-rounding"
+version = "0.0.1"
 
 [[package]]
 name = "rfc6979"

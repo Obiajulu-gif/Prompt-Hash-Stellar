@@ -79,8 +79,36 @@ Responsibilities:
 
 1. Buyer approves native asset spend.
 2. App submits `buy_prompt`.
-3. Contract moves seller and fee amounts in stroops.
-4. Contract records purchase rights for the buyer.
+3. Contract holds the payment in a dispute-protected escrow and records purchase rights.
+4. After settlement, the contract distributes the snapshotted payout shares.
+
+### Revenue-share rounding
+
+Prompt, bundle, and access-pass purchases use basis-point shares totaling
+10,000, including the creator's residual share. Settlement floors each share
+to whole stroops and carries its fractional numerator forward per asset,
+recipient, and share role. Collaborator carries are isolated by prompt ID.
+When a carry reaches a whole stroop, that stroop is paid to the recipient.
+
+The undistributed integer balance stays in the contract as a rounding reserve
+and is included in per-asset solvency liabilities. Carry state is updated only
+when an escrow settles; pending and refunded escrows do not affect it. This
+keeps disputes/refunds isolated from completed settlement history. Legacy
+escrows without a rounding snapshot continue using their stored payout plan.
+
+Maintainers can inspect `get_revenue_rounding_report(asset)`, which reports the
+cumulative newly accrued fractional numerator and the currently backed reserve
+in stroops. The shared arithmetic module is tested with 2,048 uneven shares
+over 500 rounds; those scale simulations complement the contract settlement
+and refund tests.
+
+Per-recipient carry is persistent contract state with the normal Soroban
+persistent-entry TTL. Reading
+`get_revenue_rounding_remainder(asset, recipient, kind, source_id)` refreshes
+that entry; use `source_id = 0` for fee, referral, and creator shares, and the
+prompt ID for collaborator shares. Maintainers should refresh dormant carries
+before their TTL expires so fractional entitlements are not lost to storage
+expiry.
 
 ### Unlock purchased prompt
 

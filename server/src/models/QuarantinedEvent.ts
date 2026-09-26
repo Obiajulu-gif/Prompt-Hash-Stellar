@@ -15,6 +15,9 @@ export interface IQuarantinedEvent extends Document {
   quarantinedAt: Date;
   replayedAt?: Date;
   retryCount: number;
+  archivedAt: Date | null;
+  retentionHold: boolean;
+  retentionHoldReason: string | null;
 }
 
 const quarantinedEventSchema = new Schema<IQuarantinedEvent>(
@@ -43,9 +46,19 @@ const quarantinedEventSchema = new Schema<IQuarantinedEvent>(
     quarantinedAt: { type: Date, default: Date.now },
     replayedAt: { type: Date },
     retryCount: { type: Number, default: 0 },
+    archivedAt: { type: Date, default: null, index: true },
+    retentionHold: { type: Boolean, default: false, index: true },
+    retentionHoldReason: { type: String, default: null },
   },
   { timestamps: true },
 );
+
+quarantinedEventSchema.index({
+  status: 1,
+  updatedAt: 1,
+  archivedAt: 1,
+  retentionHold: 1,
+});
 
 export const QuarantinedEvent =
   mongoose.models.QuarantinedEvent ||

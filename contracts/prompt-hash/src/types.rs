@@ -229,6 +229,14 @@ pub enum DataKey {
     /// Moderation audit record, keyed by (prompt_id, moderation_timestamp).
     /// Preserves complete history of policy actions for compliance.
     ModerationRecord(u64, u64),
+    /// Per-recipient rounding carry, keyed by (asset, recipient, revenue role).
+    RevenueRoundingCarry(Address, Address, RevenueShareKind, u64),
+    /// Cumulative rounding report and currently reserved stroops per asset.
+    RevenueRoundingReport(Address),
+    /// Rounding shares captured for a purchase escrow at purchase time.
+    PurchaseRoundingPlan(u64, Address, u64),
+    /// Rounding shares captured for an access-pass escrow at purchase time.
+    AccessPassRoundingPlan(u128, Address, u64),
 }
 
 #[contracttype]
@@ -331,14 +339,48 @@ pub struct PayoutSplit {
     pub amount: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RevenueShareKind {
+    PlatformFee,
+    Referral,
+    Collaborator,
+    Creator,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevenueRoundingShare {
+    pub recipient: Address,
+    pub kind: RevenueShareKind,
+    /// Prompt ID for collaborator shares; 0 for fee, referral, and creator shares.
+    pub source_id: u64,
+    pub bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseRoundingPlan {
+    pub shares: Vec<RevenueRoundingShare>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevenueRoundingReport {
+    /// Lifetime total of newly accrued fractional numerators, in basis-point units.
+    pub cumulative_numerator: u128,
+    /// Actual stroops held to back outstanding recipient fractions.
+    pub reserve_stroops: i128,
+}
+
 /// Aggregate escrow liability tracked for one SAC asset (#570).
 ///
 /// `pending` is the total amount held for escrows awaiting settlement or
 /// refund. `disputed` is the subset currently under an open dispute — moved
 /// out of `pending` while the dispute is open so operators can see disputed
 /// exposure separately, and moved back on settle/refund/reject. The two
-/// buckets never overlap; `pending + disputed` is the asset's total
-/// customer liability the contract's SAC balance must cover.
+/// buckets never overlap. The revenue-rounding reserve is tracked separately
+/// and added to these values when computing the asset's total liability.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssetLiability {
@@ -347,9 +389,9 @@ pub struct AssetLiability {
 }
 
 /// Read-only solvency snapshot for one asset (#570). `surplus` is
-/// `actual_balance - tracked_liability`: rounding dust, accidental direct
-/// transfers, or other non-customer balance. A negative surplus means the
-/// contract's SAC balance no longer covers its tracked liabilities.
+/// `actual_balance - tracked_liability`: accidental direct transfers or other
+/// non-customer balance. A negative surplus means the contract's SAC balance
+/// no longer covers pending, disputed, and rounding-reserve liabilities.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssetSolvency {
@@ -854,6 +896,17 @@ pub trait PromptHashTrait {
     // Per-asset escrow liability and solvency reconciliation (#570).
     fn get_asset_liability(env: Env, asset: Address) -> AssetLiability;
     fn get_asset_solvency(env: Env, asset: Address) -> AssetSolvency;
+    /// Reports cumulative fractional numerators and the backed reserve for an asset.
+    fn get_revenue_rounding_report(env: Env, asset: Address) -> RevenueRoundingReport;
+    /// Reads and refreshes one asset/recipient/role carry; collaborators use
+    /// their prompt ID as `source_id`, while other roles use 0.
+    fn get_revenue_rounding_remainder(
+        env: Env,
+        asset: Address,
+        recipient: Address,
+        kind: RevenueShareKind,
+        source_id: u64,
+    ) -> u32;
     /// Compares tracked liability against the contract's actual SAC balance
     /// for `asset` and pauses the contract if the balance no longer covers
     /// tracked liabilities. Safe to call permissionlessly as a monitor.
