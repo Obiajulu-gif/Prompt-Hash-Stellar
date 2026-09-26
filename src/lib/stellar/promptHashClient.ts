@@ -140,6 +140,7 @@ export interface PromptRecord {
   active: boolean;
   status?: string; // Draft, Active, Paused, Retired, Restricted
   contentHash: string;
+    revision?: number; // Added revision field for purchase receipt commitment metadata
   encryptedPrompt?: string;
   encryptionIv?: string;
   wrappedKey?: string;

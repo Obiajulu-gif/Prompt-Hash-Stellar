@@ -8,9 +8,9 @@ import {
 } from "../../src/lib/auth/challenge";
 import {
   decryptPromptCiphertext,
-  hashPromptPlaintext,
   normalizeContentHash,
   unwrapPromptKey,
+  verifyPromptPlaintextHash,
 } from "../../src/lib/crypto/promptCrypto";
 import {
   getPrompt,
@@ -51,6 +51,8 @@ export interface UnlockSuccessResponse {
   promptId: string;
   title: string;
   contentHash: string;
+  contentHashAlgorithm: "SHA-256";
+  contentHashVersion: 1;
   plaintext: string;
 }
 
@@ -720,10 +722,20 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       prompt.encryptionIv,
       keyBytes,
     );
-    const contentHash = await hashPromptPlaintext(plaintext);
     const storedHash = normalizeContentHash(prompt.contentHash);
-    if (contentHash !== storedHash) {
-      req.logger.error({ address, promptId }, "Prompt integrity check failed");
+    const integrity = await verifyPromptPlaintextHash(plaintext, storedHash);
+    if (!integrity.valid) {
+      req.logger.error(
+        {
+          address,
+          promptId,
+          expectedHash: integrity.expectedHash,
+          computedHash: integrity.computedHash,
+          hashAlgorithm: integrity.algorithm,
+          hashVersion: integrity.version,
+        },
+        "Prompt integrity check failed",
+      );
       metrics.trackUnlockFailure(
         String(address),
         String(promptId),
@@ -780,7 +792,9 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
     const successResponse: UnlockSuccessResponse = {
       promptId: prompt.id.toString(),
       title: prompt.title,
-      contentHash,
+      contentHash: integrity.computedHash,
+      contentHashAlgorithm: integrity.algorithm,
+      contentHashVersion: integrity.version,
       plaintext,
     };
     if (idempotencyKey) {

@@ -742,6 +742,10 @@ export function decodePromptRecord(
     contentHash: data.content_hash
       ? normalizeContentHash(data.content_hash)
       : "",
+    revision: Number(data.revision ?? 0),
+    encryptedPrompt: data.encrypted_payload ?? data.encrypted_prompt ?? "",
+    encryptionIv: data.encryption_iv ?? "",
+    wrappedKey: data.wrapped_key ?? "",
   };
 }
 

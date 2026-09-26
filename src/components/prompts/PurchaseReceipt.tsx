@@ -33,6 +33,7 @@ interface PurchaseReceiptProps {
   walletAddress: string;
   txHash: string;
   isPendingIndexing?: boolean;
+  contentIntegrityVerified?: boolean;
 }
 
 export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
@@ -41,6 +42,7 @@ export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
   walletAddress,
   txHash,
   isPendingIndexing = false,
+  contentIntegrityVerified = false,
 }) => {
   const priceXlm = promptDetail ? stroopsToXlmString(promptDetail.priceStroops) : "—";
   // Assuming a fixed platform fee representation or extracting from metadata if available
@@ -50,6 +52,11 @@ export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
     (browserStellarConfig?.networkPassphrase &&
       browserStellarConfig.networkPassphrase.toUpperCase().includes("TESTNET"));
   const explorerNetwork = isTestnet ? "testnet" : "public";
+  const contentHash =
+    typeof promptDetail?.contentHash === "string"
+      ? promptDetail.contentHash.toLowerCase()
+      : "";
+  const hasValidContentHash = /^[0-9a-f]{64}$/.test(contentHash);
 
   return (
     <div className="animate-in fade-in zoom-in duration-300 space-y-4" data-testid="purchase-receipt">
@@ -127,16 +134,25 @@ export const PurchaseReceipt: React.FC<PurchaseReceiptProps> = ({
           <CopyField value={itemId} label="prompt ID" />
         </div>
         
-        {promptDetail?.contentHash && (
+        {hasValidContentHash ? (
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[10px] text-slate-500">Content hash</p>
+              <p className="text-[10px] text-slate-500">On-chain SHA-256 commitment · v1</p>
               <p className="font-mono text-xs text-slate-300 truncate">
-                {promptDetail.contentHash.slice(0, 16)}…
+                {contentHash.slice(0, 16)}…
+              </p>
+              <p className={`text-[10px] ${contentIntegrityVerified ? "text-emerald-400" : "text-slate-500"}`}>
+                {contentIntegrityVerified
+                  ? "Verified against unlocked prompt"
+                  : "Unlock to verify against prompt content"}
               </p>
             </div>
-            <CopyField value={promptDetail.contentHash} label="content hash" />
+            <CopyField value={contentHash} label="content hash" />
           </div>
+        ) : (
+          <p className="text-[10px] text-amber-300">
+            On-chain content commitment is unavailable or malformed. Keep the transaction hash and contact support if unlock verification fails.
+          </p>
         )}
       </div>
     </div>

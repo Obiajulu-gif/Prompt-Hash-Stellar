@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ERROR_MESSAGES } from "@/lib/api/errorCodes";
 import { UnlockError } from "@/lib/errors/unlockErrors";
 
-const hashPromptPlaintextMock = vi.fn();
+const verifyPromptPlaintextHashMock = vi.fn();
+const TEST_CONTENT_HASH = "a".repeat(64);
 
 vi.mock("@/lib/crypto/promptCrypto", () => ({
-  hashPromptPlaintext: (...args: unknown[]) => hashPromptPlaintextMock(...args),
+  verifyPromptPlaintextHash: (...args: unknown[]) => verifyPromptPlaintextHashMock(...args),
 }));
 
 import { unlockPromptContent } from "./unlock";
@@ -25,7 +26,7 @@ function challengeResponse(): Response {
 describe("unlockPromptContent client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    hashPromptPlaintextMock.mockResolvedValue("abc123");
+    verifyPromptPlaintextHashMock.mockResolvedValue({ valid: true });
   });
 
   it("requests a challenge, signs it, and returns verified plaintext", async () => {
@@ -47,7 +48,9 @@ describe("unlockPromptContent client", () => {
           JSON.stringify({
             promptId: "7",
             title: "Test prompt",
-            contentHash: "abc123",
+            contentHash: TEST_CONTENT_HASH,
+            contentHashAlgorithm: "SHA-256",
+            contentHashVersion: 1,
             plaintext: "Decrypted prompt body",
           }),
           { status: 200 },
@@ -78,7 +81,7 @@ describe("unlockPromptContent client", () => {
   });
 
   it("maps integrity failures to safe user-facing errors", async () => {
-    hashPromptPlaintextMock.mockResolvedValue("different-hash");
+    verifyPromptPlaintextHashMock.mockResolvedValue({ valid: false });
 
     vi.stubGlobal(
       "fetch",
@@ -100,10 +103,12 @@ describe("unlockPromptContent client", () => {
             JSON.stringify({
               promptId: "7",
               title: "Test prompt",
-              contentHash: "abc123",
+              contentHash: TEST_CONTENT_HASH,
+              contentHashAlgorithm: "SHA-256",
+              contentHashVersion: 1,
               plaintext: "Decrypted prompt body",
             }),
-            { status: 200 },
+            { status: 200, headers: { "X-Correlation-ID": "corr-hash-01" } },
           ),
         ),
     );
@@ -114,7 +119,11 @@ describe("unlockPromptContent client", () => {
         "7",
         vi.fn().mockResolvedValue({ signedMessage: "signed-by-wallet" }),
       ),
-    ).rejects.toThrow(ERROR_MESSAGES.INTEGRITY_FAILURE);
+    ).rejects.toMatchObject({
+      code: "INTEGRITY_FAILURE",
+      correlationId: "corr-hash-01",
+      message: ERROR_MESSAGES.INTEGRITY_FAILURE,
+    });
   });
 
   it("maps API error codes without exposing sensitive backend details", async () => {
