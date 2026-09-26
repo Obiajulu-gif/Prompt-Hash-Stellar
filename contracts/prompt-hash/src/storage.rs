@@ -17,112 +17,14 @@ fn ensure(condition: bool, error: Error) -> Result<(), Error> {
     }
 }
 
-/// Instance-scoped storage for contract-level configuration.
-/// Uses `env.storage().instance()` — no TTL, survives upgrades.
-pub struct InstanceStorage;
-
-impl InstanceStorage {
-    pub fn get_prompt_counter(env: &Env) -> u64 {
-        let key = InstanceDataKey::PromptCounter;
-        env.storage().instance().get(&key).unwrap_or(0)
-    }
-
-    pub fn save_prompt_counter(env: &Env, count: u64) {
-        let key = InstanceDataKey::PromptCounter;
-        env.storage().instance().set(&key, &count);
-    }
-
-    pub fn set_fee_percentage(env: &Env, fee_percentage: &u32) {
-        let key = InstanceDataKey::FeePercentage;
-        env.storage().instance().set(&key, fee_percentage);
-    }
-
-    pub fn get_fee_percentage(env: &Env) -> u32 {
-        let key = InstanceDataKey::FeePercentage;
-        env.storage().instance().get(&key).unwrap_or(0)
-    }
-
-    pub fn set_fee_wallet(env: &Env, fee_wallet: &Address) {
-        let key = InstanceDataKey::FeeWallet;
-        env.storage().instance().set(&key, fee_wallet);
-    }
-
-    pub fn get_fee_wallet(env: &Env) -> Option<Address> {
-        env.storage().instance().get(&InstanceDataKey::FeeWallet)
-    }
-
-    pub fn set_xlm_address(env: &Env, xlm_address: &Address) {
-        let key = InstanceDataKey::XlmAddress;
-        env.storage().instance().set(&key, xlm_address);
-    }
-
-    pub fn get_xlm_address(env: &Env) -> Option<Address> {
-        env.storage().instance().get(&InstanceDataKey::XlmAddress)
-    }
-
-    pub fn get_stellar_asset_contract(
-        env: &'_ Env,
-    ) -> Result<token::StellarAssetClient<'_>, Error> {
-        let contract_id = Self::get_xlm_address(env).ok_or(Error::XlmAddressNotSet)?;
-        Ok(token::StellarAssetClient::new(env, &contract_id))
-    }
-
-    pub fn set_reentrancy_guard(env: &Env) -> Result<(), Error> {
-        let key = InstanceDataKey::Reentrancy;
-        let already_set = env
-            .storage()
-            .instance()
-            .get::<_, bool>(&key)
-            .unwrap_or(false);
-        ensure(!already_set, Error::ReentrancyGuard)?;
-        env.storage().instance().set(&key, &true);
-        Ok(())
-    }
-
-    pub fn clear_reentrancy_guard(env: &Env) {
-        let key = InstanceDataKey::Reentrancy;
-        env.storage().instance().set(&key, &false);
-    }
-
-    pub fn set_referral_percentage(env: &Env, percentage: u32) {
-        let key = InstanceDataKey::ReferralPercentage;
-        env.storage().instance().set(&key, &percentage);
-    }
-
-    pub fn get_referral_percentage(env: &Env) -> u32 {
-        let key = InstanceDataKey::ReferralPercentage;
-        env.storage().instance().get(&key).unwrap_or(0)
-    }
-
-    pub fn set_pause_status(env: &Env, is_paused: bool) {
-        let key = InstanceDataKey::IsPaused;
-        env.storage().instance().set(&key, &is_paused);
-    }
-
-    pub fn is_paused(env: &Env) -> bool {
-        let key = InstanceDataKey::IsPaused;
-        env.storage().instance().get(&key).unwrap_or(false)
-    }
-
-    /// Asserts that the canonical configuration written by `__constructor` is
-    /// present. Any economic entry-point must call this before reading config
-    /// so that a partially-constructed or legacy-migrated instance fails loudly
-    /// rather than silently using wrong defaults.
-    pub fn require_config_initialized(env: &Env) -> Result<(), Error> {
-        ensure(
-            env.storage().instance().has(&InstanceDataKey::FeeWallet),
-            Error::FeeWalletNotSet,
-        )?;
-        ensure(
-            env.storage().instance().has(&InstanceDataKey::XlmAddress),
-            Error::XlmAddressNotSet,
-        )
+fn is_expired(env: &Env, prompt: &Prompt) -> bool {
+    if let Some(expiry) = prompt.expires_at {
+        let now = env.ledger().timestamp();
+        now >= expiry
+    } else {
+        false
     }
 }
-
-/// Persistent storage for prompt, purchase, and user-index records.
-/// Each entry is subject to TTL management via `extend_key_ttl`.
-pub struct Storage;
 
 impl Storage {
     pub fn extend_key_ttl(env: &Env, key: &DataKey) {
@@ -184,21 +86,9 @@ impl Storage {
         let mut prompts = Vec::new(env);
         for prompt_id in 0..prompt_count {
             if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                if prompt.expires_at == 0 || prompt.expires_at >= now {
+                if !is_expired(env, &prompt) {
                     prompts.push_back(prompt);
                 }
-            }
-        }
-        prompts
-    }
-
-    pub fn get_prompts_by_category(env: &Env, category: &soroban_sdk::String) -> Vec<Prompt> {
-        let all = Self::get_all_prompts(env);
-        let mut prompts = Vec::new(env);
-        for index in 0..all.len() {
-            let prompt = all.get(index).unwrap();
-            if prompt.category == *category {
-                prompts.push_back(prompt);
             }
         }
         prompts

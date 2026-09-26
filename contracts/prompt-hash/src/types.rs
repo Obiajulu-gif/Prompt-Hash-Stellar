@@ -24,6 +24,15 @@ pub enum Error {
     XlmAddressNotSet = 16,
     ArithmeticOverflow = 17,
     ReentrancyGuard = 18,
+    PromptExpired = 19,
+    InvalidExtensionDuration = 20,
+    ContractPaused = 19,
+    /// #119: Limited-edition supply exhausted.
+    MaxSupplyReached = 20,
+    /// #118: Referrer cannot be the buyer or the creator.
+    InvalidReferrer = 21,
+    /// #121: Payment amount is below the listed price.
+    PaymentBelowPrice = 22,
     ContractIsPaused = 19,
     ReferrerCannotBeBuyerOrCreator = 20,
     InvalidPaymentAmount = 21,
@@ -468,242 +477,10 @@ pub struct Bundle {
     pub asset: Address,
     pub active: bool,
     pub sales_count: u64,
-    /// Unix timestamp after which the bundle can no longer be purchased.
-    /// `0` means the bundle never expires.
-    pub expires_at: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AccessPass {
-    pub id: u128,
-    pub creator: Address,
-    pub title: String,
-    pub duration_secs: u64,
-    pub price_stroops: i128,
-    pub asset: Address,
-    pub status: PromptSaleStatus,
-    pub sales_count: u32,
-    pub max_supply: u32,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CatalogPassPurchase {
-    pub creator: Address,
-    pub buyer: Address,
-    pub pass_id: u128,
-    pub expires_at: u64,
-}
-
-/// Snapshot of the mutable listing fields captured before a revision (#226).
-/// Stored under `DataKey::ListingRevision(prompt_id, old_revision)` so
-/// buyers can verify what metadata was in effect when they purchased.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ListingRevisionRecord {
-    pub prompt_id: u64,
-    pub revision: u32,
-    pub title: String,
-    pub category: String,
-    pub preview_text: String,
-    pub image_url: String,
-    pub price_stroops: i128,
-    pub revised_at: u64,
-}
-
-/// A creator-signed discount authorization.
-///
-/// Replaces raw voucher preimages with a signed payload that binds the
-/// discount to a specific prompt, buyer, nonce, expiry, and domain
-/// (network_id + contract_id). This prevents front-running, replay across
-/// contracts/networks, and nonce reuse.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SignedDiscountAuthorization {
-    pub prompt_id: u64,
-    pub buyer: Address,
-    pub discount_bps: u32,
-    pub nonce: BytesN<32>,
-    pub expiry_ledger: u32,
-    pub network_id: BytesN<32>,
-    pub contract_id: BytesN<32>,
-}
-
-impl SignedDiscountAuthorization {
-    /// Compute the domain-separated message hash for signature verification.
-    /// The domain separator prevents replay across different contracts/networks.
-    pub fn hash(&self, env: &Env) -> BytesN<32> {
-        let mut buf = Vec::new(env);
-        // Domain separator: network_id || contract_id
-        buf.push_back(self.network_id.to_val());
-        buf.push_back(self.contract_id.to_val());
-        // Payload: prompt_id || buyer || discount_bps || nonce || expiry_ledger
-        buf.push_back((self.prompt_id as u128).into_val(env));
-        buf.push_back(self.buyer.to_val());
-        buf.push_back((self.discount_bps as u128).into_val(env));
-        buf.push_back(self.nonce.to_val());
-        buf.push_back((self.expiry_ledger as u128).into_val(env));
-        let raw = env.crypto().sha256(&buf.to_xdr(env));
-        BytesN::from_array(env, &raw.to_array())
-    }
-}
-
-/// Which checkout path a quote authorizes (#565).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AcquisitionKind {
-    DirectPurchase,
-    Lease,
-    Bundle,
-    AccessPass,
-    BulkCheckout,
-    ResaleFill,
-}
-
-/// A bounded quote commitment covering every checkout path (#565).
-///
-/// Binds the authorization to the network, contract, acquisition, asset and the
-/// exact commercial terms in effect when the quote was produced. `terms_hash`
-/// covers the listing revision, fee schedule, splits, bundle membership and
-/// pass duration, so any of those changing between simulation and submission
-/// invalidates the quote before funds move.
-///
-/// `max_charge` is a ceiling, not a target: the buyer is never debited above it.
-/// A tip is carried separately in `tip_amount` so an excess payment can never be
-/// silently reinterpreted as a gratuity.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QuoteCommitment {
-    pub network_id: BytesN<32>,
-    pub contract_id: BytesN<32>,
-    pub buyer: Address,
-    pub kind: AcquisitionKind,
-    /// prompt_id, bundle_id or pass_id depending on `kind`.
-    pub acquisition_id: u128,
-    pub asset: Address,
-    /// Hash over the expected revision and fee/split/membership configuration.
-    pub terms_hash: BytesN<32>,
-    /// Maximum the buyer authorizes for the purchase itself, excluding any tip.
-    pub max_charge: i128,
-    /// Explicit tip. `0` means no tip is authorized.
-    pub tip_amount: i128,
-    pub not_before_ledger: u32,
-    pub expiry_ledger: u32,
-    pub nonce: BytesN<32>,
-}
-
-/// One acquisition attempt, keyed by its own settlement ID (#567).
-///
-/// Records are append-only. Reacquiring an expired or refunded license
-/// allocates a new ID rather than overwriting the prior commercial and dispute
-/// record, so historical settlement and receipts stay unambiguous.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SettlementRecord {
-    pub settlement_id: u128,
-    pub prompt_id: u64,
-    pub buyer: Address,
-    pub kind: AcquisitionKind,
-    pub amount: i128,
-    pub asset: Address,
-    pub status: SettlementStatus,
-    pub created_at: u64,
-    pub settled_at: u64,
-    /// Settlement this one superseded, if it was a reacquisition.
-    pub supersedes: Option<u128>,
-    pub payout_plan: PayoutPlan,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ResaleOrderStatus {
-    Open,
-    Filled,
-    Cancelled,
-}
-
-/// A seller-signed resale order (#568).
-///
-/// Replaces dual-authorization `transfer_license`, which needed both parties in
-/// one invocation and carried no nonce, expiry or cancellation state. The seller
-/// signs once; a buyer fills later without a synchronous seller signature.
-///
-/// `buyer` set to `None` is an open order; `Some(addr)` restricts the fill to
-/// that address. Ownership and entitlement expiry are revalidated at fill time.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ResaleOrder {
-    pub network_id: BytesN<32>,
-    pub contract_id: BytesN<32>,
-    pub seller: Address,
-    pub prompt_id: u64,
-    /// Entitlement being sold, so a later reacquisition cannot be substituted.
-    pub settlement_id: u128,
-    pub asset: Address,
-    pub price: i128,
-    /// Minimum the seller accepts after royalties are routed.
-    pub min_proceeds: i128,
-    /// `None` leaves the order open to any buyer.
-    pub buyer: Option<Address>,
-    pub royalty_bps: u32,
-    pub expiry_ledger: u32,
-    pub nonce: BytesN<32>,
-    pub status: ResaleOrderStatus,
-}
-
-/// The high-risk changes that must go through the delay (#569).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum GovernanceAction {
-    /// Upgrade the contract WASM to the given hash.
-    Upgrade(BytesN<32>),
-    /// Redirect platform fees to a new wallet.
-    SetFeeWallet(Address),
-    SetFeePercentage(u32),
-    SetReferralPercentage(u32),
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GovernanceProposal {
-    pub action: GovernanceAction,
-    pub proposer: Address,
-    pub proposed_at_ledger: u32,
-    /// Earliest ledger at which execution is permitted.
-    pub executable_at_ledger: u32,
-    /// Ledger after which the proposal can no longer be executed.
-    pub expiry_ledger: u32,
-    pub expected_state_hash: BytesN<32>,
-    pub nonce: BytesN<32>,
-}
-
-/// Report describing detected drift between canonical prompt records and secondary indexes (#652).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IndexDriftReport {
-    pub start_id: u64,
-    pub end_id: u64,
-    pub total_prompts_scanned: u64,
-    pub missing_in_all: u32,
-    pub missing_in_active: u32,
-    pub stale_in_active: u32,
-    pub missing_in_category: u32,
-    pub missing_in_tags: u32,
-    pub missing_in_creator: u32,
-    pub next_cursor: Option<u64>,
-}
-
-/// Result of an admin-authorized catalog secondary index repair operation (#652).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IndexRepairSummary {
-    pub start_id: u64,
-    pub end_id: u64,
-    pub prompts_processed: u64,
-    pub repairs_applied: u32,
-    pub is_dry_run: bool,
-    pub next_cursor: Option<u64>,
+    pub expires_at: Option<u64>,
+    /// #119: Maximum number of licenses (0 = unlimited).
+    pub max_supply: u64,
+    pub max_supply: u64, // 0 = unlimited
 }
 
 pub trait PromptHashTrait {
@@ -1114,7 +891,11 @@ pub trait PromptHashTrait {
 
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error>;
     fn extend_ttl(env: Env, key: DataKey) -> Result<(), Error>;
-    /// Bulk-extend TTL for all active storage entries. Intended for periodic
-    /// admin maintenance (#26).
-    fn extend_all_ttl(env: Env) -> Result<(), Error>;
+    fn extend_listing(
+        env: Env,
+        creator: Address,
+        prompt_id: u128,
+        extension_days: u64,
+        fee_percentage_bps: Option<u32>,
+    ) -> Result<(), Error>;
 }
