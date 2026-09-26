@@ -1,8 +1,8 @@
 /**
  * Worker entry point — run with `yarn worker` or `node build/jobs/index.js`
  *
- * Starts the background job worker that processes settlement_poll, entitlement_repair,
- * analytics_aggregate, export_csv, and stale_dispute_cleanup jobs with retry/backoff/DLQ.
+ * Starts the background job worker that processes marketplace and retention jobs
+ * with retry/backoff/DLQ.
  */
 import "dotenv/config";
 import connectDb from "../db/connectDb";
@@ -20,7 +20,7 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (typeof require !== "undefined" && require.main === module) {
   main().catch((err) => {
     console.error("[worker] fatal:", err);
     process.exit(1);

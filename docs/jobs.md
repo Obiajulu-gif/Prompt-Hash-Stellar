@@ -18,6 +18,7 @@ A durable background job system with retry, exponential backoff, and dead-letter
 | `analytics_aggregate` | `{version, windowDays, creatorWallet?}` | Recompute daily sales / preview aggregates |
 | `export_csv` | `{version, creatorWallet, startDate?, endDate?, requestedBy}` | Generate payout statement CSV (request handler only enqueues) |
 | `stale_dispute_cleanup` | `{version, olderThanDays, dryRun?}` | **Migrated task** — closes `disputed` purchases older than cutoff; replaces ad-hoc inline cleanup |
+| `retention_cleanup` | `{version, dryRun?}` | Archives expired operational events, export job metadata, and closed support evidence; honors retention holds |
 
 ## Retry, backoff, dead-letter
 
@@ -30,6 +31,7 @@ A durable background job system with retry, exponential backoff, and dead-letter
 
 - Every enqueue computes `dedupeKey = type:sha(payload)` by default. If a `pending`/`processing` job with the same key was created within `dedupeWindowMs` (default 60s), the existing job is returned instead of duplicating.
 - Handlers themselves are idempotent: `settlement_poll` no-ops if Purchase already `purchased` with `txHash`; `entitlement_repair` no-ops if no Entitlement doc; `analytics_aggregate` recomputes from source; `stale_dispute_cleanup` only touches stale `disputed` rows.
+- `retention_cleanup` rechecks each record's status, age, archive marker, and hold before archiving. It scrubs retained operational payloads instead of deleting the records. Audit, blockchain, purchase, and financial records are never selected.
 
 ## Migrated task
 
@@ -41,6 +43,18 @@ await enqueueJob("stale_dispute_cleanup", { version: 1, olderThanDays: 14 }, { d
 ```
 
 The worker runs it on schedule (`setInterval` or external cron hitting the enqueue endpoint).
+
+## Retention cleanup
+
+Apply migration `005_data_retention_controls` before scheduling retention
+cleanup; it removes an existing TTL index that would otherwise delete webhook
+records without checking holds. First enqueue a dry run with
+`cd server && npm run retention:enqueue -- --dry-run` and inspect the worker's
+per-collection counts. Then schedule `cd server && npm run retention:enqueue`
+once per day through the environment's scheduler. The command uses a stable
+dedupe key and requires `MONGODB_URI`; the worker must be running separately.
+The retention policy, hold procedure, and protected collections are documented in
+[data-retention-and-privacy.md](./data-retention-and-privacy.md).
 
 ## Local worker setup
 

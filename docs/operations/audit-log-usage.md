@@ -179,16 +179,11 @@ Audit records are append-only. Mongoose pre-hooks on `findOneAndUpdate`, `update
 
 ## Retention
 
-Audit logs are retained indefinitely by default. To add a TTL index (e.g., 90 days):
-
-```js
-db.auditlogs.createIndex(
-  { createdAt: 1 },
-  { expireAfterSeconds: 90 * 24 * 3600 }
-)
-```
-
-Apply this only after confirming compliance requirements allow it.
+Audit logs are retained indefinitely. Do not create a TTL index, delete, or
+archive audit records: they are append-only and hash-chained evidence. The
+retention cleanup worker never targets the `auditlogs` collection. See the
+[data retention policy](../data-retention-and-privacy.md) for operational
+event, export, and support-evidence retention.
 
 ---
 
