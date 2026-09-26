@@ -1,19 +1,8 @@
 import type { ReportReason, ReportEvidence } from "../../src/lib/reports/reportClient";
+import connectDb from "../../server/src/db/connectDb.js";
+import Report from "../../server/src/models/Report";
 
 export type ReportStatus = "pending" | "investigating" | "resolved" | "dismissed";
-
-interface StoredPromptReport {
-  _id: string;
-  promptId: string;
-  reporterAddress: string;
-  reason: ReportReason;
-  description?: string;
-  evidence: ReportEvidence[];
-  status: ReportStatus;
-  adminNotes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 const VALID_REASONS: ReportReason[] = [
   "quality-issue",
@@ -43,7 +32,10 @@ function isReportStatus(value: unknown): value is ReportStatus {
   );
 }
 
-function normalizeEvidence(raw: unknown): ReportEvidence[] {
+function normalizeEvidence(
+  raw: unknown,
+  addedBy: "reporter" | "maintainer",
+): ReportEvidence[] {
   if (!Array.isArray(raw)) return [];
   const evidence: ReportEvidence[] = [];
   for (const item of raw) {
@@ -57,26 +49,16 @@ function normalizeEvidence(raw: unknown): ReportEvidence[] {
         typeof kind === "string" && VALID_EVIDENCE_KINDS.includes(kind)
           ? (kind as ReportEvidence["kind"])
           : "link",
-      addedBy: String(
-        (item as { addedBy?: unknown }).addedBy ?? "reporter",
-      ),
+      addedBy,
     });
   }
   return evidence.slice(0, 10);
 }
 
-const reports = new Map<string, StoredPromptReport[]>();
-
 function requireAdmin(req: any): boolean {
   const expected = process.env.ADMIN_REPORTS_TOKEN;
   if (!expected) return true;
   return req.headers.authorization === `Bearer ${expected}`;
-}
-
-function allReports(): StoredPromptReport[] {
-  return Array.from(reports.values())
-    .flat()
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
 export default async function handler(req: any, res: any) {
@@ -98,27 +80,20 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const now = new Date().toISOString();
-    const report: StoredPromptReport = {
-      _id: `report_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    await connectDb();
+    const report = await Report.create({
       promptId: String(promptId),
-      reporterAddress: String(reporterAddress),
+      reporterAddress: String(reporterAddress).toLowerCase(),
       reason,
       description: description ? String(description).trim() : undefined,
-      evidence: normalizeEvidence(evidence),
+      evidence: normalizeEvidence(evidence, "reporter"),
       status: "pending",
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const promptReports = reports.get(report.promptId) ?? [];
-    promptReports.push(report);
-    reports.set(report.promptId, promptReports);
+    });
 
     res.status(201).json({
       success: true,
       message: "Report submitted successfully",
-      reportId: report._id,
+      reportId: String(report._id),
       evidenceCount: report.evidence.length,
     });
     return;
@@ -130,17 +105,17 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    await connectDb();
     const promptId = req.query?.promptId ? String(req.query.promptId) : "";
     const status = req.query?.status ? String(req.query.status).trim() : "";
     const filter = isReportStatus(status) ? status : "";
+    const query: Record<string, unknown> = { archivedAt: null };
+    if (promptId) query.promptId = promptId;
+    if (filter) query.status = filter;
+    if (req.query?.includeArchived === "true") delete query.archivedAt;
 
-    if (promptId) {
-      const rows = reports.get(promptId) ?? [];
-      res.status(200).json(filter ? rows.filter((r) => r.status === filter) : rows);
-      return;
-    }
-    const rows = allReports();
-    res.status(200).json(filter ? rows.filter((r) => r.status === filter) : rows);
+    const rows = await Report.find(query).sort({ createdAt: -1 }).lean();
+    res.status(200).json(rows);
     return;
   }
 
@@ -151,7 +126,8 @@ export default async function handler(req: any, res: any) {
     }
 
     const { reportId, status, adminNotes, evidence } = req.body ?? {};
-    const report = allReports().find((item) => item._id === reportId);
+    await connectDb();
+    const report = await Report.findOne({ _id: reportId, archivedAt: null });
     if (!report) {
       res.status(404).json({ error: "Report not found" });
       return;
@@ -178,17 +154,22 @@ export default async function handler(req: any, res: any) {
       nextStatus = status;
     }
 
-    if (nextStatus) report.status = nextStatus;
+    if (nextStatus) {
+      report.status = nextStatus;
+      if (nextStatus === "resolved" || nextStatus === "dismissed") {
+        report.resolvedAt = report.resolvedAt ?? new Date();
+      }
+    }
     if (adminNotes !== undefined && adminNotes !== null) {
       report.adminNotes = String(adminNotes).trim();
     }
     if (evidence !== undefined && evidence !== null) {
-      const added = normalizeEvidence(evidence);
+      const added = normalizeEvidence(evidence, "maintainer");
       if (added.length) {
-        report.evidence = report.evidence.concat(added);
+        report.evidence = report.evidence.concat(added).slice(0, 10);
       }
     }
-    report.updatedAt = new Date().toISOString();
+    await report.save();
     res.status(200).json({ success: true, report });
     return;
   }

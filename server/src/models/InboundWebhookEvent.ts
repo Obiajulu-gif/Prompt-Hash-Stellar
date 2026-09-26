@@ -26,9 +26,9 @@
  *
  *  Retention
  *  ---------
- *  A TTL index on `createdAt` deletes fully-processed events after 30 days.
- *  Failed events are retained indefinitely until an admin resolves them, so
- *  the TTL partial filter expression only applies to `status: "processed"`.
+ *  Processed raw payloads are scrubbed by the retention worker after 30 days.
+ *  Stable idempotency metadata remains, and held or unresolved events are never
+ *  archived automatically.
  */
 
 import mongoose, { Document, Schema } from "mongoose";
@@ -72,6 +72,9 @@ export interface IInboundWebhookEvent extends Document {
   lastAttemptAt: Date | null;
   /** Wall-clock time when processing completed successfully. */
   processedAt: Date | null;
+  archivedAt: Date | null;
+  retentionHold: boolean;
+  retentionHoldReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -132,6 +135,20 @@ const inboundWebhookEventSchema = new Schema<IInboundWebhookEvent>(
       type: Date,
       default: null,
     },
+    archivedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    retentionHold: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    retentionHoldReason: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true },
 );
@@ -141,15 +158,18 @@ inboundWebhookEventSchema.index({ processingStatus: 1, createdAt: -1 });
 inboundWebhookEventSchema.index({ verificationStatus: 1, processingStatus: 1 });
 inboundWebhookEventSchema.index({ source: 1, eventType: 1, createdAt: -1 });
 
-// 30-day TTL retention for successfully-processed events only.
-// Failed events are retained until manually resolved or a separate cleanup runs.
+// Keep a normal index for deterministic, hold-aware retention cleanup. A
+// migration removes the previous TTL index so MongoDB cannot bypass the worker.
 inboundWebhookEventSchema.index(
   { createdAt: 1 },
-  {
-    expireAfterSeconds: 30 * 24 * 60 * 60,
-    partialFilterExpression: { processingStatus: "processed" },
-  },
+  {},
 );
+inboundWebhookEventSchema.index({
+  processingStatus: 1,
+  createdAt: 1,
+  archivedAt: 1,
+  retentionHold: 1,
+});
 
 const InboundWebhookEvent =
   mongoose.models.InboundWebhookEvent ||

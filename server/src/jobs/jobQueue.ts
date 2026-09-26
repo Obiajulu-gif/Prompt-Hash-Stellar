@@ -29,6 +29,7 @@ function toDto(doc: any): JobRecordDTO {
     lastError: doc.lastError,
     nextRunAt: doc.nextRunAt,
     createdAt: doc.createdAt,
+    archivedAt: doc.archivedAt ?? null,
   };
 }
 
@@ -196,6 +197,7 @@ export async function requeueDeadLetter(id: string): Promise<JobRecordDTO> {
   const doc = await JobRecord.findById(id);
   if (!doc) throw new Error(`Job ${id} not found`);
   if (doc.status !== "dead_letter") throw new Error(`Job ${id} is not dead_letter (status=${doc.status})`);
+  if (doc.archivedAt) throw new Error(`Job ${id} is archived and cannot be requeued`);
   const updated = await JobRecord.findByIdAndUpdate(
     id,
     { $set: { status: "pending", nextRunAt: new Date(), lastError: null, attempts: 0, lockedAt: null, lockedBy: null } },
