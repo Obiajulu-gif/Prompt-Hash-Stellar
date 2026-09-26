@@ -24,7 +24,12 @@ export type NotificationType =
   | "payout_available" // creator: payout ledger entry settled
   | "moderation_action" // creator: a prompt was hidden/restored by a moderator
   | "ownership_transfer" // both parties: prompt ownership change
-  | "system"; // admin-targeted system announcements
+  | "system" // admin-targeted system announcements
+  | "access_granted" // buyer: access to a prompt has been granted
+  | "access_revoked" // buyer: access to a prompt has been revoked
+  | "recovery_event" // both parties: recovery action completed
+  | "role_change" // user: their role has been changed
+  | "permission_update"; // user: their permissions have been updated
 
 const NOTIFICATION_TYPES: NotificationType[] = [
   "prompt_update",
@@ -35,6 +40,11 @@ const NOTIFICATION_TYPES: NotificationType[] = [
   "moderation_action",
   "ownership_transfer",
   "system",
+  "access_granted",
+  "access_revoked",
+  "recovery_event",
+  "role_change",
+  "permission_update",
 ];
 
 // Default muted types per user are stored in preferences.mutedTypes.
