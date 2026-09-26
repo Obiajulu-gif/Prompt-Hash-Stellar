@@ -8,9 +8,11 @@ import {
   decryptPromptEnvelope,
   decryptPromptCiphertext,
   encryptPromptEnvelope,
+  encryptAndWrapPromptPayload,
   encryptPromptPlaintext,
   hashPromptPlaintext,
   normalizeContentHash,
+  verifyPromptPlaintextHash,
   unwrapPromptKey,
   wrapPromptKey,
 } from "./promptCrypto";
@@ -76,6 +78,18 @@ describe("promptCrypto — shared test vectors", () => {
     const h1 = await hashPromptPlaintext(PLAINTEXT);
     const h2 = await hashPromptPlaintext(PLAINTEXT);
     expect(h1).toBe(h2);
+  });
+
+  it("accepts the published digest and rejects changed prompt content", async () => {
+    await expect(verifyPromptPlaintextHash(PLAINTEXT, CONTENT_HASH)).resolves.toMatchObject({
+      valid: true,
+      algorithm: "SHA-256",
+      version: 1,
+      expectedHash: CONTENT_HASH,
+      computedHash: CONTENT_HASH,
+    });
+    await expect(verifyPromptPlaintextHash(`${PLAINTEXT} tampered`, CONTENT_HASH))
+      .resolves.toMatchObject({ valid: false, expectedHash: CONTENT_HASH });
   });
 
   it("rejects tampered ciphertext", async () => {
@@ -178,6 +192,34 @@ describe("promptCrypto — sealed-key wrapping with test vectors", () => {
         wrongPrivate,
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("promptCrypto — publish payload commitment", () => {
+  it("encrypts and wraps the AES key while retaining a verifiable content hash", async () => {
+    await sodium.ready;
+    const keyPair = sodium.crypto_box_keypair();
+    const recipientPublicKey = bytesToBase64(keyPair.publicKey);
+    const recipientPrivateKey = bytesToBase64(keyPair.privateKey);
+    const plaintext = "Immutable published prompt body.";
+
+    const payload = await encryptAndWrapPromptPayload(plaintext, recipientPublicKey);
+    const rawKey = await unwrapPromptKey(
+      payload.wrappedKey,
+      recipientPublicKey,
+      recipientPrivateKey,
+    );
+    const decrypted = await decryptPromptCiphertext(
+      payload.encryptedPrompt,
+      payload.encryptionIv,
+      rawKey,
+    );
+
+    expect(payload.contentHash).toBe(await hashPromptPlaintext(plaintext));
+    expect(payload.contentHashAlgorithm).toBe("SHA-256");
+    expect(payload.contentHashVersion).toBe(1);
+    await expect(verifyPromptPlaintextHash(decrypted, payload.contentHash))
+      .resolves.toMatchObject({ valid: true });
   });
 });
 

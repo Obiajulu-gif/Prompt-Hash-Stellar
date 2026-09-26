@@ -5,6 +5,8 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const ENVELOPE_VERSION = 2;
 const ENVELOPE_ALGORITHM = "AES-256-GCM";
+export const PROMPT_CONTENT_HASH_ALGORITHM = "SHA-256" as const;
+export const PROMPT_CONTENT_HASH_VERSION = 1 as const;
 
 function cloneBytes(value: Uint8Array) {
   return Uint8Array.from(value);
@@ -68,11 +70,29 @@ export async function generateAesKey() {
 }
 
 export async function hashPromptPlaintext(plaintext: string) {
+  // Prompt content is a scalar string, so its canonical representation is its
+  // exact UTF-8 byte sequence (no mutable listing fields or timestamps included).
   const digest = await crypto.subtle.digest(
-    "SHA-256",
+    PROMPT_CONTENT_HASH_ALGORITHM,
     cloneBytes(encoder.encode(plaintext)),
   );
   return bytesToHex(new Uint8Array(digest));
+}
+
+export async function verifyPromptPlaintextHash(
+  plaintext: string,
+  expectedHash: string | Uint8Array,
+) {
+  const computedHash = await hashPromptPlaintext(plaintext);
+  const normalizedExpectedHash = normalizeContentHash(expectedHash);
+  return {
+    valid: /^[0-9a-f]{64}$/.test(normalizedExpectedHash) &&
+      computedHash === normalizedExpectedHash,
+    algorithm: PROMPT_CONTENT_HASH_ALGORITHM,
+    version: PROMPT_CONTENT_HASH_VERSION,
+    expectedHash: normalizedExpectedHash,
+    computedHash,
+  };
 }
 
 export interface PromptEnvelopeMetadata {
@@ -241,6 +261,25 @@ export async function wrapPromptKey(
   return bytesToBase64(
     sodiumLib.crypto_box_seal(rawKey, base64ToBytes(publicKeyBase64)),
   );
+}
+
+/** Prepare the complete encrypted publish payload and its v1 plaintext commitment. */
+export async function encryptAndWrapPromptPayload(
+  plaintext: string,
+  recipientPublicKeyBase64: string,
+) {
+  const encrypted = await encryptPromptPlaintext(plaintext);
+  return {
+    encryptedPrompt: encrypted.encryptedPrompt,
+    encryptionIv: encrypted.encryptionIv,
+    wrappedKey: await wrapPromptKey(
+      encrypted.keyBytes,
+      recipientPublicKeyBase64,
+    ),
+    contentHash: encrypted.contentHash,
+    contentHashAlgorithm: PROMPT_CONTENT_HASH_ALGORITHM,
+    contentHashVersion: PROMPT_CONTENT_HASH_VERSION,
+  };
 }
 
 export async function unwrapPromptKey(

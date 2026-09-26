@@ -4,7 +4,10 @@ import {
   UnlockError,
   type UnlockErrorCode,
 } from "@/lib/errors/unlockErrors";
-import { hashPromptPlaintext } from "@/lib/crypto/promptCrypto";
+import {
+  verifyPromptPlaintextHash,
+  type PROMPT_CONTENT_HASH_ALGORITHM,
+} from "@/lib/crypto/promptCrypto";
 
 type SignMessageFn = (_message: string) => Promise<{ signedMessage?: string } | string>;
 
@@ -12,6 +15,8 @@ export interface UnlockResult {
   promptId: string;
   title: string;
   contentHash: string;
+  contentHashAlgorithm: typeof PROMPT_CONTENT_HASH_ALGORITHM;
+  contentHashVersion: 1;
   plaintext: string;
   decryptedContent: string;
 }
@@ -87,12 +92,18 @@ async function requestUnlock(params: {
     throw await parseApiError(response);
   }
 
-  return response.json() as Promise<{
+  const payload = (await response.json()) as {
     promptId: string;
     title: string;
     contentHash: string;
+    contentHashAlgorithm: typeof PROMPT_CONTENT_HASH_ALGORITHM;
+    contentHashVersion: 1;
     plaintext: string;
-  }>;
+  };
+  return {
+    ...payload,
+    correlationId: response.headers.get("X-Correlation-ID") ?? undefined,
+  };
 }
 
 function normalizePromptId(promptId: string | bigint | number): string {
@@ -101,7 +112,7 @@ function normalizePromptId(promptId: string | bigint | number): string {
 
 /**
  * Unlock a purchased prompt via challenge â†’ wallet sign â†’ unlock API.
- * Re-verifies the returned plaintext hash client-side when contentHash is present.
+ * Re-verifies the returned plaintext against the on-chain SHA-256 commitment.
  */
 export async function unlockPromptContent(
   address: string,
@@ -125,9 +136,20 @@ export async function unlockPromptContent(
     signedMessage,
   });
 
-  const recomputedHash = await hashPromptPlaintext(unlocked.plaintext);
-  if (unlocked.contentHash && recomputedHash !== unlocked.contentHash.toLowerCase()) {
-    throw new Error(ERROR_MESSAGES.INTEGRITY_FAILURE);
+  const integrity = await verifyPromptPlaintextHash(
+    unlocked.plaintext,
+    unlocked.contentHash,
+  );
+  if (
+    unlocked.contentHashAlgorithm !== "SHA-256" ||
+    unlocked.contentHashVersion !== 1 ||
+    !integrity.valid
+  ) {
+    throw new UnlockError({
+      code: "INTEGRITY_FAILURE",
+      message: ERROR_MESSAGES.INTEGRITY_FAILURE,
+      correlationId: unlocked.correlationId,
+    });
   }
 
   return {

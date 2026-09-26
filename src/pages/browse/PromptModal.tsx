@@ -757,6 +757,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     walletAddress={wallet?.address || ""}
                     txHash={txHash}
                     isPendingIndexing={false}
+                    contentIntegrityVerified
                   />
 
                   {/* Unlocked content */}

@@ -18,7 +18,7 @@ const verifyEntitlementMock = vi.fn();
 const getPromptMock = vi.fn();
 const unwrapPromptKeyMock = vi.fn();
 const decryptPromptCiphertextMock = vi.fn();
-const hashPromptPlaintextMock = vi.fn();
+const verifyPromptPlaintextHashMock = vi.fn();
 
 vi.mock("../../src/lib/stellar/promptHashClient", () => ({
   hasAccess: (...args: unknown[]) => hasAccessMock(...args),
@@ -30,7 +30,7 @@ vi.mock("../../src/lib/stellar/promptHashClient", () => ({
 vi.mock("../../src/lib/crypto/promptCrypto", () => ({
   unwrapPromptKey: (...args: unknown[]) => unwrapPromptKeyMock(...args),
   decryptPromptCiphertext: (...args: unknown[]) => decryptPromptCiphertextMock(...args),
-  hashPromptPlaintext: (...args: unknown[]) => hashPromptPlaintextMock(...args),
+  verifyPromptPlaintextHash: (...args: unknown[]) => verifyPromptPlaintextHashMock(...args),
   normalizeContentHash: (hash: string) => hash.toLowerCase(),
 }));
 
@@ -118,7 +118,13 @@ async function setupUnlockFixture(plaintext = PLAINTEXT) {
   });
   unwrapPromptKeyMock.mockResolvedValue(new Uint8Array(32));
   decryptPromptCiphertextMock.mockResolvedValue(plaintext);
-  hashPromptPlaintextMock.mockResolvedValue(contentHash);
+  verifyPromptPlaintextHashMock.mockResolvedValue({
+    valid: true,
+    algorithm: "SHA-256",
+    version: 1,
+    expectedHash: contentHash,
+    computedHash: contentHash,
+  });
 
   return { buyer, promptId, challenge, signedMessage, contentHash, plaintext };
 }
@@ -178,13 +184,22 @@ describe("unlock API integrity checks", () => {
     expect(statusCode).toBe(200);
     expect(responseData.plaintext).toBe(plaintext);
     expect(responseData.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(responseData.contentHashAlgorithm).toBe("SHA-256");
+    expect(responseData.contentHashVersion).toBe(1);
+    expect(verifyPromptPlaintextHashMock).toHaveBeenCalledWith(plaintext, CONTENT_HASH);
   });
 
   it("fails safely when the recomputed hash does not match", async () => {
     const { buyer, promptId, challenge, signedMessage } =
       await setupUnlockFixture("Matching plaintext body.");
 
-    hashPromptPlaintextMock.mockResolvedValue("b".repeat(64));
+    verifyPromptPlaintextHashMock.mockResolvedValue({
+      valid: false,
+      algorithm: "SHA-256",
+      version: 1,
+      expectedHash: CONTENT_HASH,
+      computedHash: "b".repeat(64),
+    });
 
     const { statusCode, responseData } = await invokeUnlock({
       token: challenge.token,
@@ -197,6 +212,10 @@ describe("unlock API integrity checks", () => {
     expect(responseData.code).toBe(ErrorCode.INTEGRITY_FAILURE);
     expect(responseData.plaintext).toBeUndefined();
     expect(responseData.error).toBe("Prompt integrity check failed.");
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedHash: CONTENT_HASH, computedHash: "b".repeat(64) }),
+      "Prompt integrity check failed",
+    );
   });
 
   it("does not expose decrypted content in generic error responses", async () => {
