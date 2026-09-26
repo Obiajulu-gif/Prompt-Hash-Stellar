@@ -1,5 +1,5 @@
 import FeatureFlag, { FeatureFlagEnvironment, FeatureFlagStatus } from "../models/FeatureFlag.js";
-import { logger } from "./auditTrail.js";
+import { logger } from "./structuredLogger";
 
 const ENVIRONMENT = (process.env.NODE_ENV || "development") as FeatureFlagEnvironment;
 
