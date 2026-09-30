@@ -60,6 +60,8 @@ cd server
 npm run retention:enqueue -- --dry-run
 ```
 
+The output of a dry run or actual run provides a per-category summary reporting the number of records that were `eligible`, `skipped` (e.g., already archived), `held` (due to an active `retentionHold`), `failed`, and successfully `archived`. Maintainers should review this output in the application logs during dry runs to ensure the numbers match expectations. Held or protected records are skipped with reason.
+
 After verifying dry-run behavior in a staging environment, schedule
 `npm run retention:enqueue` daily; the enqueue command requires `MONGODB_URI`
 and deduplicates concurrent daily jobs. The worker must also be running. Do not

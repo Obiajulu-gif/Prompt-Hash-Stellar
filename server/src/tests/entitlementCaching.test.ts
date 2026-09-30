@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 
 const mockEntitlements: any[] = [];
 const mockPurchases: any[] = [];
+const mockAudit = vi.fn();
 
 vi.mock("../models/Entitlement", () => {
   const MockEntitlementClass: any = function (data: any) {
@@ -32,18 +33,26 @@ vi.mock("../models/Entitlement", () => {
   MockEntitlementClass.findOneAndUpdate = async (query: any, update: any, options: any) => {
     let existing = await MockEntitlementClass.findOne(query);
     if (!existing && options?.upsert) {
+      const values = update.$set || update;
       existing = new MockEntitlementClass({
         userAddress: query.userAddress,
         promptId: query.promptId,
-        ...update,
+        ...values,
       });
       mockEntitlements.push(existing);
       return existing;
     }
     if (existing) {
-      if (update.status) existing.status = update.status;
-      if (update.revokedAt) existing.revokedAt = update.revokedAt;
-      if (update.revocationReason) existing.revocationReason = update.revocationReason;
+      const values = update.$set || update;
+      if (values.status) existing.status = values.status;
+      if (values.grantedAt) existing.grantedAt = values.grantedAt;
+      if (values.sourceOfTruthRef) existing.sourceOfTruthRef = values.sourceOfTruthRef;
+      if (values.revokedAt) existing.revokedAt = values.revokedAt;
+      if (values.revocationReason) existing.revocationReason = values.revocationReason;
+      if (update.$unset) {
+        delete existing.revokedAt;
+        delete existing.revocationReason;
+      }
       existing.updatedAt = new Date();
     }
     return existing;
@@ -64,6 +73,9 @@ vi.mock("../models/Purchase", () => {
             String(p.promptId) === String(query.promptId),
         ) || null;
       },
+      findById: (id: string) => ({
+        lean: async () => mockPurchases.find((purchase) => purchase._id === id) || null,
+      }),
       find: () => ({
         lean: async () => mockPurchases,
       }),
@@ -71,17 +83,23 @@ vi.mock("../models/Purchase", () => {
   };
 });
 
+vi.mock("../services/auditTrail", () => ({
+  recordAuditEvent: mockAudit,
+}));
+
 import {
   getEntitlementState,
   grantEntitlement,
   revokeEntitlement,
   repairEntitlementState,
+  repairEntitlementForPurchase,
 } from "../services/entitlementService";
 
 describe("Entitlement Caching & Revocation Rules (#Task3)", () => {
   beforeEach(() => {
     mockEntitlements.length = 0;
     mockPurchases.length = 0;
+    mockAudit.mockReset();
   });
 
   it("handles cache miss by looking up Purchase record and populating entitlement cache", async () => {
@@ -169,5 +187,97 @@ describe("Entitlement Caching & Revocation Rules (#Task3)", () => {
     expect(report2.grantedCount).toBe(0);
     expect(report2.revokedCount).toBe(0);
     expect(report2.unchangedCount).toBe(2);
+  });
+
+  it("previews one targeted entitlement repair without writing", async () => {
+    const purchaseId = "64b000000000000000000001";
+    mockPurchases.push({
+      _id: purchaseId,
+      buyerWallet: "gbuyer_preview",
+      promptId: "301",
+      txHash: "tx_301",
+      status: "purchased",
+    });
+
+    const result = await repairEntitlementForPurchase(purchaseId, {
+      apply: false,
+      actor: "operator",
+    });
+
+    expect(result).toMatchObject({
+      mode: "dry-run",
+      currentStatus: null,
+      desiredStatus: "active",
+      wouldChange: true,
+      changed: false,
+      auditRecorded: false,
+    });
+    expect(mockEntitlements).toHaveLength(0);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("applies a targeted repair and reports the audit record", async () => {
+    const purchaseId = "64b000000000000000000002";
+    mockPurchases.push({
+      _id: purchaseId,
+      buyerWallet: "gbuyer_apply",
+      promptId: "302",
+      txHash: "tx_302",
+      status: "purchased",
+    });
+
+    const result = await repairEntitlementForPurchase(purchaseId, {
+      apply: true,
+      actor: "operator",
+    });
+
+    expect(result).toMatchObject({ mode: "apply", changed: true, auditRecorded: true });
+    expect(mockEntitlements).toHaveLength(1);
+    expect(mockEntitlements[0].status).toBe("active");
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "entitlement_repair",
+        target: purchaseId,
+        beforeState: { entitlementStatus: null },
+        afterState: { entitlementStatus: "active" },
+      }),
+      { throwOnError: true },
+    );
+  });
+
+  it("does not write or audit when the target is already consistent", async () => {
+    const purchaseId = "64b000000000000000000003";
+    mockPurchases.push({
+      _id: purchaseId,
+      buyerWallet: "gbuyer_noop",
+      promptId: "303",
+      status: "purchased",
+    });
+    mockEntitlements.push({
+      userAddress: "gbuyer_noop",
+      promptId: "303",
+      status: "active",
+    });
+
+    const result = await repairEntitlementForPurchase(purchaseId, {
+      apply: true,
+      actor: "operator",
+    });
+
+    expect(result).toMatchObject({ wouldChange: false, changed: false, auditRecorded: false });
+    expect(mockEntitlements).toHaveLength(1);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed and unknown purchase targets", async () => {
+    await expect(
+      repairEntitlementForPurchase("not-an-object-id", { apply: false, actor: "operator" }),
+    ).rejects.toThrow("Invalid purchase ID");
+    await expect(
+      repairEntitlementForPurchase("64b000000000000000000004", {
+        apply: false,
+        actor: "operator",
+      }),
+    ).rejects.toThrow("Purchase not found");
   });
 });

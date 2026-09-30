@@ -23,6 +23,8 @@ export const AUDIT_ACTIONS = [
   "admin_auth_success",
   "admin_auth_denied",
   "audit_export",
+  "audit_sensitive_field_access",
+  "audit_sensitive_field_denied",
   // moderation (api/prompts/moderate.ts)
   "prompt_restrict",
   "prompt_reinstate",
@@ -39,6 +41,25 @@ export const AUDIT_ACTIONS = [
   "dispute_resolved",
   "dispute_escalated",
   "dispute_refund_settled",
+  // ownership and access changes
+  "ownership_transfer_requested",
+  "ownership_transfer_accepted",
+  "ownership_transfer_rejected",
+  "ownership_transfer_cancelled",
+  "role_assigned",
+  "role_revoked",
+  "permission_granted",
+  "permission_revoked",
+  "access_granted",
+  "access_revoked",
+  "entitlement_repair",
+  "policy_override_created",
+  "policy_override_revoked",
+  "operation_recovery",
+  "receipt_generated",
+  "prompt_lifecycle_transition",
+  "prompt_lifecycle_transition_denied",
+  "moderation.override",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -89,6 +110,29 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Target resource and type for ownership and access mutations
+    target: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    targetType: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    beforeState: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    afterState: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     recordHash: {
       type: String,
       required: true,
@@ -120,6 +164,8 @@ auditLogSchema.index({ action: 1, result: 1, createdAt: -1 });
 // Filtered, chronological exports (#783).
 auditLogSchema.index({ createdAt: 1, _id: 1 });
 auditLogSchema.index({ actor: 1, createdAt: 1 });
+auditLogSchema.index({ target: 1, targetType: 1, createdAt: -1 });
+auditLogSchema.index({ targetType: 1, action: 1, createdAt: -1 });
 
 // Prevent updates — audit records are immutable.
 auditLogSchema.pre("findOneAndUpdate", function () {

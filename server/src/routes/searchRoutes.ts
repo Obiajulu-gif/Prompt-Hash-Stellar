@@ -6,6 +6,7 @@ import {
   getCategoriesWithCounts,
   getFeaturedPrompts,
 } from "../controllers/searchController";
+import { enforcePolicyLimit } from "../middleware/policyLimitMiddleware";
 
 const router = express.Router();
 
@@ -23,6 +24,10 @@ const router = express.Router();
  */
 router.get(
   "/prompts",
+  enforcePolicyLimit("INDEXING_DEEP_SEARCH", {
+    costOrSizeExtractor: (req) =>
+      Math.max(0, (Number(req.query.page || 1) - 1) * Number(req.query.limit || 20)),
+  }),
   asyncHandler(async (req: Request, res: Response) => {
     const {
       query,

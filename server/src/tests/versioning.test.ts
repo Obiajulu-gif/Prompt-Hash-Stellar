@@ -25,6 +25,8 @@ describe("Prompt Versioning System", () => {
   let mockPrompt: any;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
+
     // Setup mock request and response
     mockReq = {
       body: {},
@@ -158,15 +160,17 @@ describe("Prompt Versioning System", () => {
         promptId: mockPrompt._id.toString(),
       };
 
-      const selectMock = vi.fn().mockResolvedValueOnce([]);
-      const sortMock = vi.fn().mockReturnValueOnce({ select: selectMock });
-      vi.spyOn(PromptVersion, "find").mockReturnValueOnce({
-        sort: sortMock,
+      const selectSpy = vi.fn().mockResolvedValueOnce([]);
+      const findSpy = vi.spyOn(PromptVersion, "find").mockReturnValueOnce({
+        sort: vi.fn().mockReturnValueOnce({
+          select: selectSpy,
+        }),
       } as any);
 
       await GetPromptVersions(mockReq as Request, mockRes as Response);
 
-      expect(selectMock).toHaveBeenCalledWith("-content");
+      expect(findSpy).toHaveBeenCalledWith({ promptId: mockPrompt._id.toString() });
+      expect(selectSpy).toHaveBeenCalledWith("-content");
     });
 
     it("should return 400 if promptId is missing", async () => {
@@ -191,7 +195,9 @@ describe("Prompt Versioning System", () => {
         txHash: "0x123abc",
       };
 
-      vi.spyOn(Prompt, "findById").mockResolvedValueOnce(mockPrompt);
+      vi.spyOn(Prompt, "findById").mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockPrompt),
+      } as any);
       vi.spyOn(Purchase, "findOne").mockResolvedValueOnce(null);
       vi.spyOn(Purchase, "create").mockResolvedValueOnce({
         promptId: mockPrompt._id.toString(),
@@ -268,7 +274,9 @@ describe("Prompt Versioning System", () => {
 
       vi.spyOn(Purchase, "findOne").mockResolvedValueOnce(purchase as any);
       vi.spyOn(PromptVersion, "findOne").mockResolvedValueOnce(version as any);
-      vi.spyOn(Prompt, "findById").mockResolvedValueOnce(mockPrompt);
+      vi.spyOn(Prompt, "findById").mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockPrompt),
+      } as any);
 
       await GetBuyerVersion(mockReq as Request, mockRes as Response);
 
@@ -295,6 +303,9 @@ describe("Prompt Versioning System", () => {
       vi.spyOn(PromptVersion, "findOne").mockResolvedValueOnce({
         versionIndex: 1,
         content: "Specific version content",
+      } as any);
+      vi.spyOn(Prompt, "findById").mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockPrompt),
       } as any);
 
       await GetBuyerVersion(mockReq as Request, mockRes as Response);

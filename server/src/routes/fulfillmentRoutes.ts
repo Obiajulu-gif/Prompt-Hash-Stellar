@@ -4,6 +4,7 @@ import FulfillmentRecord, {
 } from "../models/FulfillmentRecord";
 import { AdminRequest, requireAdminScope } from "../middleware/adminAuth";
 import { markPrivate } from "../middleware/etag";
+import { requireIdempotency } from "../middleware/idempotency";
 import {
   applyDisputeTransition,
   DisputeTransitionResult,
@@ -88,7 +89,8 @@ fulfillmentRouter.get(
   "/:promptId/:buyerWallet",
   async (req: Request, res: Response) => {
     markPrivate(res);
-    const { promptId, buyerWallet } = req.params;
+    const promptId = String(req.params.promptId);
+    const buyerWallet = String(req.params.buyerWallet);
     const record = await FulfillmentRecord.findOne({
       promptId,
       buyerWallet: buyerWallet.toLowerCase(),
@@ -112,6 +114,7 @@ fulfillmentRouter.get(
 fulfillmentRouter.post(
   "/",
   requireAdminScope("fulfillment:write"),
+  requireIdempotency,
   async (req: AdminRequest, res: Response) => {
     const {
       promptId,
@@ -191,8 +194,10 @@ fulfillmentRouter.post(
  */
 fulfillmentRouter.post(
   "/:promptId/:buyerWallet/request-refund",
+  requireIdempotency,
   async (req: Request, res: Response) => {
-    const { promptId, buyerWallet } = req.params;
+    const promptId = String(req.params.promptId);
+    const buyerWallet = String(req.params.buyerWallet);
     const { reason, disputeTxHash } = req.body as {
       reason: string;
       disputeTxHash?: string;
@@ -244,6 +249,7 @@ fulfillmentRouter.post(
 fulfillmentRouter.post(
   "/:promptId/:buyerWallet/retry",
   requireAdminScope("fulfillment:resolve"),
+  requireIdempotency,
   async (req: AdminRequest, res: Response) => {
     const { promptId, buyerWallet } = req.params as Record<string, string>;
     const { notes } = (req.body ?? {}) as { notes?: string };
@@ -271,6 +277,7 @@ fulfillmentRouter.post(
 fulfillmentRouter.post(
   "/:promptId/:buyerWallet/resolve",
   requireAdminScope("fulfillment:resolve"),
+  requireIdempotency,
   async (req: AdminRequest, res: Response) => {
     const { promptId, buyerWallet } = req.params as Record<string, string>;
     const { refund, resolutionTxHash, notes } = req.body as {
@@ -306,6 +313,7 @@ fulfillmentRouter.post(
 fulfillmentRouter.post(
   "/:promptId/:buyerWallet/close",
   requireAdminScope("fulfillment:resolve"),
+  requireIdempotency,
   async (req: AdminRequest, res: Response) => {
     const { promptId, buyerWallet } = req.params as Record<string, string>;
     const notes = String((req.body ?? {}).notes ?? "").trim();
@@ -356,6 +364,7 @@ fulfillmentRouter.get(
 fulfillmentRouter.post(
   "/auto-refund-sweep",
   requireAdminScope("fulfillment:sweep"),
+  requireIdempotency,
   async (_req, res: Response) => {
     res.json({ swept: await sweepStaleDisputes() });
   },

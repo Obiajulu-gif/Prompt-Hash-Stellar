@@ -5,7 +5,9 @@ import User from "../models/User";
 import OwnershipTransfer, {
   TRANSFER_TTL_MS,
 } from "../models/OwnershipTransfer";
+import { ApprovalService } from "../services/approvalService";
 import { logger } from "../services/structuredLogger";
+import { recordAccessOrOwnershipChange } from "../services/auditTrail";
 
 /**
  * Ownership transfer controllers (#708).
@@ -128,6 +130,18 @@ export const RequestOwnershipTransfer = async (
     toWallet: toWallet.toLowerCase(),
   });
 
+  await recordAccessOrOwnershipChange({
+    action: "ownership_transfer_requested",
+    actor: fromWallet.toLowerCase(),
+    target: promptId,
+    targetType: "prompt",
+    promptId,
+    walletAddress: fromWallet,
+    beforeState: { currentOwner: fromWallet.toLowerCase() },
+    afterState: { pendingRecipient: toWallet.toLowerCase(), transferId: transfer._id.toString() },
+    reason: "Transfer requested by owner",
+  });
+
   return res.status(201).json(toDto(transfer));
 };
 
@@ -142,7 +156,7 @@ export const GetOwnershipTransfers = async (
     return res.status(400).json({ error: "walletAddress is required." });
   }
 
-  const address = walletAddress.toLowerCase();
+  const address = String(walletAddress).toLowerCase();
 
   const expireOverdue = await OwnershipTransfer.updateMany(
     {
@@ -217,6 +231,20 @@ export const RespondOwnershipTransfer = async (
     return res.status(410).json({ error: "Transfer request has expired." });
   }
 
+  // Check for valid maintainer approval before allowing transfer approval
+  const approvalCheck = await ApprovalService.checkProtectedActionApproval({
+    actionId: transfer._id.toString(),
+    actionType: "ownershipTransfer",
+    scope: "TRANSFER",
+    actor: walletAddress.toLowerCase(),
+    actionPath: "/api/prompts/transfers/respond",
+  });
+
+  if (approvalCheck.requiresApproval && !approvalCheck.approved) {
+    const rejectionReason = approvalCheck.reason || "No valid approval";
+    return res.status(403).json({ error: `${rejectionReason}. Maintainer approval required.` });
+  }
+
   if (decision === "approved") {
     const claimed = await OwnershipTransfer.updateOne(
       { _id: transfer._id, status: "pending" },
@@ -247,6 +275,18 @@ export const RespondOwnershipTransfer = async (
         });
         return res.status(404).json({ error: "Prompt not found." });
       }
+
+      await recordAccessOrOwnershipChange({
+        action: "ownership_transfer_accepted",
+        actor: walletAddress.toLowerCase(),
+        target: transfer.promptId,
+        targetType: "prompt",
+        promptId: transfer.promptId,
+        walletAddress,
+        beforeState: { previousOwner: transfer.fromWallet },
+        afterState: { newOwner: walletAddress.toLowerCase(), transferId: transfer._id.toString() },
+        reason: "Ownership transfer accepted by recipient",
+      });
     } catch (err) {
       // Roll the approval back so the recipient can retry cleanly.
       await OwnershipTransfer.updateOne(
@@ -274,6 +314,18 @@ export const RespondOwnershipTransfer = async (
     if (claimed.modifiedCount !== 1) {
       return res.status(409).json({ error: "Transfer was already decided." });
     }
+
+    await recordAccessOrOwnershipChange({
+      action: "ownership_transfer_rejected",
+      actor: walletAddress.toLowerCase(),
+      target: transfer.promptId,
+      targetType: "prompt",
+      promptId: transfer.promptId,
+      walletAddress,
+      beforeState: { pendingRecipient: transfer.toWallet },
+      afterState: { status: "rejected" },
+      reason: "Ownership transfer rejected by recipient",
+    });
   }
 
   const updated = await OwnershipTransfer.findById(transferId).lean().exec();
@@ -321,6 +373,18 @@ export const CancelOwnershipTransfer = async (
   logger.info("Ownership transfer cancelled", {
     action: "ownershipTransferCancelled",
     transferId,
+  });
+
+  await recordAccessOrOwnershipChange({
+    action: "ownership_transfer_cancelled",
+    actor: walletAddress.toLowerCase(),
+    target: updated?.promptId || transferId,
+    targetType: "prompt",
+    promptId: updated?.promptId,
+    walletAddress,
+    beforeState: { pendingRecipient: updated?.toWallet },
+    afterState: { status: "cancelled" },
+    reason: "Ownership transfer cancelled by sender",
   });
 
   return res.json(toDto(updated));

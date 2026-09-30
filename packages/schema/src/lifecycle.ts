@@ -189,3 +189,229 @@ export function deriveLifecycleState(legacy: {
       return "draft";
   }
 }
+
+/**
+ * Legacy fixture pack — Issue #788.
+ *
+ * Before #786, prompt listings were persisted with three independent
+ * fields (`listingStatus`, `moderationStatus`, `isActive`) and no shared
+ * state machine. Migrations and compatibility layers need to be tested
+ * against realistic old shapes, including malformed rows that predate any
+ * validation. This section defines:
+ *
+ *   - {@link LegacyPromptRecord} — the union of known previous schemas.
+ *   - {@link LEGACY_FIXTURES} — a curated, provenance-documented pack
+ *     covering clean, missing-field, deprecated-field, and incompatible
+ *     legacy records.
+ *   - {@link validateLegacyFixture} — asserts a fixture matches one of the
+ *     accepted old shapes.
+ *   - {@link migrateLegacyRecord} — produces a current, valid record.
+ *
+ * Fixtures are pure data so they can be reused by server migration tests,
+ * frontend compatibility shims, and the API contract suite without
+ * pulling in a database driver.
+ */
+
+/** The set of `listingStatus` values observed in legacy rows. */
+export const LEGACY_LISTING_STATUSES = ["draft", "ready", "published", "archived"] as const;
+export type LegacyListingStatus = (typeof LEGACY_LISTING_STATUSES)[number];
+
+/** The set of `moderationStatus` values observed in legacy rows. */
+export const LEGACY_MODERATION_STATUSES = ["none", "restricted", "retired"] as const;
+export type LegacyModerationStatus = (typeof LEGACY_MODERATION_STATUSES)[number];
+
+/**
+ * A legacy prompt record as persisted before #786. Fields are optional
+ * because older rows may predate any of them; `id` is always present.
+ */
+export interface LegacyPromptRecord {
+  id: string;
+  listingStatus?: string | null;
+  moderationStatus?: string | null;
+  isActive?: boolean | null;
+  /** Deprecated pre-#786 field; superseded by `moderationStatus`. */
+  flagged?: boolean | null;
+  /** Deprecated pre-#786 field; superseded by `listingStatus`. */
+  visible?: boolean | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** A current, post-#786 prompt record produced by {@link migrateLegacyRecord}. */
+export interface CurrentPromptRecord {
+  id: string;
+  lifecycleState: LifecycleState;
+  /** Always `true` for migrated records; visibility is derived from state. */
+  isActive: boolean;
+  migratedFrom: "legacy";
+}
+
+export type LegacyFixtureKind =
+  | "clean"
+  | "missing-field"
+  | "deprecated-field"
+  | "incompatible";
+
+export interface LegacyFixture {
+  /** Stable identifier used by tests and migration logs. */
+  name: string;
+  /** Which acceptance-criteria bucket this fixture exercises. */
+  kind: LegacyFixtureKind;
+  /** Where the shape was observed (issue, PR, or production sample). */
+  provenance: string;
+  /** What this fixture is intended to cover. */
+  coverage: string;
+  /** The raw legacy record. */
+  record: LegacyPromptRecord;
+}
+
+/**
+ * Curated fixture pack. Each entry documents its provenance and the
+ * coverage it provides so reviewers can audit migration behavior without
+ * reverse-engineering the shapes.
+ */
+export const LEGACY_FIXTURES: ReadonlyArray<LegacyFixture> = [
+  {
+    name: "clean-published",
+    kind: "clean",
+    provenance: "Pre-#786 production sample, prompt marketplace listing export (2024-11).",
+    coverage: "Well-formed legacy row with all three status fields populated.",
+    record: {
+      id: "legacy-clean-published",
+      listingStatus: "published",
+      moderationStatus: "none",
+      isActive: true,
+      createdAt: "2024-11-01T00:00:00.000Z",
+      updatedAt: "2024-11-02T00:00:00.000Z",
+    },
+  },
+  {
+    name: "clean-draft",
+    kind: "clean",
+    provenance: "Pre-#786 production sample, creator dashboard draft (2024-10).",
+    coverage: "Well-formed legacy draft row.",
+    record: {
+      id: "legacy-clean-draft",
+      listingStatus: "draft",
+      moderationStatus: "none",
+      isActive: true,
+    },
+  },
+  {
+    name: "missing-listing-status",
+    kind: "missing-field",
+    provenance: "Pre-#786 row written before `listingStatus` was introduced.",
+    coverage: "Missing `listingStatus`; migration must fall back to `draft`.",
+    record: {
+      id: "legacy-missing-listing-status",
+      moderationStatus: "none",
+      isActive: true,
+    },
+  },
+  {
+    name: "missing-moderation-status",
+    kind: "missing-field",
+    provenance: "Pre-#786 row written before `moderationStatus` was introduced.",
+    coverage: "Missing `moderationStatus`; treated as `none`.",
+    record: {
+      id: "legacy-missing-moderation-status",
+      listingStatus: "ready",
+      isActive: true,
+    },
+  },
+  {
+    name: "deprecated-flagged",
+    kind: "deprecated-field",
+    provenance: "Pre-#786 row using the deprecated `flagged` boolean.",
+    coverage: "Deprecated `flagged` field is ignored; `moderationStatus` wins.",
+    record: {
+      id: "legacy-deprecated-flagged",
+      listingStatus: "published",
+      moderationStatus: "none",
+      isActive: true,
+      flagged: true,
+    },
+  },
+  {
+    name: "deprecated-visible",
+    kind: "deprecated-field",
+    provenance: "Pre-#786 row using the deprecated `visible` boolean.",
+    coverage: "Deprecated `visible` field is ignored; `isActive`/state wins.",
+    record: {
+      id: "legacy-deprecated-visible",
+      listingStatus: "published",
+      moderationStatus: "none",
+      isActive: true,
+      visible: false,
+    },
+  },
+  {
+    name: "incompatible-unknown-listing-status",
+    kind: "incompatible",
+    provenance: "Corrupt row with an unrecognized `listingStatus` value.",
+    coverage: "Unknown `listingStatus` must not throw; falls back to `draft`.",
+    record: {
+      id: "legacy-incompatible-listing-status",
+      listingStatus: "totally-unknown",
+      moderationStatus: "none",
+      isActive: true,
+    },
+  },
+  {
+    name: "incompatible-unknown-moderation-status",
+    kind: "incompatible",
+    provenance: "Corrupt row with an unrecognized `moderationStatus` value.",
+    coverage: "Unknown `moderationStatus` is treated as `none`.",
+    record: {
+      id: "legacy-incompatible-moderation-status",
+      listingStatus: "published",
+      moderationStatus: "mystery",
+      isActive: true,
+    },
+  },
+];
+
+/**
+ * Validates that `record` matches one of the accepted legacy shapes.
+ * Returns a list of human-readable problems; empty means valid.
+ *
+ * "Valid" here means: `id` is a non-empty string, and any present
+ * `listingStatus`/`moderationStatus` values are strings (unknown values
+ * are tolerated — they are handled by {@link migrateLegacyRecord}).
+ */
+export function validateLegacyFixture(record: LegacyPromptRecord): ReadonlyArray<string> {
+  const problems: string[] = [];
+  if (typeof record.id !== "string" || record.id.length === 0) {
+    problems.push("legacy record is missing a non-empty `id`");
+  }
+  if (record.listingStatus != null && typeof record.listingStatus !== "string") {
+    problems.push("`listingStatus` must be a string when present");
+  }
+  if (record.moderationStatus != null && typeof record.moderationStatus !== "string") {
+    problems.push("`moderationStatus` must be a string when present");
+  }
+  if (record.isActive != null && typeof record.isActive !== "boolean") {
+    problems.push("`isActive` must be a boolean when present");
+  }
+  return problems;
+}
+
+/**
+ * Migrates a legacy record to the current shape. Pure and total: any
+ * legacy shape (including incompatible ones) produces a valid current
+ * record, mirroring the lazy read-through migration in
+ * {@link deriveLifecycleState}.
+ */
+export function migrateLegacyRecord(record: LegacyPromptRecord): CurrentPromptRecord {
+  const lifecycleState = deriveLifecycleState({
+    listingStatus: record.listingStatus,
+    moderationStatus: record.moderationStatus,
+    isActive: record.isActive,
+  });
+  return {
+    id: record.id,
+    lifecycleState,
+    isActive: true,
+    migratedFrom: "legacy",
+  };
+}

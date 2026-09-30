@@ -9,22 +9,30 @@ This document covers accessibility improvements for critical marketplace flows: 
 ### ✅ Completed
 
 1. **Form Accessibility Helpers** (`src/lib/accessibility/formHelpers.ts`)
-   - Standardized ARIA attributes (aria-invalid, aria-describedby)
-   - Error message association pattern
-   - Help text linking
-   - Focus management utilities
-   - Focus trap implementation for modals
+   - `getFormFieldAriaAttrs` — builds `aria-invalid`, `aria-required`, `aria-describedby` from field options
+   - `renderErrorMessage` — returns `id`, `role="alert"`, `aria-live="assertive"`, `aria-atomic` props
+   - `renderLabel` — `htmlFor` + optional `aria-required`
+   - `announceStatus` — visually-hidden live region for programmatic SR announcements
+   - `getFocusableElements` — enumerates all focusable descendants in DOM order
+   - `setFocusOn` — safe focus helper with tabindex fallback
+   - `createFocusTrap` — Tab/Shift+Tab cycling within a modal container
 
-2. **Automated Testing Infrastructure**
+2. **Complex Form Remediations** (Issue #accessibility-remediation)
+   - `DisputeModal` — added `role="dialog"`, `aria-modal`, `aria-labelledby`, `aria-describedby`, Escape key, focus trap, `role="alert"` on error, `aria-busy` on submit
+   - `RefundRequestModal` — same dialog semantics + `aria-invalid`/`aria-required` on textarea, inline validation error announced via `role="alert"` and `aria-live="assertive"`, `aria-busy` on submit
+   - `ReviewForm` — error div upgraded to `role="alert"` + `aria-live="assertive"`, rating group wrapped with `aria-labelledby`
+   - `ReportDialog` — full dialog scaffold (`role`, `aria-modal`, `aria-labelledby`), Escape key, focus trap, reason buttons use `role="radio"` + `aria-checked` inside `role="radiogroup"`, error div uses `role="alert"`, loading/success states use `role="status"` + `aria-live="polite"`, evidence remove buttons have unique `aria-label` per item
+   - `TagInput` — input wired with `aria-haspopup="listbox"`, `aria-expanded`, `aria-controls`, `aria-autocomplete="list"`; listbox `ul` gets stable `id`; `role="option"` moved to `<li>`; validation message uses `aria-live="polite"` + `aria-atomic`
+
+3. **Automated Testing Infrastructure**
    - jest-axe integration for WCAG violation detection
-   - Test setup with Vitest configuration
-   - Accessibility test suite for purchase and publishing flows
+   - Test setup with Vitest configuration (`vitest.accessibility.config.mjs`)
+   - `src/test/a11y/setup.ts` — extends Vitest matchers, cleans DOM after each test
 
-3. **Test Coverage**
-   - Purchase flow: modal dialogs, buttons, forms, status announcements
-   - Publishing flow: form validation, error handling, tab navigation, array fields
-   - Focus management and keyboard navigation
-   - Semantic HTML verification
+4. **Test Coverage**
+   - `purchase-flow.a11y.test.tsx` — purchase modal, checkout, receipt, review form
+   - `publishing-flow.a11y.test.tsx` — create-prompt form fields, tab navigation, co-creators, checklist
+   - `forms-and-error-states.a11y.test.tsx` — dialog semantics, error patterns, keyboard completability, combobox (TagInput), success/loading state announcements, color-independent error communication
 
 ## Architecture & Patterns
 

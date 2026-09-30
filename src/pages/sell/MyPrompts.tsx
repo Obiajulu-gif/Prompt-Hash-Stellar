@@ -1,4 +1,4 @@
-import { OwnershipTransferPanel } from "../../components/prompts/OwnershipTransferPanel";
+import { OwnershipTransferPanel } from "../../components/sell/OwnershipTransferPanel";
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";

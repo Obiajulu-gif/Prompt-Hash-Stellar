@@ -79,18 +79,18 @@ export const SearchMarketplace = async (req: Request, res: Response): Promise<Re
     // --- Build sort ---
     type SortObj = Record<string, 1 | -1>;
     const SORT_MAP: Record<string, SortObj> = {
-      newest:     { createdAt: -1 },
-      oldest:     { createdAt: 1 },
-      price_asc:  { price: 1 },
-      price_desc: { price: -1 },
-      rating:     { rating: -1, createdAt: -1 },
-      popular:    { salesCount: -1, createdAt: -1 },
+      newest:     { createdAt: -1, _id: -1 },
+      oldest:     { createdAt: 1, _id: 1 },
+      price_asc:  { price: 1, createdAt: -1, _id: -1 },
+      price_desc: { price: -1, createdAt: -1, _id: -1 },
+      rating:     { rating: -1, createdAt: -1, _id: -1 },
+      popular:    { salesCount: -1, createdAt: -1, _id: -1 },
     };
 
     // When using $text, MongoDB surfaces a relevance score we can sort by
     const sortObj: SortObj =
       q && sort === "newest"
-        ? { score: { $meta: "textScore" } as unknown as -1, createdAt: -1 }
+        ? { score: { $meta: "textScore" } as unknown as -1, createdAt: -1, _id: -1 }
         : (SORT_MAP[sort] ?? SORT_MAP["newest"]);
 
     // --- Pagination ---

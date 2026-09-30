@@ -12,6 +12,18 @@ const revisionSchema = new mongoose.Schema(
 
 const reviewSchema = new mongoose.Schema(
   {
+    /**
+     * Record-level schema version for read-path compatibility transforms.
+     * See server/src/services/schemaVersioning.ts.
+     *   0 / absent — pre-migration record; treated as v0 by the transform layer.
+     *   1           — first versioned write; `status` field backfilled.
+     *   2           — current; `status` guaranteed present on write.
+     */
+    schemaVersion: {
+      type: Number,
+      default: 2,
+      min: 0,
+    },
     promptId: {
       type: String,
       required: true,

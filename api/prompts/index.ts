@@ -79,7 +79,26 @@ async function handler(req: any, res: any) {
         .populate("owner", "username walletAddress")
         .lean();
 
-      res.status(200).json(prompt ? [prompt] : []);
+      if (!prompt || (prompt as any).isDeleted) {
+        res.status(200).json([]);
+        return;
+      }
+
+      // Safe public projection (#936): strip private content, encryptedPrompt, and moderationNotes
+      const isOwner =
+        viewerWallet &&
+        (prompt as any).owner &&
+        (String((prompt as any).owner?.walletAddress || "").toLowerCase() ===
+          String(viewerWallet).toLowerCase());
+
+      const sanitized: any = { ...(prompt as any) };
+      if (!isOwner) {
+        delete sanitized.content;
+        delete sanitized.encryptedPrompt;
+        delete sanitized.moderationNotes;
+      }
+
+      res.status(200).json([sanitized]);
       return;
     }
 

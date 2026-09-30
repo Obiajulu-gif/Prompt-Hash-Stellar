@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { migratePromptMetadata, type PromptMetadata } from "../../../packages/schema/src/promptMetadata.js";
+import { migratePromptMetadata, type PromptMetadata } from "@prompthash/schema";
 
 export interface PromptImportRow extends Partial<PromptMetadata> {
   externalId?: string;

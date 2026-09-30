@@ -62,6 +62,21 @@ python3 scripts/dry-run-migration.py report --json   # machine-readable
 python3 scripts/dry-run-migration.py self-test       # classifier coverage
 ```
 
+### Manual entitlement repair (#927)
+
+Run from `server/` with `MONGODB_URI` configured. A purchase ID is required;
+the command previews the entitlement change by default and performs no writes.
+Pass `--apply` to update only that purchase's entitlement and append a
+hash-chained audit record. Already-consistent records are a no-op.
+
+```bash
+npm run repair:entitlement -- --purchase-id <mongo-purchase-id>
+npm run repair:entitlement -- --purchase-id <mongo-purchase-id> --apply
+```
+
+Set `REPAIR_ACTOR` to identify the operator in the audit trail; otherwise the
+current OS username (or `manual-cli`) is recorded.
+
 ## Environment Consistency
 
 The `deploy.sh` script synchronizes the following variables across `.env` and `.env.local`:

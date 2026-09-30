@@ -33,6 +33,7 @@ import { NoResultsSuggestions } from "./NoResultsSuggestions";
 import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
 import { rankPrompts } from "@/lib/search/rankingEngine";
 import { recordPreview } from "@/lib/prompts/previewAnalytics";
+import { deterministicSortComparator } from "@/lib/sortUtils";
 
 const ITEMS_PER_PAGE = 9;
 const ENABLE_INFINITE_SCROLL = true;
@@ -233,17 +234,28 @@ const FetchAllPrompts = ({
 
     switch (sortBy) {
       case "price-low":
-        return [...prompts].sort((a, b) =>
-          a.priceStroops < b.priceStroops ? -1 : 1,
-        );
+        return [...prompts].sort((a, b) => {
+          if (a.priceStroops !== b.priceStroops) {
+            return a.priceStroops < b.priceStroops ? -1 : 1;
+          }
+          return deterministicSortComparator(a, b);
+        });
       case "price-high":
-        return [...prompts].sort((a, b) =>
-          a.priceStroops > b.priceStroops ? -1 : 1,
-        );
+        return [...prompts].sort((a, b) => {
+          if (a.priceStroops !== b.priceStroops) {
+            return a.priceStroops > b.priceStroops ? -1 : 1;
+          }
+          return deterministicSortComparator(a, b);
+        });
       case "sales":
-        return [...prompts].sort((a, b) => b.salesCount - a.salesCount);
+        return [...prompts].sort((a, b) => {
+          if (a.salesCount !== b.salesCount) {
+            return b.salesCount - a.salesCount;
+          }
+          return deterministicSortComparator(a, b);
+        });
       default:
-        return [...prompts].sort((a, b) => Number(b.id - a.id));
+        return [...prompts].sort(deterministicSortComparator);
     }
   }, [
     priceRange,

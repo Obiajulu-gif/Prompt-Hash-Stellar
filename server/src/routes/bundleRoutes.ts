@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import { purchaseLimiter } from "../middleware/rateLimiter";
+import { requireIdempotency } from "../middleware/idempotency";
 import { Bundle } from "../models/Bundle";
 import { BundlePurchase } from "../models/BundlePurchase";
 import {
@@ -54,7 +55,7 @@ bundleRouter.get("/:id", async (req: Request, res: Response) => {
  * POST /api/bundles
  * Create a new prompt bundle with snapshots.
  */
-bundleRouter.post("/", async (req: Request, res: Response) => {
+bundleRouter.post("/", requireIdempotency, async (req: Request, res: Response) => {
   try {
     await connectDb();
     const { title, description, creatorAddress, promptIds, bundlePrice, discountPercent } = req.body;
@@ -86,10 +87,10 @@ bundleRouter.post("/", async (req: Request, res: Response) => {
  * POST /api/bundles/:id/purchase
  * Purchase a bundle atomically.
  */
-bundleRouter.post("/:id/purchase", purchaseLimiter, async (req: Request, res: Response) => {
+bundleRouter.post("/:id/purchase", purchaseLimiter, requireIdempotency, async (req: Request, res: Response) => {
   try {
     await connectDb();
-    const bundleId = req.params.id;
+    const bundleId = String(req.params.id);
     const { buyerAddress, txHash, pricePaid } = req.body;
 
     if (!buyerAddress || !txHash) {
@@ -117,10 +118,10 @@ bundleRouter.post("/:id/purchase", purchaseLimiter, async (req: Request, res: Re
  * POST /api/bundles/purchases/:purchaseId/recover
  * Recover partial unlock failure without double-charging.
  */
-bundleRouter.post("/purchases/:purchaseId/recover", async (req: Request, res: Response) => {
+bundleRouter.post("/purchases/:purchaseId/recover", requireIdempotency, async (req: Request, res: Response) => {
   try {
     await connectDb();
-    const { purchaseId } = req.params;
+    const purchaseId = String(req.params.purchaseId);
     const { buyerAddress } = req.body;
 
     if (!buyerAddress) {

@@ -19,9 +19,11 @@ import {
   invalidatePromptCaches,
   METADATA_TTL_SECONDS,
 } from "./cacheService";
-import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
+import os from "os";
+import { decodeEvent } from "@prompthash/sdk";
 import { logger } from "./structuredLogger";
 import { applyDisputeTransition } from "./purchaseDisputes";
+import { trackBlockchainIndexing } from "../middleware/provenanceMiddleware";
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -395,6 +397,27 @@ export async function routeDecodedEvent(
           logger.error("Safety scan error", { action: "safetyScan", promptId, error: err }),
         );
       }
+
+      // Track blockchain provenance for on-chain prompts (#929) — creates
+      // a provenance record with blockchain source metadata. This runs
+      // asynchronously and must never block the indexer loop.
+      trackBlockchainIndexing(
+        String(prompt._id),
+        {
+          transactionHash: txHash,
+          ledgerNumber: ledger,
+          onChainId: promptId,
+          contractId: CONTRACT_ID,
+        },
+        creator,
+      ).catch((err) =>
+        logger.error("Provenance tracking error", {
+          action: "blockchainProvenance",
+          promptId,
+          error: err,
+        }),
+      );
+
       await invalidatePromptCaches(promptId);
       break;
     }

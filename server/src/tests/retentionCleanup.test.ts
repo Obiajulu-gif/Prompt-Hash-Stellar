@@ -68,10 +68,17 @@ describe("retention cleanup job", () => {
   });
 
   it("dry-runs all eligible categories without modifying records", async () => {
-    mocks.inboundWebhookEvent.countDocuments.mockResolvedValue(2);
-    mocks.quarantinedEvent.countDocuments.mockResolvedValue(1);
-    mocks.jobRecord.countDocuments.mockResolvedValue(3);
-    mocks.report.countDocuments.mockResolvedValue(4);
+    const setupMock = (modelMock: any, eligibleCount: number) => {
+      modelMock.countDocuments.mockImplementation(async (filter: any) => {
+        if (filter.retentionHold === true) return 1;
+        if (filter.archivedAt && filter.archivedAt.$ne !== undefined) return 2;
+        return eligibleCount;
+      });
+    };
+    setupMock(mocks.inboundWebhookEvent, 2);
+    setupMock(mocks.quarantinedEvent, 1);
+    setupMock(mocks.jobRecord, 3);
+    setupMock(mocks.report, 4);
 
     const result = await runRetentionCleanup({
       now: new Date("2026-09-26T00:00:00.000Z"),
@@ -79,10 +86,10 @@ describe("retention cleanup job", () => {
     });
 
     expect(result).toEqual({
-      inboundWebhookEvents: { archived: 2, dryRun: true },
-      quarantinedEvents: { archived: 1, dryRun: true },
-      exports: { archived: 3, dryRun: true },
-      supportEvidence: { archived: 4, dryRun: true },
+      inboundWebhookEvents: { eligible: 2, held: 1, skipped: 2, archived: 0, failed: 0, dryRun: true },
+      quarantinedEvents: { eligible: 1, held: 1, skipped: 2, archived: 0, failed: 0, dryRun: true },
+      exports: { eligible: 3, held: 1, skipped: 2, archived: 0, failed: 0, dryRun: true },
+      supportEvidence: { eligible: 4, held: 1, skipped: 2, archived: 0, failed: 0, dryRun: true },
     });
     expect(mocks.inboundWebhookEvent.updateMany).not.toHaveBeenCalled();
     expect(mocks.quarantinedEvent.updateMany).not.toHaveBeenCalled();

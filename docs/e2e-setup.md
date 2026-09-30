@@ -63,6 +63,7 @@ await mockUnlockSuccess(page, 'plaintext');
 | Entitlement missing (not purchased) | `noAccess`, code `ACCESS_NOT_PURCHASED` |
 | Expired challenge | `expiredChallenge`, code `CHALLENGE_EXPIRED` |
 | Invalid signature | `invalidSignature`, code `INVALID_SIGNATURE` |
+| Validation failure | malformed challenge request, code `INVALID_REQUEST` |
 | Transient network → retry succeeds | first 503 `TEMPORARY_FAILURE`, second 200 plaintext |
 | Pending indexing | `pendingIndexing`, 202 not swallowed |
 

@@ -22,9 +22,10 @@
     "seed:preview": "node scripts/seedPreview.mjs",
     "db:migrate": "ts-node src/db/migrateCli.ts up",
     "db:rollback": "ts-node src/db/rollbackCli.ts",
-    "retention:enqueue": "ts-node scripts/enqueueRetentionCleanup.ts"
+    "retention:enqueue": "ts-node scripts/enqueueRetentionCleanup.ts",
+    "repair:entitlement": "ts-node scripts/repairEntitlement.ts",
+    "data:integrity:monitor": "ts-node scripts/dataIntegrityMonitor.ts"
   },
-
   "files": [
     "build"
   ],
@@ -52,7 +53,6 @@
     "js-sha256": "^1.0.0",
     "mongoose": "^9.5.0",
     "nodemon": "^3.1.14",
-    "prompt-hash-stellar": "file:..",
     "redis": "^6.0.1",
     "typescript": "^6.0.3",
     "uuid": "^14.0.2"

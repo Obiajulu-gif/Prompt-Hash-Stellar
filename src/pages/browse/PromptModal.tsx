@@ -76,7 +76,6 @@ import { getCreatorThumbRating, saveCreatorThumbRating, type ThumbRating } from 
 import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
-import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
 import { submitXlmPromptPayment, type XlmPaymentStatusUpdate } from "../../lib/payments/xlmGateway";
 
 export type BuyerStatus =

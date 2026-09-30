@@ -19,6 +19,7 @@ import {
   invalidatePromptCaches,
   DEFAULT_TTL_SECONDS,
 } from "../services/cacheService.js";
+import MaintenanceBanner from "../models/MaintenanceBanner.js";
 import { sendConditionalJson, markPrivate } from "../middleware/etag.js";
 import { notifyPromptReported } from "../services/emailNotifications.js";
 import { announceNewPrompt } from "../services/discordNotifications.js";
@@ -513,7 +514,7 @@ export const GetPromptReports = async (
     if (req.query.includeArchived === "true") {
       delete query.archivedAt;
     }
-    const reports = await Report.find(query).sort({ createdAt: -1 });
+    const reports = await Report.find(query).sort({ createdAt: -1, _id: -1 });
 
     return res.json(reports);
   } catch (err) {
@@ -617,7 +618,7 @@ export const GetSavedPrompts = async (
 
     const prompts = await Prompt.find({ savedPrompts: user._id })
       .populate("owner", "username walletAddress")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1, _id: -1 });
 
     return res.json(prompts);
   } catch (err) {
@@ -733,7 +734,7 @@ export const GetDraftPrompts = async (
       listingStatus: "draft",
     })
       .populate("owner", "username walletAddress")
-      .sort({ updatedAt: -1 });
+      .sort({ updatedAt: -1, _id: -1 });
 
     return res.json(drafts);
   } catch (err) {
@@ -875,6 +876,32 @@ export const CheckSimilarity = async (
     logger.error("Check similarity error", { action: "checkSimilarity", error });
     return res.status(500).json({
       error: (error as Error).message || "Failed to check similarity",
+    });
+  }
+};
+
+/**
+ * Check prompt for duplicates using canonical fields and similarity fallback.
+ */
+import { checkDuplicates } from "../services/duplicateDetection.js";
+export const CheckDuplicate = async (
+  req: Request,
+  res: Response,
+): Promise<Response<any>> => {
+  try {
+    await connectDb();
+    const { title, content, category } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: "content is required." });
+    }
+
+    const result = await checkDuplicates(title, content, category);
+    return res.json(result);
+  } catch (error) {
+    logger.error("Check duplicate error", { action: "checkDuplicate", error });
+    return res.status(500).json({
+      error: (error as Error).message || "Failed to check duplicate",
     });
   }
 };

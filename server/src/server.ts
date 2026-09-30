@@ -22,6 +22,11 @@ import { qualityCheckRouter } from "./routes/qualityCheckRoutes.js";
 import { recommendationFeedbackRouter } from "./routes/recommendationFeedbackRoutes.js";
 import { operationalHealthRouter } from "./routes/operationalHealthRoutes.js";
 import { drRouter } from "./routes/drRoutes.js";
+import { exportRouter } from "./routes/exportRoutes";
+import { policyLimitRouter } from "./routes/policyLimitRoutes";
+import { operationRecoveryRouter } from "./routes/operationRecoveryRoutes";
+import { receiptRouter } from "./routes/receiptRoutes";
+import { maintenanceBannerRouter } from "./routes/maintenanceBannerRoutes";
 import {
   GetOpenApiSchema,
   GetOpenApiExplorer,
@@ -30,7 +35,16 @@ import { runBackup, getBackupHealth } from "./services/backupService.js";
 import { IndexerState } from "./models/IndexerState";
 import { startIndexer } from "./services/indexer";
 import { correlationMiddleware } from "./middleware/correlation";
-import { getBackupHealth } from "./services/backupService";
+import { errorHandlerMiddleware } from "./middleware/errorHandler";
+import { runDataIntegrityCheck } from "./services/dataIntegrityMonitor";
+import {
+  runUserExport,
+  listUserExports,
+  cleanupExpiredExports,
+  verifyExportChecksum,
+  EXPORT_SCOPES,
+  EXPORT_RETENTION_MS,
+} from "./services/exportService";
 
 const app = express();
 
@@ -60,7 +74,21 @@ app.use("/api/support-cases", supportCaseRouter);
 app.use("/api/quality-checks", qualityCheckRouter);
 app.use("/api/recommendations/feedback", recommendationFeedbackRouter);
 app.use("/api/admin/operational-health", operationalHealthRouter);
+app.use("/api/maintenance", maintenanceBannerRouter); // Maintenance mode banners
+// Export routes for user-owned data (requires authentication)
+// Machine-readable API schema + interactive explorer (#713).
+app.use("/api/exports", exportRouter)
+app.get("/api/openapi.json", GetOpenApiSchema);
 app.use("/api/admin/dr", drRouter);
+app.use("/api/admin/policy-limits", policyLimitRouter);
+app.use("/api/recovery", operationRecoveryRouter);
+app.use("/api/receipts", receiptRouter);
+
+// Apply correlation ID middleware to all routes
+app.use(correlationMiddleware);
+
+// Apply standardized error handler middleware
+app.use(errorHandlerMiddleware);
 
 // Machine-readable API schema + interactive explorer (#713).
 app.get("/api/openapi.json", GetOpenApiSchema);
@@ -79,6 +107,16 @@ app.get("/health", async (req, res) => {
     },
     backup: backupHealth,
   });
+});
+
+// Run data integrity check endpoint (admin only)
+app.post("/api/admin/integrity-check", async (req, res) => {
+  try {
+    const report = await runDataIntegrityCheck();
+    res.json({ success: true, data: report });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to run integrity check" });
+  }
 });
 
 // Sentry error handler must be registered after all routes (#332).
@@ -111,8 +149,9 @@ app.listen(port, () => {
   startIndexer().catch((err) => {
     console.error("Failed to start Soroban Indexer:", err);
   });
-startIndexer().catch((err) => {
-  console.error("Failed to start Soroban Indexer:", err);
+  startIndexer().catch((err) => {
+    console.error("Failed to start Soroban Indexer:", err);
+  });
 });
 
 export default app;

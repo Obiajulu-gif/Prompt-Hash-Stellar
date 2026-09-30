@@ -165,33 +165,106 @@ export function migrateTaxonomy(input: {
 }
 
 /**
- * Migrates legacy prompt metadata records (v0 / unversioned) to the current
- * canonical schema version, while rejecting future unsupported schema versions (#677).
+ * Legacy schema versions we know how to migrate from. Version 0 covers
+ * unversioned records written before `schemaVersion` existed.
  */
-export function migratePromptMetadata(raw: any): {
+export const LEGACY_PROMPT_SCHEMA_VERSIONS = [0, 1] as const;
+
+export type LegacyPromptSchemaVersion = (typeof LEGACY_PROMPT_SCHEMA_VERSIONS)[number];
+
+/**
+ * Result of a single legacy-record migration, including provenance metadata
+ * so callers can audit which fields were rewritten during the migration.
+ */
+export interface LegacyMigrationResult {
   data: PromptMetadata | null;
   error?: string;
-} {
-  if (!raw || typeof raw !== "object") {
-    return { data: null, error: "Invalid metadata: input must be an object" };
-  }
+  /** Schema version detected on the input record (0 when unversioned). */
+  sourceVersion: number;
+  /** Field names that were added, removed, or rewritten during migration. */
+  migratedFields: string[];
+}
 
-  const version = raw.schemaVersion ?? 0;
-
-  if (version > PROMPT_METADATA_SCHEMA_VERSION) {
+/**
+ * Migrates legacy prompt metadata records (v0 / unversioned) to the current
+ * canonical schema version, while rejecting future unsupported schema versions (#677).
+ *
+ * Handles the four cases covered by the legacy fixture pack (#678):
+ *   1. clean legacy record      -> migrates with no field rewrites.
+ *   2. missing field            -> defaults are applied and recorded in migratedFields.
+ *   3. deprecated field          -> legacy aliases are normalized and recorded.
+ *   4. incompatible legacy record -> returns an error and null data.
+ */
+export function migratePromptMetadata(raw: any): LegacyMigrationResult {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {
       data: null,
-      error: `Unsupported future schema version: ${version}. Current supported version is ${PROMPT_METADATA_SCHEMA_VERSION}.`,
+      error: "Invalid metadata: input must be an object",
+      sourceVersion: 0,
+      migratedFields: [],
     };
   }
 
-  // Migrate category to current taxonomy
-  const { category: migratedCategory } = migrateTaxonomy({
+  const sourceVersion = typeof raw.schemaVersion === "number" ? raw.schemaVersion : 0;
+
+  if (sourceVersion > PROMPT_METADATA_SCHEMA_VERSION) {
+    return {
+      data: null,
+      error: `Unsupported future schema version: ${sourceVersion}. Current supported version is ${PROMPT_METADATA_SCHEMA_VERSION}.`,
+      sourceVersion,
+      migratedFields: [],
+    };
+  }
+
+  if (!LEGACY_PROMPT_SCHEMA_VERSIONS._includes(sourceVersion as LegacyPromptSchemaVersion)) {
+    return {
+      data: null,
+      error: `Unsupported legacy schema version: ${sourceVersion}.`,
+      sourceVersion,
+      migratedFields: [],
+    };
+  }
+
+  const migratedFields: string[] = [];
+
+  // Migrate category to current taxonomy.
+  const { category: migratedCategory, migratedFields: taxonomyMigrated } = migrateTaxonomy({
     category: raw.category,
     tags: raw.tags,
   });
+  for (const field of taxonomyMigrated) {
+    if (!migratedFields.includes(field)) migratedFields.push(field);
+  }
 
-  // Legacy v0 -> v1 migration
+  // Legacy v0 -> v1 migration. Track which fields were defaulted or
+  // rewritten so callers can audit the migration.
+  if (raw.schemaVersion !== PROMPT_METADATA_SCHEMA_VERSION) {
+    migratedFields.push("schemaVersion");
+  }
+  if (raw.description === undefined || raw.description === null) {
+    migratedFields.push("description");
+  }
+  if (!Array.isArray(raw.tags)) {
+    migratedFields.push("tags");
+  }
+  if (raw.licence === undefined || raw.licence === null) {
+    migratedFields.push("licence");
+  }
+  // Deprecated alias: `listingStatus` -> `status`.
+  if (raw.status === undefined && raw.listingStatus !== undefined) {
+    migratedFields.push("listingStatus");
+  } else if (raw.status === undefined || raw.status === null) {
+    migratedFields.push("status");
+  }
+  // Deprecated alias: `imageUrl` -> `image`.
+  if (raw.image === undefined && raw.imageUrl !== undefined) {
+    migratedFields.push("imageUrl");
+  }
+  // Deprecated alias: `priceUsd` -> `price`.
+  if (raw.price === undefined && raw.priceUsd !== undefined) {
+    migratedFields.push("priceUsd");
+  }
+
   const normalized = {
     ...raw,
     schemaVersion: PROMPT_METADATA_SCHEMA_VERSION,
@@ -199,6 +272,8 @@ export function migratePromptMetadata(raw: any): {
     tags: Array.isArray(raw.tags) ? raw.tags : [],
     licence: raw.licence ?? "standard",
     status: raw.status ?? raw.listingStatus ?? "draft",
+    image: raw.image ?? raw.imageUrl,
+    price: raw.price ?? raw.priceUsd,
     category: migratedCategory,
   };
 
@@ -207,8 +282,10 @@ export function migratePromptMetadata(raw: any): {
     return {
       data: null,
       error: `Metadata migration validation failed: ${Object.values(validation.errors).join(", ")}`,
+      sourceVersion,
+      migratedFields,
     };
   }
 
-  return { data: validation.data };
+  return { data: validation.data, sourceVersion, migratedFields };
 }

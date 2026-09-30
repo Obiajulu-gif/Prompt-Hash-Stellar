@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import { requireAdminScope } from "../middleware/adminAuth";
+import { requireIdempotency } from "../middleware/idempotency";
 import {
   getEntitlementState,
   revokeEntitlement,
@@ -40,6 +41,7 @@ entitlementRouter.get("/check", async (req: Request, res: Response) => {
 entitlementRouter.post(
   "/revoke",
   requireAdminScope("entitlements:write"),
+  requireIdempotency,
   async (req: Request, res: Response) => {
     try {
       await connectDb();
@@ -79,6 +81,7 @@ entitlementRouter.post(
 entitlementRouter.post(
   "/repair",
   requireAdminScope("entitlements:write"),
+  requireIdempotency,
   async (req: Request, res: Response) => {
     try {
       await connectDb();

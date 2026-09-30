@@ -3,6 +3,18 @@ import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
 
 const promptSchema = new mongoose.Schema(
   {
+    /**
+     * Record-level schema version for read-path compatibility transforms.
+     * See server/src/services/schemaVersioning.ts.
+     *   0 / absent — pre-migration record; transform applies v0→current fills.
+     *   1           — first versioned write; lifecycle fields may be absent.
+     *   2           — current; lifecycleState guaranteed present on write.
+     */
+    schemaVersion: {
+      type: Number,
+      default: 2,
+      min: 0,
+    },
     image: {
       type: String,
       required: true,
@@ -266,12 +278,50 @@ const promptSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Safe public permalinks (#936)
+    slug: {
+      type: String,
+      trim: true,
+      index: true,
+      default: null,
+    },
+    previousSlugs: {
+      type: [String],
+      default: [],
+      index: true,
+    },
+    redirectsFrom: {
+      type: [String],
+      default: [],
+      index: true,
+    },
+    canonicalUrl: {
+      type: String,
+      default: null,
+    },
+    archivedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   },
 );
 promptSchema.index({ title: 1 });
+promptSchema.index({ slug: 1 });
+promptSchema.index({ previousSlugs: 1 });
+promptSchema.index({ redirectsFrom: 1 });
 promptSchema.index({ listingStatus: 1, isActive: 1, _id: -1 });
 promptSchema.index({ listingStatus: 1, isActive: 1, category: 1, _id: -1 });
 promptSchema.index({ listingStatus: 1, isActive: 1, owner: 1, _id: -1 });

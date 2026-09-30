@@ -8,6 +8,10 @@ import { getRetentionCutoff } from "../retentionPolicy";
 import type { JobRecordDTO, RetentionCleanupPayload } from "../types";
 
 type ArchiveResult = {
+  eligible: number;
+  skipped: number;
+  held: number;
+  failed: number;
   archived: number;
   dryRun: boolean;
 };
@@ -37,12 +41,29 @@ async function archiveEligible(
   filter: Record<string, unknown>,
   update: Record<string, unknown>,
   options: { dryRun: boolean; batchSize: number },
-): Promise<number> {
+): Promise<ArchiveResult> {
+  const eligible = await model.countDocuments({
+    ...filter,
+    retentionHold: { $ne: true },
+    archivedAt: null,
+  });
+
+  const held = await model.countDocuments({
+    ...filter,
+    retentionHold: true,
+  });
+
+  const skipped = await model.countDocuments({
+    ...filter,
+    archivedAt: { $ne: null },
+  });
+
   if (options.dryRun) {
-    return model.countDocuments(filter);
+    return { eligible, held, skipped, archived: 0, failed: 0, dryRun: true };
   }
 
   let totalArchived = 0;
+  let totalFailed = 0;
   for (;;) {
     const documents = await model
       .find(filter, { _id: 1 })
@@ -50,26 +71,41 @@ async function archiveEligible(
       .lean();
     if (documents.length === 0) break;
 
-    const result = await model.updateMany(
-      {
-        $and: [
-          filter,
-          {
-            _id: { $in: documents.map((document) => document._id) },
-            retentionHold: { $ne: true },
-            archivedAt: null,
-          },
-        ],
-      },
-      update,
-    );
-    totalArchived += result.modifiedCount;
+    try {
+      const result = await model.updateMany(
+        {
+          $and: [
+            filter,
+            {
+              _id: { $in: documents.map((document) => document._id) },
+              retentionHold: { $ne: true },
+              archivedAt: null,
+            },
+          ],
+        },
+        update,
+      );
+      totalArchived += result.modifiedCount;
+      if (result.modifiedCount < documents.length) {
+        totalFailed += documents.length - result.modifiedCount;
+      }
 
-    if (documents.length < options.batchSize || result.modifiedCount === 0) {
+      if (documents.length < options.batchSize || result.modifiedCount === 0) {
+        break;
+      }
+    } catch (error) {
+      totalFailed += documents.length;
       break;
     }
   }
-  return totalArchived;
+  return {
+    eligible,
+    held,
+    skipped,
+    archived: totalArchived,
+    failed: totalFailed,
+    dryRun: false,
+  };
 }
 
 export async function runRetentionCleanup(
@@ -97,11 +133,9 @@ export async function runRetentionCleanup(
   };
 
   const result: RetentionCleanupResult = {
-    inboundWebhookEvents: {
-      archived: await archiveEligible(
+    inboundWebhookEvents: await archiveEligible(
         InboundWebhookEvent,
         {
-          ...commonEligibility,
           processingStatus: { $in: ["processed", "skipped"] },
           createdAt: { $lt: eventCutoff },
         },
@@ -110,13 +144,9 @@ export async function runRetentionCleanup(
         },
         { dryRun, batchSize },
       ),
-      dryRun,
-    },
-    quarantinedEvents: {
-      archived: await archiveEligible(
+    quarantinedEvents: await archiveEligible(
         QuarantinedEvent,
         {
-          ...commonEligibility,
           status: { $in: ["replayed", "discarded"] },
           updatedAt: { $lt: eventCutoff },
         },
@@ -131,13 +161,9 @@ export async function runRetentionCleanup(
         },
         { dryRun, batchSize },
       ),
-      dryRun,
-    },
-    exports: {
-      archived: await archiveEligible(
+    exports: await archiveEligible(
         JobRecord,
         {
-          ...commonEligibility,
           type: "export_csv",
           status: { $in: ["completed", "failed", "dead_letter"] },
           $or: [
@@ -155,13 +181,9 @@ export async function runRetentionCleanup(
         },
         { dryRun, batchSize },
       ),
-      dryRun,
-    },
-    supportEvidence: {
-      archived: await archiveEligible(
+    supportEvidence: await archiveEligible(
         Report,
         {
-          ...commonEligibility,
           status: { $in: ["resolved", "dismissed"] },
           $or: [
             { resolvedAt: { $lt: supportCutoff } },
@@ -179,8 +201,6 @@ export async function runRetentionCleanup(
         },
         { dryRun, batchSize },
       ),
-      dryRun,
-    },
   };
 
   logger.info("Retention cleanup completed", {

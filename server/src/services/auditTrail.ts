@@ -1,6 +1,8 @@
 import { createHash } from "crypto";
 import { AUDIT_ACTIONS, AuditLog, AuditAction, AuditResult } from "../models/AuditLog";
 import { logger } from "./structuredLogger";
+import { MaintenanceScope } from "../models/MaintenanceBanner";
+export { logger };
 
 /**
  * Hash algorithm version written on new audit records (#783). Version 1 is
@@ -10,6 +12,7 @@ import { logger } from "./structuredLogger";
 export const AUDIT_INTEGRITY_VERSION = 2;
 
 const GENESIS_HASH = "0".repeat(64);
+const MAINTENANCE_TARGET_TYPE = "maintenance_banner";
 
 /**
  * Deterministic JSON serialization: object keys are sorted recursively and
@@ -48,6 +51,10 @@ export interface AuditHashInput {
   promptId: string | null;
   walletAddress: string | null;
   actor?: string | null;
+  target?: string | null;
+  targetType?: string | null;
+  beforeState?: unknown;
+  afterState?: unknown;
   requestId: string | null;
   reason?: string | null;
   createdAt: Date;
@@ -81,6 +88,10 @@ export function computeRecordHash(record: AuditHashInput): string {
     promptId: record.promptId ?? null,
     walletAddress: record.walletAddress ?? null,
     actor: record.actor ?? null,
+    target: record.target ?? null,
+    targetType: record.targetType ?? null,
+    beforeState: record.beforeState ?? null,
+    afterState: record.afterState ?? null,
     requestId: record.requestId ?? null,
     reason: record.reason ?? null,
     createdAt: record.createdAt.toISOString(),
@@ -97,6 +108,10 @@ function hashInputFromRow(row: any): AuditHashInput {
     promptId: row.promptId ?? null,
     walletAddress: row.walletAddress ?? null,
     actor: row.actor ?? null,
+    target: row.target ?? null,
+    targetType: row.targetType ?? null,
+    beforeState: row.beforeState ?? null,
+    afterState: row.afterState ?? null,
     requestId: row.requestId ?? null,
     reason: row.reason ?? null,
     createdAt: new Date(row.createdAt),
@@ -128,6 +143,11 @@ export interface AuditEventParams {
   walletAddress?: string | null;
   /** Non-wallet principal, e.g. the admin token subject. */
   actor?: string | null;
+  target?: string | null;
+  targetType?: string | null;
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   requestId?: string | null;
   clientIp?: string | null;
   reason?: string | null;
@@ -145,7 +165,10 @@ export interface AuditEventParams {
  * Fire-and-forget: DB errors are caught and logged to stderr; they never
  * propagate so a storage hiccup cannot block a legitimate unlock.
  */
-export async function recordAuditEvent(params: AuditEventParams): Promise<void> {
+export async function recordAuditEvent(
+  params: AuditEventParams,
+  options: { throwOnError?: boolean } = {},
+): Promise<void> {
   const walletHash = params.walletAddress
     ? hashWalletAddress(params.walletAddress)
     : null;
@@ -158,6 +181,8 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
     requestId: params.requestId ?? undefined,
     walletHash: walletHash ?? undefined,
     actor: params.actor ?? undefined,
+    target: params.target ?? undefined,
+    targetType: params.targetType ?? undefined,
     promptId: params.promptId ?? undefined,
     reason: params.reason ?? undefined,
   };
@@ -180,6 +205,10 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
       promptId: params.promptId ?? null,
       walletAddress: walletHash,
       actor: params.actor ?? null,
+      target: params.target ?? null,
+      targetType: params.targetType ?? null,
+      beforeState: params.beforeState ?? null,
+      afterState: params.afterState ?? null,
       requestId: params.requestId ?? null,
       reason: params.reason ?? null,
       createdAt: now,
@@ -194,6 +223,11 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
       // Store the hash, not the raw address, for DB-level privacy (#224).
       walletAddress: walletHash,
       actor: params.actor ?? null,
+      target: params.target ?? null,
+      targetType: params.targetType ?? null,
+      beforeState: params.beforeState ?? null,
+      afterState: params.afterState ?? null,
+      metadata: params.metadata ?? null,
       requestId: params.requestId ?? null,
       clientIp: params.clientIp ?? null,
       reason: params.reason ?? null,
@@ -211,6 +245,7 @@ export async function recordAuditEvent(params: AuditEventParams): Promise<void> 
       requestId: params.requestId ?? undefined,
       err: err instanceof Error ? err.message : String(err),
     });
+    if (options.throwOnError) throw err;
   }
 }
 
@@ -651,3 +686,232 @@ export async function verifyAuditExport(bundle: {
     errors,
   };
 }
+
+/**
+ * Recursively sanitize state object to strip sensitive keys and hidden payloads.
+ */
+export function sanitizeAuditState(state: any): any {
+  if (state === null || state === undefined) return null;
+  if (typeof state !== "object") return state;
+  if (state instanceof Date) return state.toISOString();
+  if (Array.isArray(state)) return state.map(sanitizeAuditState);
+
+  const sensitivePattern = /secret|private|password|token|seed|key|credential|signature|iv|cipher|hash/i;
+  const sanitized: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(state)) {
+    // Keep identifiers and non-sensitive hashes
+    if (["contentHash", "promptId", "onChainId", "id", "_id", "targetId", "status", "role", "permission"].includes(key)) {
+      sanitized[key] = value;
+      continue;
+    }
+    if (sensitivePattern.test(key)) {
+      sanitized[key] = "[REDACTED]";
+      continue;
+    }
+    sanitized[key] = sanitizeAuditState(value);
+  }
+  return sanitized;
+}
+
+/**
+ * Record an ownership, role, permission, or access change in the immutable audit trail.
+ */
+export async function recordAccessOrOwnershipChange(params: {
+  action: AuditAction;
+  result?: AuditResult;
+  actor: string;
+  target: string;
+  targetType: "prompt" | "user" | "role" | "permission" | "entitlement" | "policy_limit" | "system";
+  promptId?: string | null;
+  walletAddress?: string | null;
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+  reason?: string | null;
+  requestId?: string | null;
+  clientIp?: string | null;
+}): Promise<void> {
+  const sanitizedBefore = sanitizeAuditState(params.beforeState);
+  const sanitizedAfter = sanitizeAuditState(params.afterState);
+
+  await recordAuditEvent({
+    action: params.action,
+    result: params.result || "success",
+    actor: params.actor,
+    target: params.target,
+    targetType: params.targetType,
+    promptId: params.promptId,
+    walletAddress: params.walletAddress,
+    beforeState: sanitizedBefore,
+    afterState: sanitizedAfter,
+    reason: params.reason,
+    requestId: params.requestId,
+    clientIp: params.clientIp,
+  });
+}
+
+/**
+ * Query access and ownership audit records with filtering and pagination.
+ */
+export async function queryAccessAuditLogs(filters: {
+  target?: string;
+  targetType?: string;
+  actor?: string;
+  action?: AuditAction;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+  skip?: number;
+}) {
+  const query: Record<string, any> = {};
+
+  if (filters.target) query.target = filters.target;
+  if (filters.targetType) query.targetType = filters.targetType;
+  if (filters.actor) query.actor = filters.actor;
+  if (filters.action) query.action = filters.action;
+
+  if (filters.since || filters.until) {
+    query.createdAt = {};
+    if (filters.since) query.createdAt.$gte = filters.since;
+    if (filters.until) query.createdAt.$lte = filters.until;
+  }
+
+  const limit = Math.min(filters.limit || 50, 200);
+  const skip = filters.skip || 0;
+
+  const [records, total] = await Promise.all([
+    AuditLog.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    AuditLog.countDocuments(query),
+  ]);
+
+  return {
+    records,
+    total,
+    page: Math.floor(skip / limit) + 1,
+    limit,
+  };
+}
+
+/**
+ * Export access and ownership audit records in JSON or CSV format.
+ */
+export async function exportAccessAuditLogs(
+  filters: {
+    target?: string;
+    targetType?: string;
+    actor?: string;
+    action?: AuditAction;
+    since?: Date;
+    until?: Date;
+  },
+  format: "json" | "csv" = "json"
+): Promise<{ contentType: string; data: string }> {
+  const query: Record<string, any> = {};
+
+  if (filters.target) query.target = filters.target;
+  if (filters.targetType) query.targetType = filters.targetType;
+  if (filters.actor) query.actor = filters.actor;
+  if (filters.action) query.action = filters.action;
+
+  if (filters.since || filters.until) {
+    query.createdAt = {};
+    if (filters.since) query.createdAt.$gte = filters.since;
+    if (filters.until) query.createdAt.$lte = filters.until;
+  }
+
+  const records = await AuditLog.find(query).sort({ createdAt: 1 }).lean();
+
+  if (format === "csv") {
+    const headers = [
+      "createdAt",
+      "action",
+      "result",
+      "actor",
+      "target",
+      "targetType",
+      "promptId",
+      "reason",
+      "recordHash",
+      "previousHash",
+    ];
+    const rows = records.map((r: any) =>
+      [
+        r.createdAt ? new Date(r.createdAt).toISOString() : "",
+        `"${r.action || ""}"`,
+        `"${r.result || ""}"`,
+        `"${r.actor || ""}"`,
+        `"${r.target || ""}"`,
+        `"${r.targetType || ""}"`,
+        `"${r.promptId || ""}"`,
+        `"${(r.reason || "").replace(/"/g, '""')}"`,
+        `"${r.recordHash || ""}"`,
+        `"${r.previousHash || ""}"`,
+      ].join(",")
+    );
+    return {
+      contentType: "text/csv",
+      data: [headers.join(","), ...rows].join("\n"),
+    };
+  }
+
+  return {
+    contentType: "application/json",
+    data: JSON.stringify(records, null, 2),
+  };
+}
+
+/**
+ * Record a maintenance banner configuration change (enable, disable, or
+ * update) in the immutable audit trail. Only authorized actors reach this
+ * function; the caller is responsible for authorization checks.
+ */
+export async function recordMaintenanceChange(params: {
+  actor: string;
+  bannerId: string;
+  scopes: MaintenanceScope[];
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+  reason?: string | null;
+  requestId?: string | null;
+  clientIp?: string | null;
+}): Promise<void> {
+  await recordAccessOrOwnershipChange({
+    action: "admin_maintenance_change",
+    result: "success",
+    actor: params.actor,
+    target: params.bannerId,
+    targetType: MAINTENANCE_TARGET_TYPE,
+    beforeState: params.beforeState ?? null,
+    afterState: params.afterState ?? null,
+    reason: params.reason ?? null,
+    requestId: params.requestId ?? null,
+    clientIp: params.clientIp ?? null,
+  });
+}
+
+/**
+ * Query maintenance banner audit records for incident review.
+ */
+export async function queryMaintenanceAuditLogs(filters: {
+  bannerId?: string;
+  actor?: string;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+  skip?: number;
+}) {
+  return queryAccessAuditLogs({
+    target: filters.bannerId,
+    targetType: MAINTENANCE_TARGET_TYPE,
+    actor: filters.actor,
+    since: filters.since,
+    until: filters.until,
+    limit: filters.limit,
+    skip: filters.skip,
+  });
+}
+

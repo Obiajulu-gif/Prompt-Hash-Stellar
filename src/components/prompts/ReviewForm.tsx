@@ -45,8 +45,13 @@ export const ReviewForm = ({ promptId, onSubmit, onCancel }: ReviewFormProps) =>
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <span id={`rating-label-${promptId}`} className="text-sm font-semibold text-white block">Your Rating</span>
-        <StarRating rating={rating} onRatingChange={setRating} size="lg" />
+        <span id={`rating-label-${promptId}`} className="text-sm font-semibold text-white block">
+          Your Rating <span aria-hidden="true" className="text-red-400">*</span>
+          <span className="sr-only">(required)</span>
+        </span>
+        <div aria-labelledby={`rating-label-${promptId}`}>
+          <StarRating rating={rating} onRatingChange={setRating} size="lg" />
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -71,7 +76,12 @@ export const ReviewForm = ({ promptId, onSubmit, onCancel }: ReviewFormProps) =>
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+        <div
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+        >
           {error}
         </div>
       )}

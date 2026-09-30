@@ -2453,35 +2453,6 @@ fn extend_listing(
     Events::emit_listing_extended(&env, prompt_id, creator, Some(new_expiry), extension_days, fee_paid);
     Ok(())
 }
-        } else {
-            // No previous expiry; set from now
-            now.checked_add(extension_seconds).ok_or(Error::ArithmeticOverflow)?
-        };
-
-        let mut fee_paid = 0i128;
-        if let Some(fee_bps) = fee_percentage_bps {
-            ensure!(fee_bps <= MAX_BPS, Error::InvalidFeePercentage)?;
-            let fee = prompt
-                .price_stroops
-                .checked_mul(fee_bps as i128)
-                .ok_or(Error::ArithmeticOverflow)?
-                / MAX_BPS as i128;
-            if fee > 0 {
-                let fee_wallet = Storage::get_fee_wallet(&env).ok_or(Error::FeeWalletNotSet)?;
-                let xlm = Storage::get_stellar_asset_contract(&env)?;
-                let this_contract = env.current_contract_address();
-                xlm.transfer_from(&this_contract, &creator, &fee_wallet, &fee)?;
-                fee_paid = fee;
-            }
-        }
-
-        prompt.expires_at = Some(new_expiry);
-        Storage::update_prompt(&env, &prompt);
-        Events::emit_listing_extended(&env, prompt_id, creator, Some(new_expiry), extension_days, fee_paid);
-        Ok(())
-    }
-}
-
 #[contractimpl(contracttrait)]
 impl Ownable for PromptHashContract {}
 

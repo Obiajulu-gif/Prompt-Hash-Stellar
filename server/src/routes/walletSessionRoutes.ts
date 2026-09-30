@@ -5,6 +5,7 @@ import {
   normalizeWallet,
   walletSessionSecret,
 } from "../middleware/walletSession";
+import { requireIdempotency } from "../middleware/idempotency";
 
 /**
  * Wallet sessions for self-service routes — see middleware/walletSession.ts.
@@ -34,7 +35,7 @@ walletSessionRouter.get("/challenge", (req: Request, res: Response) => {
   });
 });
 
-walletSessionRouter.post("/", async (req: Request, res: Response) => {
+walletSessionRouter.post("/", requireIdempotency, async (req: Request, res: Response) => {
   const secret = walletSessionSecret();
   if (!secret) {
     res.status(503).json({ error: "Wallet sessions are not configured." });

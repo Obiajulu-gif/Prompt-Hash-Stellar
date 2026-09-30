@@ -8,11 +8,15 @@ export type OperationType =
   | "NFT_MINT";
 
 export type OperationStepState =
+  | "PENDING"
+  | "RETRYABLE"
+  | "FAILED"
+  | "RESOLVED"
+  | "MANUALLY_REVIEWED"
   | "INITIALIZED"
   | "PREVALIDATED"
   | "ONCHAIN_SUBMITTED"
   | "CONFIRMED"
-  | "FAILED"
   | "RECOVERABLE"
   | "ABANDONED";
 
@@ -47,11 +51,15 @@ const checkpointStepSchema = new Schema({
   state: {
     type: String,
     enum: [
+      "PENDING",
+      "RETRYABLE",
+      "FAILED",
+      "RESOLVED",
+      "MANUALLY_REVIEWED",
       "INITIALIZED",
       "PREVALIDATED",
       "ONCHAIN_SUBMITTED",
       "CONFIRMED",
-      "FAILED",
       "RECOVERABLE",
       "ABANDONED",
     ],
@@ -84,15 +92,19 @@ const operationCheckpointSchema = new Schema(
     overallState: {
       type: String,
       enum: [
+        "PENDING",
+        "RETRYABLE",
+        "FAILED",
+        "RESOLVED",
+        "MANUALLY_REVIEWED",
         "INITIALIZED",
         "PREVALIDATED",
         "ONCHAIN_SUBMITTED",
         "CONFIRMED",
-        "FAILED",
         "RECOVERABLE",
         "ABANDONED",
       ],
-      default: "INITIALIZED",
+      default: "PENDING",
       index: true,
     },
     steps: [checkpointStepSchema],

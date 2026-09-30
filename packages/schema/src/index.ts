@@ -32,3 +32,15 @@ export {
   deriveLifecycleState,
 } from "./lifecycle.js";
 export type { LifecycleState, LifecycleActorRole, LifecycleTransition } from "./lifecycle.js";
+export {
+  PERMALINK_STATUSES,
+  generateSlug,
+  buildCanonicalPermalink,
+  publicPromptSchema,
+  sanitizePromptRecord,
+} from "./permalink.js";
+export type {
+  PermalinkStatus,
+  SanitizedPublicPrompt,
+  PermalinkResolution,
+} from "./permalink.js";

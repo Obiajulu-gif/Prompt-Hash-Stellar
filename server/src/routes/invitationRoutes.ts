@@ -9,17 +9,18 @@ import {
   RevokeInvitation,
   ListInvitations,
 } from "../controllers/invitationControllers";
+import { requireIdempotency } from "../middleware/idempotency";
 
 export const invitationRouter = express.Router();
 
 // Create invitation
-invitationRouter.post("/", CreateInvitation);
+invitationRouter.post("/", requireIdempotency, CreateInvitation);
 
 // Accept invitation
-invitationRouter.post("/:invitationId/accept", AcceptInvitation);
+invitationRouter.post("/:invitationId/accept", requireIdempotency, AcceptInvitation);
 
 // Revoke invitation
-invitationRouter.post("/:invitationId/revoke", RevokeInvitation);
+invitationRouter.post("/:invitationId/revoke", requireIdempotency, RevokeInvitation);
 
 // List invitations for a wallet
 invitationRouter.get("/:walletAddress", ListInvitations);

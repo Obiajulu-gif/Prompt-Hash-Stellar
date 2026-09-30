@@ -11,6 +11,8 @@ import {
   exportAuditBundle,
   recordAuditEvent,
   verifyAuditExport,
+  queryAccessAuditLogs,
+  exportAccessAuditLogs,
 } from "../services/auditTrail";
 
 /**
@@ -132,3 +134,90 @@ auditRouter.post(
     res.json(await verifyAuditExport({ records, integrityChecksum }));
   },
 );
+
+/**
+ * GET /api/audit/access-history
+ * Query ownership, role, permission, and access changes.
+ */
+auditRouter.get(
+  "/access-history",
+  requireAdminScope("audit:export"),
+  async (req: AdminRequest, res: Response) => {
+    markPrivate(res);
+    const { target, targetType, actor, action, since, until, limit, skip } = req.query;
+
+    const parsedSince = parseDate(since);
+    const parsedUntil = parseDate(until);
+    if (parsedSince === null || parsedUntil === null) {
+      return res.status(400).json({ error: "since and until must be valid dates." });
+    }
+
+    try {
+      await connectDb();
+      const result = await queryAccessAuditLogs({
+        target: target ? String(target) : undefined,
+        targetType: targetType ? String(targetType) : undefined,
+        actor: actor ? String(actor) : undefined,
+        action: action ? (String(action) as AuditAction) : undefined,
+        since: parsedSince ?? undefined,
+        until: parsedUntil ?? undefined,
+        limit: limit ? Number(limit) : 50,
+        skip: skip ? Number(skip) : 0,
+      });
+
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      return res.status(500).json({
+        error: (err as Error).message || "Failed to query access audit history",
+      });
+    }
+  },
+);
+
+/**
+ * GET /api/audit/access-history/export
+ * Export ownership and access changes in JSON or CSV format.
+ */
+auditRouter.get(
+  "/access-history/export",
+  requireAdminScope("audit:export"),
+  async (req: AdminRequest, res: Response) => {
+    markPrivate(res);
+    const { target, targetType, actor, action, since, until, format = "json" } = req.query;
+
+    const parsedSince = parseDate(since);
+    const parsedUntil = parseDate(until);
+    if (parsedSince === null || parsedUntil === null) {
+      return res.status(400).json({ error: "since and until must be valid dates." });
+    }
+
+    const exportFormat = String(format).toLowerCase() === "csv" ? "csv" : "json";
+
+    try {
+      await connectDb();
+      const result = await exportAccessAuditLogs(
+        {
+          target: target ? String(target) : undefined,
+          targetType: targetType ? String(targetType) : undefined,
+          actor: actor ? String(actor) : undefined,
+          action: action ? (String(action) as AuditAction) : undefined,
+          since: parsedSince ?? undefined,
+          until: parsedUntil ?? undefined,
+        },
+        exportFormat,
+      );
+
+      res.setHeader("Content-Type", result.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="access-audit-${Date.now()}.${exportFormat}"`,
+      );
+      return res.send(result.data);
+    } catch (err) {
+      return res.status(500).json({
+        error: (err as Error).message || "Failed to export access audit history",
+      });
+    }
+  },
+);
+

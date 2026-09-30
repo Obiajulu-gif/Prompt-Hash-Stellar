@@ -2,11 +2,11 @@
  * Multi-Currency Stellar Price Quoting & Protection Engine (#760)
  *
  * Provides safe multi-currency Stellar quotes with predictable expiry
- * and slippage protection for prompt purchases.
  */
+import { xlmToStroops } from "../stellar/format";
+export { xlmToStroops as xlmToStroopsBigInt };
 
 export interface SupportedAssetConfig {
-  code: string;
   name: string;
   issuer: string | null;
   contractAddress?: string;

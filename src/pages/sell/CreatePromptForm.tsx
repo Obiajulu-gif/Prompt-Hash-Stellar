@@ -208,8 +208,8 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     [watchAllFields.fullPrompt],
   );
 
-  const checkSimilarity = useCallback(
-    async (plaintext: string, category: string) => {
+  const checkDuplicate = useCallback(
+    async (title: string, plaintext: string, category: string) => {
       if (!plaintext.trim()) {
         setDuplicateWarning(null);
         return;
@@ -220,26 +220,26 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       setDuplicateConfirmed(false);
 
       try {
-        const response = await fetch("/api/prompts/similarity/check", {
+        const response = await fetch("/api/prompts/duplicate/check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: plaintext, category }),
+          body: JSON.stringify({ title, content: plaintext, category }),
         });
 
         if (response.ok) {
           const result = await response.json();
-          if (result.flag === "highly_similar") {
+          if (result.severity === "exact") {
             setDuplicateWarning(
-              `This prompt is highly similar to an existing prompt (ID: ${result.similarTo}). Publishing is blocked to prevent plagiarism.`,
+              `This prompt is an exact duplicate of an existing prompt (ID: ${result.similarTo}). Publishing is blocked to prevent spam.`,
             );
-          } else if (result.flag === "suspicious") {
+          } else if (result.severity === "ambiguous") {
             setDuplicateWarning(
-              `This prompt is similar to an existing prompt (ID: ${result.similarTo}). It will be flagged for review if published.`,
+              `This prompt is suspiciously similar to an existing prompt (ID: ${result.similarTo}). It will be flagged for review if published.`,
             );
           }
         }
       } catch (e) {
-        console.error("Similarity check failed:", e);
+        console.error("Duplicate check failed:", e);
       } finally {
         setIsCheckingDuplicate(false);
       }
@@ -295,33 +295,34 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     setSuccessMessage("Prompt listing created successfully!");
     resetBlocker();
+    let severity = "none";
     try {
-      const response = await fetch("/api/prompts/similarity/check", {
+      const response = await fetch("/api/prompts/duplicate/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: data.fullPrompt, category: data.category }),
+        body: JSON.stringify({ title: data.title, content: data.fullPrompt, category: data.category }),
       });
       if (response.ok) {
         const result = await response.json();
-        similarityFlag = result.flag;
+        severity = result.severity;
       }
     } catch (e) {
-      console.error("Failed to check similarity before publish", e);
+      console.error("Failed to check duplicate before publish", e);
     }
 
-    if (similarityFlag === "highly_similar") {
+    if (severity === "exact") {
       setSubmitError(
-        "Publishing is blocked. This prompt is highly similar to an existing prompt (plagiarism).",
+        "Publishing is blocked. This prompt is an exact duplicate of an existing prompt (spam).",
       );
       return;
     }
 
-    if (similarityFlag === "suspicious" && !duplicateConfirmed) {
+    if (severity === "ambiguous" && !duplicateConfirmed) {
       setDuplicateWarning(
         "This prompt is suspiciously similar to an existing prompt. Confirm below to proceed (will be sent to review).",
       );
       setSubmitError(
-        "Review similarity warning before proceeding.",
+        "Review duplicate warning before proceeding.",
       );
       return;
     }
@@ -886,7 +887,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           {watchAllFields.fullPrompt && (
             <button
               type="button"
-              onClick={() => checkSimilarity(watchAllFields.fullPrompt, watchAllFields.category)}
+              onClick={() => checkDuplicate(watchAllFields.title, watchAllFields.fullPrompt, watchAllFields.category)}
               disabled={isCheckingDuplicate}
               className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
             >

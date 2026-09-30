@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Archive,
   ArrowLeft,
   BadgeCheck,
   Check,
@@ -20,6 +21,7 @@ import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { fetchPermalinkResolution } from "@/lib/prompts/permalinkClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { getPrompt } from "@/lib/stellar/promptHashClient";
 import { formatPriceLabel } from "@/lib/stellar/format";
@@ -50,7 +52,7 @@ function summarise(text: string, max = 160): string {
 
 export default function PromptDetailPage() {
   const { id = "" } = useParams();
-  const isValidId = /^\d+$/.test(id);
+  const navigate = useNavigate();
   const { address } = useWallet();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
@@ -69,14 +71,36 @@ export default function PromptDetailPage() {
     isCountingDown,
   } = useClipboardAutoClear();
 
+  // Safe permalink resolution (#936)
+  const { data: permalinkResolution, isLoading: isResolvingPermalink } = useQuery({
+    queryKey: ["prompt-permalink", id, address],
+    queryFn: () => fetchPermalinkResolution(id, address),
+    enabled: Boolean(id),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+
+  // Handle safe 301 redirection for renamed records
+  useEffect(() => {
+    if (permalinkResolution?.status === "redirect" && permalinkResolution.canonicalUrl) {
+      navigate(permalinkResolution.canonicalUrl, { replace: true });
+    }
+  }, [permalinkResolution, navigate]);
+
+  const targetOnChainId =
+    permalinkResolution?.record?.onChainId ||
+    permalinkResolution?.targetId ||
+    id;
+  const isNumericOnChainId = /^\d+$/.test(targetOnChainId);
+
   const {
     data: prompt,
-    isLoading,
+    isLoading: isPromptLoading,
     isError,
   } = useQuery({
-    queryKey: ["prompt-detail", id],
-    queryFn: () => getPrompt(browserStellarConfig, BigInt(id)),
-    enabled: isValidId,
+    queryKey: ["prompt-detail", targetOnChainId],
+    queryFn: () => getPrompt(browserStellarConfig, BigInt(targetOnChainId)),
+    enabled: isNumericOnChainId,
     // Moderation decisions must not be served from a stale cache. Refetch on
     // every mount/focus so a hidden or restricted listing is reflected quickly.
     staleTime: 0,
@@ -89,27 +113,37 @@ export default function PromptDetailPage() {
   const {
     data: moderation,
   } = useQuery({
-    queryKey: ["prompt-moderation", id],
+    queryKey: ["prompt-moderation", targetOnChainId],
     queryFn: async () => {
-      const res = await fetch(`/api/prompts/index?onChainId=${encodeURIComponent(id)}`);
+      const res = await fetch(`/api/prompts/index?onChainId=${encodeURIComponent(targetOnChainId)}`);
       if (!res.ok) return null;
       const list = (await res.json()) as Array<Record<string, unknown>>;
       return (list && list[0]) || null;
     },
-    enabled: isValidId,
+    enabled: isNumericOnChainId,
     staleTime: 0,
     refetchOnWindowFocus: true,
     gcTime: 30_000,
   });
 
+  const isArchived = Boolean(
+    permalinkResolution?.status === "archived" ||
+    permalinkResolution?.isArchived ||
+    moderation?.listingStatus === "archived" ||
+    moderation?.lifecycleState === "archived"
+  );
+
   const moderationStatus =
-    moderation && typeof moderation.moderationStatus === "string"
+    permalinkResolution?.status === "restricted"
+      ? "restricted"
+      : moderation && typeof moderation.moderationStatus === "string"
       ? moderation.moderationStatus
       : "none";
   const moderationReason =
-    moderation && typeof moderation.moderationReason === "string"
+    permalinkResolution?.reason ||
+    (moderation && typeof moderation.moderationReason === "string"
       ? moderation.moderationReason
-      : null;
+      : null);
   const isModerated =
     moderationStatus === "restricted" || moderationStatus === "retired";
 
@@ -118,9 +152,9 @@ export default function PromptDetailPage() {
   // Drop any persisted/ cached detail + moderation entries as soon as the page
   // mounts so a moderation change is never served from a stale cache.
   useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ["prompt-detail", id] });
-    queryClient.invalidateQueries({ queryKey: ["prompt-moderation", id] });
-  }, [queryClient, id]);
+    queryClient.invalidateQueries({ queryKey: ["prompt-detail", targetOnChainId] });
+    queryClient.invalidateQueries({ queryKey: ["prompt-moderation", targetOnChainId] });
+  }, [queryClient, targetOnChainId]);
 
   // Record the view when the prompt loads
   useEffect(() => {
@@ -167,15 +201,22 @@ export default function PromptDetailPage() {
 
 
   const handleCopyLink = async () => {
+    const canonicalPath = permalinkResolution?.canonicalUrl || `/prompts/${id}`;
     const link =
-      typeof window !== "undefined" ? window.location.href : `/prompts/${id}`;
+      typeof window !== "undefined"
+        ? `${window.location.origin}${canonicalPath}`
+        : canonicalPath;
     const ok = await copy(link);
     if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     }
   };
-  const notFound = !isValidId || isError || (!isLoading && !prompt);
+  const isLoading = (isNumericOnChainId && isPromptLoading) || isResolvingPermalink;
+  const notFound =
+    (!isLoading && !prompt && !permalinkResolution?.record) ||
+    permalinkResolution?.status === "deleted" ||
+    permalinkResolution?.status === "not_found";
   const reputation = prompt
     ? buildCreatorReputation(prompt.creator, [prompt])
     : null;
@@ -197,16 +238,20 @@ export default function PromptDetailPage() {
           </Link>
         </Button>
 
-        {isLoading && isValidId ? (
+        {isLoading ? (
           <PromptDetailSkeleton />
         ) : notFound || !prompt ? (
           <div className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-8 text-center">
             <div className="max-w-sm">
               <h1 className="text-xl font-semibold text-white">
-                Prompt not found
+                {permalinkResolution?.status === "deleted"
+                  ? "Prompt removed"
+                  : "Prompt not found"}
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-400">
-                This prompt may have been removed or the link is incorrect.
+                {permalinkResolution?.status === "deleted"
+                  ? "This listing has been deleted and is no longer available."
+                  : "This prompt may have been removed or the link is incorrect."}
               </p>
               <Button
                 asChild
@@ -238,6 +283,19 @@ export default function PromptDetailPage() {
                 </div>
               </div>
             ) : null}
+            {isArchived ? (
+              <div className="flex items-start gap-3 border-b border-cyan-400/30 bg-cyan-500/10 px-6 py-4 text-sm text-cyan-100 sm:px-8">
+                <Archive className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-semibold">
+                    This listing has been archived by the author.
+                  </p>
+                  <p className="mt-1 text-cyan-200/80">
+                    Archived prompts remain safe and accessible via permalink for reference, but are no longer active for new purchases.
+                  </p>
+                </div>
+              </div>
+            ) : null}
             {jsonLd && (
               <script
                 type="application/ld+json"
@@ -264,7 +322,12 @@ export default function PromptDetailPage() {
                 {reputation ? (
                   <CreatorVerifiedBadge reputation={reputation} compact />
                 ) : null}
-                {(!prompt.active || isModerated) && (
+                {isArchived && (
+                  <Badge className="border-cyan-400/30 bg-cyan-500/10 text-cyan-200">
+                    Archived
+                  </Badge>
+                )}
+                {(!prompt.active || isModerated) && !isArchived && (
                   <Badge className="border-amber-400/30 bg-amber-500/10 text-amber-200">
                     {isModerated ? "Moderated" : "Unavailable"}
                   </Badge>

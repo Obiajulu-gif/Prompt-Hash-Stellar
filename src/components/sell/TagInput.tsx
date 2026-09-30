@@ -39,6 +39,8 @@ interface TagInputProps {
   suggestions?: string[];
   placeholder?: string;
   className?: string;
+  /** Accessible label for the input. Defaults to "Tag input". */
+  inputLabel?: string;
 }
 
 export function TagInput({
@@ -47,11 +49,15 @@ export function TagInput({
   suggestions = SUGGESTED_TAGS,
   placeholder = "Add a tag…",
   className = "",
+  inputLabel = "Tag input",
 }: TagInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState("");
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Stable id for the listbox so the input can reference it via aria-controls
+  const listboxId = "tag-input-suggestions";
 
   const normalise = (s: string) => s.trim().toLowerCase();
 
@@ -152,7 +158,11 @@ export function TagInput({
           placeholder={value.length === 0 ? placeholder : ""}
           disabled={value.length >= MAX_TAGS}
           className="min-w-[120px] flex-1 border-none bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Tag input"
+          aria-label={inputLabel}
+          aria-haspopup="listbox"
+          aria-expanded={showSuggestions && filteredSuggestions.length > 0 && value.length < MAX_TAGS}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
           autoComplete="off"
         />
       </div>
@@ -162,12 +172,12 @@ export function TagInput({
         <div className="relative z-20">
           <div className="absolute top-0 left-0 right-0 rounded-lg border border-white/10 bg-slate-900 shadow-xl">
             <p className="flex items-center gap-1.5 border-b border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-widest text-slate-500">
-              <Tag className="h-3 w-3" />
+              <Tag className="h-3 w-3" aria-hidden="true" />
               Suggestions
             </p>
-            <ul className="max-h-48 overflow-y-auto py-1" role="listbox">
+            <ul id={listboxId} className="max-h-48 overflow-y-auto py-1" role="listbox" aria-label="Tag suggestions">
               {filteredSuggestions.map((suggestion) => (
-                <li key={suggestion}>
+                <li key={suggestion} role="option" aria-selected={false}>
                   <button
                     type="button"
                     onMouseDown={(e) => {
@@ -176,8 +186,6 @@ export function TagInput({
                       addTag(suggestion);
                     }}
                     className="w-full px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
-                    role="option"
-                    aria-selected={false}
                   >
                     {suggestion}
                   </button>
@@ -191,6 +199,8 @@ export function TagInput({
       {/* Counter + validation */}
       <div className="flex items-center justify-between text-xs">
         <span
+          aria-live="polite"
+          aria-atomic="true"
           className={validationMessage ? "text-amber-400" : "text-slate-500"}
         >
           {validationMessage ?? "Press Enter or comma to add a custom tag."}

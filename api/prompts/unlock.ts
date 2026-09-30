@@ -40,6 +40,7 @@ import {
   recordUnlockFailure,
   recordUnlockSuccess,
 } from "../../server/src/services/purchaseDisputes";
+import { logSensitiveFieldAccess } from "../../server/src/services/sensitiveFieldAudit";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import {
   validateUnlockSecrets,
@@ -620,6 +621,16 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
         clientIp,
         reason: "no_access",
       });
+      void logSensitiveFieldAccess({
+        actor: String(address),
+        resourceId: String(promptId),
+        resourceType: "prompt",
+        fieldName: "plaintext",
+        purpose: "buyer_unlock",
+        isAuthorized: false,
+        clientIp,
+        reason: "no_access"
+      });
       res
         .status(403)
         .json(
@@ -800,6 +811,16 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       promptId: String(promptId),
       buyerWallet: String(address),
       requestId: req.requestId ?? null,
+    });
+
+    void logSensitiveFieldAccess({
+      actor: String(address),
+      resourceId: String(promptId),
+      resourceType: "prompt",
+      fieldName: "plaintext",
+      purpose: "buyer_unlock",
+      isAuthorized: true,
+      clientIp
     });
 
     // The Soroban indexer is the sole source of `PromptPurchased` webhook

@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import Module from "module";
+import ts from "typescript";
 import mongoose from "mongoose";
 import connectDb from "./connectDb";
 
@@ -18,6 +20,34 @@ export interface MigrationRunOptions {
 
 const defaultMigrationsDir = path.join(__dirname, "migrations");
 const DEFAULT_LEASE_MS = 5 * 60 * 1000;
+
+function loadMigrationModule(filePath: string): Record<string, unknown> {
+  if (!filePath.endsWith(".ts")) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(filePath) as Record<string, unknown>;
+  }
+
+  const source = fs.readFileSync(filePath, "utf8");
+  const compiled = ts.transpileModule(source, {
+    fileName: filePath,
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+      esModuleInterop: true,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+    },
+  });
+  const migrationModule = new Module(filePath, module);
+  migrationModule.filename = filePath;
+  migrationModule.paths = (Module as typeof Module & {
+    _nodeModulePaths: (directory: string) => string[];
+  })._nodeModulePaths(path.dirname(filePath));
+  (migrationModule as Module & { _compile: (code: string, filename: string) => void })._compile(
+    compiled.outputText,
+    filePath,
+  );
+  return migrationModule.exports as Record<string, unknown>;
+}
 
 /**
  * Dynamic discovery and loading of migrations from the migrations directory.
@@ -38,8 +68,7 @@ export async function getMigrationFiles(migrationsDir: string = defaultMigration
     const version = parseInt(match[1], 10);
     const filePath = path.join(migrationsDir, file);
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const migrationModule = require(filePath);
+    const migrationModule = loadMigrationModule(filePath);
 
     if (typeof migrationModule.up !== "function" || typeof migrationModule.down !== "function") {
       throw new Error(`Migration ${file} must export "up" and "down" functions`);
@@ -49,8 +78,8 @@ export async function getMigrationFiles(migrationsDir: string = defaultMigration
       version,
       name: file.replace(/\.(ts|js)$/, ""),
       filePath,
-      up: migrationModule.up,
-      down: migrationModule.down,
+      up: migrationModule.up as MigrationFile["up"],
+      down: migrationModule.down as MigrationFile["down"],
     });
   }
 

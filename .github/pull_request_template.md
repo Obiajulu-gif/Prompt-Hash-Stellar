@@ -95,6 +95,46 @@ Describe the breaking changes and migration path:
 - [ ] New and existing unit tests passed locally with my changes
 - [ ] Any dependent changes have been merged and published
 
+## Release Readiness
+
+> Skip this section for documentation-only or chore PRs. For any change touching contracts, auth, payout, migrations, or unlock — every item must be checked or have a documented exception below.
+> Full criteria: [`docs/RELEASE_READINESS_CHECKLIST.md`](../docs/RELEASE_READINESS_CHECKLIST.md)
+
+### Tests
+- [ ] All existing tests pass locally (`yarn test`, `cargo test --all`, `yarn test:e2e`)
+- [ ] New tests cover the happy path and at least one failure mode
+- [ ] Concurrency-sensitive mutations have invariant tests under concurrent load
+- [ ] Contract change: ABI conformance fixtures regenerated and committed
+
+### Documentation
+- [ ] `docs/openapi.json` updated for any API surface change
+- [ ] New environment variables added to `.env.example` and `docs/environments.md`
+- [ ] Breaking changes include a migration path description
+
+### Migration
+- [ ] Schema migration dry-run passes: `node scripts/migration-safety.mjs --dry-run`
+- [ ] No irreversible data transforms without a rollback procedure in this PR
+
+### Configuration
+- [ ] New env vars have safe defaults or clear placeholders in `.env.example`
+- [ ] Feature-flag guard added for large/risky rollouts
+
+### Rollback
+- [ ] Rollback plan described in this PR (feature flag, migration rollback, or revert tag)
+- [ ] Contract upgrade: `scripts/preflight_upgrade.py check` passes
+
+### Maintainer Sign-Off
+- [ ] One maintainer approval (standard)
+- [ ] Two maintainer approvals (contract or payout-path changes)
+
+### Exception (if any checklist items are skipped)
+Reason: <!-- P1 incident / CVE / regulatory -->
+Incident ticket: <!-- link -->
+Skipped items: <!-- list -->
+Follow-up issue: <!-- link -->
+
+---
+
 ## Additional Context
 Add any other context about the PR here.
 

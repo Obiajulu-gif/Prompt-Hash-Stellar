@@ -112,6 +112,36 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    sourceEventId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    dedupeKey: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+    deliveryStatus: {
+      type: String,
+      enum: ["pending", "delivered", "failed"],
+      default: "delivered",
+      index: true,
+    },
+    attempts: {
+      type: Number,
+      default: 1,
+      min: 0,
+    },
+    lastError: {
+      type: String,
+      default: "",
+    },
+    deliveredAt: {
+      type: Date,
+      default: Date.now,
+    },
     read: {
       type: Boolean,
       default: false,
@@ -123,24 +153,7 @@ const notificationSchema = new mongoose.Schema(
 
 // Compound indexes for the notification center queries.
 notificationSchema.index({ recipientWallet: 1, read: 1, createdAt: -1 });
-notificationSchema.index({ recipientWallet: 1, type: 1, createdAt: -1 });
-
-// Unique idempotency constraint — only enforce when key is present.
-notificationSchema.index(
-  { recipientWallet: 1, idempotencyKey: 1 },
-  { unique: true, sparse: true },
-);
-
-// 90-day retention policy. MongoDB TTL indexes delete documents whose
-// `createdAt` is older than `expireAfterSeconds` seconds.
-notificationSchema.index(
-  { createdAt: 1 },
-  { expireAfterSeconds: 90 * 24 * 60 * 60 },
-);
-
-const Notification =
-  mongoose.models.Notification ||
-  mongoose.model("Notification", notificationSchema);
+notificationSchema.index({ sourceEventId: 1, recipientWallet: 1 });
 
 export default Notification;
 export { NOTIFICATION_TYPES, notificationPreferencesSchema };

@@ -7,6 +7,10 @@ import {
   type ProbeResult,
   type HealthProbeConfig,
 } from "../server/src/services/healthProbes";
+import {
+  getActiveMaintenanceBanners,
+  type MaintenanceBanner,
+} from "../server/src/services/maintenanceBanners";
 
 const STELLAR_RPC_URL =
   process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -141,12 +145,20 @@ async function handler(req: any, res: any) {
         ? "degraded"
         : "down";
 
+    let maintenance: MaintenanceBanner[] = [];
+    try {
+      maintenance = await getActiveMaintenanceBanners();
+    } catch (err) {
+      console.error("Failed to load maintenance banners:", err);
+    }
+
     res.status(200).json({
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       services: allServices,
       probes: probeResults, // Include detailed probe data
+      maintenance,
       indexer: {
         lastIndexedLedger,
         status: indexerState?.leaseHolder ? "active" : "idle",

@@ -14,13 +14,14 @@ import {
   GetInboundEvent,
 } from "../controllers/inboundWebhookControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
+import { requireIdempotency } from "../middleware/idempotency";
 
 export const webhookRouter = express.Router();
 
 // ── Outbound subscription management ─────────────────────────────────────────
-webhookRouter.post("/", RegisterWebhook);
+webhookRouter.post("/", requireIdempotency, RegisterWebhook);
 webhookRouter.get("/", GetWebhook);
-webhookRouter.delete("/", DeleteWebhook);
+webhookRouter.delete("/", requireIdempotency, DeleteWebhook);
 
 // Dead-letter inspection and replay (admin) — outbound outbox (#536).
 webhookRouter.get(
@@ -31,11 +32,13 @@ webhookRouter.get(
 webhookRouter.post(
   "/dead-letters/:id/replay",
   requireAdminScope("webhook:write"),
+  requireIdempotency,
   ReplayWebhookDeadLetter,
 );
 webhookRouter.post(
   "/:id/rotate-secret",
   requireAdminScope("webhook:write"),
+  requireIdempotency,
   RotateWebhookSecret,
 );
 

@@ -17,6 +17,7 @@ import {
   RollbackModerationDecision,
 } from "../controllers/moderationControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
+import { requireIdempotency } from "../middleware/idempotency";
 
 export const moderationRouter = express.Router();
 
@@ -31,6 +32,7 @@ moderationRouter.get(
 moderationRouter.post(
   "/bulk",
   requireAdminScope("moderation:write"),
+  requireIdempotency,
   BulkModerationAction,
 );
 
@@ -45,5 +47,6 @@ moderationRouter.get(
 moderationRouter.post(
   "/decisions/:id/rollback",
   requireAdminScope("moderation:write"),
+  requireIdempotency,
   RollbackModerationDecision,
 );

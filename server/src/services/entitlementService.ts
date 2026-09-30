@@ -1,5 +1,6 @@
 import { Entitlement, IEntitlement, EntitlementStatus } from "../models/Entitlement";
 import Purchase from "../models/Purchase";
+import { recordAuditEvent } from "./auditTrail";
 
 export interface EntitlementCheckResult {
   hasAccess: boolean;
@@ -15,6 +16,17 @@ export interface RepairReport {
   revokedCount: number;
   unchangedCount: number;
   timestamp: string;
+}
+
+export interface ManualEntitlementRepairResult {
+  mode: "dry-run" | "apply";
+  purchaseId: string;
+  promptId: string;
+  currentStatus: EntitlementStatus | null;
+  desiredStatus: EntitlementStatus;
+  wouldChange: boolean;
+  changed: boolean;
+  auditRecorded: boolean;
 }
 
 /**
@@ -175,5 +187,84 @@ export async function repairEntitlementState(): Promise<RepairReport> {
     revokedCount,
     unchangedCount,
     timestamp: new Date().toISOString(),
+  };
+}
+
+/** Preview or apply a repair for the entitlement belonging to one purchase. */
+export async function repairEntitlementForPurchase(
+  purchaseId: string,
+  options: { apply: boolean; actor: string },
+): Promise<ManualEntitlementRepairResult> {
+  const normalizedPurchaseId = purchaseId.trim();
+  if (!/^[a-f\d]{24}$/i.test(normalizedPurchaseId)) {
+    throw new Error("Invalid purchase ID: expected a 24-character MongoDB ObjectId");
+  }
+
+  const purchase = await Purchase.findById(normalizedPurchaseId).lean();
+  if (!purchase) throw new Error(`Purchase not found: ${normalizedPurchaseId}`);
+  if (!purchase.buyerWallet || !purchase.promptId) {
+    throw new Error(`Purchase ${normalizedPurchaseId} is missing its buyer wallet or prompt ID`);
+  }
+
+  const userAddress = String(purchase.buyerWallet).toLowerCase();
+  const promptId = String(purchase.promptId);
+  const desiredStatus: EntitlementStatus =
+    purchase.disputeResolution === "refunded" || purchase.status === "refunded"
+      ? "refunded"
+      : "active";
+  const existing = await Entitlement.findOne({ userAddress, promptId });
+  const currentStatus = existing?.status ?? null;
+  const changed = currentStatus !== desiredStatus;
+  const mode = options.apply ? "apply" : "dry-run";
+
+  if (!options.apply || !changed) {
+    return {
+      mode,
+      purchaseId: normalizedPurchaseId,
+      promptId,
+      currentStatus,
+      desiredStatus,
+      wouldChange: changed,
+      changed: options.apply && changed,
+      auditRecorded: false,
+    };
+  }
+
+  if (desiredStatus === "refunded") {
+    await revokeEntitlement(userAddress, promptId, "Manual repair: purchase refunded", "refunded");
+  } else {
+    await grantEntitlement(
+      userAddress,
+      promptId,
+      purchase.txHash || normalizedPurchaseId,
+    );
+  }
+
+  await recordAuditEvent(
+    {
+      action: "entitlement_repair",
+      result: "success",
+      promptId,
+      walletAddress: userAddress,
+      actor: options.actor,
+      target: normalizedPurchaseId,
+      targetType: "purchase",
+      beforeState: { entitlementStatus: currentStatus },
+      afterState: { entitlementStatus: desiredStatus },
+      metadata: { mode: "apply" },
+      reason: "manual_entitlement_repair",
+    },
+    { throwOnError: true },
+  );
+
+  return {
+    mode,
+    purchaseId: normalizedPurchaseId,
+    promptId,
+    currentStatus,
+    desiredStatus,
+    wouldChange: true,
+    changed: true,
+    auditRecorded: true,
   };
 }
