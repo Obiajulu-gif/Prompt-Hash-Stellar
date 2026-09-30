@@ -1,10 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
   Coins,
+  Download,
+  Eye,
+  FileText,
   PackageCheck,
   ShoppingBag,
   TrendingUp,
@@ -12,11 +15,44 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/Skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getAllPrompts, type PromptRecord } from "@/lib/stellar/promptHashClient";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { stroopsToXlmString, formatPriceLabel } from "@/lib/stellar/format";
+import { RevenueForecast } from "@/components/analytics/RevenueForecast";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const PLATFORM_FEE_RATE = 0.05;
+const chartLabelFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+
+interface DailySalesPoint {
+  date: string;
+  unitsSold: number;
+  revenueXlm: number;
+}
 
 interface MetricCardProps {
   title: string;
@@ -68,6 +104,121 @@ function MetricCard({ title, value, icon, accent = "emerald", description, isLoa
   );
 }
 
+interface SalesChartProps {
+  dailySales: DailySalesPoint[];
+  isLoading?: boolean;
+}
+
+function SalesChart({ dailySales, isLoading = false }: SalesChartProps) {
+  const chartData = useMemo(() => {
+    const labels = dailySales.map((entry) =>
+      chartLabelFormatter.format(new Date(`${entry.date}T00:00:00.000Z`)),
+    );
+    const salesData = dailySales.map((entry) => entry.unitsSold);
+    const revenueData = dailySales.map((entry) => entry.revenueXlm);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Sales',
+          data: salesData,
+          borderColor: 'rgb(52, 211, 153)',
+          backgroundColor: 'rgba(52, 211, 153, 0.1)',
+          tension: 0.4,
+          fill: true,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Revenue (XLM)',
+          data: revenueData,
+          borderColor: 'rgb(251, 191, 36)',
+          backgroundColor: 'rgba(251, 191, 36, 0.1)',
+          tension: 0.4,
+          fill: true,
+          yAxisID: 'y1',
+        },
+      ],
+    };
+  }, [dailySales]);
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index' as const,
+      intersect: false,
+    },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          color: 'rgb(148, 163, 184)',
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+        titleColor: 'rgb(255, 255, 255)',
+        bodyColor: 'rgb(148, 163, 184)',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderWidth: 1,
+      },
+    },
+    scales: {
+      x: {
+        grid: {
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'rgb(148, 163, 184)',
+          font: { size: 10 },
+          maxTicksLimit: 7,
+        },
+      },
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        grid: {
+          color: 'rgba(255, 255, 255, 0.05)',
+        },
+        ticks: {
+          color: 'rgb(52, 211, 153)',
+          font: { size: 10 },
+        },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        grid: {
+          drawOnChartArea: false,
+        },
+        ticks: {
+          color: 'rgb(251, 191, 36)',
+          font: { size: 10 },
+        },
+      },
+    },
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <h3 className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-4">
+        Sales Trend (30 Days)
+      </h3>
+      {isLoading ? (
+        <Skeleton className="h-64 w-full rounded-xl bg-white/[0.02]" />
+      ) : (
+        <div className="h-64">
+          <Line data={chartData} options={options} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface TopPromptRowProps {
   rank: number;
   prompt: PromptRecord;
@@ -108,9 +259,47 @@ interface CreatorDashboardProps {
 }
 
 export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const handleDownloadStatement = () => {
+    let url = `/api/prompts/creator/${encodeURIComponent(walletAddress)}/payout-statement?format=csv`;
+    if (startDate) url += `&startDate=${encodeURIComponent(startDate)}`;
+    if (endDate) url += `&endDate=${encodeURIComponent(endDate)}`;
+    window.open(url, "_blank");
+  };
+
   const { data: allPrompts = [], isLoading, isError } = useQuery({
     queryKey: ["creator-dashboard", walletAddress],
     queryFn: () => getAllPrompts(browserStellarConfig),
+    staleTime: 30_000,
+    enabled: Boolean(walletAddress),
+  });
+
+  const { data: previewStats } = useQuery({
+    queryKey: ["preview-stats", walletAddress],
+    queryFn: async () => {
+      const res = await fetch(`/api/prompts/preview/stats?walletAddress=${encodeURIComponent(walletAddress)}`);
+      if (!res.ok) return null;
+      return res.json() as Promise<{ totalPreviews: number }>;
+    },
+    staleTime: 30_000,
+    enabled: Boolean(walletAddress),
+  });
+
+  const { data: salesAnalytics, isLoading: isSalesAnalyticsLoading } = useQuery({
+    queryKey: ["creator-sales-analytics", walletAddress],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/prompts/creator/${encodeURIComponent(walletAddress)}/analytics`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to load creator sales analytics.");
+      }
+
+      return response.json() as Promise<{ dailySales: DailySalesPoint[] }>;
+    },
     staleTime: 30_000,
     enabled: Boolean(walletAddress),
   });
@@ -136,6 +325,32 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
     return { active, totalSales, grossRevenue, platformFees, netRevenue, topPrompts };
   }, [prompts]);
 
+  // ── Revenue forecast inputs (aggregated from marketplace data) ───────────
+  const forecastInputs = useMemo(() => {
+    const dailyHistory = (salesAnalytics?.dailySales ?? []).map((d) => ({
+      date: d.date,
+      unitsSold: d.unitsSold,
+      grossRevenueXlm: d.revenueXlm,
+    }));
+    // Derive refundRate and conversion from available data; fall back to conservative defaults
+    // No platform-wide benchmarks are used — only this creator's own signals.
+    const totalSalesForRate = Math.max(1, metrics.totalSales);
+    // Heuristic: if we have no refund data, assume 2% to avoid overstating certainty; caller can override
+    const refundRate = 0.02;
+    const conversionRate = previewStats?.totalPreviews
+      ? Math.min(1, metrics.totalSales / Math.max(1, previewStats.totalPreviews))
+      : null;
+    return {
+      dailyHistory,
+      activeListings: metrics.active,
+      totalListings: prompts.length,
+      conversionRate,
+      refundRate,
+      viewCount: previewStats?.totalPreviews ?? undefined,
+      windowDays: 30,
+    };
+  }, [salesAnalytics, metrics, prompts.length, previewStats]);
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -152,7 +367,7 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
         </div>
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+            <Skeleton key={i} className="h-16 w-full rounded-xl bg-white/[0.02]" />
           ))}
         </div>
       </div>
@@ -192,7 +407,7 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
   return (
     <div className="space-y-6">
       {/* Metric cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <MetricCard
           title="Active listings"
           value={metrics.active}
@@ -221,6 +436,68 @@ export function CreatorDashboard({ walletAddress }: CreatorDashboardProps) {
           accent="purple"
           description={`gross ${metrics.grossRevenue.toFixed(2)} XLM`}
         />
+        <MetricCard
+          title="Preview opens"
+          value={previewStats?.totalPreviews ?? 0}
+          icon={<Eye className="h-4 w-4" />}
+          accent="cyan"
+          description="total preview views"
+        />
+      </div>
+
+      {/* Sales trend chart */}
+      <SalesChart
+        dailySales={salesAnalytics?.dailySales ?? []}
+        isLoading={isSalesAnalyticsLoading}
+      />
+
+      {/* Revenue forecast — estimate with confidence & safeguards */}
+      <RevenueForecast inputs={forecastInputs} isLoading={isSalesAnalyticsLoading} />
+
+      {/* Payout Statement Export */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">
+            <FileText className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Sales Payout Statement</h3>
+            <p className="text-xs text-slate-400">
+              Download a CSV statement showing sale date, prompt info, buyer, gross amount, platform fee, and net payout.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="payout-start-date" className="text-xs text-slate-400">From:</label>
+            <input
+              id="payout-start-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="payout-end-date" className="text-xs text-slate-400">To:</label>
+            <input
+              id="payout-end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <Button
+            onClick={handleDownloadStatement}
+            size="sm"
+            className="bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 gap-1.5"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download Statement (CSV)
+          </Button>
+        </div>
       </div>
 
       {/* Top-performing prompts */}

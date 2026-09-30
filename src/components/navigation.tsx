@@ -1,17 +1,21 @@
 import { Link, NavLink } from "react-router-dom";
-import { Activity, Menu, MessageCircle, Search, ShoppingBag, User } from "lucide-react";
+import {
+  Activity,
+  LibraryBig,
+  Menu,
+  MessageCircle,
+  Search,
+  ShoppingBag,
+  User,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import DisplayWallet from "./DisplayWallet";
 import { ThemeToggle } from "./ThemeToggle";
-
-const navItems = [
-  { to: "/browse", label: "Browse", icon: Search },
-  { to: "/sell", label: "Sell", icon: ShoppingBag },
-  { to: "/chat", label: "Chat", icon: MessageCircle },
-  { to: "/profile", label: "Profile", icon: User },
-  { to: "/status", label: "Status", icon: Activity },
-];
+import { BuyerNotificationCenter } from "./BuyerNotificationCenter";
+import { SellerNotificationCenter } from "./SellerNotificationCenter";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useTranslation } from 'react-i18next';
 
 const linkClasses = ({ isActive }: { isActive: boolean }) =>
   [
@@ -22,6 +26,16 @@ const linkClasses = ({ isActive }: { isActive: boolean }) =>
   ].join(" ");
 
 export function Navigation() {
+  const { t } = useTranslation();
+
+  const navItems = [
+    { to: "/browse", label: t('nav.browse'), icon: Search },
+    { to: "/sell", label: t('nav.sell'), icon: ShoppingBag },
+    { to: "/chat", label: t('nav.chat'), icon: MessageCircle },
+    { to: "/profile", label: t('nav.profile'), icon: User },
+    { to: "/status", label: t('nav.status'), icon: Activity },
+  ];
+
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -54,8 +68,13 @@ export function Navigation() {
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
+          <LanguageSwitcher />
           <ThemeToggle />
-          <DisplayWallet />
+          <BuyerNotificationCenter />
+          <SellerNotificationCenter />
+          <span data-tour="connect-wallet">
+            <DisplayWallet />
+          </span>
         </div>
 
         <Sheet>
@@ -78,6 +97,8 @@ export function Navigation() {
               ))}
               <div className="flex items-center gap-2 border-t border-white/10 pt-4">
                 <ThemeToggle />
+                <BuyerNotificationCenter />
+                <SellerNotificationCenter />
                 <DisplayWallet />
               </div>
             </div>

@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formatContractText > golden output snapshot testing against contract-spec fixture > formats known-good contract spec data types into readable golden text format 1`] = `
+"[Struct Spec]
+Name: AccessPass
+Doc: Catalog access pass grant
+Fields:
+  - id: u128
+  - creator: Address
+  - title: String
+  - duration_secs: u64
+  - price_stroops: i128
+  - asset: Address
+  - status: PromptSaleStatus
+  - sales_count: u32
+  - max_supply: u32"
+`;

@@ -8,7 +8,7 @@ export interface ComparisonPrompt {
   id: string;
   title: string;
   creator: string;
-  price: number;
+  price: bigint;
   category: string;
   tags?: string[];
   rating?: number;
@@ -44,7 +44,6 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 
 interface PromptComparisonViewProps {
   selected: ComparisonPrompt[];
-  // eslint-disable-next-line no-unused-vars
   onRemove: (_id: string) => void;
   onClear: () => void;
 }
@@ -106,7 +105,7 @@ export function PromptComparisonView({
             {/* Fields */}
             <div className="mt-3">
               <FieldRow label="Price">
-                <span className="font-bold text-cyan-300">{formatPriceLabel(prompt.price)} XLM</span>
+                <span className="font-bold text-cyan-300">{formatPriceLabel(prompt.price)}</span>
               </FieldRow>
 
               <FieldRow label="Category">

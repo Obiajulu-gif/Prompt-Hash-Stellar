@@ -20,9 +20,10 @@
  */
 
 import mongoose from "mongoose";
-import { SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
+import { rpc as StellarRpc, scValToNative } from "@stellar/stellar-sdk";
 import Prompt from "../src/models/Prompt";
 import User from "../src/models/User";
+import Purchase from "../src/models/Purchase";
 import { IndexerState } from "../src/models/IndexerState";
 
 // ---------------------------------------------------------------------------
@@ -64,16 +65,18 @@ interface EventSummary {
   purchased: number;
   priceUpdated: number;
   statusUpdated: number;
+  ownershipTransferred: number;
   unknown: number;
 }
 
 async function processEvent(
-  event: SorobanRpc.Api.EventResponse,
+  event: StellarRpc.Api.EventResponse,
   summary: EventSummary,
   dryRun: boolean,
 ): Promise<void> {
   const topic = scValToNative(event.topic[0]);
   const data = scValToNative(event.value);
+  const txHash = event.txHash;
 
   switch (topic) {
     case "PromptCreated": {
@@ -106,13 +109,54 @@ async function processEvent(
     }
 
     case "PromptPurchased": {
-      const { prompt_id } = data;
+      const { prompt_id, buyer, version_index } = data;
+      const promptId = prompt_id.toString();
       summary.purchased++;
       if (dryRun) break;
       await Prompt.findOneAndUpdate(
-        { onChainId: prompt_id.toString() },
+        { onChainId: promptId },
         { $inc: { salesCount: 1 } },
       );
+      // Rebuild the Purchase collection so buyer transaction history survives
+      // a re-index. Idempotent on (promptId, buyerWallet, txHash).
+      if (buyer) {
+        const buyerWallet = String(buyer).toLowerCase();
+        await Purchase.findOneAndUpdate(
+          { promptId, buyerWallet, txHash: txHash ?? "" },
+          {
+            $set: {
+              promptId,
+              buyerWallet,
+              versionIndex:
+                version_index !== undefined ? Number(version_index) : 0,
+              txHash: txHash ?? "",
+            },
+          },
+          { upsert: true },
+        );
+      }
+      break;
+    }
+
+    case "PromptOwnershipTransferred": {
+      const { prompt_id, to } = data;
+      summary.ownershipTransferred++;
+      if (dryRun) break;
+      if (to) {
+        const normalized = String(to).toLowerCase();
+        let user = await User.findOne({ walletAddress: normalized });
+        if (!user) {
+          user = await User.create({
+            walletAddress: normalized,
+            username: `user_${String(to).slice(0, 6)}`,
+            rating: 4,
+          });
+        }
+        await Prompt.findOneAndUpdate(
+          { onChainId: prompt_id.toString() },
+          { $set: { owner: user._id } },
+        );
+      }
       break;
     }
 
@@ -165,7 +209,7 @@ async function main() {
   await mongoose.connect(mongoUri);
   console.log("✅ MongoDB connected");
 
-  const rpc = new SorobanRpc.Server(rpcUrl);
+  const rpc = new StellarRpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
   const latestLedger = await rpc.getLatestLedger();
   console.log(`Latest ledger: ${latestLedger.sequence}`);
 
@@ -182,6 +226,7 @@ async function main() {
     purchased: 0,
     priceUpdated: 0,
     statusUpdated: 0,
+    ownershipTransferred: 0,
     unknown: 0,
   };
 
@@ -228,6 +273,7 @@ async function main() {
   console.log(`PromptPurchased:   ${summary.purchased}`);
   console.log(`PriceUpdated:      ${summary.priceUpdated}`);
   console.log(`StatusUpdated:     ${summary.statusUpdated}`);
+  console.log(`OwnershipTransfer: ${summary.ownershipTransferred}`);
   console.log(`Unknown events:    ${summary.unknown}`);
   console.log(`${"=".repeat(60)}\n`);
 

@@ -16,6 +16,24 @@
   opacity: 1;
 }
 
+.notification .notification-action {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  color: #0d1117;
+  background: #f0b90b;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.notification .notification-action:hover {
+  background: #ecb00a;
+}
+
 .notification.slide-in {
   transform: translateY(0);
 }

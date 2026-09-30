@@ -393,7 +393,53 @@ checkVar("ADMIN_ROTATION_TOKEN", false);
 checkVar("CHALLENGE_TOKEN_ROTATION_TIMESTAMP", false);
 checkVar("CHALLENGE_TOKEN_GRACE_PERIOD_MS", false);
 
-// ─── 9. Summary ─────────────────────────────────────────────────────────────
+// ─── 9. Contributor diagnostics ─────────────────────────────────────────────
+
+section("9. Contributor diagnostics");
+
+function checkPathExists(path, label, hint) {
+  if (existsSync(path)) {
+    ok(label);
+  } else {
+    fail(label, hint);
+  }
+}
+
+function checkOptionalPathExists(path, label, hint) {
+  if (existsSync(path)) {
+    ok(label);
+  } else {
+    warn(label, hint);
+  }
+}
+
+checkPathExists(
+  "src/test/fixtures/prompts.ts",
+  "prompt test fixtures are present",
+  "Restore src/test/fixtures/prompts.ts so local tests and examples use deterministic prompt data",
+);
+checkPathExists(
+  "tests/abi-conformance/fixtures/contract-spec.json",
+  "ABI conformance fixture is present",
+  "Restore tests/abi-conformance/fixtures/contract-spec.json before changing contract bindings",
+);
+checkPathExists(
+  "scripts/smoke-verification.mjs",
+  "smoke verification script is present",
+  "Restore scripts/smoke-verification.mjs for contributor release checks",
+);
+checkPathExists(
+  "scripts/check-no-mocks.mjs",
+  "mock guard script is present",
+  "Restore scripts/check-no-mocks.mjs so production builds reject mock integrations",
+);
+checkOptionalPathExists(
+  "server/scripts/seedPreview.mjs",
+  "server seed preview script is present",
+  "Restore server/scripts/seedPreview.mjs if you need deterministic local server data",
+);
+
+// ─── 10. Summary ────────────────────────────────────────────────────────────
 
 section("Summary");
 

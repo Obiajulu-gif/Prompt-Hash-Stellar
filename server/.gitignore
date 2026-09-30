@@ -1,1 +1,9 @@
 build/
+node_modules/
+dist/
+logs/
+.env
+*.log
+*.pid
+*.seed
+*.pid.lock

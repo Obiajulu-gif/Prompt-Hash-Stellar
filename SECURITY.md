@@ -77,6 +77,7 @@ Please reach out to the team using GitHub's own security mechanism to submit an 
 3. Changed sales_count to u64 to prevent overflow
 4. Snapshotted fee percentage at purchase start
 5. Added additional overflow checks in arithmetic paths
+6. Backup SHA-256 Checksum Validation & Integrity Protection (#607): Added SHA-256 manifest generation and pre-restore integrity validation (checksum & NDJSON line validation) with dry-run support to prevent corrupted data injection. See [Disaster Recovery Runbook](docs/operations/disaster-recovery.md).
 
 ## 4. Deferred Risks (Future Work)
 
@@ -89,4 +90,40 @@ Please reach out to the team using GitHub's own security mechanism to submit an 
 - [x] Written threat model exists
 - [x] Security findings fixed or documented
 - [x] Purchase, entitlement, admin fee, fee wallet covered
+- [x] Disaster recovery & backup integrity verification documented
 - [x] Review completes before release
+
+## 6. API Authentication Notes
+
+### Webhook Subscription Endpoint (`/api/webhooks`)
+
+This endpoint registers, reads, updates, and deletes a creator's
+`PromptPurchased` webhook subscription, which controls where sale-notification
+deliveries are routed.
+
+**Authentication requirement (as of this update):** creating, updating
+(`POST`), and removing (`DELETE`) a subscription now requires a signed proof of
+wallet ownership for the `walletAddress` in the request. The signature is
+verified using the same challenge/signature primitives used by the unlock
+flow (`src/lib/auth/challenge.ts`):
+
+1. The client first requests a challenge token from `/api/auth/challenge`
+   with `promptId` set to the sentinel value `"webhook-registration"`.
+2. The client signs the returned `challenge` message with the wallet that
+   owns `walletAddress`.
+3. The `POST`/`DELETE` body must include `token` (the challenge token) and
+   `signedMessage` (the base64 wallet signature over the challenge message).
+
+The server rejects requests missing these fields (`MISSING_FIELDS`, 400) and
+requests whose signature does not match `walletAddress` (`INVALID_SIGNATURE`,
+401). Challenge tokens are short-lived and single-use (nonce replay
+protection), so a valid proof cannot be replayed.
+
+**`GET` (read) is unauthenticated but privacy-protected:** it never returns the
+signing `secret`, and it only returns the delivery `url` to a caller that
+proves ownership of `walletAddress`. Unauthenticated callers receive the
+subscription metadata (e.g. `events`, `active`) without the `url`.
+
+**Rationale:** previously the endpoint keyed subscriptions solely on a
+client-supplied `walletAddress` with no ownership proof, allowing anyone who
+knew a creator's address to hijack or DoS their notification delivery.

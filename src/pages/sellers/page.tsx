@@ -5,24 +5,40 @@ import {
   ArrowLeft,
   BadgeCheck,
   BarChart3,
+  Clock,
+  ExternalLink,
   Loader2,
   PackageSearch,
   ShoppingBag,
   Sparkles,
+  ThumbsUp,
 } from "lucide-react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PromptCard } from "@/pages/browse/PromptCard";
 import { PromptModal } from "@/pages/browse/PromptModal";
+import { PromptGridSkeleton } from "@/components/skeletons";
 import { browserStellarConfig } from "@/lib/stellar/browserConfig";
 import { formatPriceLabel } from "@/lib/stellar/format";
-import { shortenAddress } from "@/lib/utils";
 import {
   getAllPrompts,
   type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
 import { invalidateAllPromptQueries } from "@/hooks/useContractSync";
+import { buildCreatorReputation } from "@/lib/reputation/creatorReputation";
+import {
+  CreatorReputationSummary,
+  CreatorVerifiedBadge,
+} from "@/components/reputation/CreatorReputationBadge";
+import {
+  getCreatorProfile,
+  getCreatorDisplayName,
+  shortenCreatorAddress,
+} from "@/lib/profiles/creatorProfile";
+import { shortenAddress } from "@/lib/utils";
+import { sanitizeExternalUrl } from "@/lib/preview/sanitize";
 
 const isMarketplaceConfigured = Boolean(
   browserStellarConfig.promptHashContractId &&
@@ -54,6 +70,12 @@ export default function SellerPage() {
     enabled: Boolean(sellerAddress),
   });
 
+  const profileQuery = useQuery({
+    queryKey: ["creator-profile", sellerAddress],
+    queryFn: () => getCreatorProfile(sellerAddress),
+    enabled: Boolean(sellerAddress),
+  });
+
   const sellerPrompts = useMemo(
     () =>
       (promptsQuery.data ?? []).filter(
@@ -73,6 +95,14 @@ export default function SellerPage() {
     const categories = new Set(sellerPrompts.map((prompt) => prompt.category));
     return { totalSales, totalListedValue, categoryCount: categories.size };
   }, [sellerPrompts]);
+  const reputation = useMemo(
+    () => buildCreatorReputation(sellerAddress, sellerPrompts),
+    [sellerAddress, sellerPrompts],
+  );
+
+  const profile = profileQuery.data ?? null;
+  const displayName = getCreatorDisplayName(sellerAddress, profile);
+  const fallbackName = shortenCreatorAddress(sellerAddress);
 
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-emerald-500/30">
@@ -96,20 +126,70 @@ export default function SellerPage() {
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-emerald-200">
                 <Sparkles className="h-3.5 w-3.5" /> Seller profile
               </div>
+              <div className="mb-4">
+                <CreatorVerifiedBadge reputation={reputation} />
+              </div>
               <h1 className="max-w-3xl text-3xl font-black tracking-tight text-white sm:text-5xl">
                 {sellerAddress
                   ? shortenAddress(sellerAddress)
                   : "Unknown seller"}
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-400 sm:text-lg">
-                Browse active prompt licenses from this creator and review their
-                marketplace activity before unlocking a prompt.
+                {profile?.bio ||
+                  "Browse active prompt licenses from this creator and review their marketplace activity before unlocking a prompt."}
               </p>
+              {(() => {
+                const safeWebsite = profile?.websiteUrl
+                  ? sanitizeExternalUrl(profile.websiteUrl)
+                  : null;
+                const cleanTwitter = profile?.twitterHandle
+                  ? profile.twitterHandle
+                      .replace(/^@/, "")
+                      .replace(/[^a-zA-Z0-9_]/g, "")
+                  : null;
+
+                if (!safeWebsite && !cleanTwitter && !profile?.metadataUri) {
+                  return null;
+                }
+
+                return (
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    {safeWebsite ? (
+                      <a
+                        href={safeWebsite}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 hover:border-emerald-300/40 hover:text-emerald-200"
+                      >
+                        Website <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    ) : null}
+                    {cleanTwitter ? (
+                      <a
+                        href={`https://x.com/${cleanTwitter}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 hover:border-emerald-300/40 hover:text-emerald-200"
+                      >
+                        @{cleanTwitter}
+                      </a>
+                    ) : null}
+                    {profile?.metadataUri ? (
+                      <span className="inline-flex items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-sm text-cyan-100">
+                        IPFS profile
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })()}
               {sellerAddress && (
                 <p className="mt-5 break-all rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 font-mono text-xs text-slate-300 sm:text-sm">
                   {sellerAddress}
                 </p>
               )}
+              <div className="mt-5">
+                <CreatorReputationSummary reputation={reputation} />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
               <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
@@ -119,11 +199,25 @@ export default function SellerPage() {
               </div>
               <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
                 <BarChart3 className="mb-3 h-5 w-5 text-cyan-300" />
-                <p className="text-2xl font-black">{stats.totalSales}</p>
+                <p className="text-2xl font-black">{reputation.totalSales}</p>
                 <p className="text-sm text-slate-400">Marketplace sales</p>
               </div>
               <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
-                <BadgeCheck className="mb-3 h-5 w-5 text-amber-300" />
+                <ThumbsUp className="mb-3 h-5 w-5 text-emerald-300" />
+                <p className="text-2xl font-black">{reputation.positiveRatings}</p>
+                <p className="text-sm text-slate-400">
+                  Positive ratings · {reputation.positiveRate}% positive
+                </p>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
+                <Clock className="mb-3 h-5 w-5 text-amber-300" />
+                <p className="text-2xl font-black">
+                  {reputation.timeOnPlatformLabel}
+                </p>
+                <p className="text-sm text-slate-400">Time on platform</p>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-5">
+                <BadgeCheck className="mb-3 h-5 w-5 text-purple-300" />
                 <p className="text-2xl font-black">
                   {formatPriceLabel(stats.totalListedValue)}
                 </p>
@@ -147,17 +241,13 @@ export default function SellerPage() {
             Active catalog
           </p>
           <h2 className="mb-6 mt-2 text-2xl font-bold sm:text-3xl">
-            Prompts by this seller
+            Active prompts by {displayName}
           </h2>
           {promptsQuery.isLoading ? (
-            <div className="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {[...Array(3)].map((_, index) => (
-                <div
-                  key={index}
-                  className="h-[400px] animate-pulse rounded-3xl border border-white/5 bg-white/[0.02]"
-                />
-              ))}
-            </div>
+            <PromptGridSkeleton
+              count={3}
+              gridClassName="grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3"
+            />
           ) : promptsQuery.isError ? (
             <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-10 text-center">
               <p className="font-semibold text-red-300">Seller sync failed</p>

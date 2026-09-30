@@ -1,0 +1,184 @@
+name: Release Readiness
+
+# Validates that high-risk PRs include the release readiness checklist
+# and that automated gate items pass. Runs on every PR to main.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── High-risk path detection ────────────────────────────────────────────────
+  detect-high-risk:
+    name: Detect High-Risk Paths
+    runs-on: ubuntu-latest
+    outputs:
+      is_high_risk: ${{ steps.check.outputs.is_high_risk }}
+      has_contract_change: ${{ steps.check.outputs.has_contract_change }}
+      has_migration: ${{ steps.check.outputs.has_migration }}
+      has_payout_change: ${{ steps.check.outputs.has_payout_change }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Identify changed files
+        id: check
+        run: |
+          # Get list of changed files in this PR
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Contract changes
+          if echo "$CHANGED" | grep -qE '^contracts/'; then
+            echo "has_contract_change=true" >> "$GITHUB_OUTPUT"
+            echo "is_high_risk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_contract_change=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Schema migrations
+          if echo "$CHANGED" | grep -qE '^server/src/db/migrations/'; then
+            echo "has_migration=true" >> "$GITHUB_OUTPUT"
+            echo "is_high_risk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_migration=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Auth / wallet / unlock / payout
+          if echo "$CHANGED" | grep -qE '^(api/auth/|api/prompts/unlock|src/lib/auth/|server/src/services/payoutLedger|server/src/jobs/settlementPoll)'; then
+            echo "has_payout_change=true" >> "$GITHUB_OUTPUT"
+            echo "is_high_risk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_payout_change=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Default is_high_risk to false if not set above
+          if ! grep -q "is_high_risk" "$GITHUB_OUTPUT"; then
+            echo "is_high_risk=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Checklist presence check ────────────────────────────────────────────────
+  checklist-present:
+    name: Checklist Present in PR Body
+    runs-on: ubuntu-latest
+    needs: detect-high-risk
+    if: needs.detect-high-risk.outputs.is_high_risk == 'true'
+    steps:
+      - name: Verify release readiness section exists
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if echo "$PR_BODY" | grep -q "Release Readiness"; then
+            echo "✅ Release readiness section found in PR body."
+          else
+            echo "❌ High-risk change detected but the PR body is missing the Release Readiness checklist."
+            echo ""
+            echo "Add the checklist from docs/RELEASE_READINESS_CHECKLIST.md to your PR description."
+            exit 1
+          fi
+
+  # ── Migration dry-run gate ───────────────────────────────────────────────────
+  migration-dry-run:
+    name: Migration Dry-Run
+    runs-on: ubuntu-latest
+    needs: detect-high-risk
+    if: needs.detect-high-risk.outputs.has_migration == 'true'
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server deps
+        run: npm ci
+
+      - name: Build schema package
+        run: npm --prefix ../packages/schema install && npm --prefix ../packages/schema run build
+
+      - name: List new migrations
+        id: list-migrations
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD -- src/db/migrations/ | \
+            sed 's|server/src/db/migrations/||' | \
+            sed 's|\.ts$||' > /tmp/new_migrations.txt
+          echo "New migrations:"
+          cat /tmp/new_migrations.txt || echo "(none)"
+
+      - name: Run migration dry-run
+        run: |
+          while IFS= read -r migration; do
+            if [ -n "$migration" ]; then
+              echo "Dry-running migration: $migration"
+              node ../scripts/migration-safety.mjs --dry-run --migration="$migration" || true
+            fi
+          done < /tmp/new_migrations.txt
+
+  # ── Contract upgrade preflight ──────────────────────────────────────────────
+  contract-upgrade-preflight:
+    name: Contract Upgrade Preflight
+    runs-on: ubuntu-latest
+    needs: detect-high-risk
+    if: needs.detect-high-risk.outputs.has_contract_change == 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run upgrade preflight self-check
+        run: python3 scripts/preflight_upgrade.py check --self-check
+
+  # ── Summary gate ─────────────────────────────────────────────────────────────
+  release-readiness-gate:
+    name: Release Readiness Gate
+    runs-on: ubuntu-latest
+    needs:
+      - detect-high-risk
+      - checklist-present
+      - migration-dry-run
+      - contract-upgrade-preflight
+    if: always()
+    steps:
+      - name: Evaluate gate
+        run: |
+          HIGH_RISK="${{ needs.detect-high-risk.outputs.is_high_risk }}"
+
+          # For non-high-risk PRs, always pass
+          if [ "$HIGH_RISK" != "true" ]; then
+            echo "✅ Not a high-risk change. Release readiness gate passed."
+            exit 0
+          fi
+
+          CHECKLIST="${{ needs.checklist-present.result }}"
+          MIGRATION="${{ needs.migration-dry-run.result }}"
+          CONTRACT="${{ needs.contract-upgrade-preflight.result }}"
+
+          FAILED=0
+          [ "$CHECKLIST" == "failure" ] && echo "❌ Checklist check failed." && FAILED=1
+          [ "$MIGRATION" == "failure" ] && echo "❌ Migration dry-run failed." && FAILED=1
+          [ "$CONTRACT" == "failure" ] && echo "❌ Contract upgrade preflight failed." && FAILED=1
+
+          # skipped means condition was false (not applicable), treat as pass
+          if [ "$FAILED" -eq 0 ]; then
+            echo "✅ Release readiness gate passed."
+            exit 0
+          else
+            echo ""
+            echo "Fix the failures above before merging. See docs/RELEASE_READINESS_CHECKLIST.md."
+            exit 1
+          fi

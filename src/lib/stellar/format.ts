@@ -4,14 +4,15 @@
  */
 export function stroopsToXlmString(stroops: bigint): string {
   const xlm = Number(stroops) / 10_000_000;
-  return xlm.toFixed(2);
+  return xlm.toString();
 }
 
 /**
  * Converts XLM to stroops
  */
-export function xlmToStroops(xlm: number): bigint {
-  return BigInt(Math.floor(xlm * 10_000_000));
+export function xlmToStroops(xlm: number | string): bigint {
+  const val = typeof xlm === "string" ? parseFloat(xlm) : xlm;
+  return BigInt(Math.round(val * 10_000_000));
 }
 
 /**
@@ -36,9 +37,3 @@ export function formatAddress(
   return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
 }
 
-/**
- * Formats a stroop amount as a compact XLM price label.
- */
-export function formatPriceLabel(stroops: bigint): string {
-  return `${stroopsToXlmString(stroops)} XLM`;
-}

@@ -69,4 +69,21 @@ describe("PromptCard Badges & Price Rendering", () => {
     renderWithProviders(<PromptCard {...defaultProps} prompt={prompt} />);
     expect(screen.queryByTestId("badge-verified")).not.toBeInTheDocument();
   });
+
+  it("renders Compare button when onToggleCompare is provided and triggers callback", () => {
+    const onToggleCompare = vi.fn();
+    renderWithProviders(<PromptCard {...defaultProps} onToggleCompare={onToggleCompare} />);
+    
+    const compareBtn = screen.getByRole("button", { name: /compare/i });
+    expect(compareBtn).toBeInTheDocument();
+    
+    compareBtn.click();
+    expect(onToggleCompare).toHaveBeenCalledWith(defaultProps.prompt);
+  });
+
+  it("applies highlight styles when isCompared is true", () => {
+    const { container } = renderWithProviders(<PromptCard {...defaultProps} isCompared={true} />);
+    const cardElement = container.querySelector(".border-emerald-500");
+    expect(cardElement).toBeInTheDocument();
+  });
 });

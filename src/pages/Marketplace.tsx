@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
 import { Skeleton } from "../components/Skeleton";
+import { usePerformanceAudit } from "@/hooks/usePerformanceAudit";
+import { useTranslation } from 'react-i18next';
 
 export interface MarketplaceItem {
   id: string;
@@ -38,26 +40,30 @@ function MarketplaceSkeletonCard() {
   );
 }
 
-/** Empty-state guidance shown when the marketplace has no listings (#230). */
+/** Empty-state guidance shown when the marketplace has no listings. */
 function MarketplaceEmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
       <div className="text-5xl mb-4" aria-hidden>🛒</div>
-      <h2 className="text-xl font-semibold text-white mb-2">No prompts listed yet</h2>
+      <h2 className="text-xl font-semibold text-white mb-2">{t('marketplace.empty_title')}</h2>
       <p className="text-slate-400 max-w-sm">
-        Be the first to list a prompt! Head to the{" "}
+        {t('marketplace.empty_body').replace(t('marketplace.sell_link'), '')}
+        {" "}
         <a href="/sell" className="text-purple-400 hover:text-purple-300 underline">
-          Sell
-        </a>{" "}
-        page to publish your AI prompt and start earning XLM.
+          {t('marketplace.sell_link')}
+        </a>
       </p>
     </div>
   );
 }
 
 export default function Marketplace() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [optimisticPurchases, setOptimisticPurchases] = useState<Set<string>>(new Set());
+
+  const { markDone: markLoadDone } = usePerformanceAudit({ scope: "marketplace_load" });
 
   // 1. Fetching marketplace items
   const { data: items, isLoading: isFetching, isError } = useQuery({
@@ -72,14 +78,20 @@ export default function Marketplace() {
     },
   });
 
+  useEffect(() => {
+    if (!isFetching && !isError) {
+      markLoadDone({ item_count: items?.length ?? 0 });
+    }
+  }, [isFetching, isError, items, markLoadDone]);
+
   // 2. Wrap purchase flow in useAsyncTransaction
   const { execute, isLoading: isPurchasing } = useAsyncTransaction(
     async (itemId: string) => {
       await buyAssetContractCall(itemId);
     },
     {
-      pendingMessage: "Processing purchase on the Stellar network...",
-      successMessage: "Purchase complete! Item unlocked.",
+      pendingMessage: t('marketplace.pending_message'),
+      successMessage: t('marketplace.success_message'),
       // Optimistic UI update: disable button and show "Purchasing..."
       onOptimistic: (itemId) => {
         setOptimisticPurchases((prev) => new Set(prev).add(itemId));
@@ -97,17 +109,17 @@ export default function Marketplace() {
   );
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Marketplace</h1>
+          <h1 className="text-2xl font-bold text-white">{t('marketplace.title')}</h1>
           <p className="text-slate-400 text-sm mt-1">
-            Browse and unlock AI prompts. Purchases are settled on the Stellar network.
+            {t('marketplace.subtitle')}
           </p>
         </div>
         {!isFetching && !isError && (
           <span className="text-xs text-slate-500 tabular-nums">
-            {items?.length ?? 0} listing{items?.length !== 1 ? "s" : ""}
+            {t('marketplace.listings_count_other', { count: items?.length ?? 0 })}
           </span>
         )}
       </div>
@@ -115,8 +127,8 @@ export default function Marketplace() {
       {/* Error state */}
       {isError && (
         <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-6 text-center">
-          <p className="text-red-400 font-medium">Failed to load marketplace listings.</p>
-          <p className="text-slate-400 text-sm mt-1">Check your connection and refresh the page.</p>
+          <p className="text-red-400 font-medium">{t('marketplace.load_error')}</p>
+          <p className="text-slate-400 text-sm mt-1">{t('marketplace.load_error_hint')}</p>
         </div>
       )}
 
@@ -140,7 +152,7 @@ export default function Marketplace() {
                     <div className="mt-4">
                       {item.isSold ? (
                         <span className="inline-block w-full text-center px-4 py-2 text-emerald-400 font-bold bg-emerald-950/30 rounded-md border border-emerald-900/50">
-                          Owned
+                          {t('marketplace.owned')}
                         </span>
                       ) : (
                         <button
@@ -154,10 +166,10 @@ export default function Marketplace() {
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                               </svg>
-                              Purchasing…
+                              {t('marketplace.purchasing')}
                             </span>
                           ) : (
-                            "Buy"
+                            t('marketplace.buy')
                           )}
                         </button>
                       )}
@@ -170,7 +182,7 @@ export default function Marketplace() {
       {/* Purchase in-progress global hint */}
       {isPurchasing && (
         <p className="mt-6 text-center text-sm text-slate-400 animate-pulse">
-          Waiting for Stellar network confirmation…
+          {t('marketplace.network_wait')}
         </p>
       )}
     </div>

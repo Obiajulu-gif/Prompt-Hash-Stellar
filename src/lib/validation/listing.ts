@@ -1,17 +1,71 @@
 import { xlmToStroops } from "@/lib/stellar/format";
+import { z } from "zod";
+import { PROMPT_METADATA_LIMITS } from "../../../packages/schema/src/promptMetadata.js";
 
 export const LISTING_LIMITS = {
-  imageUrl: 512,
-  title: 120,
+  imageUrl: PROMPT_METADATA_LIMITS.image.max,
+  title: PROMPT_METADATA_LIMITS.title.max,
   category: 40,
   preview: 280,
+  previewMin: 10,
   fullPrompt: 50_000,
   encryptedPayload: 4096,
   wrappedKey: 256,
   encryptionIv: 64,
+  maxCoCreators: 10,
+  maxSplitBps: 9_500,
 } as const;
 
+export const createPromptSchema = z.object({
+  sourcePromptId: z
+    .string()
+    .trim()
+    .regex(/^\d+$/, "Source prompt ID must be a positive whole number")
+    .refine(
+      (value) => BigInt(value) > 0n,
+      "Source prompt ID must be greater than zero",
+    )
+    .optional()
+    .or(z.literal("")),
+  imageUrl: z
+    .string()
+    .nonempty("Image URL is required")
+    .max(PROMPT_METADATA_LIMITS.image.max, `Image URL must be ${PROMPT_METADATA_LIMITS.image.max} characters or fewer`)
+    .regex(/^https?:\/\/.+/i, "Image URL must start with http:// or https://"),
+  title: z
+    .string()
+    .min(PROMPT_METADATA_LIMITS.title.min, `Title must be at least ${PROMPT_METADATA_LIMITS.title.min} characters`)
+    .max(PROMPT_METADATA_LIMITS.title.max, `Title cannot exceed ${PROMPT_METADATA_LIMITS.title.max} characters`)
+    .nonempty("Title is required"),
+  category: z.string().nonempty("Category is required"),
+  previewText: z
+    .string()
+    .min(10, "Preview text must be at least 10 characters")
+    .max(280, "Preview text cannot exceed 280 characters")
+    .nonempty("Preview text is required"),
+  description: z
+    .string()
+    .min(10, "Description must be at least 10 characters")
+    .nonempty("Description is required"),
+  fullPrompt: z
+    .string()
+    .min(5, "Full prompt content is required")
+    .nonempty("Full prompt is required"),
+  priceXlm: z
+    .coerce // Automatically converts string input values to numbers
+    .number()
+    .positive("Price must be a positive number")
+    .min(PROMPT_METADATA_LIMITS.price.min, "Price must be greater than 0 XLM")
+    .max(PROMPT_METADATA_LIMITS.price.max, "Price exceeds maximum allowable XLM limit"),
+});
+
+export type CreatePromptInput = z.infer<typeof createPromptSchema>;
 export const ESTIMATED_ENCRYPTION_OVERHEAD = 1.37;
+
+export type RevenueSplitFormInput = {
+  address: string;
+  sharePercent: string;
+};
 
 export type ListingFormInput = {
   imageUrl: string;
@@ -20,11 +74,21 @@ export type ListingFormInput = {
   previewText: string;
   fullPrompt: string;
   priceXlm: string;
+  coCreators: RevenueSplitFormInput[];
 };
 
 export type ListingValidationErrors = Partial<
   Record<keyof ListingFormInput, string>
 >;
+
+export interface ListingValidationOptions {
+  /**
+   * When true, large encrypted payloads are stored off-chain (IPFS) and only a
+   * compact reference is kept on-chain, so the on-chain payload size cap no
+   * longer constrains how long the full prompt can be.
+   */
+  offChainStorage?: boolean;
+}
 
 export type ChecklistStatus = "pass" | "fail" | "warn" | "info";
 
@@ -35,20 +99,24 @@ export interface ListingChecklistItem {
   hint?: string;
 }
 
+const STELLAR_ADDRESS_PATTERN = /^[GC][A-Z2-7]{20,}$/i;
+
 function trim(value: string) {
   return value.trim();
 }
 
 export function validateListingForm(
   input: ListingFormInput,
+  _options: ListingValidationOptions = {},
 ): ListingValidationErrors {
   const errors: ListingValidationErrors = {};
-  const imageUrl = trim(input.imageUrl);
-  const title = trim(input.title);
-  const category = trim(input.category);
-  const previewText = trim(input.previewText);
-  const fullPrompt = trim(input.fullPrompt);
-  const priceXlm = trim(input.priceXlm);
+  const imageUrl = trim(input?.imageUrl || "");
+  const title = trim(input?.title || "");
+  const category = trim(input?.category || "");
+  const previewText = trim(input?.previewText || "");
+  const fullPrompt = trim(input?.fullPrompt || "");
+  const priceXlm = trim(input?.priceXlm || "");
+  const coCreators = input?.coCreators ?? [];
 
   if (!imageUrl) {
     errors.imageUrl = "Add an image URL so your listing has a cover on browse cards.";
@@ -74,46 +142,87 @@ export function validateListingForm(
   }
 
   if (!previewText) {
-    errors.previewText =
-      "Add preview text — this public snippet appears on browse cards before purchase.";
-  } else if (previewText.length < 10) {
-    errors.previewText =
-      "Write at least 10 characters of preview text so buyers know what they are getting.";
+    errors.previewText = "Add preview text so buyers can understand what they are unlocking.";
+  } else if (previewText.length < LISTING_LIMITS.previewMin) {
+    errors.previewText = `Use at least ${LISTING_LIMITS.previewMin} characters for the preview.`;
   } else if (previewText.length > LISTING_LIMITS.preview) {
-    errors.previewText = `Shorten the preview to ${LISTING_LIMITS.preview} characters or fewer.`;
+    errors.previewText = `Choose a shorter preview text (max ${LISTING_LIMITS.preview} characters).`;
   }
 
   if (!fullPrompt) {
+    errors.fullPrompt = "Add the full prompt content that buyers will unlock.";
+  } else if (wouldExceedPayloadLimit(fullPrompt.length, _options)) {
     errors.fullPrompt =
-      "Paste the full prompt content — it is encrypted in your browser before submission.";
-  } else if (fullPrompt.length < 10) {
-    errors.fullPrompt =
-      "Add at least 10 characters of prompt content so buyers receive meaningful value.";
-  } else if (fullPrompt.length > LISTING_LIMITS.fullPrompt) {
-    errors.fullPrompt = `Shorten the prompt to ${LISTING_LIMITS.fullPrompt.toLocaleString()} characters or fewer.`;
-  } else if (wouldExceedPayloadLimit(fullPrompt.length)) {
-    const maxPlaintext = Math.floor(
-      LISTING_LIMITS.encryptedPayload / ESTIMATED_ENCRYPTION_OVERHEAD,
-    );
-    errors.fullPrompt =
-      `This prompt will exceed the ${LISTING_LIMITS.encryptedPayload.toLocaleString()}-character ` +
-      `on-chain encrypted payload limit after encryption. ` +
-      `Keep the prompt under ~${maxPlaintext.toLocaleString()} characters.`;
+      `Prompt is too long and would exceed the on-chain encrypted payload limit. Shorten it or enable off-chain storage.`;
   }
-
   if (!priceXlm) {
     errors.priceXlm = "Enter a price in XLM — use a value greater than zero.";
   } else {
-    try {
-      const price = xlmToStroops(priceXlm);
-      if (price <= 0n) {
-        errors.priceXlm = "Set a price greater than zero XLM.";
+    if (/e/i.test(priceXlm)) {
+      errors.priceXlm = "Enter a valid XLM amount without scientific notation.";
+    } else {
+      try {
+        const price = xlmToStroops(priceXlm);
+        if (price <= 0n) {
+          errors.priceXlm = "Set a price greater than zero XLM.";
+        }
+      } catch (error) {
+        errors.priceXlm =
+          error instanceof Error
+            ? error.message
+            : "Enter a valid XLM amount with up to 7 decimal places.";
       }
-    } catch (error) {
-      errors.priceXlm =
-        error instanceof Error
-          ? error.message
-          : "Enter a valid XLM amount with up to 7 decimal places.";
+    }
+  }
+
+  if (coCreators.length > LISTING_LIMITS.maxCoCreators) {
+    errors.coCreators =
+      `Add up to ${LISTING_LIMITS.maxCoCreators} co-creators per listing.`;
+  } else if (coCreators.length > 0) {
+    const seenAddresses = new Set<string>();
+    let totalSplitBps = 0;
+
+    for (const coCreator of coCreators) {
+      const address = trim(coCreator.address).toUpperCase();
+      const sharePercent = trim(coCreator.sharePercent);
+      const parsedSharePercent = Number(sharePercent);
+
+      if (!address) {
+        errors.coCreators = "Enter a Stellar address for each co-creator.";
+        break;
+      }
+
+      if (!STELLAR_ADDRESS_PATTERN.test(address)) {
+        errors.coCreators =
+          "Use a valid Stellar public key for each co-creator address.";
+        break;
+      }
+
+      if (seenAddresses.has(address)) {
+        errors.coCreators =
+          "Each co-creator address can only appear once per listing.";
+        break;
+      }
+
+      if (!sharePercent || Number.isNaN(parsedSharePercent)) {
+        errors.coCreators =
+          "Enter a valid revenue share percentage for each co-creator.";
+        break;
+      }
+
+      if (parsedSharePercent <= 0) {
+        errors.coCreators =
+          "Each co-creator share must be greater than 0%.";
+        break;
+      }
+
+      totalSplitBps += Math.round(parsedSharePercent * 100);
+      seenAddresses.add(address);
+    }
+
+    if (!errors.coCreators && totalSplitBps > LISTING_LIMITS.maxSplitBps) {
+      errors.coCreators =
+        `Co-creator shares cannot exceed ${(LISTING_LIMITS.maxSplitBps / 100).toFixed(2)}% in total.`;
     }
   }
 
@@ -134,8 +243,11 @@ export function estimateEncryptedSize(plaintextLength: number): number {
   return Math.ceil(plaintextLength * ESTIMATED_ENCRYPTION_OVERHEAD);
 }
 
-export function wouldExceedPayloadLimit(plaintextLength: number): boolean {
-  return estimateEncryptedSize(plaintextLength) > LISTING_LIMITS.encryptedPayload;
+export function wouldExceedPayloadLimit(
+  plaintextLength: number,
+  options: ListingValidationOptions = {},
+): boolean {
+  return !options.offChainStorage && estimateEncryptedSize(plaintextLength) > LISTING_LIMITS.encryptedPayload;
 }
 
 export function validateEncryptedPayload(
@@ -173,8 +285,9 @@ export function validateEncryptedPayload(
 
 export function buildListingChecklistItems(
   input: ListingFormInput,
+  options: ListingValidationOptions = {},
 ): ListingChecklistItem[] {
-  const errors = validateListingForm(input);
+  const errors = validateListingForm(input, options);
   const items: ListingChecklistItem[] = [];
 
   const fieldChecks: Array<{
@@ -187,6 +300,7 @@ export function buildListingChecklistItems(
     { id: "fullPrompt", label: "Full prompt content" },
     { id: "priceXlm", label: "Price" },
     { id: "imageUrl", label: "Image URL" },
+    { id: "coCreators", label: "Co-creators" },
   ];
 
   for (const { id, label } of fieldChecks) {
@@ -225,7 +339,7 @@ export function buildListingChecklistItems(
       id: "prompt-length",
       label: "Full prompt seems short",
       status: "warn",
-      hint: "Buyers expect substantial prompt content — consider expanding it",
+      hint: "Buyers expect substantial prompt content â€” consider expanding it",
     });
   }
 
@@ -244,6 +358,20 @@ export function buildListingChecklistItems(
       label: "Price is very low",
       status: "warn",
       hint: "Listings under 0.5 XLM may signal low quality to buyers",
+    });
+  }
+
+  const totalRevenueSharePercent = (input.coCreators ?? []).reduce(
+    (sum, coCreator) => sum + (Number(trim(coCreator.sharePercent)) || 0),
+    0,
+  );
+
+  if (!errors.coCreators && totalRevenueSharePercent > 0) {
+    items.push({
+      id: "revenue-share",
+      label: "Revenue sharing configured",
+      status: "info",
+      hint: `${totalRevenueSharePercent.toFixed(2)}% shared across co-creators.`,
     });
   }
 

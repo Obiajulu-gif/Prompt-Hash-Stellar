@@ -3,6 +3,10 @@ import sodium from "libsodium-wrappers";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const ENVELOPE_VERSION = 2;
+const ENVELOPE_ALGORITHM = "AES-256-GCM";
+export const PROMPT_CONTENT_HASH_ALGORITHM = "SHA-256" as const;
+export const PROMPT_CONTENT_HASH_VERSION = 1 as const;
 
 function cloneBytes(value: Uint8Array) {
   return Uint8Array.from(value);
@@ -66,11 +70,63 @@ export async function generateAesKey() {
 }
 
 export async function hashPromptPlaintext(plaintext: string) {
+  // Prompt content is a scalar string, so its canonical representation is its
+  // exact UTF-8 byte sequence (no mutable listing fields or timestamps included).
   const digest = await crypto.subtle.digest(
-    "SHA-256",
+    PROMPT_CONTENT_HASH_ALGORITHM,
     cloneBytes(encoder.encode(plaintext)),
   );
   return bytesToHex(new Uint8Array(digest));
+}
+
+export async function verifyPromptPlaintextHash(
+  plaintext: string,
+  expectedHash: string | Uint8Array,
+) {
+  const computedHash = await hashPromptPlaintext(plaintext);
+  const normalizedExpectedHash = normalizeContentHash(expectedHash);
+  return {
+    valid: /^[0-9a-f]{64}$/.test(normalizedExpectedHash) &&
+      computedHash === normalizedExpectedHash,
+    algorithm: PROMPT_CONTENT_HASH_ALGORITHM,
+    version: PROMPT_CONTENT_HASH_VERSION,
+    expectedHash: normalizedExpectedHash,
+    computedHash,
+  };
+}
+
+export interface PromptEnvelopeMetadata {
+  promptId: string;
+  creator: string;
+  networkPassphrase: string;
+  contentHash: string;
+  keyId: string;
+}
+
+export interface EncryptedPromptEnvelope extends PromptEnvelopeMetadata {
+  version: typeof ENVELOPE_VERSION;
+  algorithm: typeof ENVELOPE_ALGORITHM;
+  nonce: string;
+  ciphertext: string;
+}
+
+function canonicalizeEnvelopeAad(metadata: PromptEnvelopeMetadata) {
+  return JSON.stringify({
+    contentHash: metadata.contentHash,
+    creator: metadata.creator,
+    keyId: metadata.keyId,
+    networkPassphrase: metadata.networkPassphrase,
+    promptId: metadata.promptId,
+  });
+}
+
+function assertSupportedEnvelope(envelope: EncryptedPromptEnvelope) {
+  if (envelope.version !== ENVELOPE_VERSION) {
+    throw new Error(`Unsupported encrypted prompt envelope version: ${envelope.version}`);
+  }
+  if (envelope.algorithm !== ENVELOPE_ALGORITHM) {
+    throw new Error(`Unsupported encrypted prompt envelope algorithm: ${envelope.algorithm}`);
+  }
 }
 
 /** Normalize on-chain or API content hashes to lowercase hex (64 chars). */
@@ -117,6 +173,41 @@ export async function encryptPromptPlaintext(
   };
 }
 
+export async function encryptPromptEnvelope(
+  plaintext: string,
+  metadata: Omit<PromptEnvelopeMetadata, "contentHash"> & { contentHash?: string },
+  rawKey?: Uint8Array,
+) {
+  const contentHash = metadata.contentHash ?? (await hashPromptPlaintext(plaintext));
+  const envelopeMetadata: PromptEnvelopeMetadata = {
+    promptId: metadata.promptId,
+    creator: metadata.creator,
+    networkPassphrase: metadata.networkPassphrase,
+    contentHash,
+    keyId: metadata.keyId,
+  };
+  const keyBytes = rawKey ?? (await generateAesKey());
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const importedKey = await importAesKey(keyBytes, ["encrypt"]);
+  const aad = encoder.encode(canonicalizeEnvelopeAad(envelopeMetadata));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: cloneBytes(iv), additionalData: cloneBytes(aad) },
+    importedKey,
+    cloneBytes(encoder.encode(plaintext)),
+  );
+
+  return {
+    keyBytes,
+    envelope: {
+      version: ENVELOPE_VERSION,
+      algorithm: ENVELOPE_ALGORITHM,
+      nonce: bytesToBase64(iv),
+      ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+      ...envelopeMetadata,
+    } satisfies EncryptedPromptEnvelope,
+  };
+}
+
 export async function decryptPromptCiphertext(
   encryptedPrompt: string,
   encryptionIv: string,
@@ -132,6 +223,36 @@ export async function decryptPromptCiphertext(
   return decoder.decode(plaintext);
 }
 
+export async function decryptPromptEnvelope(
+  envelope: EncryptedPromptEnvelope,
+  rawKey: Uint8Array,
+  expectedMetadata: Partial<PromptEnvelopeMetadata> = {},
+) {
+  assertSupportedEnvelope(envelope);
+  for (const [field, expected] of Object.entries(expectedMetadata)) {
+    if (
+      expected !== undefined &&
+      envelope[field as keyof PromptEnvelopeMetadata] !== expected
+    ) {
+      throw new Error(`Encrypted prompt envelope ${field} mismatch.`);
+    }
+  }
+
+  const importedKey = await importAesKey(rawKey, ["decrypt"]);
+  const aad = encoder.encode(canonicalizeEnvelopeAad(envelope));
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: cloneBytes(base64ToBytes(envelope.nonce)),
+      additionalData: cloneBytes(aad),
+    },
+    importedKey,
+    cloneBytes(base64ToBytes(envelope.ciphertext)),
+  );
+
+  return decoder.decode(plaintext);
+}
+
 export async function wrapPromptKey(
   rawKey: Uint8Array,
   publicKeyBase64: string,
@@ -140,6 +261,25 @@ export async function wrapPromptKey(
   return bytesToBase64(
     sodiumLib.crypto_box_seal(rawKey, base64ToBytes(publicKeyBase64)),
   );
+}
+
+/** Prepare the complete encrypted publish payload and its v1 plaintext commitment. */
+export async function encryptAndWrapPromptPayload(
+  plaintext: string,
+  recipientPublicKeyBase64: string,
+) {
+  const encrypted = await encryptPromptPlaintext(plaintext);
+  return {
+    encryptedPrompt: encrypted.encryptedPrompt,
+    encryptionIv: encrypted.encryptionIv,
+    wrappedKey: await wrapPromptKey(
+      encrypted.keyBytes,
+      recipientPublicKeyBase64,
+    ),
+    contentHash: encrypted.contentHash,
+    contentHashAlgorithm: PROMPT_CONTENT_HASH_ALGORITHM,
+    contentHashVersion: PROMPT_CONTENT_HASH_VERSION,
+  };
 }
 
 export async function unwrapPromptKey(

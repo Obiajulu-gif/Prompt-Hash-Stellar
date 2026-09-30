@@ -103,12 +103,39 @@ yarn dev
 
 ---
 
+## Server Deployment Manifest & Readiness Attestation
+
+Server APIs validate configuration on startup using `getServerDeploymentManifest()`.
+In production mode, missing or default chain-critical variables (`PUBLIC_STELLAR_NETWORK`, `PUBLIC_STELLAR_RPC_URL`, `PUBLIC_PROMPT_HASH_CONTRACT_ID`, etc.) cause startup and request rejection instead of defaulting to testnet endpoints.
+
+Operations and frontends can query the non-sensitive readiness attestation:
+
+```http
+GET /api/readiness
+```
+
+Returns:
+```json
+{
+  "ready": true,
+  "network": "MAINNET",
+  "manifestHash": "a1b2c3d4e5f67890",
+  "promptHashContractId": "CB...",
+  "nativeAssetContractId": "CD...",
+  "simulationAccount": "GA...",
+  "timestamp": 1785305900000
+}
+```
+
+---
+
 ## Validation hooks
 
 ```bash
+yarn check:policy         # production policy scan (fails on stubs/mocks/testnet fallbacks)
 yarn check:setup          # strict — exits 1 on missing required vars
 yarn check:setup --warn-only   # never exits 1 (used before dev)
-yarn build                # runs check:setup via prebuild
+yarn build                # runs check:policy and check:setup via prebuild
 ```
 
 CI runs `yarn check:setup` on pull requests (see `.github/workflows/frontend.yml`).

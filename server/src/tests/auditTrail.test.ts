@@ -1,312 +1,236 @@
-/**
- * Tests for the audit trail service and AuditLog model (Issue #145).
- *
- * Uses jest mocking so no live MongoDB connection is required.
- */
-
-jest.mock("../models/AuditLog", () => {
-  const mockCreate = jest.fn();
-  const mockFind = jest.fn();
-
-  const mockChain = {
-    sort: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    lean: jest.fn().mockResolvedValue([]),
-  };
-  mockFind.mockReturnValue(mockChain);
-
-  return {
-    AuditLog: {
-      create: mockCreate,
-      find: mockFind,
-      __chain: mockChain,
-    },
-  };
-});
-
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  buildUnlockSupportTimelineFromRows,
+  verifyAuditTrail,
+  hashWalletAddress,
+  recordAuditEvent,
+  exportAuditBundle,
+} from "../services/auditTrail";
 import { AuditLog } from "../models/AuditLog";
-import { recordAuditEvent, queryAuditEvents } from "../services/auditTrail";
 
-const mockCreate = AuditLog.create as jest.MockedFunction<typeof AuditLog.create>;
-const mockFind = AuditLog.find as jest.MockedFunction<typeof AuditLog.find>;
-const mockChain = (AuditLog as any).__chain;
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  mockFind.mockReturnValue(mockChain);
-  mockChain.sort.mockReturnValue(mockChain);
-  mockChain.limit.mockReturnValue(mockChain);
-  mockChain.lean.mockResolvedValue([]);
-});
-
-// ---------------------------------------------------------------------------
-// recordAuditEvent
-// ---------------------------------------------------------------------------
-
-describe("recordAuditEvent", () => {
-  it("persists a challenge_issued event with all fields", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "challenge_issued",
-      result: "success",
-      promptId: "42",
-      walletAddress: "GABCDE",
-      requestId: "req-001",
-      clientIp: "127.0.0.1",
-      reason: null,
+describe("auditTrail", () => {
+  describe("hashWalletAddress", () => {
+    it("returns a consistent hash for the same address", () => {
+      const hash1 = hashWalletAddress("GDXSEH3V6V7K4J3L5M6N");
+      const hash2 = hashWalletAddress("GDXSEH3V6V7K4J3L5M6N");
+      expect(hash1).toBe(hash2);
     });
 
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    expect(mockCreate).toHaveBeenCalledWith({
-      action: "challenge_issued",
-      result: "success",
-      promptId: "42",
-      walletAddress: "gabcde", // lowercased
-      requestId: "req-001",
-      clientIp: "127.0.0.1",
-      reason: null,
+    it("normalizes address to lowercase before hashing", () => {
+      const hash1 = hashWalletAddress("GDXSEH3V6V7K4J3L5M6N");
+      const hash2 = hashWalletAddress("gdxseh3v6v7k4j3l5m6n");
+      expect(hash1).toBe(hash2);
+    });
+
+    it("returns a 64-character hex string", () => {
+      const hash = hashWalletAddress("GDXSEH3V6V7K4J3L5M6N");
+      expect(hash).toMatch(/^[a-f0-9]{64}$/);
     });
   });
 
-  it("persists an unlock_success event", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "unlock_success",
-      result: "success",
-      promptId: "7",
-      walletAddress: "GX123",
-      requestId: "req-002",
-      clientIp: "10.0.0.1",
-      reason: null,
+  describe("verifyAuditTrail", () => {
+    beforeEach(async () => {
+      await AuditLog.deleteMany({});
     });
 
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "unlock_success", result: "success" }),
-    );
-  });
-
-  it("persists unlock_invalid_signature with reason code", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "unlock_invalid_signature",
-      result: "failure",
-      promptId: "7",
-      walletAddress: "GX123",
-      requestId: "req-003",
-      clientIp: "10.0.0.1",
-      reason: "invalid_signature",
+    afterEach(async () => {
+      await AuditLog.deleteMany({});
     });
 
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "unlock_invalid_signature",
-        result: "failure",
-        reason: "invalid_signature",
-      }),
-    );
-  });
-
-  it("persists unlock_expired_challenge with reason code", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "unlock_expired_challenge",
-      result: "failure",
-      promptId: "7",
-      walletAddress: "GX123",
-      requestId: "req-004",
-      clientIp: "10.0.0.1",
-      reason: "expired_challenge",
+    it("returns valid for empty audit trail", async () => {
+      const result = await verifyAuditTrail();
+      expect(result.valid).toBe(true);
+      expect(result.totalRecords).toBe(0);
+      expect(result.errors).toHaveLength(0);
     });
 
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "unlock_expired_challenge",
-        reason: "expired_challenge",
-      }),
-    );
-  });
-
-  it("persists unlock_no_access with reason code", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "unlock_no_access",
-      result: "failure",
-      promptId: "7",
-      walletAddress: "GX123",
-      requestId: "req-005",
-      clientIp: "10.0.0.1",
-      reason: "no_access",
-    });
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "unlock_no_access", reason: "no_access" }),
-    );
-  });
-
-  it("persists unlock_integrity_failure with reason code", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "unlock_integrity_failure",
-      result: "failure",
-      promptId: "7",
-      walletAddress: "GX123",
-      requestId: "req-006",
-      clientIp: "10.0.0.1",
-      reason: "integrity_failure",
-    });
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "unlock_integrity_failure",
-        reason: "integrity_failure",
-      }),
-    );
-  });
-
-  it("persists unlock_rate_limited (blocked result)", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
-
-    await recordAuditEvent({
-      action: "unlock_rate_limited",
-      result: "blocked",
-      promptId: null,
-      walletAddress: null,
-      requestId: null,
-      clientIp: "10.0.0.1",
-      reason: "ip_rate_limit_exceeded",
-    });
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "unlock_rate_limited",
-        result: "blocked",
-        reason: "ip_rate_limit_exceeded",
-      }),
-    );
-  });
-
-  it("does not reject when DB write fails (fire-and-forget)", async () => {
-    mockCreate.mockRejectedValueOnce(new Error("DB down"));
-
-    // Should resolve without throwing.
-    await expect(
-      recordAuditEvent({
+    it("detects valid chain with single record", async () => {
+      await AuditLog.create({
         action: "unlock_success",
         result: "success",
-        promptId: "1",
-        walletAddress: "GABC",
-        requestId: null,
-        clientIp: null,
-        reason: null,
-      }),
-    ).resolves.toBeUndefined();
+        recordHash: "a".repeat(64),
+        previousHash: "0".repeat(64),
+      });
+
+      const result = await verifyAuditTrail();
+      expect(result.totalRecords).toBe(1);
+    });
   });
 
-  it("does NOT store plaintext, keys, or signature fields", async () => {
-    mockCreate.mockResolvedValueOnce({} as never);
+  describe("buildUnlockSupportTimelineFromRows", () => {
+    it("exports a deterministic redacted support timeline for unlock disputes", () => {
+      const walletAddress = "GDXSEH3V6V7K4J3L5M6N";
+      const walletHash = hashWalletAddress(walletAddress);
+      const timeline = buildUnlockSupportTimelineFromRows(
+        [
+          {
+            createdAt: new Date("2026-01-01T00:02:00.000Z"),
+            action: "unlock_success",
+            result: "success",
+            promptId: "42",
+            walletAddress: walletHash,
+            requestId: "req-2",
+            reason: null,
+            recordHash: "b".repeat(64),
+            previousHash: "a".repeat(64),
+          },
+          {
+            createdAt: new Date("2026-01-01T00:01:00.000Z"),
+            action: "challenge_issued",
+            result: "success",
+            promptId: "42",
+            walletAddress: walletHash,
+            requestId: "req-1",
+            reason: null,
+            recordHash: "a".repeat(64),
+            previousHash: "0".repeat(64),
+          },
+        ],
+        { walletAddress, promptId: "42" },
+      );
 
-    await recordAuditEvent({
-      action: "unlock_success",
-      result: "success",
-      promptId: "1",
-      walletAddress: "GABC",
-      requestId: null,
-      clientIp: null,
-      reason: null,
-      // Intentionally passing NO sensitive fields — the type signature enforces this.
+      expect(timeline.walletHash).toBe(walletHash);
+      expect(timeline.decision).toBe("allowed");
+      expect(timeline.entries.map((entry) => entry.sequence)).toEqual([1, 2]);
+      expect(JSON.stringify(timeline)).not.toContain(walletAddress);
+    });
+  });
+
+  describe("exportAuditBundle", () => {
+    beforeEach(async () => {
+      await AuditLog.deleteMany({});
     });
 
-    const callArg = mockCreate.mock.calls[0][0] as Record<string, unknown>;
-    expect(callArg).not.toHaveProperty("plaintext");
-    expect(callArg).not.toHaveProperty("privateKey");
-    expect(callArg).not.toHaveProperty("signedMessage");
-    expect(callArg).not.toHaveProperty("challengeSecret");
-    expect(callArg).not.toHaveProperty("encryptedPrompt");
-  });
-});
+    afterEach(async () => {
+      await AuditLog.deleteMany({});
+    });
 
-// ---------------------------------------------------------------------------
-// queryAuditEvents
-// ---------------------------------------------------------------------------
+    it("exports filtered audit records by actor (wallet)", async () => {
+      const wallet1 = "GDXSEH3V6V7K4J3L5M6N";
+      const wallet2 = "GANOTHERWALLETADDRESS";
 
-describe("queryAuditEvents", () => {
-  it("queries by walletAddress (lowercased) and returns results", async () => {
-    const fakeRecord = { action: "unlock_success", walletAddress: "gabcde" };
-    mockChain.lean.mockResolvedValueOnce([fakeRecord]);
+      await AuditLog.create([
+        {
+          action: "unlock_success",
+          result: "success",
+          promptId: "42",
+          walletAddress: hashWalletAddress(wallet1),
+          requestId: "req-1",
+          recordHash: "a".repeat(64),
+          previousHash: "0".repeat(64),
+        },
+        {
+          action: "unlock_success",
+          result: "success",
+          promptId: "42",
+          walletAddress: hashWalletAddress(wallet2),
+          requestId: "req-2",
+          recordHash: "b".repeat(64),
+          previousHash: "a".repeat(64),
+        },
+      ]);
 
-    const results = await queryAuditEvents({ walletAddress: "GABCDE" });
+      const bundle = await exportAuditBundle({ actor: wallet1 });
 
-    expect(mockFind).toHaveBeenCalledWith(
-      expect.objectContaining({ walletAddress: "gabcde" }),
-    );
-    expect(results).toEqual([fakeRecord]);
-  });
+      expect(bundle.recordCount).toBe(1);
+      expect(bundle.records[0].walletHash).toBe(hashWalletAddress(wallet1));
+      expect(bundle.records).not.toContainEqual(
+        expect.objectContaining({ walletHash: hashWalletAddress(wallet2) })
+      );
+    });
 
-  it("queries by promptId", async () => {
-    mockChain.lean.mockResolvedValueOnce([]);
+    it("exports filtered audit records by promptId", async () => {
+      await AuditLog.create([
+        {
+          action: "unlock_success",
+          result: "success",
+          promptId: "42",
+          walletAddress: hashWalletAddress("GDXSEH3V6V7K4J3L5M6N"),
+          requestId: "req-1",
+          recordHash: "a".repeat(64),
+          previousHash: "0".repeat(64),
+        },
+        {
+          action: "unlock_success",
+          result: "success",
+          promptId: "99",
+          walletAddress: hashWalletAddress("GANOTHERWALLETADDRESS"),
+          requestId: "req-2",
+          recordHash: "b".repeat(64),
+          previousHash: "a".repeat(64),
+        },
+      ]);
 
-    await queryAuditEvents({ promptId: "42" });
+      const bundle = await exportAuditBundle({ promptId: "42" });
 
-    expect(mockFind).toHaveBeenCalledWith(
-      expect.objectContaining({ promptId: "42" }),
-    );
-  });
+      expect(bundle.recordCount).toBe(1);
+      expect(bundle.records[0].promptId).toBe("42");
+    });
 
-  it("queries by action and result", async () => {
-    mockChain.lean.mockResolvedValueOnce([]);
+    it("exports filtered audit records by date range", async () => {
+      const since = new Date("2026-01-01T00:00:00.000Z");
+      const until = new Date("2026-01-01T01:00:00.000Z");
 
-    await queryAuditEvents({ action: "unlock_no_access", result: "failure" });
+      await AuditLog.create([
+        {
+          action: "unlock_success",
+          result: "success",
+          promptId: "42",
+          walletAddress: hashWalletAddress("GDXSEH3V6V7K4J3L5M6N"),
+          requestId: "req-1",
+          createdAt: new Date("2026-01-01T00:30:00.000Z"),
+          recordHash: "a".repeat(64),
+          previousHash: "0".repeat(64),
+        },
+        {
+          action: "unlock_success",
+          result: "success",
+          promptId: "42",
+          walletAddress: hashWalletAddress("GANOTHERWALLETADDRESS"),
+          requestId: "req-2",
+          createdAt: new Date("2026-01-01T02:00:00.000Z"),
+          recordHash: "b".repeat(64),
+          previousHash: "a".repeat(64),
+        },
+      ]);
 
-    expect(mockFind).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "unlock_no_access", result: "failure" }),
-    );
-  });
+      const bundle = await exportAuditBundle({ since, until });
 
-  it("applies since/until date range", async () => {
-    mockChain.lean.mockResolvedValueOnce([]);
-    const since = new Date("2025-01-01");
-    const until = new Date("2025-12-31");
+      expect(bundle.recordCount).toBe(1);
+      expect(bundle.records[0].createdAt).toContain("00:30");
+    });
 
-    await queryAuditEvents({ since, until });
+    it("includes integrity checksum for export verification", async () => {
+      await AuditLog.create({
+        action: "unlock_success",
+        result: "success",
+        promptId: "42",
+        walletAddress: hashWalletAddress("GDXSEH3V6V7K4J3L5M6N"),
+        requestId: "req-1",
+        recordHash: "a".repeat(64),
+        previousHash: "0".repeat(64),
+      });
 
-    expect(mockFind).toHaveBeenCalledWith(
-      expect.objectContaining({
-        createdAt: { $gte: since, $lte: until },
-      }),
-    );
-  });
+      const bundle = await exportAuditBundle({});
 
-  it("respects custom limit", async () => {
-    mockChain.lean.mockResolvedValueOnce([]);
+      expect(bundle.integrityChecksum).toMatch(/^[a-f0-9]{64}$/);
+    });
 
-    await queryAuditEvents({ limit: 25 });
+    it("redacts actor filter in export metadata", async () => {
+      await AuditLog.create({
+        action: "unlock_success",
+        result: "success",
+        promptId: "42",
+        walletAddress: hashWalletAddress("GDXSEH3V6V7K4J3L5M6N"),
+        requestId: "req-1",
+        recordHash: "a".repeat(64),
+        previousHash: "0".repeat(64),
+      });
 
-    expect(mockChain.limit).toHaveBeenCalledWith(25);
-  });
+      const bundle = await exportAuditBundle({ actor: "GDXSEH3V6V7K4J3L5M6N" });
 
-  it("defaults limit to 100", async () => {
-    mockChain.lean.mockResolvedValueOnce([]);
-
-    await queryAuditEvents({});
-
-    expect(mockChain.limit).toHaveBeenCalledWith(100);
-  });
-
-  it("correlates records by requestId across wallet and promptId", async () => {
-    const rec1 = { action: "challenge_issued", requestId: "req-x", walletAddress: "gx1" };
-    const rec2 = { action: "unlock_success", requestId: "req-x", walletAddress: "gx1" };
-    mockChain.lean.mockResolvedValueOnce([rec1, rec2]);
-
-    const results = await queryAuditEvents({ walletAddress: "GX1" });
-
-    expect(results).toHaveLength(2);
-    expect(results[0].requestId).toBe("req-x");
-    expect(results[1].requestId).toBe("req-x");
+      expect(bundle.filters.actor).toBe("[REDACTED_HASH]");
+      expect(bundle.filters.promptId).toBe("42");
+    });
   });
 });

@@ -1,8 +1,13 @@
-import { lazy, Suspense } from "react";
-import { Outlet, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useState } from "react";
+import { Outlet, Route, Routes, Navigate, useLocation } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import Home from "./pages/Home";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { KeyboardShortcutsModal } from "./components/KeyboardShortcutsModal";
+import PageTransition from "./components/PageTransition";
 
-const BrowsePage = lazy(() => import("./pages/browse/page.jsx"));
+// Code Splitting / Lazy Loading Router Configurations
+const BrowsePage = lazy(() => import("./pages/browse/page.tsx"));
 const SellPage = lazy(() => import("./pages/sell/page.tsx"));
 const ChatHome = lazy(() => import("./pages/chat/page.tsx"));
 const ProfilePage = lazy(() => import("./pages/profile/page.tsx"));
@@ -12,20 +17,41 @@ const MyPurchasesPage = lazy(
 const StatusPage = lazy(() => import("./pages/status/page.tsx"));
 const SellerPage = lazy(() => import("./pages/sellers/page.tsx"));
 const CategoryPage = lazy(() => import("./pages/category/page.tsx"));
-const PromptDetailPage = lazy(() => import("./pages/prompts/[id].tsx"));
-
-const AppLayout = () => (
-  <main className="min-h-screen bg-slate-950 text-white">
-    <Outlet />
-  </main>
+const PromptDetailPage = lazy(
+  () => import("./pages/prompts/PromptDetailPage.tsx"),
 );
+const AdminReportsPage = lazy(() => import("./pages/admin/Reports.tsx"));
+const AdminConfigPage = lazy(
+  () => import("./pages/admin/ConfigDashboard.tsx"),
+);
+const AdminDisputesPage = lazy(() => import("./pages/admin/Disputes.tsx"));
+
+import { OfflineBanner } from "./components/OfflineBanner";
+
+const AppLayout = () => {
+  const location = useLocation();
+  return (
+    <main className="min-h-screen bg-slate-950 text-white">
+      <OfflineBanner />
+      <AnimatePresence mode="wait">
+        <PageTransition key={location.pathname}>
+          <Outlet />
+        </PageTransition>
+      </AnimatePresence>
+    </main>
+  );
+};
 
 function App() {
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+
+  useKeyboardShortcuts({ onShowShortcuts: () => setShowShortcutsModal(true) });
+
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center min-h-screen bg-slate-950">
-          <div className="text-white text-lg">Loading...</div>
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <div className="text-foreground text-lg">Loading...</div>
         </div>
       }
     >
@@ -37,10 +63,13 @@ function App() {
           <Route path="/chat" element={<ChatHome />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/purchases" element={<MyPurchasesPage />} />
+          <Route path="/prompts/:id" element={<PromptDetailPage />} />
           <Route path="/status" element={<StatusPage />} />
           <Route path="/sellers/:sellerId" element={<SellerPage />} />
           <Route path="/category/:categoryName" element={<CategoryPage />} />
-          <Route path="/prompts/:id" element={<PromptDetailPage />} />
+          <Route path="/admin/reports" element={<AdminReportsPage />} />
+          <Route path="/admin/config" element={<AdminConfigPage />} />
+          <Route path="/admin/disputes" element={<AdminDisputesPage />} />
           <Route path="*" element={<Home />} />
         </Route>
       </Routes>

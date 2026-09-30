@@ -5,6 +5,10 @@ import FetchAllPrompts from "@/pages/browse/FetchAllPrompts";
 import { makePrompt } from "@/test/fixtures/prompts";
 import { renderWithProviders } from "@/test/render";
 
+vi.mock("@/lib/env", () => ({
+  stellarWalletNetwork: "Test SDF Network ; September 2015",
+}));
+
 const getAllPromptsMock = vi.fn();
 const hasAccessMock = vi.fn();
 const buyPromptAccessMock = vi.fn();
@@ -61,8 +65,12 @@ describe("marketplace purchase and unlock integration coverage", () => {
       />,
     );
 
-    expect(await screen.findByText("Active marketplace listing")).toBeInTheDocument();
-    expect(screen.queryByText("Inactive delisted prompt")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Active marketplace listing"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Inactive delisted prompt"),
+    ).not.toBeInTheDocument();
   });
 
   it("searches prompt descriptions as well as titles", async () => {
@@ -92,8 +100,12 @@ describe("marketplace purchase and unlock integration coverage", () => {
       />,
     );
 
-    expect(await screen.findByText("Hidden narrative prompt")).toBeInTheDocument();
-    expect(screen.queryByText("Sales operations overview")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Hidden narrative prompt"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Sales operations overview"),
+    ).not.toBeInTheDocument();
   });
 
   it("filters listings by selected tag", async () => {
@@ -168,6 +180,8 @@ describe("marketplace purchase and unlock integration coverage", () => {
       {
         wallet: {
           address: "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
+          status: "connected",
+          network: "Test SDF Network ; September 2015",
           signTransaction,
           signMessage,
         },
@@ -177,7 +191,9 @@ describe("marketplace purchase and unlock integration coverage", () => {
     await screen.findByText(prompt.title);
 
     // Click prompt title or the card itself to open the modal dialog
-    const cardButton = await screen.findByRole("button", { name: `Open ${prompt.title}` });
+    const cardButton = await screen.findByRole("button", {
+      name: `Open ${prompt.title}`,
+    });
     await userEvent.click(cardButton);
 
     const dialog = await screen.findByRole("dialog", {
@@ -187,18 +203,13 @@ describe("marketplace purchase and unlock integration coverage", () => {
       within(dialog).getByRole("button", { name: /confirm & purchase/i }),
     );
 
-    await waitFor(() => {
-      expect(buyPromptAccessMock).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(unlockPromptContentMock).toHaveBeenCalledWith(
         "7",
+        "purchase-hash",
+        signMessage,
         "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
-      );
-    });
-
-    expect(unlockPromptContentMock).toHaveBeenCalledWith(
-      "7",
-      "purchase-hash",
-      signMessage,
-      "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
+      ),
     );
     expect(
       await within(dialog).findByText("Unlocked private prompt body."),
@@ -206,9 +217,7 @@ describe("marketplace purchase and unlock integration coverage", () => {
 
     await waitFor(() => {
       // PromptCard shows "Owned" button now
-      expect(
-        screen.getAllByRole("button", { name: /owned/i }),
-      ).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: /owned/i })).toHaveLength(1);
     });
   });
 
@@ -221,7 +230,9 @@ describe("marketplace purchase and unlock integration coverage", () => {
     getAllPromptsMock.mockResolvedValue([prompt]);
     hasAccessMock.mockResolvedValue(true);
     unlockPromptContentMock
-      .mockRejectedValueOnce(new Error("Unlock service temporarily unavailable."))
+      .mockRejectedValueOnce(
+        new Error("Unlock service temporarily unavailable."),
+      )
       .mockResolvedValueOnce({
         promptId: prompt.id.toString(),
         title: prompt.title,
@@ -251,9 +262,11 @@ describe("marketplace purchase and unlock integration coverage", () => {
     );
 
     await screen.findByText(prompt.title);
-    
+
     // Click the owned prompt card to open the modal
-    const cardButton = await screen.findByRole("button", { name: `Open ${prompt.title}` });
+    const cardButton = await screen.findByRole("button", {
+      name: `Open ${prompt.title}`,
+    });
     await userEvent.click(cardButton);
 
     const dialog = await screen.findByRole("dialog", {
@@ -265,7 +278,9 @@ describe("marketplace purchase and unlock integration coverage", () => {
 
     await userEvent.click(unlockButton);
     expect(
-      await within(dialog).findByText("Unlock service temporarily unavailable."),
+      await within(dialog).findByText(
+        /unlock service temporarily unavailable/i,
+      ),
     ).toBeInTheDocument();
 
     const freshUnlockButton = within(dialog).getByRole("button", {

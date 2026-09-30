@@ -2,6 +2,7 @@ import { CheckCircle2, AlertCircle, XCircle, Info } from "lucide-react";
 import {
   buildListingChecklistItems,
   type ListingChecklistItem,
+  type ListingValidationOptions,
 } from "@/lib/validation/listing";
 
 export type ChecklistItem = ListingChecklistItem;
@@ -84,13 +85,22 @@ export function ListingQualityChecklist({ items }: ListingQualityChecklistProps)
   );
 }
 
-export function buildChecklistItems(formData: {
-  imageUrl: string;
-  title: string;
-  category: string;
-  previewText: string;
-  fullPrompt: string;
-  priceXlm: string;
-}): ChecklistItem[] {
-  return buildListingChecklistItems(formData);
+export function buildChecklistItems(
+  formData: {
+    imageUrl: string;
+    title: string;
+    category: string;
+    previewText: string;
+    fullPrompt: string;
+    priceXlm: string;
+    description?: string;
+  },
+  options?: ListingValidationOptions,
+): ChecklistItem[] {
+  return buildListingChecklistItems({ 
+    ...formData, 
+    coCreators: ('coCreators' in formData && Array.isArray((formData as any).coCreators)) 
+      ? (formData as any).coCreators 
+      : [] 
+  }, options);
 }

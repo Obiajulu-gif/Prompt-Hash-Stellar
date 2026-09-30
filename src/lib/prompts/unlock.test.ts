@@ -1,18 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ERROR_MESSAGES } from "@/lib/api/errorCodes";
+import { UnlockError } from "@/lib/errors/unlockErrors";
 
-const hashPromptPlaintextMock = vi.fn();
+const verifyPromptPlaintextHashMock = vi.fn();
+const TEST_CONTENT_HASH = "a".repeat(64);
 
 vi.mock("@/lib/crypto/promptCrypto", () => ({
-  hashPromptPlaintext: (...args: unknown[]) => hashPromptPlaintextMock(...args),
+  verifyPromptPlaintextHash: (...args: unknown[]) => verifyPromptPlaintextHashMock(...args),
 }));
 
 import { unlockPromptContent } from "./unlock";
 
+function challengeResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      token: "token-1",
+      challenge: "prompt-hash unlock:challenge",
+      expiresAt: Date.now() + 60_000,
+      nonce: "nonce-1",
+    }),
+    { status: 200 },
+  );
+}
+
 describe("unlockPromptContent client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    hashPromptPlaintextMock.mockResolvedValue("abc123");
+    verifyPromptPlaintextHashMock.mockResolvedValue({ valid: true });
   });
 
   it("requests a challenge, signs it, and returns verified plaintext", async () => {
@@ -34,7 +48,9 @@ describe("unlockPromptContent client", () => {
           JSON.stringify({
             promptId: "7",
             title: "Test prompt",
-            contentHash: "abc123",
+            contentHash: TEST_CONTENT_HASH,
+            contentHashAlgorithm: "SHA-256",
+            contentHashVersion: 1,
             plaintext: "Decrypted prompt body",
           }),
           { status: 200 },
@@ -65,7 +81,7 @@ describe("unlockPromptContent client", () => {
   });
 
   it("maps integrity failures to safe user-facing errors", async () => {
-    hashPromptPlaintextMock.mockResolvedValue("different-hash");
+    verifyPromptPlaintextHashMock.mockResolvedValue({ valid: false });
 
     vi.stubGlobal(
       "fetch",
@@ -87,10 +103,12 @@ describe("unlockPromptContent client", () => {
             JSON.stringify({
               promptId: "7",
               title: "Test prompt",
-              contentHash: "abc123",
+              contentHash: TEST_CONTENT_HASH,
+              contentHashAlgorithm: "SHA-256",
+              contentHashVersion: 1,
               plaintext: "Decrypted prompt body",
             }),
-            { status: 200 },
+            { status: 200, headers: { "X-Correlation-ID": "corr-hash-01" } },
           ),
         ),
     );
@@ -101,7 +119,11 @@ describe("unlockPromptContent client", () => {
         "7",
         vi.fn().mockResolvedValue({ signedMessage: "signed-by-wallet" }),
       ),
-    ).rejects.toThrow(ERROR_MESSAGES.INTEGRITY_FAILURE);
+    ).rejects.toMatchObject({
+      code: "INTEGRITY_FAILURE",
+      correlationId: "corr-hash-01",
+      message: ERROR_MESSAGES.INTEGRITY_FAILURE,
+    });
   });
 
   it("maps API error codes without exposing sensitive backend details", async () => {
@@ -138,5 +160,88 @@ describe("unlockPromptContent client", () => {
         vi.fn().mockResolvedValue({ signedMessage: "signed-by-wallet" }),
       ),
     ).rejects.toThrow(ERROR_MESSAGES.INTEGRITY_FAILURE);
+  });
+
+  it("exposes a structured error carrying code, category, retryability, and correlation id", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(challengeResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: "Prompt access has not been purchased.",
+              code: "ACCESS_NOT_PURCHASED",
+              correlationId: "corr-709-01",
+            }),
+            { status: 403 },
+          ),
+        ),
+    );
+
+    await expect(
+      unlockPromptContent(
+        "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
+        "7",
+        vi.fn().mockResolvedValue({ signedMessage: "signed-by-wallet" }),
+      ),
+    ).rejects.toMatchObject({
+      name: "UnlockError",
+      code: "ACCESS_NOT_PURCHASED",
+      category: "access",
+      retryable: false,
+      correlationId: "corr-709-01",
+      message: "You have not purchased access to this prompt. Complete a purchase first.",
+    });
+  });
+
+  it("classifies temporary failures as retryable server errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(challengeResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ error: "A temporary error occurred.", code: "TEMPORARY_FAILURE" }),
+            { status: 400 },
+          ),
+        ),
+    );
+
+    await expect(
+      unlockPromptContent(
+        "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
+        "7",
+        vi.fn().mockResolvedValue({ signedMessage: "signed-by-wallet" }),
+      ),
+    ).rejects.toMatchObject({
+      code: "TEMPORARY_FAILURE",
+      category: "server",
+      retryable: true,
+      correlationId: undefined,
+    });
+  });
+
+  it("falls back to a generic network error when the API response has no code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Gateway timeout" }), { status: 504 }),
+      ),
+    );
+
+    await expect(
+      unlockPromptContent(
+        "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789",
+        "7",
+        vi.fn().mockResolvedValue({ signedMessage: "signed-by-wallet" }),
+      ),
+    ).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      category: "server",
+      retryable: true,
+    });
   });
 });

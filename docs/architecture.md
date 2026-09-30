@@ -27,7 +27,7 @@ Core contract methods:
 - `get_prompts_by_buyer`
 - `update_prompt_price`
 - `set_prompt_sale_status`
-- `set_fee_percentage`
+- `set_fee_percentage` — canonical fee-configuration entrypoint, bounded to `MAX_PLATFORM_FEE` (1,000 bps / 10%). `update_platform_fee` is a deprecated alias that delegates to the same bounded internal path, so neither entrypoint can be used to bypass the other's ceiling.
 - `set_fee_wallet`
 
 ## 2. Frontend Application Layer
@@ -79,8 +79,36 @@ Responsibilities:
 
 1. Buyer approves native asset spend.
 2. App submits `buy_prompt`.
-3. Contract moves seller and fee amounts in stroops.
-4. Contract records purchase rights for the buyer.
+3. Contract holds the payment in a dispute-protected escrow and records purchase rights.
+4. After settlement, the contract distributes the snapshotted payout shares.
+
+### Revenue-share rounding
+
+Prompt, bundle, and access-pass purchases use basis-point shares totaling
+10,000, including the creator's residual share. Settlement floors each share
+to whole stroops and carries its fractional numerator forward per asset,
+recipient, and share role. Collaborator carries are isolated by prompt ID.
+When a carry reaches a whole stroop, that stroop is paid to the recipient.
+
+The undistributed integer balance stays in the contract as a rounding reserve
+and is included in per-asset solvency liabilities. Carry state is updated only
+when an escrow settles; pending and refunded escrows do not affect it. This
+keeps disputes/refunds isolated from completed settlement history. Legacy
+escrows without a rounding snapshot continue using their stored payout plan.
+
+Maintainers can inspect `get_revenue_rounding_report(asset)`, which reports the
+cumulative newly accrued fractional numerator and the currently backed reserve
+in stroops. The shared arithmetic module is tested with 2,048 uneven shares
+over 500 rounds; those scale simulations complement the contract settlement
+and refund tests.
+
+Per-recipient carry is persistent contract state with the normal Soroban
+persistent-entry TTL. Reading
+`get_revenue_rounding_remainder(asset, recipient, kind, source_id)` refreshes
+that entry; use `source_id = 0` for fee, referral, and creator shares, and the
+prompt ID for collaborator shares. Maintainers should refresh dormant carries
+before their TTL expires so fractional entitlements are not lost to storage
+expiry.
 
 ### Unlock purchased prompt
 
@@ -88,6 +116,24 @@ Responsibilities:
 2. Wallet signs the challenge message.
 3. Unlock endpoint verifies token, signature, and `has_access`.
 4. Service decrypts prompt plaintext and returns it to the buyer.
+
+### Hand off a listing (ownership transfer)
+
+The Soroban `Prompt.creator` is immutable, so re-pointing who operates a
+listing is a two-phase, wallet-signature-gated OFF-chain handoff coordinated
+by the central server (routes under `/api/prompts/transfers/*`, see
+`server/src/routes/promptRoutes.ts`):
+
+1. The current indexed owner requests a transfer to a recipient wallet.
+2. The recipient wallet signs an approval (or rejection).
+3. On approval the server re-points the indexed `Prompt.owner` to the
+   recipient's `User` record and records a `rejectionReason` if the handoff
+   later fails.
+4. Requests expire after 72 hours and stay in a `pending`/`expired` state
+   until the recipient responds or the requester cancels.
+
+`Prompt.creator` (and therefore where license fees ultimately settle) is never
+changed.
 
 ## Security Model
 

@@ -1,0 +1,290 @@
+{
+  "_metadata": {
+    "generated_at": "2024-01-01T00:00:00Z",
+    "spec_version": "0.0.1",
+    "description": "TypeScript type mappings from Rust contract types"
+  },
+  "type_mappings": {
+    "primitive_types": {
+      "u64": "bigint",
+      "u128": "bigint",
+      "u32": "number",
+      "i128": "bigint",
+      "i64": "bigint",
+      "i32": "number",
+      "bool": "boolean",
+      "String": "string",
+      "Address": "string",
+      "Bytes": "string",
+      "BytesN<32>": "string"
+    },
+    "complex_types": {
+      "Vec<T>": "Array<T>",
+      "Option<T>": "T | null",
+      "Result<T, E>": "Promise<T>",
+      "Env": "object",
+      "Error": "Error"
+    },
+    "contract_types": {
+      "Prompt": {
+        "id": "bigint",
+        "creator": "string",
+        "image_url": "string",
+        "title": "string",
+        "category": "string",
+        "preview_text": "string",
+        "encrypted_prompt": "string",
+        "encryption_iv": "string",
+        "wrapped_key": "string",
+        "content_hash": "string",
+        "price_stroops": "bigint",
+        "asset": "string",
+        "active": "boolean",
+        "sales_count": "number",
+        "max_supply": "number",
+        "expires_at": "number",
+        "splits": "Array<Split>",
+        "revision": "number",
+        "tags": "Array<string>"
+      },
+      "Bundle": {
+        "id": "bigint",
+        "creator": "string",
+        "title": "string",
+        "prompt_ids": "Array<bigint>",
+        "price_stroops": "bigint",
+        "asset": "string",
+        "active": "boolean",
+        "sales_count": "number",
+        "expires_at": "number"
+      },
+      "AccessPass": {
+        "id": "bigint",
+        "creator": "string",
+        "title": "string",
+        "duration_secs": "number",
+        "price_stroops": "bigint",
+        "asset": "string",
+        "active": "boolean",
+        "sales_count": "number"
+      },
+      "Split": {
+        "recipient": "string",
+        "bps": "number"
+      },
+      "ListingConfig": {
+        "price": "bigint",
+        "asset": "string",
+        "expires_at": "number",
+        "splits": "Array<Split>",
+        "tags": "Array<string>",
+        "max_supply": "number"
+      },
+      "Purchase": {
+        "prompt_id": "number",
+        "original_creator": "string",
+        "owner": "string",
+        "original_price": "bigint",
+        "last_transfer_price": "bigint",
+        "transfer_count": "number",
+        "last_transferred_at": "number",
+        "expires_at": "number"
+      },
+      "PurchaseDispute": {
+        "prompt_id": "number",
+        "buyer": "string",
+        "reason": "DisputeReason",
+        "opened_at": "number",
+        "resolved_at": "number",
+        "status": "DisputeStatus"
+      },
+      "ListingRevisionRecord": {
+        "prompt_id": "number",
+        "revision": "number",
+        "title": "string",
+        "category": "string",
+        "preview_text": "string",
+        "image_url": "string",
+        "price_stroops": "bigint",
+        "revised_at": "number"
+      }
+    },
+    "enum_types": {
+      "DisputeReason": {
+        "InvalidEncryptedPayload": "InvalidEncryptedPayload",
+        "MissingMetadata": "MissingMetadata",
+        "FailedIntegrityVerification": "FailedIntegrityVerification"
+      },
+      "DisputeStatus": {
+        "Open": "Open",
+        "Refunded": "Refunded",
+        "Rejected": "Rejected"
+      }
+    }
+  },
+  "client_methods": {
+    "PromptHashClient": {
+      "getPrompt": {
+        "contract_method": "get_prompt",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "prompt_id", "type": "u64", "mapped": "bigint" }
+        ],
+        "return_type": "Result<Prompt, Error>",
+        "mapped_return": "Promise<PromptRecord>"
+      },
+      "getAllPrompts": {
+        "contract_method": "get_all_prompts",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" }
+        ],
+        "return_type": "Result<Vec<Prompt>, Error>",
+        "mapped_return": "Promise<Array<PromptRecord>>"
+      },
+      "getPromptsByCreator": {
+        "contract_method": "get_prompts_by_creator",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "string" }
+        ],
+        "return_type": "Result<Vec<Prompt>, Error>",
+        "mapped_return": "Promise<Array<PromptRecord>>"
+      },
+      "getPromptsByBuyer": {
+        "contract_method": "get_prompts_by_buyer",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "buyer", "type": "Address", "mapped": "string" }
+        ],
+        "return_type": "Result<Vec<Prompt>, Error>",
+        "mapped_return": "Promise<Array<PromptRecord>>"
+      },
+      "createPrompt": {
+        "contract_method": "create_prompt",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "walletSigner" },
+          { "name": "image_url", "type": "String", "mapped": "string" },
+          { "name": "title", "type": "String", "mapped": "string" },
+          { "name": "category", "type": "String", "mapped": "string" },
+          { "name": "preview_text", "type": "String", "mapped": "string" },
+          { "name": "encrypted_prompt", "type": "String", "mapped": "string" },
+          { "name": "encryption_iv", "type": "String", "mapped": "string" },
+          { "name": "wrapped_key", "type": "String", "mapped": "string" },
+          { "name": "content_hash", "type": "BytesN<32>", "mapped": "string" },
+          { "name": "listing", "type": "ListingConfig", "mapped": "CreatePromptInput" }
+        ],
+        "return_type": "Result<u64, Error>",
+        "mapped_return": "Promise<{ success: boolean, txHash: string, promptId: string }>"
+      },
+      "purchasePrompt": {
+        "contract_method": "buy_prompt",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "buyer", "type": "Address", "mapped": "string" },
+          { "name": "prompt_id", "type": "u64", "mapped": "string" },
+          { "name": "referrer", "type": "Option<Address>", "mapped": "string | null" },
+          { "name": "payment_amount_stroops", "type": "i128", "mapped": "bigint" },
+          { "name": "voucher", "type": "Option<Bytes>", "mapped": "string | null" }
+        ],
+        "return_type": "Result<(), Error>",
+        "mapped_return": "Promise<{ txHash: string, success: boolean }>"
+      },
+      "setPromptSaleStatus": {
+        "contract_method": "set_prompt_sale_status",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "walletSigner" },
+          { "name": "prompt_id", "type": "u64", "mapped": "string" },
+          { "name": "active", "type": "bool", "mapped": "boolean" }
+        ],
+        "return_type": "Result<(), Error>",
+        "mapped_return": "Promise<{ success: boolean }>"
+      },
+      "updatePromptPrice": {
+        "contract_method": "update_prompt_price",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "walletSigner" },
+          { "name": "prompt_id", "type": "u64", "mapped": "string" },
+          { "name": "price_stroops", "type": "i128", "mapped": "string" }
+        ],
+        "return_type": "Result<(), Error>",
+        "mapped_return": "Promise<{ success: boolean }>"
+      },
+      "hasAccess": {
+        "contract_method": "has_access",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "user", "type": "Address", "mapped": "string" },
+          { "name": "prompt_id", "type": "u64", "mapped": "string" }
+        ],
+        "return_type": "Result<bool, Error>",
+        "mapped_return": "Promise<boolean>"
+      },
+      "getBundle": {
+        "contract_method": "get_bundle",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "bundle_id", "type": "u128", "mapped": "bigint" }
+        ],
+        "return_type": "Result<Bundle, Error>",
+        "mapped_return": "Promise<BundleRecord>"
+      },
+      "getBundlesByCreator": {
+        "contract_method": "get_bundles_by_creator",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "string" }
+        ],
+        "return_type": "Result<Vec<Bundle>, Error>",
+        "mapped_return": "Promise<Array<BundleRecord>>"
+      },
+      "createBundle": {
+        "contract_method": "create_bundle",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "walletSigner" },
+          { "name": "title", "type": "String", "mapped": "string" },
+          { "name": "prompt_ids", "type": "Vec<u128>", "mapped": "Array<string | bigint>" },
+          { "name": "price_stroops", "type": "i128", "mapped": "bigint" },
+          { "name": "asset", "type": "Address", "mapped": "string" },
+          { "name": "expires_at", "type": "u64", "mapped": "number" }
+        ],
+        "return_type": "Result<u128, Error>",
+        "mapped_return": "Promise<{ success: boolean, txHash: string, bundleId: string }>"
+      },
+      "getAccessPass": {
+        "contract_method": "get_access_pass",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "pass_id", "type": "u128", "mapped": "bigint" }
+        ],
+        "return_type": "Result<AccessPass, Error>",
+        "mapped_return": "Promise<AccessPassRecord>"
+      },
+      "getAccessPassesByCreator": {
+        "contract_method": "get_access_passes_by_creator",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "string" }
+        ],
+        "return_type": "Result<Vec<AccessPass>, Error>",
+        "mapped_return": "Promise<Array<AccessPassRecord>>"
+      },
+      "createAccessPass": {
+        "contract_method": "create_access_pass",
+        "parameters": [
+          { "name": "env", "type": "Env", "mapped": "config" },
+          { "name": "creator", "type": "Address", "mapped": "walletSigner" },
+          { "name": "title", "type": "String", "mapped": "string" },
+          { "name": "duration_secs", "type": "u64", "mapped": "number" },
+          { "name": "price_stroops", "type": "i128", "mapped": "bigint" },
+          { "name": "asset", "type": "Address", "mapped": "string" }
+        ],
+        "return_type": "Result<u128, Error>",
+        "mapped_return": "Promise<{ success: boolean, txHash: string, passId: string }>"
+      }
+    }
+  }
+}

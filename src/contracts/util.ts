@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
+import { Networks } from "@creit.tech/stellar-wallets-kit";
 import { Network, NetworkType } from "../debug/types/types";
 
 const envSchema = z.object({
@@ -10,7 +10,7 @@ const envSchema = z.object({
     "LOCAL",
     "STANDALONE", // deprecated in favor of LOCAL
   ] as const),
-  PUBLIC_STELLAR_NETWORK_PASSPHRASE: z.nativeEnum(WalletNetwork),
+  PUBLIC_STELLAR_NETWORK_PASSPHRASE: z.nativeEnum(Networks),
   PUBLIC_STELLAR_RPC_URL: z.string(),
   PUBLIC_STELLAR_HORIZON_URL: z.string(),
 });
@@ -21,7 +21,7 @@ const env: z.infer<typeof envSchema> = parsed.success
   ? parsed.data
   : {
       PUBLIC_STELLAR_NETWORK: "LOCAL",
-      PUBLIC_STELLAR_NETWORK_PASSPHRASE: WalletNetwork.STANDALONE,
+      PUBLIC_STELLAR_NETWORK_PASSPHRASE: Networks.STANDALONE,
       PUBLIC_STELLAR_RPC_URL: "http://localhost:8000/rpc",
       PUBLIC_STELLAR_HORIZON_URL: "http://localhost:8000",
     };

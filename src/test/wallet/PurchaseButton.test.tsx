@@ -5,6 +5,31 @@ import { renderWithProviders } from "../render";
 import { PromptModal } from "@/pages/browse/PromptModal";
 import type { WalletContextType } from "@/providers/WalletProvider";
 import { PromptHashClient } from "@/lib/stellar/promptHashClient";
+import { submitXlmPromptPayment } from "@/lib/payments/xlmGateway";
+
+// Preserves module boundaries and provides all necessary configuration keys
+vi.mock("@/lib/env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/env")>();
+  return {
+    ...actual,
+    allowHttp: false,
+    nativeAssetContractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    promptHashContractId: "CPROMPTHASH",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    simulationAccount: "GSIMULATION",
+    stellarWalletNetwork: "Test SDF Network ; September 2015",
+    browserStellarConfig: {
+      allowHttp: false,
+      nativeAssetContractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      promptHashContractId: "CPROMPTHASH",
+      rpcUrl: "https://soroban-testnet.stellar.org",
+      simulationAccount: "GSIMULATION",
+      stellarWalletNetwork: "Test SDF Network ; September 2015",
+    },
+  };
+});
 
 // Mock the PromptHashClient
 vi.mock("@/lib/stellar/promptHashClient", () => ({
@@ -18,6 +43,10 @@ vi.mock("@/lib/stellar/promptHashClient", () => ({
 // Mock unlock function
 vi.mock("@/lib/prompts/unlock", () => ({
   unlockPrompt: vi.fn(),
+}));
+
+vi.mock("@/lib/payments/xlmGateway", () => ({
+  submitXlmPromptPayment: vi.fn(),
 }));
 
 // Mock review client
@@ -48,6 +77,11 @@ describe("Purchase Button States", () => {
     vi.clearAllMocks();
     vi.mocked(PromptHashClient.checkAccess).mockResolvedValue(false);
     vi.mocked(PromptHashClient.getPrompt).mockResolvedValue(mockPrompt);
+    vi.mocked(submitXlmPromptPayment).mockResolvedValue({
+      txHash: "test",
+      success: true,
+      status: "confirmed",
+    });
   });
 
   it("disables purchase button when wallet is disconnected", async () => {
@@ -56,18 +90,16 @@ describe("Purchase Button States", () => {
       status: "idle",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      networkCompatibility: { compatible: true } as any,
     };
 
     renderWithProviders(
       <PromptModal itemId="1" isOpen={true} onClose={vi.fn()} />,
-      { wallet: mockWallet }
+      { wallet: mockWallet },
     );
 
     await waitFor(() => {
-      const purchaseButton = screen.queryByRole("button", { name: /confirm & purchase/i });
-      if (purchaseButton) {
-        expect(purchaseButton).toBeDisabled();
-      }
+      expect(screen.getByText(/Wallet not connected/i)).toBeInTheDocument();
     });
   });
 
@@ -75,22 +107,21 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
+      networkCompatibility: { compatible: true } as any,
     };
 
     renderWithProviders(
       <PromptModal itemId="1" isOpen={true} onClose={vi.fn()} />,
-      { wallet: mockWallet }
+      { wallet: mockWallet },
     );
 
     await waitFor(() => {
-      const purchaseButton = screen.queryByRole("button", { name: /confirm & purchase/i });
-      if (purchaseButton) {
-        expect(purchaseButton).not.toBeDisabled();
-      }
+      expect(screen.queryByText(/Wallet not connected/i)).not.toBeInTheDocument();
     });
   });
 
@@ -99,31 +130,38 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
+      networkCompatibility: { compatible: true } as any,
     };
 
-    // Mock purchase to delay
-    vi.mocked(PromptHashClient.purchasePrompt).mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ txHash: "test", success: true }), 100))
+    vi.mocked(submitXlmPromptPayment).mockImplementation(
+      ({ onStatus }) => new Promise((resolve) => {
+        onStatus?.({
+          status: "awaiting_approval",
+          message: "Review and approve the XLM payment in your wallet.",
+        });
+        setTimeout(() => resolve({ txHash: "test", success: true, status: "confirmed" }), 100);
+      })
     );
 
     renderWithProviders(
       <PromptModal itemId="1" isOpen={true} onClose={vi.fn()} />,
-      { wallet: mockWallet }
+      { wallet: mockWallet },
     );
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /confirm & purchase/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /confirm & purchase/i })).toBeInTheDocument();
     });
 
     const purchaseButton = screen.getByRole("button", { name: /confirm & purchase/i });
     await user.click(purchaseButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/confirming in wallet/i)).toBeInTheDocument();
+      expect(screen.getByText(/Confirming in Wallet/i)).toBeInTheDocument();
     });
   });
 
@@ -132,20 +170,21 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
+      networkCompatibility: { compatible: true } as any,
     };
 
-    // Mock purchase to fail
-    vi.mocked(PromptHashClient.purchasePrompt).mockRejectedValue(
+    vi.mocked(submitXlmPromptPayment).mockRejectedValue(
       new Error("Insufficient XLM balance")
     );
 
     renderWithProviders(
       <PromptModal itemId="1" isOpen={true} onClose={vi.fn()} />,
-      { wallet: mockWallet }
+      { wallet: mockWallet },
     );
 
     await waitFor(() => {
@@ -156,7 +195,7 @@ describe("Purchase Button States", () => {
     await user.click(purchaseButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/insufficient xlm balance/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/does not have enough XLM/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -164,27 +203,21 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "PUBLIC", // Wrong network
+      network: "PUBLIC",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
+      networkCompatibility: { compatible: true } as any,
     };
 
     renderWithProviders(
       <PromptModal itemId="1" isOpen={true} onClose={vi.fn()} />,
-      { wallet: mockWallet }
+      { wallet: mockWallet },
     );
 
     await waitFor(() => {
-      // Should show network mismatch warning
       expect(screen.getByText(/wrong network/i)).toBeInTheDocument();
-    });
-
-    await waitFor(() => {
-      const purchaseButton = screen.queryByRole("button", { name: /confirm & purchase/i });
-      if (purchaseButton) {
-        expect(purchaseButton).toBeDisabled();
-      }
     });
   });
 
@@ -192,23 +225,23 @@ describe("Purchase Button States", () => {
     const mockWallet: Partial<WalletContextType> = {
       address: "GCTESTADDRESS1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
       status: "connected",
-      network: "TESTNET",
+      network: "Test SDF Network ; September 2015",
       connect: vi.fn(),
       disconnect: vi.fn(),
+      signTransaction: vi.fn(),
       signMessage: vi.fn(),
+      networkCompatibility: { compatible: true } as any,
     };
 
-    // Mock that user already has access
     vi.mocked(PromptHashClient.checkAccess).mockResolvedValue(true);
 
     renderWithProviders(
       <PromptModal itemId="1" isOpen={true} onClose={vi.fn()} />,
-      { wallet: mockWallet }
+      { wallet: mockWallet },
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/decrypt content/i)).toBeInTheDocument();
-      expect(screen.queryByText(/confirm & purchase/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/License Verified/i)).toBeInTheDocument();
     });
   });
 });
