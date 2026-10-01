@@ -1,0 +1,16 @@
+# GitGuardian configuration to whitelist known false positives
+# These are placeholder values in .env.example that are not real secrets
+
+secrets:
+  # Exclude placeholder keys that are clearly not real secrets
+  - description: "Placeholder values in .env.example"
+    path: ".env.example"
+    hashes:
+      # "dummy-public-key-value-here" in base64
+      - "ZHVtbXktcHVibGljLWtleS12YWx1ZS1oZXJl"
+      # "dummy-private-key-value-here" in base64
+      - "ZHVtbXktcHJpdmF0ZS1rZXktdmFsdWUtaGVyZQ=="
+      # "dummy-receipt-public-key-here" in base64
+      - "ZHVtbXktcmVjZWlwdC1wdWJsaWMta2V5LWhlcmU="
+      # "dummy-receipt-private-key-here" in base64
+      - "ZHVtbXktcmVjZWlwdC1wcml2YXRlLWtleS1oZXJl"
