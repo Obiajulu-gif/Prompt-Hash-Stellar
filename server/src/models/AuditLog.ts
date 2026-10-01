@@ -60,6 +60,8 @@ export const AUDIT_ACTIONS = [
   "prompt_lifecycle_transition",
   "prompt_lifecycle_transition_denied",
   "moderation.override",
+  "identity_link",
+  "identity_unlink",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

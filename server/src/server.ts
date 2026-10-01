@@ -27,6 +27,7 @@ import { policyLimitRouter } from "./routes/policyLimitRoutes";
 import { operationRecoveryRouter } from "./routes/operationRecoveryRoutes";
 import { receiptRouter } from "./routes/receiptRoutes";
 import { maintenanceBannerRouter } from "./routes/maintenanceBannerRoutes";
+import { externalIdentityRouter } from "./routes/externalIdentityRoutes";
 import {
   GetOpenApiSchema,
   GetOpenApiExplorer,
@@ -66,6 +67,7 @@ app.use("/api/reviews", reviewRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/audit", auditRouter); // #783
 app.use("/api/wallet-session", walletSessionRouter); // #753, #784
+app.use("/api/external-identities", externalIdentityRouter); // #921
 app.use("/api/library", libraryRouter); // #784
 app.use("/api/provenance", provenanceRouter); // #753
 app.use("/api/marketplace", marketplaceRouter);
