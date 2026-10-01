@@ -15,11 +15,23 @@ export const REPORT_REASONS: Record<ReportReason, string> = {
   other: "Other reason",
 };
 
+export type ReportStatus = "pending" | "investigating" | "resolved" | "dismissed";
+
+export interface ReportEvidence {
+  url: string;
+  kind: "image" | "pdf" | "link" | "text";
+  addedBy?: string;
+}
+
 export interface PromptReport {
+  _id?: string;
   promptId: string;
   reporterAddress: string;
   reason: ReportReason;
   description?: string;
+  evidence?: ReportEvidence[];
+  status?: ReportStatus;
+  adminNotes?: string;
   createdAt: string;
 }
 
@@ -27,6 +39,7 @@ export interface ReportResponse {
   success: boolean;
   message: string;
   reportId?: string;
+  evidenceCount?: number;
 }
 
 export class ReportClient {
@@ -37,7 +50,8 @@ export class ReportClient {
     promptId: string,
     reporterAddress: string,
     reason: ReportReason,
-    description?: string
+    description?: string,
+    evidence?: ReportEvidence[]
   ): Promise<ReportResponse> {
     try {
       const response = await fetch("/api/prompts/reports", {
@@ -50,6 +64,7 @@ export class ReportClient {
           reporterAddress,
           reason,
           description,
+          evidence,
         }),
       });
 
@@ -84,5 +99,45 @@ export class ReportClient {
       console.error("Fetch reports error:", error);
       return [];
     }
+  }
+
+  static async getAllReports(): Promise<PromptReport[]> {
+    try {
+      const response = await fetch("/api/prompts/reports", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch reports");
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Fetch reports error:", error);
+      return [];
+    }
+  }
+
+  static async updateReport(
+    reportId: string,
+    status: "resolved" | "dismissed" | "investigating",
+    adminNotes?: string,
+  ): Promise<ReportResponse> {
+    const response = await fetch("/api/prompts/reports", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
+      },
+      body: JSON.stringify({ reportId, status, adminNotes }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to update report");
+    }
+
+    return await response.json();
   }
 }

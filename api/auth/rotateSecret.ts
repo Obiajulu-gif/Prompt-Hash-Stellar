@@ -1,172 +1,323 @@
 /**
  * Secret Rotation Endpoint
- * 
- * This endpoint handles the rotation of challenge token secrets.
- * It supports multiple active secrets during a grace period to prevent
- * service disruption during rotation.
+ *
+ * Durable, atomic secret rotation with compare-and-swap versioning.
+ * Concurrent rotations have a deterministic winner; the loser gets a retriable conflict.
+ * No secret material is logged or returned in responses.
  */
 
-import { randomBytes } from "crypto";
+import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "crypto";
 import { isPlaceholder } from "../../src/lib/validation/envValidator";
+import { AdminTokenError, verifyAdminToken } from "../../server/src/services/adminToken";
+import { recordAuditEvent } from "../../server/src/services/auditTrail";
 
-interface SecretRotationConfig {
-  currentSecret: string;
-  previousSecret?: string;
-  rotationTimestamp: number;
+const ALGORITHM = "aes-256-gcm";
+const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
+const ROTATE_SECRET_SCOPE = "secrets:rotate";
+
+interface SecretVersion {
+  version: number;
+  encryptedSecret: string;
+  iv: string;
+  authTag: string;
+  createdAt: number;
+}
+
+interface RotationConfig {
+  activeVersion: number;
+  versions: SecretVersion[];
   gracePeriodMs: number;
 }
 
-const DEFAULT_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
-
-/**
- * Generate a new cryptographically secure secret
- */
-export function generateNewSecret(): string {
-  return randomBytes(32).toString("base64url");
+interface RotationApproval {
+  expectedVersion: number;
+  operators: Set<string>;
+  createdAt: number;
 }
 
-/**
- * Get active secrets (current + previous if within grace period)
- */
-export function getActiveSecrets(): string[] {
-  const config = getRotationConfig();
-  const secrets = [config.currentSecret];
-  
-  if (config.previousSecret) {
-    const timeSinceRotation = Date.now() - config.rotationTimestamp;
-    if (timeSinceRotation < config.gracePeriodMs) {
-      secrets.push(config.previousSecret);
-    }
-  }
-  
-  return secrets;
+// ── Encryption helpers ──────────────────────────────────────────────
+
+function deriveKey(passphrase: string): Buffer {
+  return scryptSync(passphrase, "prompt-hash-rotation-salt", 32);
 }
 
-/**
- * Rotate the secret and update environment
- */
-export function rotateSecret(): SecretRotationConfig {
-  const currentSecret = process.env.CHALLENGE_TOKEN_SECRET;
-  if (!currentSecret || isPlaceholder(currentSecret) || currentSecret.length < 16) {
-    throw new Error("CHALLENGE_TOKEN_SECRET not configured correctly");
-  }
+function encryptSecret(plaintext: string, passphrase: string): { encrypted: string; iv: string; authTag: string } {
+  const key = deriveKey(passphrase);
+  const iv = randomBytes(16);
+  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return { encrypted: encrypted.toString("hex"), iv: iv.toString("hex"), authTag: authTag.toString("hex") };
+}
 
-  const newSecret = generateNewSecret();
-  const newConfig: SecretRotationConfig = {
-    currentSecret: newSecret,
-    previousSecret: currentSecret,
-    rotationTimestamp: Date.now(),
-    gracePeriodMs: DEFAULT_GRACE_PERIOD_MS,
+function decryptSecret(encrypted: string, iv: string, authTag: string, passphrase: string): string {
+  const key = deriveKey(passphrase);
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, "hex"));
+  decipher.setAuthTag(Buffer.from(authTag, "hex"));
+  const decrypted = Buffer.concat([decipher.update(Buffer.from(encrypted, "hex")), decipher.final()]);
+  return decrypted.toString("utf8");
+}
+
+// ── Storage layer (replace with Redis/Vault in production) ──────────
+
+let rotationStore: RotationConfig = {
+  activeVersion: 0,
+  versions: [],
+  gracePeriodMs: GRACE_PERIOD_MS,
+};
+const rotationApprovals = new Map<string, RotationApproval>();
+
+function loadConfig(): RotationConfig {
+  return rotationStore;
+}
+
+function saveConfig(config: RotationConfig): void {
+  rotationStore = config;
+}
+
+export function __resetRotationStateForTests(): void {
+  rotationStore = {
+    activeVersion: 0,
+    versions: [],
+    gracePeriodMs: GRACE_PERIOD_MS,
   };
+  rotationApprovals.clear();
+}
 
-  // Store rotation config (in production, use secure storage like AWS Secrets Manager)
-  storeRotationConfig(newConfig);
+function approvalKey(expectedVersion: number): string {
+  return `secret-rotation:${expectedVersion}`;
+}
 
-  return newConfig;
+function requiredApprovalCount(): number {
+  const configured = Number(process.env.SECRET_ROTATION_REQUIRED_APPROVALS ?? "2");
+  return Number.isFinite(configured) && configured > 0 ? Math.ceil(configured) : 2;
+}
+
+// ── Core rotation logic ─────────────────────────────────────────────
+
+function getDecryptedSecret(config: RotationConfig, version: SecretVersion, passphrase: string): string {
+  return decryptSecret(version.encryptedSecret, version.iv, version.authTag, passphrase);
 }
 
 /**
- * Get current rotation configuration
+ * Compare-and-swap rotation: only succeeds if `expectedVersion` matches the current active version.
+ * Returns the new version number on success, or a conflict result.
  */
-function getRotationConfig(): SecretRotationConfig {
-  // In production, retrieve from secure storage
-  // For now, use environment variables
-  const currentSecret = process.env.CHALLENGE_TOKEN_SECRET || "";
-  const previousSecret = process.env.CHALLENGE_TOKEN_SECRET_PREVIOUS;
-  const rotationTimestamp = parseInt(
-    process.env.CHALLENGE_TOKEN_ROTATION_TIMESTAMP || "0",
-    10
-  );
-  const gracePeriodMs = parseInt(
-    process.env.CHALLENGE_TOKEN_GRACE_PERIOD_MS || String(DEFAULT_GRACE_PERIOD_MS),
-    10
-  );
+export function rotateSecretCAS(
+  expectedVersion: number,
+  passphrase: string,
+): { ok: true; newVersion: number } | { ok: false; conflictVersion: number } {
+  const config = loadConfig();
+  const currentVersion = config.activeVersion;
 
-  return {
-    currentSecret,
-    previousSecret,
-    rotationTimestamp,
-    gracePeriodMs,
+  if (currentVersion !== expectedVersion) {
+    return { ok: false, conflictVersion: currentVersion };
+  }
+
+  const newSecret = randomBytes(32).toString("base64url");
+  const { encrypted, iv, authTag } = encryptSecret(newSecret, passphrase);
+  const newVersionNum = currentVersion + 1;
+
+  config.versions.push({
+    version: newVersionNum,
+    encryptedSecret: encrypted,
+    iv,
+    authTag,
+    createdAt: Date.now(),
+  });
+
+  // Expire versions older than grace period
+  const cutoff = Date.now() - config.gracePeriodMs;
+  config.versions = config.versions.filter((v) => v.version === newVersionNum || v.createdAt >= cutoff);
+
+  config.activeVersion = newVersionNum;
+  saveConfig(config);
+
+  return { ok: true, newVersion: newVersionNum };
+}
+
+export function approveSecretRotation(
+  expectedVersion: number,
+  operatorId: string,
+): { approved: false; requiredApprovals: number; receivedApprovals: number } | { approved: true } {
+  const operator = operatorId.trim();
+  if (!operator) {
+    throw new Error("operatorId is required for secret rotation approval.");
+  }
+  const required = requiredApprovalCount();
+  const key = approvalKey(expectedVersion);
+  const approval = rotationApprovals.get(key) ?? {
+    expectedVersion,
+    operators: new Set<string>(),
+    createdAt: Date.now(),
   };
+  approval.operators.add(operator);
+  rotationApprovals.set(key, approval);
+
+  if (approval.operators.size < required) {
+    return {
+      approved: false,
+      requiredApprovals: required,
+      receivedApprovals: approval.operators.size,
+    };
+  }
+  return { approved: true };
 }
 
-/**
- * Store rotation configuration
- * In production, this should write to AWS Secrets Manager, HashiCorp Vault, etc.
- */
-function storeRotationConfig(config: SecretRotationConfig): void {
-  // Mock implementation - in production, use secure secret storage
-  console.log("⚠️ MOCK: Secret rotation config should be stored in secure storage");
-  console.log("New secret generated:", config.currentSecret.substring(0, 8) + "...");
-  console.log("Previous secret retained for grace period:", config.gracePeriodMs, "ms");
-  
-  // In production, update environment variables or secret manager:
-  // await secretsManager.updateSecret({
-  //   SecretId: 'challenge-token-secret',
-  //   SecretString: JSON.stringify(config)
-  // });
-}
+export function rotateSecretWithApprovals(
+  expectedVersion: number,
+  passphrase: string,
+  operatorId: string,
+): { ok: true; newVersion: number } | { ok: false; conflictVersion?: number; pending?: true; requiredApprovals?: number; receivedApprovals?: number } {
+  const approval = approveSecretRotation(expectedVersion, operatorId);
+  if (!approval.approved) return { ok: false, pending: true, ...approval };
 
-/**
- * Verify if a secret is currently valid (current or within grace period)
- */
-export function isSecretValid(secret: string): boolean {
-  const activeSecrets = getActiveSecrets();
-  return activeSecrets.includes(secret);
-}
+  const before = loadConfig();
+  const snapshot: RotationConfig = {
+    activeVersion: before.activeVersion,
+    gracePeriodMs: before.gracePeriodMs,
+    versions: [...before.versions],
+  };
+  const result = rotateSecretCAS(expectedVersion, passphrase);
+  if (!result.ok) return result;
 
-/**
- * Clean up expired previous secrets
- */
-export function cleanupExpiredSecrets(): void {
-  const config = getRotationConfig();
-  
-  if (config.previousSecret) {
-    const timeSinceRotation = Date.now() - config.rotationTimestamp;
-    
-    if (timeSinceRotation >= config.gracePeriodMs) {
-      // Grace period expired, remove previous secret
-      const cleanedConfig: SecretRotationConfig = {
-        currentSecret: config.currentSecret,
-        previousSecret: undefined,
-        rotationTimestamp: config.rotationTimestamp,
-        gracePeriodMs: config.gracePeriodMs,
-      };
-      
-      storeRotationConfig(cleanedConfig);
-      console.log("✓ Expired previous secret cleaned up");
+  try {
+    if (getActiveSecrets(passphrase).length === 0) {
+      throw new Error("Rotated secret set failed verification.");
     }
+    rotationApprovals.delete(approvalKey(expectedVersion));
+    return result;
+  } catch (err) {
+    saveConfig(snapshot);
+    throw err;
   }
 }
 
-// HTTP endpoint handler for manual rotation
+/**
+ * Get all currently active secrets (current + any within grace period).
+ */
+export function getActiveSecrets(passphrase: string): string[] {
+  const config = loadConfig();
+  const cutoff = Date.now() - config.gracePeriodMs;
+  const activeVersions = config.versions.filter(
+    (v) => v.version === config.activeVersion || v.createdAt >= cutoff,
+  );
+  return activeVersions.map((v) => getDecryptedSecret(config, v, passphrase));
+}
+
+/**
+ * Verify if a secret is currently valid (current or within grace period).
+ */
+export function isSecretValid(secret: string, passphrase: string): boolean {
+  const active = getActiveSecrets(passphrase);
+  return active.includes(secret);
+}
+
+/**
+ * Manually clean up expired previous versions.
+ */
+export function cleanupExpiredVersions(): void {
+  const config = loadConfig();
+  const cutoff = Date.now() - config.gracePeriodMs;
+  config.versions = config.versions.filter(
+    (v) => v.version === config.activeVersion || v.createdAt >= cutoff,
+  );
+  saveConfig(config);
+}
+
+function activeAdminSecrets(): string[] {
+  return [process.env.ADMIN_TOKEN_SECRET, process.env.ADMIN_TOKEN_SECRET_PREVIOUS].filter(
+    (value): value is string => Boolean(value) && value.length >= 16,
+  );
+}
+
+/**
+ * HTTP endpoint handler for manual rotation.
+ * POST /api/auth/rotateSecret
+ */
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
 
-  // Authentication check - only allow authorized operators
-  const authHeader = req.headers.authorization;
-  const adminToken = process.env.ADMIN_ROTATION_TOKEN;
-  
-  if (!adminToken || authHeader !== `Bearer ${adminToken}`) {
+  const secrets = activeAdminSecrets();
+  const authHeader = req.headers.authorization as string | undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined;
+  const clientIp = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
+
+  if (secrets.length === 0 || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
+  const passphrase = process.env.SECRET_ENCRYPTION_KEY;
+  if (!passphrase) {
+    res.status(500).json({ error: "Server configuration error" });
+    return;
+  }
+
   try {
-    const newConfig = rotateSecret();
-    
+    verifyAdminToken(secrets, token, {
+      audience: process.env.ADMIN_TOKEN_AUDIENCE || "prompt-hash-admin",
+      requiredScope: ROTATE_SECRET_SCOPE,
+    });
+  } catch (err) {
+    const code = err instanceof AdminTokenError ? err.code : "unknown_error";
+    void recordAuditEvent({
+      action: "admin_auth_denied",
+      result: "blocked",
+      promptId: null,
+      walletAddress: null,
+      requestId: null,
+      clientIp,
+      reason: `scope=${ROTATE_SECRET_SCOPE} route=POST /auth/rotateSecret error=${code}`,
+    });
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  void recordAuditEvent({
+    action: "admin_auth_success",
+    result: "success",
+    promptId: null,
+    walletAddress: null,
+    requestId: null,
+    clientIp,
+    reason: `scope=${ROTATE_SECRET_SCOPE} route=POST /auth/rotateSecret`,
+  });
+
+  try {
+    const config = loadConfig();
+    const operatorId = String(req.body?.operatorId ?? req.headers["x-operator-id"] ?? "");
+    const result = rotateSecretWithApprovals(config.activeVersion, passphrase, operatorId);
+
+    if (!result.ok && result.pending) {
+      res.status(202).json({
+        pending: true,
+        expectedVersion: config.activeVersion,
+        requiredApprovals: result.requiredApprovals,
+        receivedApprovals: result.receivedApprovals,
+      });
+      return;
+    }
+
+    if (!result.ok) {
+      res.status(409).json({
+        error: "Rotation conflict — another rotation occurred first",
+        currentVersion: result.conflictVersion,
+      });
+      return;
+    }
+
+    // No secret material in logs or response
     res.status(200).json({
       success: true,
-      message: "Secret rotated successfully",
-      rotationTimestamp: newConfig.rotationTimestamp,
-      gracePeriodMs: newConfig.gracePeriodMs,
-      expiresAt: newConfig.rotationTimestamp + newConfig.gracePeriodMs,
+      rotationId: `rot_${Date.now()}`,
+      newVersion: result.newVersion,
+      gracePeriodMs: config.gracePeriodMs,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Rotation failed";
-    res.status(500).json({ error: message });
+    res.status(500).json({ error: "Rotation failed" });
   }
 }

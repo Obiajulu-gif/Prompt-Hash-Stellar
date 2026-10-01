@@ -2,6 +2,11 @@
 
 This guide provides step-by-step instructions for deploying the PromptHash Stellar application to the Stellar Mainnet.
 
+> Before proceeding, review the enforced platform limits — on-chain supply caps,
+> contract constants, and server-side quotas — documented in
+> [`docs/limits.md`](../limits.md). The top-level deployment reference is
+> [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md).
+
 ## Prerequisites
 
 Before deploying to mainnet, ensure you have:

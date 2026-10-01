@@ -1,7 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
-  ArrowUpRight,
   LibraryBig,
   Loader2,
   PackageOpen,

@@ -166,6 +166,16 @@ Folder descriptions (1-line):
   npm test        # or yarn test / pnpm test
   ```
 
+- Server unit tests:
+  ```bash
+  yarn workspace prompthash-server test
+  ```
+
+- Schema package tests:
+  ```bash
+  yarn workspace @prompthash/schema test
+  ```
+
 - Contract tests:
   ```bash
   cd contracts/prompt-hash
@@ -178,7 +188,21 @@ Folder descriptions (1-line):
 
 ---
 
-## 7) How to contribute (PR checklist)
+## 7) Schema versioning and pagination
+
+All Prompt and Review documents carry a `schemaVersion` integer field. When you add a new field, change a default, or alter an enum on either model:
+
+1. Increment the relevant version constant in `server/src/services/schemaVersioning.ts`.
+2. Add a migration under `server/src/db/migrations/` (use `006_schema_version_metadata.ts` as a template).
+3. Update the transform function and add test cases in `server/src/tests/schemaVersioning.test.ts`.
+
+List endpoints use cursor-based pagination. Do not reintroduce offset (`skip`) pagination — it causes duplicates and skips under concurrent inserts and deletes.
+
+Full details: [`docs/schema-versioning-and-pagination.md`](docs/schema-versioning-and-pagination.md).
+
+---
+
+## 8) How to contribute (PR checklist)
 
 When opening a PR:
 - Create a feature branch off `main` (or `develop` if used): `git checkout -b feat/your-feature`
@@ -188,6 +212,7 @@ When opening a PR:
 - Update docs (if new behavior or env vars).
 - In PR description: explain what you changed, why, and how to test manually.
 - Tag reviewers and add an issue reference if applicable.
+- For automated dependency update review expectations and rollback procedures, see [Dependency Updates Guide](docs/operations/dependency-updates.md).
 
 ---
 

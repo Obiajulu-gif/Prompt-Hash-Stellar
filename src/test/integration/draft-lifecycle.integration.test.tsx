@@ -135,4 +135,93 @@ describe("draft listing lifecycle integration coverage", () => {
 
     expect(await screen.findByText(/no draft listings/i)).toBeInTheDocument();
   });
+
+  it("hides drafts authored by a different wallet (#680 ownership guard)", async () => {
+    const drafts = [
+      {
+        _id: "mine",
+        title: "My owned draft",
+        image: "https://example.com/cover.png",
+        price: 2,
+        category: "Marketing",
+        listingStatus: "ready" as const,
+        missingFields: [],
+        isPublishable: true,
+        updatedAt: new Date().toISOString(),
+        creator: walletAddress,
+      },
+      {
+        _id: "foreign",
+        title: "Someone else's draft",
+        image: "",
+        price: 0,
+        category: "",
+        listingStatus: "ready" as const,
+        missingFields: [],
+        isPublishable: true,
+        updatedAt: new Date().toISOString(),
+        creator: "GOTHERWALLET1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+      },
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/drafts")) {
+        return new Response(JSON.stringify({ drafts }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<DraftManager />, {
+      wallet: { address: walletAddress },
+    });
+
+    expect(await screen.findByText("My owned draft")).toBeInTheDocument();
+    expect(screen.queryByText("Someone else's draft")).not.toBeInTheDocument();
+  });
+
+  it("accepts a bare-array drafts response and still enforces ownership", async () => {
+    const drafts = [
+      {
+        _id: "mine",
+        title: "Array-shaped draft",
+        image: "https://example.com/cover.png",
+        price: 2,
+        category: "Marketing",
+        listingStatus: "ready" as const,
+        missingFields: [],
+        isPublishable: true,
+        updatedAt: new Date().toISOString(),
+        creator: walletAddress,
+      },
+      {
+        _id: "unowned",
+        title: "Unowned draft",
+        image: "",
+        price: 0,
+        category: "",
+        listingStatus: "ready" as const,
+        missingFields: [],
+        isPublishable: true,
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/drafts")) {
+        return new Response(JSON.stringify(drafts), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<DraftManager />, {
+      wallet: { address: walletAddress },
+    });
+
+    expect(await screen.findByText("Array-shaped draft")).toBeInTheDocument();
+    expect(screen.getByText("Unowned draft")).toBeInTheDocument();
+  });
 });

@@ -17,6 +17,12 @@ export default defineConfig({
     include: ["@stellar/stellar-sdk", "buffer"],
   },
 
+  css: {
+    modules: {
+      classNameStrategy: "non-scoped",
+    },
+  },
+
   build: {
     commonjsOptions: {
       include: [/@creit.tech\/stellar-wallets-kit/, /node_modules/],

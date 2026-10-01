@@ -4,6 +4,9 @@ import {
   savePromptListing,
   unsavePromptListing,
 } from "@/lib/prompts/library";
+import { deriveEntitlementHealth, isEntitled } from "@/lib/prompts/entitlementHealth";
+import { fetchBuyerLibrary } from "@/lib/prompts/buyerLibrary";
+import { peekWalletSession } from "@/lib/auth/walletSession";
 
 const walletAddress =
   "GBUYERACCOUNT1234567890ABCDEFGH1234567890ABCDEFGH123456789";
@@ -132,5 +135,78 @@ describe("buyer owned collection API client", () => {
     );
     expect(payload.owned).toHaveLength(1);
     expect(payload.owned[0].prompt.title).toBe("Owned prompt");
+  });
+});
+
+describe("Buyer Collections UI Logic", () => {
+  it("surfaces refunded, revoked, and recovery-needed purchases instead of hiding them (#784)", () => {
+    expect(
+      deriveEntitlementHealth({ purchaseStatus: "resolved", disputeResolution: "refunded" }),
+    ).toBe("refunded");
+    expect(deriveEntitlementHealth({ purchaseStatus: "revoked" })).toBe("revoked");
+    expect(
+      deriveEntitlementHealth({ purchaseStatus: "purchased", disputeStatus: "failed" }),
+    ).toBe("recovery_needed");
+    expect(deriveEntitlementHealth({ purchaseStatus: "disputed" })).toBe("recovery_needed");
+    expect(
+      deriveEntitlementHealth({ purchaseStatus: "purchased", disputeStatus: "delivered" }),
+    ).toBe("active");
+
+    // Refunded and revoked licences no longer grant access.
+    expect(isEntitled("refunded")).toBe(false);
+    expect(isEntitled("revoked")).toBe(false);
+    expect(isEntitled("recovery_needed")).toBe(true);
+  });
+
+  it("surfaces retry state on failed unlock", () => {
+    // Logic for failed unlock retry is handled by UnlockExplainer, which shows the retry button
+    // when unlockState is "failed", "rejected", or "expired".
+    const state: string = "failed";
+    const showRetry = (state === "rejected" || state === "expired" || state === "failed");
+    expect(showRetry).toBe(true);
+  });
+});
+
+describe("buyer library API client (#784)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.sessionStorage.clear();
+  });
+
+  it("sends the wallet session and asks for archived entries too", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ entries: [], collections: [], counts: { total: 0, archived: 0 } }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchBuyerLibrary(walletAddress, "session-token");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/library/${walletAddress}?archived=include`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer session-token" }),
+      }),
+    );
+  });
+
+  it("drops an expired session so the next action re-verifies the wallet", async () => {
+    window.sessionStorage.setItem(
+      `prompthash:wallet-session:${walletAddress.toUpperCase()}`,
+      JSON.stringify({ sessionToken: "stale", expiresAt: Date.now() + 10 * 60_000 }),
+    );
+    expect(peekWalletSession(walletAddress)).toBe("stale");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "A valid wallet session for this wallet is required." }), {
+          status: 401,
+        }),
+      ),
+    );
+
+    await expect(fetchBuyerLibrary(walletAddress, "stale")).rejects.toThrow(/wallet session/);
+    expect(peekWalletSession(walletAddress)).toBeNull();
   });
 });

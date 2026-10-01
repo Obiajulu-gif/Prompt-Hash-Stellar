@@ -1,0 +1,37 @@
+# Dependencies (installed inside the image / kept in named volumes)
+node_modules
+server/node_modules
+
+# Build output
+dist
+dist-ssr
+server/build
+target
+packages/*
+
+# Local state and secrets
+.env
+.env.*
+!.env.example
+.config
+.soroban
+.yarn/install-state.gz
+.pnp.*
+
+# VCS / editor / OS
+.git
+.github
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs and tooling
+*.log
+logs
+.claude
+.codex
+
+# Docs and misc that don't affect the build
+*.md
+!README.md

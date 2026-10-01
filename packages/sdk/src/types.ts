@@ -28,62 +28,66 @@ export interface VoteResult {
   upvotes: number;
 }
 
-// ─── Stellar wallet auth types (used by /api/auth/* endpoints) ───────────────
-
 /**
- * Wallet signing result returned by @creit.tech/stellar-wallets-kit
- * signMessage / signBlob APIs.
+ * Canonical, independently-verifiable purchase receipt (#436).
+ *
+ * Every field is derived from finalized contract state and transaction
+ * evidence — never from a mutable database row — so a receipt can be
+ * re-verified against Stellar RPC alone, without trusting the PromptHash
+ * API or database.
  */
-export interface WalletSignatureResult {
-  /** Base64-encoded Ed25519 signature over the signed bytes. */
-  signedMessage: string;
+export interface PurchaseReceipt {
+  version: 1;
+  network: {
+    passphrase: string;
+    rpcUrl: string;
+  };
+  contract: {
+    id: string;
+  };
+  prompt: {
+    id: string;
+    revision: number;
+  };
+  buyer: string;
+  asset: {
+    contractId: string;
+  };
+  amount: {
+    stroops: string;
+  };
+  transaction: {
+    hash: string;
+    ledger: number;
+    createdAt: string;
+  };
+  event: {
+    topic: string;
+    index: number;
+  };
+  issuedAt: string;
 }
 
-/**
- * Stellar account balance line shapes as returned by Horizon.
- * Mirrors the @stellar/stellar-sdk Horizon.HorizonApi.BalanceLine union.
- */
-export interface NativeBalanceLine {
-  asset_type: "native";
-  balance: string;
+export interface SignedPurchaseReceipt {
+  receipt: PurchaseReceipt;
+  signature: string;
+  signerPublicKey: string;
 }
 
-export interface AlphaNumBalanceLine {
-  asset_type: "credit_alphanum4" | "credit_alphanum12";
-  asset_code: string;
-  asset_issuer: string;
-  balance: string;
-  limit: string;
-  is_authorized: boolean;
-}
-
-export type BalanceLine = NativeBalanceLine | AlphaNumBalanceLine;
-
-/**
- * Horizon account data (minimal subset used by auth checks).
- */
-export interface HorizonAccountData {
-  id: string;
-  sequence: string;
-  balances: BalanceLine[];
-}
-
-/**
- * Asset requirement for token-gated routes.
- * Mirrors src/lib/auth/stellarAuth.ts AssetRequirement for SDK consumers.
- */
-export interface SdkAssetRequirement {
-  assetType: "native" | "credit_alphanum4" | "credit_alphanum12";
-  issuer?: string;
-  code?: string;
-  minimumBalance?: number;
-}
-
-/**
- * Result of an on-chain asset balance check.
- */
-export interface SdkAssetAccessResult {
+export interface ReceiptCurrentEntitlement {
   hasAccess: boolean;
-  balance: string | null;
-  reason?: string;
+  disputeStatus?: "Open" | "Refunded" | "Rejected";
+}
+
+export interface ReceiptVerificationResult {
+  valid: boolean;
+  checks: {
+    signatureValid: boolean;
+    networkMatches: boolean;
+    transactionFound: boolean;
+    transactionSucceeded: boolean;
+    eventMatches: boolean;
+  };
+  currentEntitlement?: ReceiptCurrentEntitlement;
+  errors: string[];
 }

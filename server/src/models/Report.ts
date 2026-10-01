@@ -1,5 +1,14 @@
 import mongoose from "mongoose";
 
+const reportEvidenceSchema = new mongoose.Schema(
+  {
+    url: { type: String, required: true },
+    kind: { type: String, enum: ["image", "pdf", "link", "text"], required: true },
+    addedBy: { type: String, default: "reporter" },
+  },
+  { _id: false },
+);
+
 const reportSchema = new mongoose.Schema(
   {
     promptId: {
@@ -21,6 +30,10 @@ const reportSchema = new mongoose.Schema(
       type: String,
       maxlength: 500,
     },
+    evidence: {
+      type: [reportEvidenceSchema],
+      default: [],
+    },
     status: {
       type: String,
       enum: ["pending", "investigating", "resolved", "dismissed"],
@@ -35,6 +48,20 @@ const reportSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    archivedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    retentionHold: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    retentionHoldReason: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -43,6 +70,13 @@ const reportSchema = new mongoose.Schema(
 
 // Index for finding reports by prompt
 reportSchema.index({ promptId: 1, createdAt: -1 });
+reportSchema.index({
+  status: 1,
+  resolvedAt: 1,
+  updatedAt: 1,
+  archivedAt: 1,
+  retentionHold: 1,
+});
 
 const Report = mongoose.models.Report || mongoose.model("Report", reportSchema);
 

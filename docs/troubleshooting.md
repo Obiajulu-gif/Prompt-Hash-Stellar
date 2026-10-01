@@ -1,5 +1,7 @@
 # Developer FAQ and Troubleshooting Guide
 
+> For a full list of API error codes and recovery actions, see the [Error Code Reference](./error-code-reference.md).
+
 ## Table of Contents
 - [Common Errors](#common-errors)
 - [Wallet Issues](#wallet-issues)

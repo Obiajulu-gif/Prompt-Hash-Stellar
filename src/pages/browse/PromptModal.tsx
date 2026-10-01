@@ -3,14 +3,13 @@ import { Link } from "react-router-dom";
 import { WalletContext } from "../../providers/WalletProvider";
 import { useAsyncTransaction } from "../../components/useAsyncTransaction";
 import { PromptHashClient } from "../../lib/stellar/promptHashClient";
-import {
-  InsufficientXlmBalanceError,
-  UserRejectedTransactionError,
-} from "../../lib/stellar/xlmPaymentGateway";
+import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { unlockPrompt } from "../../lib/prompts/unlock";
 import { Skeleton } from "../../components/Skeleton";
 import { StatusBanner } from "../../components/StatusBanner";
 import { UnlockExplainer } from "../../components/UnlockExplainer";
+import { MultiCurrencyQuoteBreakdown } from "../../components/checkout/MultiCurrencyQuoteBreakdown";
+import { PriceQuote, validateQuoteForPurchase } from "../../lib/checkout/priceQuoter";
 import { copyToClipboard } from "../../lib/clipboard/secureClipboard";
 import { ReportDialog } from "../../components/prompts/ReportDialog";
 import {
@@ -30,11 +29,16 @@ import {
   Hash,
   Share2,
   Flag,
-  AlertTriangle,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
 
+import { PurchaseReceipt } from "../../components/prompts/PurchaseReceipt";
 // Small inline copy button used in the receipt reference details
-const CopyField: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+const CopyField: React.FC<{ value: string; label: string }> = ({
+  value,
+  label,
+}) => {
   const [copied, setCopied] = React.useState(false);
   const handleCopy = async () => {
     try {
@@ -51,7 +55,11 @@ const CopyField: React.FC<{ value: string; label: string }> = ({ value, label })
       title={`Copy ${label}`}
       className="shrink-0 rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
     >
-      {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-emerald-400" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
     </button>
   );
 };
@@ -59,12 +67,16 @@ import { ReviewForm } from "../../components/prompts/ReviewForm";
 import { ReviewList } from "../../components/prompts/ReviewList";
 import { StarRating } from "../../components/prompts/StarRating";
 import { UnlockErrorBanner } from "../../components/UnlockErrorBanner";
+import { ErrorCode } from "../../lib/api/errorCodes";
+import type { UnlockError } from "../../lib/errors/unlockErrors";
 import { ReviewClient } from "../../lib/reviews/reviewClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { stroopsToXlmString } from "../../lib/stellar/format";
+import { getCreatorThumbRating, saveCreatorThumbRating, type ThumbRating } from "../../lib/reputation/creatorReputation";
+import { mapWalletError, type MappedWalletError } from "../../lib/stellar/tx";
 import { NetworkMismatchBanner } from "../../components/wallet/NetworkMismatchBanner";
 import { detectNetworkMismatch } from "../../lib/wallet/networkDetection";
+import { submitXlmPromptPayment, type XlmPaymentStatusUpdate } from "../../lib/payments/xlmGateway";
 
 export type BuyerStatus =
   | "IDLE"
@@ -115,11 +127,18 @@ const ShareLinkButton: React.FC<{ itemId: string }> = ({ itemId }) => {
 };
 
 // Metadata display component
-const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onReportClick?: () => void }> = ({ itemId, status, onReportClick }) => {
+const PromptMetadataSection: React.FC<{
+  itemId: string;
+  status: BuyerStatus;
+  onReportClick?: () => void;
+}> = ({ itemId, status, onReportClick }) => {
   const { data: prompt, isLoading } = useQuery({
     queryKey: ["prompt-detail", itemId],
     queryFn: async () => {
-      return await PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId));
+      return await PromptHashClient.getPrompt(
+        browserStellarConfig,
+        BigInt(itemId),
+      );
     },
     enabled: !!itemId,
   });
@@ -149,14 +168,20 @@ const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onR
     <div className="mb-6 space-y-4">
       {/* Preview Content */}
       <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-        <p className="text-xs uppercase tracking-wider text-slate-400 mb-2">Preview</p>
-        <p className="text-sm text-slate-300 leading-relaxed">{prompt.previewText}</p>
+        <p className="text-xs uppercase tracking-wider text-slate-400 mb-2">
+          Preview
+        </p>
+        <p className="text-sm text-slate-300 leading-relaxed">
+          {prompt.previewText}
+        </p>
       </div>
 
       {/* Quality Score */}
       <div className="p-3 rounded-lg bg-white/5 border border-white/5">
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-400 uppercase tracking-wider">Quality Score</p>
+          <p className="text-xs text-slate-400 uppercase tracking-wider">
+            Quality Score
+          </p>
           {!reviewStatsLoading && reviewStats && reviewStats.total > 0 && (
             <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400">
               {reviewStats.averageRating.toFixed(1)} / 5
@@ -169,11 +194,14 @@ const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onR
           <div className="mt-2 flex items-center gap-3">
             <StarRating rating={reviewStats.averageRating} readonly size="sm" />
             <span className="text-xs text-slate-400">
-              {reviewStats.total} {reviewStats.total === 1 ? "review" : "reviews"}
+              {reviewStats.total}{" "}
+              {reviewStats.total === 1 ? "review" : "reviews"}
             </span>
           </div>
         ) : (
-          <p className="mt-2 text-xs italic text-slate-500">No ratings yet — be the first to review.</p>
+          <p className="mt-2 text-xs italic text-slate-500">
+            No ratings yet — be the first to review.
+          </p>
         )}
       </div>
 
@@ -184,7 +212,10 @@ const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onR
             <User className="h-3 w-3 text-slate-400" />
             <p className="text-xs text-slate-400">Creator</p>
           </div>
-          <p className="text-xs font-mono text-white truncate" title={prompt.creator}>
+          <p
+            className="text-xs font-mono text-white truncate"
+            title={prompt.creator}
+          >
             {prompt.creator.slice(0, 8)}...{prompt.creator.slice(-4)}
           </p>
         </div>
@@ -210,7 +241,10 @@ const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onR
             <Hash className="h-3 w-3 text-slate-400" />
             <p className="text-xs text-slate-400">Content Hash</p>
           </div>
-          <p className="text-xs font-mono text-white truncate" title={prompt.contentHash}>
+          <p
+            className="text-xs font-mono text-white truncate"
+            title={prompt.contentHash}
+          >
             {prompt.contentHash.slice(0, 8)}...
           </p>
         </div>
@@ -234,14 +268,18 @@ const PromptMetadataSection: React.FC<{ itemId: string; status: BuyerStatus; onR
       {isPurchased && (
         <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
           <CheckCircle className="h-4 w-4 text-emerald-400" />
-          <p className="text-xs text-emerald-300 font-semibold">You own this prompt license</p>
+          <p className="text-xs text-emerald-300 font-semibold">
+            You own this prompt license
+          </p>
         </div>
       )}
 
       {!prompt.active && (
         <div className="p-3 rounded-lg bg-slate-500/10 border border-slate-500/20 flex items-center gap-2">
           <X className="h-4 w-4 text-slate-400" />
-          <p className="text-xs text-slate-400 font-semibold">This prompt is currently unavailable</p>
+          <p className="text-xs text-slate-400 font-semibold">
+            This prompt is currently unavailable
+          </p>
         </div>
       )}
     </div>
@@ -259,10 +297,15 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
   const [status, setStatus] = useState<BuyerStatus>("IDLE");
   const [txHash, setTxHash] = useState<string>("");
+  const [paymentMessage, setPaymentMessage] = useState<string>("");
   const [secretContent, setSecretContent] = useState<string>("");
   const [isCheckingAccess, setIsCheckingAccess] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  const [creatorThumbRating, setCreatorThumbRating] =
+    useState<ThumbRating | null>(null);
+  const [currentQuote, setCurrentQuote] = useState<PriceQuote | null>(null);
+  const [isQuoteValid, setIsQuoteValid] = useState<boolean>(true);
   const [copyFeedback, setCopyFeedback] = useState<{
     visible: boolean;
     success: boolean;
@@ -274,10 +317,13 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
 
+  const { isOnline } = useNetworkStatus();
+
   // Fetch prompt details (used by receipt view and metadata section)
   const { data: promptDetail } = useQuery({
     queryKey: ["prompt-detail", itemId],
-    queryFn: async () => PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId)),
+    queryFn: async () =>
+      PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId)),
     enabled: isOpen && !!itemId,
   });
 
@@ -302,12 +348,14 @@ export const PromptModal: React.FC<PromptModalProps> = ({
         if (e.key === "Tab") {
           if (!modalRef.current) return;
           const focusableElements = modalRef.current.querySelectorAll(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
           );
           if (focusableElements.length === 0) return;
 
           const firstElement = focusableElements[0] as HTMLElement;
-          const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+          const lastElement = focusableElements[
+            focusableElements.length - 1
+          ] as HTMLElement;
 
           if (e.shiftKey) {
             // Shift + Tab
@@ -338,12 +386,30 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   useEffect(() => {
     if (isOpen && wallet?.address) {
       setIsCheckingAccess(true);
-      PromptHashClient.checkAccess(itemId, wallet.address)
+      PromptHashClient.checkAccess(browserStellarConfig, wallet.address, itemId)
         .then((hasAccess) => setStatus(hasAccess ? "PURCHASED_LOCKED" : "IDLE"))
         .catch(() => setStatus("IDLE"))
         .finally(() => setIsCheckingAccess(false));
     }
   }, [isOpen, itemId, wallet?.address]);
+
+  useEffect(() => {
+    if (isOpen && wallet?.address) {
+      setCreatorThumbRating(getCreatorThumbRating(itemId, wallet.address));
+    }
+  }, [isOpen, itemId, wallet?.address]);
+
+  const handleCreatorThumbRating = (rating: ThumbRating) => {
+    if (!wallet?.address || !promptDetail?.creator) return;
+    saveCreatorThumbRating(
+      itemId,
+      wallet.address,
+      promptDetail.creator,
+      rating,
+    );
+    setCreatorThumbRating(rating);
+    queryClient.invalidateQueries({ queryKey: ["seller-prompts"] });
+  };
 
   const {
     execute: runUnlock,
@@ -351,8 +417,14 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     error: unlockError,
   } = useAsyncTransaction(
     async (hash: string) => {
-      if (!wallet?.signMessage || !wallet.address) throw new Error("Wallet not connected");
-      return await unlockPrompt(itemId, hash, wallet.signMessage, wallet.address);
+      if (!wallet?.signMessage || !wallet.address)
+        throw new Error("Wallet not connected");
+      return await unlockPrompt(
+        itemId,
+        hash,
+        wallet.signMessage,
+        wallet.address,
+      );
     },
     {
       onOptimistic: () => setStatus("UNLOCKING"),
@@ -363,6 +435,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
       onError: () => setStatus("PURCHASED_LOCKED"),
     },
   );
+  const unlockErrorStructured = unlockError as UnlockError | null;
 
   const {
     execute: runPurchase,
@@ -371,73 +444,57 @@ export const PromptModal: React.FC<PromptModalProps> = ({
   } = useAsyncTransaction(
     async () => {
       if (!wallet?.address) throw new Error("Wallet connection required.");
-      
+
       // Check network state before purchase
       const networkState = detectNetworkMismatch(
         !!wallet.address,
         wallet.network,
-        wallet.status
+        wallet.status,
       );
-      
+
       if (networkState.type === "wrong-network") {
         throw new Error(networkState.message || "Wrong network connected");
       }
-      
+
       if (networkState.type === "disconnected") {
         throw new Error("Please connect your wallet first");
       }
-      
-      setStatus("AWAITING_APPROVAL");
 
-      // Fetch the prompt price so we can pass the exact amount to the contract
-      let priceStroops: bigint | undefined;
-      try {
-        const promptData = await PromptHashClient.getPrompt(
-          browserStellarConfig,
-          BigInt(itemId),
-        );
-        priceStroops = promptData.priceStroops;
-      } catch {
-        // If the fetch fails we fall back to mock mode — priceStroops stays
-        // undefined and the client will use the mock path.
+      if (!wallet.signTransaction) {
+        throw new Error("Wallet does not support transaction signing.");
       }
 
-      // Build a wallet signer that satisfies WalletTransactionSigner
-      const signer = wallet.signTransaction
-        ? { signTransaction: wallet.signTransaction }
-        : undefined;
-
-      let result: { txHash: string; success: boolean };
-      try {
-        result = await PromptHashClient.purchasePrompt(itemId, wallet.address, {
-          signer,
-          priceStroops,
-          config: browserStellarConfig,
-        });
-      } catch (err) {
-        // Surface typed XLM errors with targeted messages
-        if (err instanceof InsufficientXlmBalanceError) {
-          throw new Error(
-            "Insufficient XLM balance. Please fund your wallet and try again.",
-          );
+      const prompt = promptDetail ?? await PromptHashClient.getPrompt(browserStellarConfig, BigInt(itemId));
+      const handleStatus = (update: XlmPaymentStatusUpdate) => {
+        setPaymentMessage(update.message);
+        if (update.txHash) {
+          setTxHash(update.txHash);
         }
-        if (err instanceof UserRejectedTransactionError) {
-          throw new Error(
-            "Transaction cancelled — you rejected the request in your wallet.",
-          );
+        if (update.status === "awaiting_approval") {
+          setStatus("AWAITING_APPROVAL");
+        } else if (update.status === "submitting" || update.status === "pending") {
+          setStatus("CONFIRMING");
+        } else if (update.status === "failed") {
+          setStatus("ERROR");
         }
-        throw err;
-      }
+      };
 
-      setTxHash(result.txHash);
-      setStatus("CONFIRMING");
-      return result;
+      return await submitXlmPromptPayment({
+        config: browserStellarConfig,
+        signer: { signTransaction: wallet.signTransaction },
+        buyerAddress: wallet.address,
+        promptId: itemId,
+        amountStroops: prompt.priceStroops,
+        onStatus: handleStatus,
+      });
     },
     {
+      pendingMessage: "Preparing XLM payment...",
+      successMessage: "XLM payment confirmed.",
       onSuccess: (data) => {
         setStatus("UNLOCKING");
         onRefresh?.();
-        runUnlock(data.txHash || txHash).catch(() => {});
+        runUnlock(data.txHash).catch(() => {});
       },
       onError: () => setStatus("ERROR"),
     },
@@ -489,7 +546,10 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
         <div className="p-5 sm:p-8">
           <div className="mb-6 sm:mb-8">
-            <h2 id="prompt-modal-title" className="mb-2 text-2xl font-bold text-white">
+            <h2
+              id="prompt-modal-title"
+              className="mb-2 text-2xl font-bold text-white"
+            >
               Acquire License
             </h2>
             <p id="prompt-modal-description" className="text-sm text-slate-400">
@@ -498,7 +558,11 @@ export const PromptModal: React.FC<PromptModalProps> = ({
           </div>
 
           {/* Prompt Metadata Section */}
-          <PromptMetadataSection itemId={itemId} status={status} onReportClick={() => setShowReportDialog(true)} />
+          <PromptMetadataSection
+            itemId={itemId}
+            status={status}
+            onReportClick={() => setShowReportDialog(true)}
+          />
 
           {isCheckingAccess ? (
             <div className="space-y-4 py-4">
@@ -518,85 +582,98 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                     <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
                     <div>
                       <h4 className="text-sm font-bold text-white">
-                        Secure XLM Payment
+                        Secure Purchase
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                        Payment is processed on-chain via the Stellar network.
-                        Funds are transferred atomically — the contract records
-                        your access rights in the same transaction.
+                        Funds are held by the contract until access rights are
+                        minted. Platform fee is included in the price.
                       </p>
                     </div>
                   </div>
 
-                  {status === "ERROR" && purchaseError && (
-                    <>
-                      <StatusBanner
-                        status="error"
-                        message={purchaseError.message}
-                      />
-                      {/* Targeted hint for insufficient balance */}
-                      {purchaseError.message
-                        .toLowerCase()
-                        .includes("insufficient") && (
-                        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-                          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                          <p className="text-xs text-amber-300 leading-relaxed">
-                            Your wallet doesn't have enough XLM. You can fund a
-                            testnet account using{" "}
-                            <a
-                              href="https://laboratory.stellar.org/#account-creator?network=test"
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline hover:text-amber-200"
-                            >
-                              Stellar Laboratory
-                            </a>{" "}
-                            or the Friendbot faucet.
-                          </p>
+                  {/* Multi-Currency Price Quote & Breakdown before wallet signing (#760) */}
+                  <MultiCurrencyQuoteBreakdown
+                    promptTitle={promptDetail?.title || "Prompt License"}
+                    promptId={itemId}
+                    basePriceStroops={promptDetail?.priceStroops || 0n}
+                    buyerAddress={wallet?.address}
+                    onQuoteChange={(quote, isValid) => {
+                      setCurrentQuote(quote);
+                      setIsQuoteValid(isValid);
+                    }}
+                  />
+
+                  {status === "ERROR" &&
+                    purchaseError &&
+                    (() => {
+                      const mapped: MappedWalletError =
+                        mapWalletError(purchaseError);
+                      return (
+                        <div className="space-y-3">
+                          <StatusBanner
+                            status="error"
+                            message={mapped.userMessage}
+                          />
+                          {mapped.recoveryHint && (
+                            <p className="text-xs text-slate-400 px-1">
+                              {mapped.recoveryHint}
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </>
-                  )}
+                      );
+                    })()}
 
                   <button
                     onClick={() => runPurchase().catch(() => {})}
                     disabled={
-                      isPurchasing || 
-                      detectNetworkMismatch(!!wallet?.address, wallet?.network, wallet?.status).type !== "correct"
+                      isPurchasing ||
+                      !isOnline ||
+                      !isQuoteValid ||
+                      detectNetworkMismatch(
+                        !!wallet?.address,
+                        wallet?.network,
+                        wallet?.status,
+                      ).type !== "correct"
                     }
                     className="group w-full h-14 bg-white text-slate-950 hover:bg-emerald-400 font-black rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isPurchasing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Processing…
-                      </>
-                    ) : (
-                      <>
-                        Pay with XLM <Wallet className="w-4 h-4" />
-                      </>
-                    )}
+                    {!isOnline ? "Offline" : "Confirm & Purchase"}{" "}
+                    <Wallet className="w-4 h-4" />
                   </button>
                 </div>
               )}
 
               {status === "AWAITING_APPROVAL" && (
-                <div className="flex flex-col items-center justify-center py-12 space-y-6 text-center" role="status" aria-live="polite">
+                <div
+                  className="flex flex-col items-center justify-center py-12 space-y-6 text-center"
+                  role="status"
+                  aria-live="polite"
+                >
                   <div className="relative">
-                    <Loader2 className="w-12 h-12 text-emerald-500 animate-spin" aria-hidden="true" />
+                    <Loader2
+                      className="w-12 h-12 text-emerald-500 animate-spin"
+                      aria-hidden="true"
+                    />
                     <div className="absolute inset-0 blur-xl bg-emerald-500/20" />
                   </div>
                   <p className="text-slate-200 font-bold text-lg italic tracking-tight">
                     Confirming in Wallet...
                   </p>
+                  {paymentMessage && (
+                    <p className="max-w-sm text-xs text-slate-400">{paymentMessage}</p>
+                  )}
                 </div>
               )}
 
               {status === "CONFIRMING" && (
-                <div className="py-6 text-center" role="status" aria-live="polite">
+                <div
+                  className="py-6 text-center"
+                  role="status"
+                  aria-live="polite"
+                >
                   <StatusBanner
                     status="pending"
-                    message="Broadcasting XLM payment to Stellar network..."
+                    message={paymentMessage || "Broadcasting XLM payment to Stellar..."}
                   />
                   {txHash && (
                     <a
@@ -605,7 +682,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 mt-6 text-xs text-slate-500 hover:text-emerald-400 font-mono transition-colors"
                     >
-                      View on Stellar Expert <ExternalLink className="h-3 w-3" />
+                      View Transaction <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
                 </div>
@@ -613,110 +690,74 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
               {status === "PURCHASED_LOCKED" && (
                 <div className="space-y-6">
-                  <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center text-center">
-                    <LockKeyhole className="w-8 h-8 text-emerald-400 mb-3" />
-                    <h4 className="font-bold text-white">License Verified</h4>
-                    <p className="text-xs text-slate-400 mt-2">
-                      Ownership detected on-chain. Sign the unlock request to
-                      decrypt.
-                    </p>
-                  </div>
+                  {txHash ? (
+                    <PurchaseReceipt
+                      promptDetail={promptDetail}
+                      itemId={itemId}
+                      walletAddress={wallet?.address || ""}
+                      txHash={txHash}
+                      isPendingIndexing={
+                        unlockErrorStructured?.code === ErrorCode.ACCESS_NOT_PURCHASED
+                      }
+                    />
+                  ) : (
+                    <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center text-center">
+                      <LockKeyhole className="w-8 h-8 text-emerald-400 mb-3" />
+                      <h4 className="font-bold text-white">License Verified</h4>
+                      <p className="text-xs text-slate-400 mt-2">
+                        Ownership detected on-chain. Sign the unlock request to
+                        decrypt.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Explain what the signature does — always visible before and during signing */}
                   <UnlockExplainer
                     state="signing"
                     onRetry={
-                      unlockError
+                      unlockErrorStructured
                         ? () => runUnlock(txHash || "existing")
                         : undefined
                     }
                   />
 
-                  {unlockError && (
-                    <UnlockErrorBanner
-                      message={unlockError.message}
-                      onRetry={() => runUnlock(txHash || "existing").catch(() => {})}
-                    />
-                  )}
+                  {unlockErrorStructured &&
+                    unlockErrorStructured?.code !== ErrorCode.ACCESS_NOT_PURCHASED && (
+                      <UnlockErrorBanner
+                        error={unlockErrorStructured}
+                        onRetry={() =>
+                          runUnlock(txHash || "existing").catch(() => {})
+                        }
+                      />
+                    )}
 
                   <button
-                    onClick={() => runUnlock(txHash || "existing").catch(() => {})}
-                    disabled={isUnlocking}
-                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)]"
+                    onClick={() =>
+                      runUnlock(txHash || "existing").catch(() => {})
+                    }
+                    disabled={isUnlocking || !isOnline}
+                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_0_20px_-5px_rgba(16,185,129,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isUnlocking ? "Unlocking..." : "Decrypt Content"}
+                    {isUnlocking
+                      ? "Unlocking..."
+                      : txHash &&
+                        unlockErrorStructured?.code === ErrorCode.ACCESS_NOT_PURCHASED
+                        ? "Retry Unlock (Wait for Indexing)"
+                        : "Decrypt Content"}
                   </button>
                 </div>
               )}
 
               {status === "SUCCESS" && (
                 <div className="animate-in fade-in zoom-in duration-300 space-y-4">
-                  {/* Receipt header */}
-                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold mb-3">
-                      <CheckCircle className="h-5 w-5" /> Purchase Receipt
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Prompt</p>
-                        <p className="font-semibold text-white truncate">
-                          {promptDetail?.title ?? `#${itemId}`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Price paid</p>
-                        <p className="font-semibold text-emerald-300">
-                          {promptDetail ? `${stroopsToXlmString(promptDetail.priceStroops)} XLM` : "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Buyer status</p>
-                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-400">
-                          Licensed
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 uppercase tracking-wider mb-1">Buyer</p>
-                        <p className="font-mono text-white truncate">
-                          {wallet?.address
-                            ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
-                            : "—"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reference details — copyable */}
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
-                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Reference details</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] text-slate-500">Prompt ID</p>
-                        <p className="font-mono text-xs text-slate-300">#{itemId}</p>
-                      </div>
-                      <CopyField value={itemId} label="prompt ID" />
-                    </div>
-                    {txHash && (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] text-slate-500">Transaction ref</p>
-                          <p className="font-mono text-xs text-slate-300 truncate">{txHash}</p>
-                        </div>
-                        <CopyField value={txHash} label="tx ref" />
-                      </div>
-                    )}
-                    {promptDetail?.contentHash && (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] text-slate-500">Content hash</p>
-                          <p className="font-mono text-xs text-slate-300 truncate">
-                            {promptDetail.contentHash.slice(0, 16)}…
-                          </p>
-                        </div>
-                        <CopyField value={promptDetail.contentHash} label="content hash" />
-                      </div>
-                    )}
-                  </div>
+                  <PurchaseReceipt
+                    promptDetail={promptDetail}
+                    itemId={itemId}
+                    walletAddress={wallet?.address || ""}
+                    txHash={txHash}
+                    isPendingIndexing={false}
+                    contentIntegrityVerified
+                  />
 
                   {/* Unlocked content */}
                   <div className="relative group">
@@ -756,9 +797,48 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
                   <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
                     <p className="text-xs text-blue-300 leading-relaxed">
-                      Store this prompt securely. Do not share it publicly or with unauthorised users.
+                      Store this prompt securely. Do not share it publicly or
+                      with unauthorised users.
                     </p>
                   </div>
+
+                  {wallet?.address && promptDetail?.creator && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm font-bold text-white">
+                        Rate this creator
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Help future buyers understand whether this creator
+                        delivered a trustworthy unlock.
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("up")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "up"
+                              ? "border-emerald-300/60 bg-emerald-300/20 text-emerald-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsUp className="h-4 w-4" />
+                          Positive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCreatorThumbRating("down")}
+                          className={`flex h-11 items-center justify-center gap-2 rounded-xl border font-semibold transition-all ${
+                            creatorThumbRating === "down"
+                              ? "border-rose-300/60 bg-rose-300/20 text-rose-100"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                          }`}
+                        >
+                          <ThumbsDown className="h-4 w-4" />
+                          Needs work
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Review Section */}
                   {wallet?.address && (
@@ -773,7 +853,9 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                         </button>
                       ) : (
                         <div className="space-y-4">
-                          <h4 className="text-sm font-bold text-white">Share Your Experience</h4>
+                          <h4 className="text-sm font-bold text-white">
+                            Share Your Experience
+                          </h4>
                           <ReviewForm
                             promptId={itemId}
                             onSubmit={async (review) => {
@@ -781,10 +863,14 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                                 itemId,
                                 wallet.address!,
                                 review.rating,
-                                review.text
+                                review.text,
                               );
-                              queryClient.invalidateQueries({ queryKey: ["reviews", itemId] });
-                              queryClient.invalidateQueries({ queryKey: ["review-stats", itemId] });
+                              queryClient.invalidateQueries({
+                                queryKey: ["reviews", itemId],
+                              });
+                              queryClient.invalidateQueries({
+                                queryKey: ["review-stats", itemId],
+                              });
                               setShowReviewForm(false);
                             }}
                             onCancel={() => setShowReviewForm(false)}
@@ -836,7 +922,10 @@ export const PromptModal: React.FC<PromptModalProps> = ({
                 )}
               </div>
             </div>
-            <ReviewList reviews={reviewData.reviews} isLoading={reviewsLoading} />
+            <ReviewList
+              reviews={reviewData.reviews}
+              isLoading={reviewsLoading}
+            />
           </div>
         )}
 

@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button";
 import { MarketplaceAnalyticsCards } from "@/components/analytics/MarketplaceAnalyticsCards";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { Web3Tooltip } from "@/components/Web3Tooltip";
+import FaqSection from "@/components/faq-section";
+import { OnboardingTour } from "@/components/OnboardingTour";
+import { MarketplaceActivityFeed } from "@/components/MarketplaceActivityFeed";
 
 const stats = [
   {
@@ -161,6 +164,9 @@ export default function Home() {
                   </div>
                 );
               })}
+              <div className="mt-4">
+                <MarketplaceActivityFeed limit={5} />
+              </div>
             </div>
           </div>
         </section>
@@ -286,8 +292,10 @@ export default function Home() {
 
         <FeaturedCreators />
         <FeaturedPrompts />
+        <FaqSection />
       </main>
       <Footer />
+      <OnboardingTour />
     </div>
   );
 }

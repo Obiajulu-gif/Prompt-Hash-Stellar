@@ -158,7 +158,7 @@ sync_env "$ENV_LOCAL_FILE"
 
 echo "✅ Environment files updated: $ENV_FILE, $ENV_LOCAL_FILE"
 
-# Verification
+# Verification & TTL Readiness Check (#685)
 echo ""
 echo "🔍 Running basic verification..."
 # Call a getter to ensure it works
@@ -170,6 +170,11 @@ PROMPTS_COUNT=$(stellar contract invoke \
     get_all_prompts)
 
 echo "Current prompts count: $PROMPTS_COUNT"
+
+echo ""
+echo "⏱️ Checking contract TTL readiness..."
+node "$(dirname "$0")/check-ttl-readiness.mjs" --network "$NETWORK" --contract-id "$CONTRACT_ID" --admin "$ADMIN_ALIAS"
+
 echo "--------------------------------------------------------"
 echo "Deployment successful!"
 echo "Contract ID: $CONTRACT_ID"

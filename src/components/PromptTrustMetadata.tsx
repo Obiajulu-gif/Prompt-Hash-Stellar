@@ -1,6 +1,14 @@
 import React from 'react';
+import { normalizeContentHash } from '../lib/crypto/promptCrypto';
 
-export const PromptTrustMetadata: React.FC<{ creatorAddress: string; salesCount: number; contentHash: string; purchased: boolean }> = ({ creatorAddress, salesCount, contentHash, purchased }) => {
+export const PromptTrustMetadata: React.FC<{
+  creatorAddress: string;
+  salesCount: number;
+  contentHash: string | Uint8Array;
+  purchased: boolean;
+}> = ({ creatorAddress, salesCount, contentHash, purchased }) => {
+  const normalizedHash = contentHash ? normalizeContentHash(contentHash) : '';
+
   return (
     <div className="flex flex-col space-y-2 text-sm text-gray-600 dark:text-gray-400 p-4 border rounded-md">
       <div className="flex justify-between">
@@ -13,7 +21,7 @@ export const PromptTrustMetadata: React.FC<{ creatorAddress: string; salesCount:
       </div>
       <div className="flex justify-between">
         <span className="font-semibold">Hash:</span>
-        <span className="truncate w-32" title={contentHash}>{contentHash}</span>
+        <span className="truncate w-32" title={normalizedHash} data-testid="prompt-trust-hash">{normalizedHash}</span>
       </div>
       <div className="mt-4">
         {purchased ? (
@@ -25,3 +33,4 @@ export const PromptTrustMetadata: React.FC<{ creatorAddress: string; salesCount:
     </div>
   );
 };
+

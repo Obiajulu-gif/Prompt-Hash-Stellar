@@ -20,6 +20,7 @@ import {
   PencilLine,
   PlugZap,
   RadioTower,
+  Receipt,
   Settings2,
   ShieldCheck,
   ShoppingBag,
@@ -32,6 +33,7 @@ import { TipButton } from "@/components/TipButton";
 import { UnlockExplainer, type UnlockState } from "@/components/UnlockExplainer";
 import { WebhookSettings } from "@/components/WebhookSettings";
 import { CreatorDashboard } from "@/components/analytics/CreatorDashboard";
+import { SellerAnalyticsWidget } from "@/components/analytics/SellerAnalyticsWidget";
 import { PostVersionUpdate } from "@/components/PostVersionUpdate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,11 +62,14 @@ import {
   unsavePromptListing,
   type SavedPromptListing,
 } from "@/lib/prompts/library";
+import { canCloneListing, hasExistingDraft, seedCloneDraft } from "@/lib/prompts/cloneListing";
 import { shortenAddress } from "@/lib/utils";
 import { stellarNetwork } from "@/lib/env";
 import { connectWallet } from "@/util/wallet";
 import { usePageMeta } from "@/lib/seo/usePageMeta";
 import { CreatorProfileSettings } from "@/components/profile/CreatorProfileSettings";
+import { TransactionHistory } from "@/components/profile/TransactionHistory";
+import { UserAvatar } from "@/components/UserAvatar";
 
 const promptImageFallback = "/images/codeguru.png";
 
@@ -76,7 +81,7 @@ const formatNetworkName = (value?: string) => {
 const shortHash = (value: string) =>
   value ? `${value.slice(0, 8)}...${value.slice(-8)}` : "Pending";
 
-// eslint-disable-next-line no-unused-vars
+ 
 type Handler<TArgs extends unknown[]> = (...args: TArgs) => void;
 
 function AlertBanner({
@@ -280,11 +285,8 @@ function WalletIdentityPanel({
         <div className="relative p-6 md:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_100%_0%,rgba(56,189,248,0.1),transparent)]" />
           <div className="relative flex flex-col gap-6 md:flex-row md:items-center">
-            {/* Wallet avatar with connected indicator */}
             <div className="relative shrink-0">
-              <div className="flex h-24 w-24 items-center justify-center rounded-2xl border border-cyan-200/20 bg-gradient-to-br from-cyan-200/15 to-sky-400/10 text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
-                <Wallet className="h-11 w-11" />
-              </div>
+              <UserAvatar address={address} size={96} className="border border-cyan-200/20 bg-gradient-to-br from-cyan-200/15 to-sky-400/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]" />
               <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#0d1117] bg-emerald-400">
                 <CheckCircle2 className="h-3 w-3 text-slate-950" />
               </div>
@@ -613,6 +615,27 @@ function CreatedPromptCard({
               )}
               {isActive ? "Pause listing" : "Reactivate"}
             </Button>
+            {canCloneListing(prompt, walletAddress) && (
+              <Link
+                to="/sell"
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md border border-white/15 bg-white/[0.03] px-4 text-sm font-medium text-white transition-colors hover:bg-white/10"
+                onClick={(event) => {
+                  if (
+                    hasExistingDraft(walletAddress) &&
+                    !window.confirm(
+                      "Cloning this listing will replace your current unsaved draft. Continue?",
+                    )
+                  ) {
+                    event.preventDefault();
+                    return;
+                  }
+                  seedCloneDraft(prompt, walletAddress);
+                }}
+              >
+                <Copy className="h-4 w-4" />
+                Clone as new listing
+              </Link>
+            )}
           </div>
           <div className="mt-4">
             <PostVersionUpdate
@@ -996,7 +1019,7 @@ export default function ProfilePage() {
                     </p>
                   </div>
 
-                  <TabsList className="mb-6 grid h-auto w-full grid-cols-4 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[64rem]">
+                  <TabsList className="mb-6 grid h-auto w-full grid-cols-5 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 sm:w-[64rem]">
                     <TabsTrigger
                       value="purchased"
                       aria-label="Open my library tab"
@@ -1030,6 +1053,16 @@ export default function ProfilePage() {
                         {savedPrompts.length}
                       </span>
                     </TabsTrigger>
+                    {!isPublicView && (
+                      <TabsTrigger
+                        value="transactions"
+                        aria-label="Open transaction history tab"
+                        className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-slate-400 transition-all data-[state=active]:bg-sky-300 data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                      >
+                        <Receipt className="h-4 w-4" />
+                        Transactions
+                      </TabsTrigger>
+                    )}
                     {!isPublicView && (
                       <TabsTrigger
                         value="settings"
@@ -1084,7 +1117,10 @@ export default function ProfilePage() {
                   <TabsContent value="created" className="mt-0 space-y-6">
                     {/* Creator activity dashboard — metrics, revenue, top performers (#213) */}
                     {!isPublicView && address && (
-                      <CreatorDashboard walletAddress={address} />
+                      <div className="space-y-6">
+                        <CreatorDashboard walletAddress={address} />
+                        <SellerAnalyticsWidget walletAddress={address} />
+                      </div>
                     )}
 
                     {createdQuery.isLoading ? (
@@ -1126,6 +1162,22 @@ export default function ProfilePage() {
                     )}
                     <WebhookSettings walletAddress={address} />
                   </TabsContent>
+
+                  {!isPublicView && address && (
+                    <TabsContent value="transactions" className="mt-0">
+                      <div className="mb-4">
+                        <h3 className="text-lg font-semibold text-white">
+                          Transaction history
+                        </h3>
+                        <p className="mt-1 text-sm leading-6 text-slate-400">
+                          Prompts you have purchased or licensed, with the amount
+                          paid in XLM and a link to verify each payment on the
+                          Stellar block explorer.
+                        </p>
+                      </div>
+                      <TransactionHistory walletAddress={address} />
+                    </TabsContent>
+                  )}
 
                   {!isPublicView && address && (
                     <TabsContent value="settings" className="mt-0">

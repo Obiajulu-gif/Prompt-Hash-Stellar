@@ -1,7 +1,29 @@
 import mongoose from "mongoose";
 
+const revisionSchema = new mongoose.Schema(
+  {
+    rating: Number,
+    text: String,
+    signature: String,
+    updatedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const reviewSchema = new mongoose.Schema(
   {
+    /**
+     * Record-level schema version for read-path compatibility transforms.
+     * See server/src/services/schemaVersioning.ts.
+     *   0 / absent — pre-migration record; treated as v0 by the transform layer.
+     *   1           — first versioned write; `status` field backfilled.
+     *   2           — current; `status` guaranteed present on write.
+     */
+    schemaVersion: {
+      type: Number,
+      default: 2,
+      min: 0,
+    },
     promptId: {
       type: String,
       required: true,
@@ -25,15 +47,26 @@ const reviewSchema = new mongoose.Schema(
       trim: true,
       maxlength: 2000,
     },
+    signature: {
+      type: String,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["published", "flagged", "hidden", "deleted"],
+      default: "published",
+      index: true,
+    },
     verified: {
       type: Boolean,
-      default: false,
+      default: true,
     },
+    revisions: [revisionSchema],
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
-// One review per user per prompt
+// Unique index: One review per user per prompt
 reviewSchema.index({ promptId: 1, userAddress: 1 }, { unique: true });
 
 const Review = mongoose.models.Review || mongoose.model("Review", reviewSchema);

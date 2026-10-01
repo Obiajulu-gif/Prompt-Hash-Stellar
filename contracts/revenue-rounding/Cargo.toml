@@ -1,0 +1,10 @@
+[package]
+name = "revenue-rounding"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+version.workspace = true
+
+[lib]
+path = "src/lib.rs"

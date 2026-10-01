@@ -5,6 +5,7 @@ import {
   FeeBumpTransaction,
   hash,
   Keypair,
+  MuxedAccount,
   StrKey,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
@@ -145,7 +146,18 @@ export const fetchTxSignatures = async ({
   }
 };
 
-const convertMuxedAccountToEd25519Account = (account: string) => {
-  // TODO: handle muxed account
+const convertMuxedAccountToEd25519Account = (account: string): string => {
+  // Handle muxed accounts (M... addresses) by extracting the underlying G... account
+  // Muxed accounts multiplex a single G account with a numeric ID; we extract the
+  // base account for signature matching purposes (the muxed ID is preserved separately).
+  if (StrKey.isValidMed25519PublicKey(account)) {
+    try {
+      const muxedAccount = MuxedAccount.fromAddress(account, "0");
+      return muxedAccount.baseAccount().accountId();
+    } catch {
+      // If muxed account parsing fails, return the account as-is
+      return account;
+    }
+  }
   return account;
 };

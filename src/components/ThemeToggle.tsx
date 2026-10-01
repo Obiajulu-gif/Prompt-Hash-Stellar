@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Sun, Moon, Monitor } from 'lucide-react'
 import { Button } from './ui/button'
 import {
@@ -9,7 +10,7 @@ import {
 } from './ui/dropdown-menu'
 import { useTheme } from '../hooks/useTheme'
 
-export function ThemeToggle() {
+export const ThemeToggle = memo(function ThemeToggle() {
   const { theme, toggleTheme } = useTheme()
 
   return (
@@ -42,4 +43,4 @@ export function ThemeToggle() {
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
+})

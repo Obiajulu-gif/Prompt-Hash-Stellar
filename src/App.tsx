@@ -1,10 +1,13 @@
-import { lazy, Suspense } from "react";
-import { Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { lazy, Suspense, useState } from "react";
+import { Outlet, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { PageTransition } from "./components/animations/PageTransition";
 import Home from "./pages/Home";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { KeyboardShortcutsModal } from "./components/KeyboardShortcutsModal";
+import PageTransition from "./components/PageTransition";
 
-const BrowsePage = lazy(() => import("./pages/browse/page.jsx"));
+// Code Splitting / Lazy Loading Router Configurations
+const BrowsePage = lazy(() => import("./pages/browse/page.tsx"));
 const SellPage = lazy(() => import("./pages/sell/page.tsx"));
 const ChatHome = lazy(() => import("./pages/chat/page.tsx"));
 const ProfilePage = lazy(() => import("./pages/profile/page.tsx"));
@@ -16,57 +19,58 @@ const SellerPage = lazy(() => import("./pages/sellers/page.tsx"));
 const PromptDetailPage = lazy(
   () => import("./pages/prompts/PromptDetailPage.tsx"),
 );
-const CollectionsPage = lazy(
-  () => import("./pages/collections/CollectionsPage.tsx"),
+const AdminReportsPage = lazy(() => import("./pages/admin/Reports.tsx"));
+const AdminConfigPage = lazy(
+  () => import("./pages/admin/ConfigDashboard.tsx"),
 );
-const CollectionDetailPage = lazy(
-  () => import("./pages/collections/CollectionDetailPage.tsx"),
-);
-const PayoutSettingsPage = lazy(
-  () => import("./pages/profile/PayoutSettingsPage.tsx"),
-);
+const AdminDisputesPage = lazy(() => import("./pages/admin/Disputes.tsx"));
 
-const AppLayout = () => (
-  <main className="min-h-screen bg-slate-950 text-white">
-    <Outlet />
-  </main>
-);
+import { OfflineBanner } from "./components/OfflineBanner";
 
-function AppRoutes() {
+const AppLayout = () => {
   const location = useLocation();
   return (
-    <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<PageTransition><Home /></PageTransition>} />
-          <Route path="/browse" element={<PageTransition><BrowsePage /></PageTransition>} />
-          <Route path="/sell" element={<PageTransition><SellPage /></PageTransition>} />
-          <Route path="/chat" element={<PageTransition><ChatHome /></PageTransition>} />
-          <Route path="/profile" element={<PageTransition><ProfilePage /></PageTransition>} />
-          <Route path="/purchases" element={<PageTransition><MyPurchasesPage /></PageTransition>} />
-          <Route path="/prompts/:id" element={<PageTransition><PromptDetailPage /></PageTransition>} />
-          <Route path="/status" element={<PageTransition><StatusPage /></PageTransition>} />
-          <Route path="/sellers/:sellerId" element={<PageTransition><SellerPage /></PageTransition>} />
-          <Route path="/collections" element={<PageTransition><CollectionsPage /></PageTransition>} />
-          <Route path="/collections/:id" element={<PageTransition><CollectionDetailPage /></PageTransition>} />
-          <Route path="/profile/payout-settings" element={<PageTransition><PayoutSettingsPage /></PageTransition>} />
-          <Route path="*" element={<PageTransition><Home /></PageTransition>} />
-        </Route>
-      </Routes>
-    </AnimatePresence>
+    <main className="min-h-screen bg-slate-950 text-white">
+      <OfflineBanner />
+      <AnimatePresence mode="wait">
+        <PageTransition key={location.pathname}>
+          <Outlet />
+        </PageTransition>
+      </AnimatePresence>
+    </main>
   );
-}
+};
 
 function App() {
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+
+  useKeyboardShortcuts({ onShowShortcuts: () => setShowShortcutsModal(true) });
+
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center min-h-screen bg-slate-950">
-          <div className="text-white text-lg">Loading...</div>
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <div className="text-foreground text-lg">Loading...</div>
         </div>
       }
     >
-      <AppRoutes />
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/browse" element={<BrowsePage />} />
+          <Route path="/sell" element={<SellPage />} />
+          <Route path="/chat" element={<ChatHome />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/purchases" element={<MyPurchasesPage />} />
+          <Route path="/prompts/:id" element={<PromptDetailPage />} />
+          <Route path="/status" element={<StatusPage />} />
+          <Route path="/sellers/:sellerId" element={<SellerPage />} />
+          <Route path="/admin/reports" element={<AdminReportsPage />} />
+          <Route path="/admin/config" element={<AdminConfigPage />} />
+          <Route path="/admin/disputes" element={<AdminDisputesPage />} />
+          <Route path="*" element={<Home />} />
+        </Route>
+      </Routes>
     </Suspense>
   );
 }

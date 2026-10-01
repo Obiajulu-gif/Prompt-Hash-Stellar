@@ -3,6 +3,8 @@ import {
   getSearchStateFromUrl,
   updateUrlWithSearchState,
   buildSearchQueryString,
+  rememberMarketplaceReturnUrl,
+  getMarketplaceReturnUrl,
   DEFAULT_SEARCH_STATE,
 } from "./urlState";
 
@@ -10,6 +12,7 @@ describe("urlState", () => {
   beforeEach(() => {
     // Reset URL to clean state
     window.history.replaceState(null, "", "/");
+    window.sessionStorage.clear();
   });
 
   describe("getSearchStateFromUrl", () => {
@@ -123,6 +126,43 @@ describe("urlState", () => {
       expect(DEFAULT_SEARCH_STATE.selectedCategory).toBe("");
       expect(DEFAULT_SEARCH_STATE.priceRange).toEqual([0, 25]);
       expect(DEFAULT_SEARCH_STATE.sortBy).toBe("recent");
+    });
+  });
+
+  // Issue #497 — remembering the filtered marketplace view so a prompt detail
+  // page can link back to it instead of a bare /browse.
+  describe("rememberMarketplaceReturnUrl / getMarketplaceReturnUrl", () => {
+    it("returns null when nothing has been remembered yet", () => {
+      expect(getMarketplaceReturnUrl()).toBeNull();
+    });
+
+    it("remembers a /browse URL with its filter query string", () => {
+      rememberMarketplaceReturnUrl("/browse", "?category=Sales&sort=price-low");
+      expect(getMarketplaceReturnUrl()).toBe(
+        "/browse?category=Sales&sort=price-low",
+      );
+    });
+
+    it("remembers a /browse URL with no filters applied", () => {
+      rememberMarketplaceReturnUrl("/browse", "");
+      expect(getMarketplaceReturnUrl()).toBe("/browse");
+    });
+
+    it("does not remember non-marketplace routes", () => {
+      rememberMarketplaceReturnUrl("/prompts/5", "");
+      expect(getMarketplaceReturnUrl()).toBeNull();
+    });
+
+    it("reads the current window location when no args are passed", () => {
+      window.history.replaceState(null, "", "/browse?q=architecture");
+      rememberMarketplaceReturnUrl();
+      expect(getMarketplaceReturnUrl()).toBe("/browse?q=architecture");
+    });
+
+    it("overwrites a previously remembered URL with the latest one", () => {
+      rememberMarketplaceReturnUrl("/browse", "?category=Sales");
+      rememberMarketplaceReturnUrl("/browse", "?category=Marketing");
+      expect(getMarketplaceReturnUrl()).toBe("/browse?category=Marketing");
     });
   });
 });
