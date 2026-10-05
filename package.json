@@ -96,7 +96,7 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@types/uuid": "^10.0.0",
+    "@types/uuid": "^11.0.0",
     "@vercel/node": "^5.8.22",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.0",
