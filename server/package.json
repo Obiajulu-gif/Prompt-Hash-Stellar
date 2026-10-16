@@ -40,7 +40,7 @@
   "author": "wilfrid",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.53",
+    "@ai-sdk/openai": "^4.0.78",
     "@prompthash/schema": "file:../packages/schema",
     "@prompthash/sdk": "file:../packages/sdk",
     "@sentry/node": "^10.63.0",
