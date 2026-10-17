@@ -123,3 +123,34 @@ export function requireWalletSession(walletOf: (req: Request) => unknown) {
     next();
   };
 }
+
+/** Max age of a wallet session accepted as proof of a recent signature (step-up). */
+export const STEP_UP_MAX_SESSION_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * True when the request carries a valid wallet session for `wallet` that was
+ * issued (i.e. freshly signed) within `maxAgeMs`. Used as the step-up proof
+ * for risk-scored operations: an old session is not enough, the wallet must
+ * have signed a new challenge recently.
+ */
+export function hasFreshWalletSession(
+  req: Request,
+  wallet: string,
+  maxAgeMs: number = STEP_UP_MAX_SESSION_AGE_MS,
+  now: number = Date.now(),
+): boolean {
+  const secret = walletSessionSecret();
+  const normalized = normalizeWallet(wallet);
+  if (!secret || !normalized) return false;
+  const header = req.headers.authorization;
+  const token = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return false;
+  try {
+    const payload = verifyChallengeToken(secret, token, normalized, SESSION_SUBJECT, now, {
+      action: SESSION_ACTION,
+    });
+    return now - payload.issuedAt <= maxAgeMs;
+  } catch {
+    return false;
+  }
+}

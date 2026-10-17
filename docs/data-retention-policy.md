@@ -15,6 +15,7 @@ Operational data in Prompt Hash Stellar (inbound webhooks, quarantined events, j
 | **Telemetry & Prompt Events** | `InboundWebhookEvent`, `QuarantinedEvent` | **30 days** | Archive & Scrub | Protected if `retentionHold: true` or unresolved/pending replay |
 | **Export Artifacts** | `JobRecord` (`export_csv`) | **30 days** | Archive & Scrub | Protected if active export job is still running |
 | **Support Evidence & Cases** | `Report`, `SupportCase` | **365 days** (post-resolution) | Archive & Scrub | Protected if under active dispute (`status: open / investigating`) or `retentionHold: true` |
+| **Lifecycle Analytics Events** | `LifecycleEvent` | **90 days** (TTL index) | Delete | Holds: none. Contains only salted-HMAC session hashes, allow-listed stage/reason codes and server timestamps; see [lifecycle-analytics.md](./lifecycle-analytics.md) |
 | **Audit Logs** | `AuditLog` | **Permanent** | Preserve | Never eligible for automated cleanup |
 | **Financial Records** | `LedgerEntry`, `PayoutStatement` | **Permanent** | Preserve | Never eligible for automated cleanup |
 | **Blockchain Transactions** | `Purchase`, `Entitlement`, `IndexerState` | **Permanent** | Preserve | Never eligible for automated cleanup |

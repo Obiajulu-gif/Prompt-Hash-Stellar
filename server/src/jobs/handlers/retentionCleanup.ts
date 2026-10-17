@@ -4,6 +4,7 @@ import JobRecord from "../../models/JobRecord";
 import QuarantinedEvent from "../../models/QuarantinedEvent";
 import Report from "../../models/Report";
 import { logger } from "../../services/structuredLogger";
+import { getActiveHeldRecordIds } from "../../services/retentionHoldService";
 import { getRetentionCutoff } from "../retentionPolicy";
 import type { JobRecordDTO, RetentionCleanupPayload } from "../types";
 
@@ -40,18 +41,34 @@ async function archiveEligible(
   model: RetentionModel,
   filter: Record<string, unknown>,
   update: Record<string, unknown>,
-  options: { dryRun: boolean; batchSize: number },
+  options: { dryRun: boolean; batchSize: number; heldIds?: string[] },
 ): Promise<ArchiveResult> {
+  // Records covered by an active retention hold (disputes, investigations) are
+  // excluded from every query below, independent of their per-record flag.
+  const heldIds = options.heldIds ?? [];
+  const heldGuard = heldIds.length > 0 ? { _id: { $nin: heldIds } } : {};
+  const eligibleFilter = { ...filter, ...heldGuard };
+
   const eligible = await model.countDocuments({
-    ...filter,
+    ...eligibleFilter,
     retentionHold: { $ne: true },
     archivedAt: null,
   });
 
-  const held = await model.countDocuments({
+  const flagHeld = await model.countDocuments({
     ...filter,
     retentionHold: true,
   });
+  // Ledger-held records whose flag is missing are still held; count them too.
+  const ledgerOnlyHeld =
+    heldIds.length > 0
+      ? await model.countDocuments({
+          ...filter,
+          _id: { $in: heldIds },
+          retentionHold: { $ne: true },
+        })
+      : 0;
+  const held = flagHeld + ledgerOnlyHeld;
 
   const skipped = await model.countDocuments({
     ...filter,
@@ -66,7 +83,7 @@ async function archiveEligible(
   let totalFailed = 0;
   for (;;) {
     const documents = await model
-      .find(filter, { _id: 1 })
+      .find(eligibleFilter, { _id: 1 })
       .limit(options.batchSize)
       .lean();
     if (documents.length === 0) break;
@@ -75,7 +92,7 @@ async function archiveEligible(
       const result = await model.updateMany(
         {
           $and: [
-            filter,
+            eligibleFilter,
             {
               _id: { $in: documents.map((document) => document._id) },
               retentionHold: { $ne: true },
@@ -127,10 +144,9 @@ export async function runRetentionCleanup(
   const eventCutoff = requiredCutoff("promptEvents", now);
   const exportCutoff = requiredCutoff("exports", now);
   const supportCutoff = requiredCutoff("supportEvidence", now);
-  const commonEligibility = {
-    retentionHold: { $ne: true },
-    archivedAt: null,
-  };
+  // Fail closed: if the hold ledger cannot be read this throws, the job is
+  // retried by the worker, and nothing is archived in the meantime.
+  const held = await getActiveHeldRecordIds();
 
   const result: RetentionCleanupResult = {
     inboundWebhookEvents: await archiveEligible(
@@ -142,7 +158,7 @@ export async function runRetentionCleanup(
         {
           $set: { archivedAt: now, rawBody: "", rawHeaders: {} },
         },
-        { dryRun, batchSize },
+        { dryRun, batchSize, heldIds: held.inboundWebhookEvents },
       ),
     quarantinedEvents: await archiveEligible(
         QuarantinedEvent,
@@ -159,7 +175,7 @@ export async function runRetentionCleanup(
             errorDetails: "",
           },
         },
-        { dryRun, batchSize },
+        { dryRun, batchSize, heldIds: held.quarantinedEvents },
       ),
     exports: await archiveEligible(
         JobRecord,
@@ -179,7 +195,7 @@ export async function runRetentionCleanup(
             attemptHistory: [],
           },
         },
-        { dryRun, batchSize },
+        { dryRun, batchSize, heldIds: held.exports },
       ),
     supportEvidence: await archiveEligible(
         Report,
@@ -199,7 +215,7 @@ export async function runRetentionCleanup(
             evidence: [],
           },
         },
-        { dryRun, batchSize },
+        { dryRun, batchSize, heldIds: held.supportEvidence },
       ),
   };
 
@@ -207,6 +223,12 @@ export async function runRetentionCleanup(
     action: "retentionCleanup",
     dryRun,
     batchSize,
+    ledgerHolds: {
+      inboundWebhookEvents: held.inboundWebhookEvents.length,
+      quarantinedEvents: held.quarantinedEvents.length,
+      exports: held.exports.length,
+      supportEvidence: held.supportEvidence.length,
+    },
     ...result,
   });
   return result;

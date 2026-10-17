@@ -433,3 +433,72 @@ For accessibility concerns or questions:
 **Maintainer:** Prompt Hash Accessibility Team  
 **WCAG Level:** AA (2.1)  
 **Last Audit:** [Date of most recent manual audit]
+
+## Regression Coverage: Dense Forms, Tables and Error Recovery
+
+Suite: `src/test/a11y/regression/` — run with `npm run test:a11y:regression`
+(also part of `npm test`). These tests use only Testing Library + user-event
+(no `jest-axe`), so they run under the default Vitest config.
+
+| File | Covers |
+| ---- | ------ |
+| `denseForm.test.tsx` | Accessible names, fieldset/legend grouping, help-text linkage, DOM-order tab sequence with no positive `tabindex`, keyboard-only completion (no trap), error summary focus + count, per-field `aria-invalid`/`aria-describedby`/`role="alert"`, "Error:" text prefix (not colour-only), summary link → field focus, recovery as fields are fixed, focus not stolen while typing, polite success announcement, `announceStatus` live regions |
+| `tables.test.tsx` | Named table, `scope="col"` headers, `th scope="row"` row headers, cell→row/column resolution, no tab stops in static tables, keyboard-reachable named scroll region, empty-state message, uniquely named row actions, keyboard retry + status update |
+| `recoveryAndMotion.test.tsx` | Modal dialog semantics and unique `aria-labelledby`, focus-in / Escape / focus-restore, Tab + Shift+Tab trap, focus kept in field across parent re-renders, assertive failure announcement + retry, busy/disabled submit, `LiveRegion` roles/clear/notify, `useReducedMotion` (mount, runtime change, unmount), `PageTransition` without wrapper, global `prefers-reduced-motion` CSS rule |
+
+### Behaviour fixed while adding coverage
+
+- `AccessibleModal` re-ran its focus effect whenever the parent passed a new
+  `onClose` (every render for inline callbacks), pulling focus out of the
+  field being typed in. `onClose` is now read from a ref. The title id is
+  also unique (`useId`) instead of a hard-coded `modal-title`.
+- `LiveRegion` used `role="status"` (polite) even for `assertive` messages;
+  assertive messages now use `role="alert"`. `useLiveRegion` now returns the
+  `priority` of the latest announcement.
+- `AccessibleTable` put `scope="row"` on `<td>`; the first cell is now a
+  `<th scope="row">` (opt out with `firstColumnIsRowHeader={false}`). Captioned
+  tables get a named, focusable scroll region, and empty tables render a
+  spanning `emptyMessage`.
+- New `ErrorSummary` component: `role="alert"`, focused once per submit
+  (`focusToken`), links move focus to fields. Focus is intentionally keyed on
+  the submit attempt, **not** on the error list, so fixing a field never steals
+  focus from the user.
+- Global `@media (prefers-reduced-motion: reduce)` rule in `src/index.css`
+  neutralises CSS animations/transitions (e.g. `animate-pulse` skeletons).
+
+### Edge cases and failure modes
+
+- **jsdom has no layout.** `offsetParent` is always `null`, which makes the
+  production focus-trap helper see zero focusable elements. Tests install
+  `installLayoutShim()` (see `helpers.tsx`). If trap tests fail with "focus
+  did not wrap", check the shim is installed before the modal opens.
+- **Announcements are timing based.** `announceStatus` writes to the live
+  region after 50 ms; tests use `waitFor` or fake timers. Do not assert
+  synchronously.
+- **Screen readers are not run in CI.** The suite asserts the ARIA contract
+  (roles, names, live-region politeness, focus). Still spot-check with
+  NVDA/VoiceOver before releases that change these components.
+- **Duplicate modules:** `src/lib/accessibility/formHelpers.ts` and
+  `formHelpers.tsx` both exist with different exports. Vite resolves the
+  `.ts` file first, so `getErrorMessageProps`/`getHelpTextProps`/
+  `getLabelProps` (used by `AccessibleFormField`) are not exported by the
+  module that actually loads. New tests deliberately use the `.ts` API
+  (`getFormFieldAriaAttrs`, `renderErrorMessage`, `renderLabel`); consolidate
+  the two files before relying on `AccessibleFormField`.
+- **`jest-axe` is not declared in `package.json`**, so the older
+  `*.a11y.test.tsx` suite (`vitest.accessibility.config.mjs`) cannot run until
+  it is added. The regression suite does not depend on it.
+- **Reduced motion:** JS-driven animation must go through `useReducedMotion`;
+  CSS animation is covered by the global rule. `!important` there overrides
+  component-level durations by design.
+
+### Rollback / recovery
+
+- Each fix is isolated to one component; revert the single file to restore the
+  previous behaviour. The regression tests for that component will then fail,
+  which is the intended signal.
+- To remove the global reduced-motion rule, delete the trailing
+  `@media (prefers-reduced-motion: reduce)` block in `src/index.css` and the
+  matching assertion in `recoveryAndMotion.test.tsx`.
+- If a flaky timing test blocks CI, skip only that test with `it.skip` and
+  open an issue; do not loosen the ARIA assertions.

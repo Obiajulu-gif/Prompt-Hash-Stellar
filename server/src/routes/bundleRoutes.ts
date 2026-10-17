@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import connectDb from "../db/connectDb";
 import { purchaseLimiter } from "../middleware/rateLimiter";
 import { requireIdempotency } from "../middleware/idempotency";
+import { abuseRiskGuard } from "../middleware/abuseRiskGuard";
 import { Bundle } from "../models/Bundle";
 import { BundlePurchase } from "../models/BundlePurchase";
 import {
@@ -87,7 +88,22 @@ bundleRouter.post("/", requireIdempotency, async (req: Request, res: Response) =
  * POST /api/bundles/:id/purchase
  * Purchase a bundle atomically.
  */
-bundleRouter.post("/:id/purchase", purchaseLimiter, requireIdempotency, async (req: Request, res: Response) => {
+bundleRouter.post(
+  "/:id/purchase",
+  purchaseLimiter,
+  abuseRiskGuard({
+    operation: "bulk_purchase",
+    extract: (req) =>
+      typeof req.body?.buyerAddress === "string"
+        ? {
+            wallet: req.body.buyerAddress,
+            target: String(req.params.id),
+            amount: req.body.pricePaid !== undefined ? Number(req.body.pricePaid) : undefined,
+          }
+        : null,
+  }),
+  requireIdempotency,
+  async (req: Request, res: Response) => {
   try {
     await connectDb();
     const bundleId = String(req.params.id);

@@ -20,6 +20,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:frontend": "vitest run",
+    "test:a11y:regression": "vitest run src/test/a11y/regression",
     "test:frontend:watch": "vitest",
     "test:contract": "cargo test -p prompt-hash",
     "test:e2e": "playwright test",

@@ -3,7 +3,7 @@
  * Implements WCAG 2.1 modal dialog pattern with focus trapping and restoration.
  */
 
-import React, { useEffect, useRef, ReactNode } from 'react';
+import React, { useEffect, useId, useRef, ReactNode } from 'react';
 import { createFocusTrap, setFocusOn } from '@/lib/accessibility/formHelpers';
 
 export interface AccessibleModalProps {
@@ -25,6 +25,12 @@ export function AccessibleModal({
 }: AccessibleModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  // Keep the latest onClose without re-running the focus effect: parents
+  // usually pass an inline callback, and re-running would pull focus out of
+  // the field the user is typing in on every parent re-render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -45,7 +51,7 @@ export function AccessibleModal({
       // Handle Escape key
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -68,7 +74,7 @@ export function AccessibleModal({
         lastActiveElementRef.current.focus();
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -86,7 +92,7 @@ export function AccessibleModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
         className={`fixed inset-0 z-50 flex items-center justify-center ${className}`}
       >
         <div
@@ -95,7 +101,7 @@ export function AccessibleModal({
         >
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-white/10">
-            <h2 id="modal-title" className="text-lg font-semibold text-white">
+            <h2 id={titleId} className="text-lg font-semibold text-white">
               {title}
             </h2>
             <button

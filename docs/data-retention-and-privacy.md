@@ -79,9 +79,13 @@ been applied: it removes the processed-webhook TTL index, which otherwise
 bypasses holds and hard-deletes records. Apply migrations with
 `cd server && npm run db:migrate`.
 
-Before a dispute, legal request, or audit requires preservation, set
-`retentionHold: true` and record the reason in `retentionHoldReason` on the
-affected `InboundWebhookEvent`, `QuarantinedEvent`, `JobRecord`, or `Report`.
+Before a dispute, legal request, or audit requires preservation, place a
+retention hold through `POST /api/admin/retention-holds` (see
+[retention-holds.md](./retention-holds.md)); it links the affected records to
+the case, audits the change, and releases them only when the last covering
+hold is released. Setting `retentionHold: true` and `retentionHoldReason`
+directly on an `InboundWebhookEvent`, `QuarantinedEvent`, `JobRecord`, or
+`Report` is still honoured for manual use.
 Release the hold only after the responsible reviewer documents that it is no
 longer needed. The cleanup query rechecks the hold and eligibility conditions
 at archive time to avoid racing with a newly applied hold.

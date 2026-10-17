@@ -13,6 +13,10 @@ export interface AccessibleTableProps {
   headerClassName?: string;
   rowClassName?: string;
   cellClassName?: string;
+  /** Treat the first cell of each row as the row header (default true). */
+  firstColumnIsRowHeader?: boolean;
+  /** Text shown (and announced) when there are no rows. */
+  emptyMessage?: string;
 }
 
 export function AccessibleTable({
@@ -23,9 +27,16 @@ export function AccessibleTable({
   headerClassName = 'bg-slate-800 text-white font-semibold',
   rowClassName = '',
   cellClassName = 'p-3 text-slate-300',
+  firstColumnIsRowHeader = true,
+  emptyMessage = 'No results.',
 }: AccessibleTableProps) {
   return (
-    <div className="overflow-x-auto">
+    // A horizontally scrollable region must be keyboard reachable, and needs a
+    // name so screen readers can say what they landed on.
+    <div
+      className="overflow-x-auto"
+      {...(caption ? { role: 'region', 'aria-label': caption, tabIndex: 0 } : {})}
+    >
       <table className={`w-full border-collapse ${className}`}>
         {caption && (
           <caption className="sr-only">
@@ -48,18 +59,30 @@ export function AccessibleTable({
         </thead>
         
         <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={Math.max(headers.length, 1)} className={cellClassName}>
+                {emptyMessage}
+              </td>
+            </tr>
+          )}
           {rows.map((row, rowIdx) => (
             <tr key={rowIdx} className={`border-b border-slate-700/50 ${rowClassName}`}>
-              {row.map((cell, cellIdx) => (
-                <td
-                  key={cellIdx}
-                  className={cellClassName}
-                  // First cell can be a row header in some contexts
-                  scope={cellIdx === 0 ? 'row' : undefined}
-                >
-                  {cell}
-                </td>
-              ))}
+              {row.map((cell, cellIdx) =>
+                cellIdx === 0 && firstColumnIsRowHeader ? (
+                  <th
+                    key={cellIdx}
+                    scope="row"
+                    className={`text-left font-normal ${cellClassName}`}
+                  >
+                    {cell}
+                  </th>
+                ) : (
+                  <td key={cellIdx} className={cellClassName}>
+                    {cell}
+                  </td>
+                ),
+              )}
             </tr>
           ))}
         </tbody>

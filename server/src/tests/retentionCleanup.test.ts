@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     updateMany: vi.fn(),
   },
   logger: { info: vi.fn(), error: vi.fn() },
+  getActiveHeldRecordIds: vi.fn(),
 }));
 
 vi.mock("../models/InboundWebhookEvent", () => ({
@@ -35,6 +36,9 @@ vi.mock("../models/JobRecord", () => ({
 }));
 vi.mock("../models/Report", () => ({
   default: mocks.report,
+}));
+vi.mock("../services/retentionHoldService", () => ({
+  getActiveHeldRecordIds: mocks.getActiveHeldRecordIds,
 }));
 vi.mock("../services/structuredLogger", () => ({
   logger: mocks.logger,
@@ -56,6 +60,12 @@ const modelMocks = [
 describe("retention cleanup job", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getActiveHeldRecordIds.mockResolvedValue({
+      inboundWebhookEvents: [],
+      quarantinedEvents: [],
+      exports: [],
+      supportEvidence: [],
+    });
     for (const model of modelMocks) {
       model.countDocuments.mockResolvedValue(0);
       model.find.mockReturnValue({
@@ -179,6 +189,67 @@ describe("retention cleanup job", () => {
         }),
       }),
     );
+  });
+
+  it("excludes ledger-held records from counts and archive queries", async () => {
+    const heldId = "64b7f0f0f0f0f0f0f0f0f0f0";
+    mocks.getActiveHeldRecordIds.mockResolvedValue({
+      inboundWebhookEvents: [],
+      quarantinedEvents: [],
+      exports: [],
+      supportEvidence: [heldId],
+    });
+    mocks.report.find.mockReturnValue({
+      limit: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ _id: "report-2" }]),
+      }),
+    });
+    mocks.report.updateMany.mockResolvedValue({ modifiedCount: 1 });
+
+    await runRetentionCleanup({ now: new Date("2026-09-26T00:00:00.000Z") });
+
+    // Candidate lookup and update both carry the $nin guard.
+    expect(mocks.report.find).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: { $nin: [heldId] } }),
+      { _id: 1 },
+    );
+    expect(mocks.report.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $and: expect.arrayContaining([expect.objectContaining({ _id: { $nin: [heldId] } })]),
+      }),
+      expect.any(Object),
+    );
+    // Categories without holds are unguarded.
+    expect(mocks.inboundWebhookEvent.find).toHaveBeenCalledWith(
+      expect.not.objectContaining({ _id: expect.anything() }),
+      { _id: 1 },
+    );
+  });
+
+  it("counts ledger-held records whose per-record flag is missing as held", async () => {
+    const heldId = "64b7f0f0f0f0f0f0f0f0f0f0";
+    mocks.getActiveHeldRecordIds.mockResolvedValue({
+      inboundWebhookEvents: [],
+      quarantinedEvents: [],
+      exports: [heldId],
+      supportEvidence: [],
+    });
+    mocks.jobRecord.countDocuments.mockImplementation(async (filter: any) => {
+      if (filter._id?.$in) return 1; // ledger-only held
+      return 0;
+    });
+
+    const result = await runRetentionCleanup({ dryRun: true });
+    expect(result.exports.held).toBe(1);
+    expect(result.exports.archived).toBe(0);
+  });
+
+  it("fails closed and archives nothing when the hold ledger is unreadable", async () => {
+    mocks.getActiveHeldRecordIds.mockRejectedValue(new Error("ledger down"));
+    await expect(runRetentionCleanup({})).rejects.toThrow("ledger down");
+    for (const model of modelMocks) {
+      expect(model.updateMany).not.toHaveBeenCalled();
+    }
   });
 
   it("rejects unsafe batch sizes", async () => {

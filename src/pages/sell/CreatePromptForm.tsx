@@ -1,5 +1,6 @@
 import { PromptCard } from "../browse/PromptCard";
-import { useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { reasonFromError, trackLifecycle } from "@/lib/analytics/lifecycleClient";
 import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -249,16 +250,23 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
   const { isOnline } = useOfflineQueue();
 
+  // Lifecycle analytics: form_opened once per mount (docs/lifecycle-analytics.md).
+  useEffect(() => {
+    trackLifecycle("publish", "form_opened");
+  }, []);
+
   const onSubmit = async (data: any) => {
     setSubmitError(null);
     setSuccessMessage(null);
 
     if (!isOnline) {
+      trackLifecycle("publish", "publish_submitted", "failed", "offline");
       setSubmitError("You are offline. Publishing requires an active internet connection.");
       return;
     }
 
     if (!address || !signTransaction) {
+      trackLifecycle("publish", "publish_submitted", "failed", "wallet_not_connected");
       setSubmitError("Please connect your wallet first.");
       return;
     }
@@ -266,6 +274,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     // Draft session guard (#680): never publish under a wallet or network
     // that does not own the current draft.
     if (sessionGuard) {
+      trackLifecycle("publish", "publish_submitted", "failed", "validation_error");
       setSubmitError(
         sessionGuard.kind === "network-changed"
           ? "This draft was saved on a different network. Resolve the network warning before publishing."
@@ -276,6 +285,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
     if (!canPublish) {
+      trackLifecycle("publish", "publish_submitted", "failed", "validation_error");
       setSubmitError(
         "This draft cannot be published from the current wallet session.",
       );
@@ -284,6 +294,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
 
     // Payout readiness validation - block paid prompt publication if not ready
     if (shouldBlock) {
+      trackLifecycle("publish", "publish_submitted", "failed", "payout_setup_incomplete");
       const blockingIssues = readiness?.blockers || ["Payout setup incomplete"];
       setSubmitError(
         `Complete your payout setup before publishing paid prompts: ${blockingIssues.join(", ")}`,
@@ -291,6 +302,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       return;
     }
 
+    trackLifecycle("publish", "publish_submitted");
     console.log("Form submitted successfully:", data);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     setSuccessMessage("Prompt listing created successfully!");
@@ -379,6 +391,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       );
 
       if (result.success) {
+        trackLifecycle("publish", "publish_confirmed");
         if (sourcePromptId && result.promptId !== undefined) {
           saveRemixAttribution(result.promptId, sourcePromptId);
         }
@@ -388,9 +401,11 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
           navigate("/sell");
         }, 2000);
       } else {
+        trackLifecycle("publish", "publish_confirmed", "failed", "tx_confirmation_timeout");
         setSubmitError("Transaction was not confirmed. Please try again.");
       }
     } catch (error) {
+      trackLifecycle("publish", "publish_confirmed", "failed", reasonFromError(error));
       setSubmitError(
         error instanceof Error ? error.message : "Failed to create prompt.",
       );

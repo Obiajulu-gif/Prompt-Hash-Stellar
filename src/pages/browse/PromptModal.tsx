@@ -1,4 +1,5 @@
 import React, { useState, useContext, useEffect, useRef } from "react";
+import { reasonFromError, trackLifecycle } from "@/lib/analytics/lifecycleClient";
 import { Link } from "react-router-dom";
 import { WalletContext } from "../../providers/WalletProvider";
 import { useAsyncTransaction } from "../../components/useAsyncTransaction";
@@ -383,6 +384,11 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     }
   }, [isOpen, onClose]);
 
+  // Lifecycle analytics: one detail_viewed per open (docs/lifecycle-analytics.md).
+  useEffect(() => {
+    if (isOpen) trackLifecycle("purchase", "detail_viewed");
+  }, [isOpen, itemId]);
+
   useEffect(() => {
     if (isOpen && wallet?.address) {
       setIsCheckingAccess(true);
@@ -429,10 +435,14 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     {
       onOptimistic: () => setStatus("UNLOCKING"),
       onSuccess: (data) => {
+        trackLifecycle("purchase", "unlock_succeeded");
         setSecretContent(data.decryptedContent);
         setStatus("SUCCESS");
       },
-      onError: () => setStatus("PURCHASED_LOCKED"),
+      onError: (error) => {
+        trackLifecycle("purchase", "unlock_succeeded", "failed", reasonFromError(error));
+        setStatus("PURCHASED_LOCKED");
+      },
     },
   );
   const unlockErrorStructured = unlockError as UnlockError | null;
@@ -443,6 +453,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     error: purchaseError,
   } = useAsyncTransaction(
     async () => {
+      trackLifecycle("purchase", "purchase_started");
       if (!wallet?.address) throw new Error("Wallet connection required.");
 
       // Check network state before purchase
@@ -492,11 +503,15 @@ export const PromptModal: React.FC<PromptModalProps> = ({
       pendingMessage: "Preparing XLM payment...",
       successMessage: "XLM payment confirmed.",
       onSuccess: (data) => {
+        trackLifecycle("purchase", "payment_confirmed");
         setStatus("UNLOCKING");
         onRefresh?.();
         runUnlock(data.txHash).catch(() => {});
       },
-      onError: () => setStatus("ERROR"),
+      onError: (error) => {
+        trackLifecycle("purchase", "purchase_started", "failed", reasonFromError(error));
+        setStatus("ERROR");
+      },
     },
   );
 

@@ -42,7 +42,9 @@ export function LiveRegion({
 
   return (
     <div
-      role="status"
+      // role=status is implicitly polite; errors need role=alert so they
+      // interrupt and are reliably announced.
+      role={priority === 'assertive' ? 'alert' : 'status'}
       aria-live={priority}
       aria-atomic="true"
       className="sr-only"
@@ -57,8 +59,10 @@ export function LiveRegion({
  */
 export function useLiveRegion() {
   const [message, setMessage] = useState('');
+  const [priority, setPriority] = useState<LiveRegionPriority>('polite');
 
-  const announce = (text: string, priority: LiveRegionPriority = 'polite') => {
+  const announce = (text: string, nextPriority: LiveRegionPriority = 'polite') => {
+    setPriority(nextPriority);
     setMessage(text);
   };
 
@@ -66,7 +70,7 @@ export function useLiveRegion() {
     setMessage('');
   };
 
-  return { message, announce, clear };
+  return { message, priority, announce, clear };
 }
 
 export default LiveRegion;
