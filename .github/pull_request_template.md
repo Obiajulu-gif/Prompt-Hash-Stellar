@@ -104,6 +104,7 @@ Describe the breaking changes and migration path:
 - [ ] All existing tests pass locally (`yarn test`, `cargo test --all`, `yarn test:e2e`)
 - [ ] New tests cover the happy path and at least one failure mode
 - [ ] Concurrency-sensitive mutations have invariant tests under concurrent load
+- [ ] Smoke verification passes: `yarn verify:smoke` against staging
 - [ ] Contract change: ABI conformance fixtures regenerated and committed
 
 ### Documentation
@@ -115,12 +116,16 @@ Describe the breaking changes and migration path:
 - [ ] Schema migration dry-run passes: `node scripts/migration-safety.mjs --dry-run`
 - [ ] No irreversible data transforms without a rollback procedure in this PR
 
+### Security
+- [ ] Security checks pass (CodeQL, `yarn check:policy`, `npm audit --omit=dev` — no new high/critical)
+
 ### Configuration
 - [ ] New env vars have safe defaults or clear placeholders in `.env.example`
 - [ ] Feature-flag guard added for large/risky rollouts
 
 ### Rollback
 - [ ] Rollback plan described in this PR (feature flag, migration rollback, or revert tag)
+- [ ] Rollback rehearsed in staging (deploy → rollback → smoke) with evidence linked below
 - [ ] Contract upgrade: `scripts/preflight_upgrade.py check` passes
 
 ### Maintainer Sign-Off
@@ -130,7 +135,7 @@ Describe the breaking changes and migration path:
 ### Exception (if any checklist items are skipped)
 Reason: <!-- P1 incident / CVE / regulatory -->
 Incident ticket: <!-- link -->
-Skipped items: <!-- list -->
+Skipped items: <!-- gate keys, e.g. smoke, security, rollback-rehearsal -->
 Follow-up issue: <!-- link -->
 
 ---

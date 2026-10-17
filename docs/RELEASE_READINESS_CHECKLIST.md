@@ -39,6 +39,7 @@ Copy this block into your pull request description and check each item before re
 - [ ] All existing tests pass locally (`yarn test`, `cargo test --all`, `yarn test:e2e`)
 - [ ] New unit/integration tests cover the happy path and at least one failure mode
 - [ ] Any concurrency-sensitive mutation path has a test that verifies invariants under concurrent load
+- [ ] Smoke verification passes: `yarn verify:smoke` against staging
 - [ ] Contract changes: ABI conformance tests regenerated (`npx tsx tests/abi-conformance/scripts/generate-fixtures.ts`) and committed
 
 ### Documentation
@@ -48,9 +49,12 @@ Copy this block into your pull request description and check each item before re
 - [ ] Breaking changes call out the migration path in the PR description
 
 ### Migration
-- [ ] Schema migrations have been dry-run locally: `node scripts/migration-safety.mjs --dry-run`
+- [ ] Schema migration dry-run passes: `node scripts/migration-safety.mjs --dry-run`
 - [ ] Migration post-validation passes: `node scripts/migration-safety.mjs --verify`
 - [ ] No irreversible data transforms without a matching rollback procedure documented in the PR
+
+### Security
+- [ ] Security checks pass (CodeQL, `yarn check:policy`, `npm audit --omit=dev` — no new high/critical)
 
 ### Configuration
 - [ ] New required env vars are listed in `.env.example` with a safe default or clear placeholder
@@ -58,7 +62,8 @@ Copy this block into your pull request description and check each item before re
 - [ ] Secrets rotation not required, OR rotation runbook referenced (`docs/secret-rotation.md`)
 
 ### Rollback
-- [ ] A rollback plan is described in the PR (feature flag disable, migration rollback command, or revert tag)
+- [ ] Rollback plan described in the PR (feature flag disable, migration rollback command, or revert tag)
+- [ ] Rollback rehearsed in staging (deploy → rollback → smoke) with evidence linked
 - [ ] Contract upgrade: `scripts/preflight_upgrade.py check` passes and upgrade strategy is documented
 - [ ] Data migrations: rollback command tested: `yarn --cwd server db:rollback`
 
@@ -67,6 +72,45 @@ Copy this block into your pull request description and check each item before re
 - [ ] For contract changes or payout-path changes: two maintainer approvals required
 - [ ] CI gate passes (all jobs green in `.github/workflows/ci.yml`)
 ```
+
+---
+
+## Release Readiness Gate (enforced)
+
+`scripts/release-readiness-gate.mjs` runs as the final job of
+`.github/workflows/release-readiness.yml`. For high-risk PRs it **fails the
+build when evidence is missing**, not only when a job failed:
+
+| Gate key | Required when | Satisfied by |
+|---|---|---|
+| `smoke` | always (high-risk) | ticked "Smoke verification passes" |
+| `security` | always | ticked "Security checks pass" |
+| `rollback-plan` | always | ticked "Rollback plan described" |
+| `rollback-rehearsal` | always | ticked "Rollback rehearsed" |
+| `migration-dry-run` | `server/src/db/migrations/` changed | ticked "Schema migration dry-run passes" **and** the Migration Dry-Run job succeeded |
+| `migration-reversible` | migrations changed | ticked "No irreversible data transforms" |
+| contract preflight | `contracts/` changed | Contract Upgrade Preflight job succeeded |
+| readiness self-test | always (high-risk) | Readiness Self-Test job (`scripts/release-readiness.mjs --self-test`) succeeded |
+
+A required job that was `skipped` or `cancelled` counts as missing evidence. If the `detect-high-risk` job itself fails, the gate fails closed.
+
+**Waivers.** An item may be waived only through the Exception block: a
+non-empty `Incident ticket:` plus the gate key in `Skipped items:`
+(e.g. `Skipped items: smoke, rollback-rehearsal`). Job results cannot be
+waived. Waived keys are printed in the job log for auditability.
+
+**Run locally:**
+
+```bash
+PR_BODY="$(cat pr-body.md)" HIGH_RISK=true HAS_MIGRATION=true CHECKLIST_RESULT=success MIGRATION_RESULT=success node scripts/release-readiness-gate.mjs
+```
+
+**Failure modes & recovery**
+
+- *Gate fails on an old PR body* — edit the description and re-run the job (`gh run rerun <id> --failed`); the body is read at run time.
+- *Path detection misses a high-risk file* — the gate passes trivially; extend the grep in `detect-high-risk` and add the path to the table above.
+- *Gate script itself broken* — revert the commit touching `scripts/release-readiness-gate.mjs`; the workflow has no other state. Tests: `server/src/tests/releaseReadinessGate.test.ts`.
+- *Rollback rehearsal impossible (e.g. irreversible contract upgrade)* — waive `rollback-rehearsal` via the Exception block and link the forward-fix plan.
 
 ---
 

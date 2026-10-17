@@ -167,33 +167,19 @@ jobs:
       - readiness-self-test
     if: always()
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Evaluate gate
-        run: |
-          HIGH_RISK="${{ needs.detect-high-risk.outputs.is_high_risk }}"
-
-          # For non-high-risk PRs, always pass
-          if [ "$HIGH_RISK" != "true" ]; then
-            echo "✅ Not a high-risk change. Release readiness gate passed."
-            exit 0
-          fi
-
-          CHECKLIST="${{ needs.checklist-present.result }}"
-          MIGRATION="${{ needs.migration-dry-run.result }}"
-          CONTRACT="${{ needs.contract-upgrade-preflight.result }}"
-          READINESS="${{ needs.readiness-self-test.result }}"
-
-          FAILED=0
-          [ "$CHECKLIST" == "failure" ] && echo "❌ Checklist check failed." && FAILED=1
-          [ "$MIGRATION" == "failure" ] && echo "❌ Migration dry-run failed." && FAILED=1
-          [ "$CONTRACT" == "failure" ] && echo "❌ Contract upgrade preflight failed." && FAILED=1
-          [ "$READINESS" == "failure" ] && echo "❌ Readiness self-test failed." && FAILED=1
-
-          # skipped means condition was false (not applicable), treat as pass
-          if [ "$FAILED" -eq 0 ]; then
-            echo "✅ Release readiness gate passed."
-            exit 0
-          else
-            echo ""
-            echo "Fix the failures above before merging. See docs/RELEASE_READINESS_CHECKLIST.md."
-            exit 1
-          fi
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          DETECT_RESULT: ${{ needs.detect-high-risk.result }}
+          HIGH_RISK: ${{ needs.detect-high-risk.outputs.is_high_risk }}
+          HAS_MIGRATION: ${{ needs.detect-high-risk.outputs.has_migration }}
+          HAS_CONTRACT_CHANGE: ${{ needs.detect-high-risk.outputs.has_contract_change }}
+          CHECKLIST_RESULT: ${{ needs.checklist-present.result }}
+          MIGRATION_RESULT: ${{ needs.migration-dry-run.result }}
+          CONTRACT_RESULT: ${{ needs.contract-upgrade-preflight.result }}
+          READINESS_RESULT: ${{ needs.readiness-self-test.result }}
+        run: node scripts/release-readiness-gate.mjs
