@@ -57,7 +57,7 @@ async function isAuthorizedForExport(
  * Build a privacy-safe export record for a prompt.
  * Wallet addresses are hashed; raw sensitive data is excluded.
  */
-function buildExportPrompt(prompt: any): any {
+function buildExportPrompt(prompt: any, isSelfExport: boolean): any {
   return {
     _id: prompt._id,
     onChainId: prompt.onChainId,
@@ -67,7 +67,12 @@ function buildExportPrompt(prompt: any): any {
     price: prompt.price,
     // Include wallet hash instead of raw address for privacy
     ownerWalletHash: prompt.owner ? hashWalletAddress(String(prompt.owner)) : null,
-    // Exclude sensitive fields: encryptedPrompt, contentHash (if sensitive), full description
+    // Field-level authorization (#1042): contentHash is only useful for the
+    // owner verifying their own content integrity. An admin pulling someone
+    // else's export (compliance/support) gets everything above, but not
+    // this field — they don't need it, so it's excluded, not just hashed.
+    ...(isSelfExport ? { contentHash: prompt.contentHash ?? null } : {}),
+    // Still excluded for everyone: encryptedPrompt, full description.
     createdAt: prompt.createdAt,
     updatedAt: prompt.updatedAt,
     lifecycleState: prompt.lifecycleState,
@@ -156,13 +161,14 @@ export async function runUserExport(
   try {
     if (scope === "prompt") {
       // Export only prompts owned by this user
+      const isSelfExport = requestingUserId === userIdToExport;
       const prompts = await Prompt.find({ owner: userIdToExport })
         .select(
-          "onChainId title category isActive price owner createdAt updatedAt lifecycleState",
+          "onChainId title category isActive price owner contentHash createdAt updatedAt lifecycleState",
         )
         .lean();
 
-      records = prompts.map(buildExportPrompt);
+      records = prompts.map((prompt) => buildExportPrompt(prompt, isSelfExport));
       recordCount = records.length;
 
       // Update export record with results

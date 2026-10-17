@@ -91,7 +91,14 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({
     <NotificationContext.Provider value={contextValue}>
       {children}
       <OfflineQueueManager />
-      <div className="notification-container">
+      {/* #1044: async success/error/retry status was never announced to
+          screen readers — this container had no role or aria-live. */}
+      <div
+        className="notification-container"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {notifications.map((notification) => (
           <div
             key={notification.id}
