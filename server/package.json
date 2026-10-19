@@ -19,6 +19,7 @@
     "backup": "ts-node scripts/runBackup.ts",
     "reindex": "ts-node scripts/reIndexFromLedger.ts",
     "reindex:dry-run": "ts-node scripts/reIndexFromLedger.ts --dry-run",
+    "backfill": "ts-node scripts/backfillTool.ts",
     "seed:preview": "node scripts/seedPreview.mjs",
     "db:migrate": "ts-node src/db/migrateCli.ts up",
     "db:rollback": "ts-node src/db/rollbackCli.ts",
