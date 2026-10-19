@@ -143,3 +143,32 @@ export function isCanonicallyEquivalent(
     canonicalize(legacyValue, options) === canonicalize(newValue, options)
   );
 }
+
+/**
+ * Deterministic JSON for signed and hashed payloads (#979).
+ *
+ * This is the single serializer every signature or digest input should go
+ * through. Rules:
+ *   - object keys are sorted recursively, so property insertion order never
+ *     changes the bytes;
+ *   - members whose value is `undefined` are dropped, the same as a missing key;
+ *   - `Date` values become their ISO-8601 string;
+ *   - array holes and top-level `undefined` serialize as `null`.
+ *
+ * It does NOT normalize strings or numbers. Values are emitted exactly as
+ * `JSON.stringify` would, which keeps every digest already stored in the
+ * database valid. Use `canonicalize` above only for new, versioned formats.
+ */
+export function canonicalJson(value: unknown): string {
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (value === null || value === undefined || typeof value !== "object") {
+    return JSON.stringify(value ?? null);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  const members = Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
+  return `{${members.join(",")}}`;
+}

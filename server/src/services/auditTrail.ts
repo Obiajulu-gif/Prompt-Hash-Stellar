@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { AUDIT_ACTIONS, AuditLog, AuditAction, AuditResult } from "../models/AuditLog";
 import { logger } from "./structuredLogger";
+import { canonicalJson } from "./canonicalSerialization";
 import { MaintenanceScope } from "../models/MaintenanceBanner";
 export { logger };
 
@@ -14,24 +15,9 @@ export const AUDIT_INTEGRITY_VERSION = 2;
 const GENESIS_HASH = "0".repeat(64);
 const MAINTENANCE_TARGET_TYPE = "maintenance_banner";
 
-/**
- * Deterministic JSON serialization: object keys are sorted recursively and
- * `undefined` members are dropped, so the same logical record always produces
- * the same bytes regardless of property insertion order (#783).
- */
-export function canonicalJson(value: unknown): string {
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
-  if (value === null || value === undefined || typeof value !== "object") {
-    return JSON.stringify(value ?? null);
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  const record = value as Record<string, unknown>;
-  const members = Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
-  return `{${members.join(",")}}`;
-}
+// Deterministic JSON for audit hashes (#783). The implementation lives in the
+// shared canonical layer (#979); re-exported here so existing imports keep working.
+export { canonicalJson };
 
 /**
  * One-way SHA-256 hash of a Stellar wallet address.

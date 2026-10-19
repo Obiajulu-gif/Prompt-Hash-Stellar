@@ -14,27 +14,12 @@ import { createHash, randomBytes, randomUUID } from "crypto";
 import WebhookSubscription from "../models/WebhookSubscription";
 import WebhookOutboxEvent, { WebhookOutboxStatus } from "../models/WebhookOutboxEvent";
 import { redactSensitiveFields } from "./sensitiveContent";
+import { canonicalJson } from "./canonicalSerialization";
 
 const SECRET_ROTATION_GRACE_MS = 24 * 60 * 60 * 1000; // 24h for a subscriber to switch over.
 
-function canonicalPayload(value: Record<string, unknown>): string {
-  const sortDeep = (input: unknown): unknown => {
-    if (Array.isArray(input)) return input.map(sortDeep);
-    if (input && typeof input === "object") {
-      return Object.keys(input as Record<string, unknown>)
-        .sort()
-        .reduce<Record<string, unknown>>((acc, key) => {
-          acc[key] = sortDeep((input as Record<string, unknown>)[key]);
-          return acc;
-        }, {});
-    }
-    return input;
-  };
-  return JSON.stringify(sortDeep(value));
-}
-
 function payloadHash(value: Record<string, unknown>): string {
-  return createHash("sha256").update(canonicalPayload(value)).digest("hex");
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 /**

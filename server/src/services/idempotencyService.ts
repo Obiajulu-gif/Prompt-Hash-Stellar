@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { canonicalJson } from "./canonicalSerialization";
 import IdempotencyRecord, {
   type IIdempotencyRecord,
   type IdempotencyRecordStatus,
@@ -13,23 +14,19 @@ export type IdempotencyDecision =
   | { kind: "expired"; message: string }
   | { kind: "in_progress"; message: string };
 
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`)
-    .join(",")}}`;
-}
-
+/**
+ * Request digest over the shared canonical serializer (#979). An undefined
+ * body keeps its historical "undefined" token so digests already stored for
+ * in-flight keys still match on replay.
+ */
 export function hashIdempotentRequest(input: {
   method: string;
   scope: string;
   body: unknown;
 }): string {
+  const body = input.body === undefined ? "undefined" : canonicalJson(input.body);
   return createHash("sha256")
-    .update(`${input.method.toUpperCase()}\n${input.scope}\n${stableJson(input.body)}`)
+    .update(`${input.method.toUpperCase()}\n${input.scope}\n${body}`)
     .digest("hex");
 }
 
