@@ -22,6 +22,7 @@ export const AUDIT_ACTIONS = [
   // admin access
   "admin_auth_success",
   "admin_auth_denied",
+  "admin_maintenance_change",
   "audit_export",
   "audit_sensitive_field_access",
   "audit_sensitive_field_denied",
@@ -199,6 +200,14 @@ auditLogSchema.index({ createdAt: 1, _id: 1 });
 auditLogSchema.index({ actor: 1, createdAt: 1 });
 auditLogSchema.index({ target: 1, targetType: 1, createdAt: -1 });
 auditLogSchema.index({ targetType: 1, action: 1, createdAt: -1 });
+// Chain integrity (#982): each hash-chained record names its predecessor, so
+// two records can never share a previousHash. A forked append fails with
+// E11000 at the database and is retried by recordAuditEvent. The partial
+// filter leaves out legacy rows that carry no previousHash.
+auditLogSchema.index(
+  { previousHash: 1 },
+  { unique: true, partialFilterExpression: { previousHash: { $type: "string" } } },
+);
 
 // Prevent updates — audit records are immutable.
 auditLogSchema.pre("findOneAndUpdate", function () {

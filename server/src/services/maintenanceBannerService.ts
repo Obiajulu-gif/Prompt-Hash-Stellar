@@ -7,7 +7,7 @@ import {
   type MaintenanceScope,
   type MaintenanceSeverity,
 } from "../models/MaintenanceBanner.js";
-import { AuditLog } from "../models/AuditLog.js";
+import { recordMaintenanceChange } from "./auditTrail";
 
 export interface MaintenanceBannerPublic {
   id: string;
@@ -339,14 +339,17 @@ export class MaintenanceBannerService {
     before: MaintenanceBannerAdmin | undefined,
     after: MaintenanceBannerAdmin | undefined,
   ): Promise<void> {
+    // Route through the hash-chained audit trail (#982). Writing AuditLog
+    // directly skipped recordHash/previousHash and used action names the
+    // schema rejects, so these events were silently dropped.
     try {
-      await AuditLog.create({
-        action,
+      await recordMaintenanceChange({
         actor,
-        targetType: "maintenance_banner",
-        targetId: String(banner._id),
-        metadata: { before, after },
-        timestamp: new Date(),
+        bannerId: String(banner._id),
+        scopes: banner.scopes,
+        beforeState: before ? { ...before } : null,
+        afterState: after ? { ...after } : null,
+        reason: action,
       });
     } catch (err) {
       // Audit failures must not block the maintenance workflow.

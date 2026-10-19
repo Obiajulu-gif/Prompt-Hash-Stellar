@@ -234,12 +234,14 @@ describe("recordAuditEvent integrity (#783)", () => {
     const doc: any = create.mock.calls[0][0];
     expect(doc.createdAt).toBeInstanceOf(Date);
     expect(doc.previousHash).toBe("a".repeat(64));
-    expect(doc.integrityVersion).toBe(2);
+    expect(doc.integrityVersion).toBe(3);
     expect(doc.actor).toBe("ops-jane");
     expect(doc.walletAddress).toBe(hashWalletAddress("GABC"));
     expect(computeRecordHash(doc)).toBe(doc.recordHash);
     // actor and reason are covered by the hash, not just stored beside it.
     expect(computeRecordHash({ ...doc, reason: "edited" })).not.toBe(doc.recordHash);
     expect(computeRecordHash({ ...doc, actor: "other" })).not.toBe(doc.recordHash);
+    // v3 (#982): metadata is covered too.
+    expect(computeRecordHash({ ...doc, metadata: { forged: true } })).not.toBe(doc.recordHash);
   });
 });
