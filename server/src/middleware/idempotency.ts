@@ -6,6 +6,7 @@ import {
   replayStatus,
   validateIdempotencyKey,
 } from "../services/idempotencyService";
+import { safeLog } from "../services/logger";
 
 function errorResponse(res: Response, status: number, code: string, error: string) {
   return res.status(status).json({ code, error });
@@ -19,7 +20,12 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
   const key = req.get("Idempotency-Key");
   const keyError = validateIdempotencyKey(key);
   if (keyError) {
-    errorResponse(res, 400, "IDEMPOTENCY_KEY_REQUIRED", keyError);
+    safeLog.info("idempotency.key_invalid", {
+      method: req.method,
+      path: `${req.baseUrl}${req.path}`,
+      reason: keyError,
+    });
+    errorResponse(res, 400, "IDEMOTENCY_KEY_REQUIRED", keyError);
     return;
   }
 
@@ -29,18 +35,39 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
   void beginIdempotentRequest({ scope, key: key as string, requestHash })
     .then((decision) => {
       if (decision.kind === "conflict") {
+        safeLog.warn("idempotency.conflict", {
+          method: req.method,
+          path: scope,
+          requestHash,
+        });
         errorResponse(res, 409, "IDEMPOTENCY_KEY_CONFLICT", decision.message);
         return;
       }
       if (decision.kind === "expired") {
+        safeLog.warn("idempotency.expired", {
+          method: req.method,
+          path: scope,
+          requestHash,
+        });
         errorResponse(res, 409, "IDEMPOTENCY_KEY_EXPIRED", decision.message);
         return;
       }
       if (decision.kind === "in_progress") {
+        safeLog.info("idempotency.in_progress", {
+          method: req.method,
+          path: scope,
+          requestHash,
+        });
         errorResponse(res, 409, "IDEMPOTENCY_REQUEST_IN_PROGRESS", decision.message);
         return;
       }
       if (decision.kind === "replay") {
+        safeLog.info("idempotency.replay", {
+          method: req.method,
+          path: scope,
+          requestHash,
+          statusCode: replayStatus(decision.record),
+        });
         res.setHeader("Idempotent-Replayed", "true");
         res.status(replayStatus(decision.record)).json(decision.record.responseBody);
         return;
@@ -56,7 +83,7 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
         return originalJson(body);
       }) as Response["json"];
       res.send = ((body?: unknown) => {
-        // `res.json()` delegates to `res.send()` with the ALREADY-STRINGIFIED
+        // `res.json()` delegates to `res.send()` with the ALEADY-STRINGIFIED
         // payload. Without this guard the send wrapper overwrites the object
         // captured by json, and every replay double-encodes the stored body —
         // the client then receives a JSON string instead of the original
@@ -67,6 +94,12 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
         return originalSend(body);
       }) as Response["send"];
       res.once("finish", () => {
+        safeLog.info("idempotency.completed", {
+          method: req.method,
+          path: scope,
+          requestHash,
+          statusCode: res.statusCode,
+        });
         void completeIdempotentRequest({
           recordId: decision.record._id,
           statusCode: res.statusCode,
