@@ -9,6 +9,7 @@ import OwnershipTransferDispute from "../models/OwnershipTransferDispute";
 import { ApprovalService } from "../services/approvalService";
 import { logger } from "../services/structuredLogger";
 import { recordAccessOrOwnershipChange } from "../services/auditTrail";
+import { DomainInvariantsService } from "../services/domainInvariants";
 
 /**
  * Ownership transfer controllers (#708, hardened in #1034).
@@ -100,6 +101,14 @@ export const RequestOwnershipTransfer = async (
     return res
       .status(403)
       .json({ error: "Only the current listing owner may request a transfer." });
+  }
+  const ownershipInvariant = DomainInvariantsService.assertOwnershipTransition(
+    fromWallet,
+    currentOwner,
+    toWallet,
+  );
+  if (!ownershipInvariant.passed) {
+    return res.status(409).json({ error: ownershipInvariant.message });
   }
 
   // Settle this listing's lapsed requests first so an expired one never

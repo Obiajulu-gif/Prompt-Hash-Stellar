@@ -7,9 +7,10 @@ import {
 /**
  * Loads the signed purchase receipt for a prompt/buyer pair — Issue #490.
  *
- * `data === null` (query succeeded) means "no purchase indexed yet" (pending
- * indexing), which is distinct from `isError` (a real failure talking to the
- * receipt endpoint). Callers should branch on both.
+ * `data.receiptStatus === "pending"` means the transaction reference/event
+ * is not indexed yet; `data.entitlement.status` independently reports whether
+ * current on-chain access is verified. `isError` is a failure talking to the
+ * receipt endpoint.
  */
 export function usePurchaseReceipt(
   promptId: string,

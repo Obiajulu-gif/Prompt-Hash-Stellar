@@ -20,6 +20,8 @@ export function normalizeProvider(value: unknown): string | null {
 export function normalizeSubject(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const subject = value.trim();
+  // Reject control characters to prevent ambiguous identity subjects.
+  // eslint-disable-next-line no-control-regex
   if (!subject || subject.length > 256 || /[\u0000-\u001f\u007f]/u.test(subject)) return null;
   return subject;
 }

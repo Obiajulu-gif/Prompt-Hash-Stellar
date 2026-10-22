@@ -2,7 +2,8 @@
  * Buyer-facing licence entitlement status — Issue #490.
  *
  * Derives a single, at-a-glance entitlement state for a prompt the buyer has
- * already purchased, from three independent signals:
+ * already purchased, requiring the latest ledger verification before a
+ * receipt or unlock state can be treated as current access:
  *
  *  - `listingActive`   — has the creator delisted the prompt (does not
  *                        revoke a licence already sold)?
@@ -13,6 +14,7 @@
  *  - `unlockState`     — has the buyer verified wallet ownership this
  *                        session to decrypt the content (see
  *                        `UnlockExplainer`'s `UnlockState`)?
+ *  - `verificationStatus` — did the latest ledger check confirm access?
  */
 import type { UnlockState } from "@/components/UnlockExplainer";
 
@@ -20,9 +22,16 @@ export type EntitlementState =
   | "active"
   | "pending"
   | "unavailable"
-  | "verification_needed";
+  | "verification_needed"
+  | "not_entitled"
+  | "unverifiable";
 
 export type ReferenceStatus = "ready" | "pending" | "unknown";
+export type EntitlementVerificationStatus =
+  | "verified"
+  | "not_entitled"
+  | "unverifiable"
+  | "unknown";
 
 export interface EntitlementDescriptor {
   state: EntitlementState;
@@ -35,6 +44,7 @@ export interface DeriveEntitlementStateParams {
   listingActive: boolean;
   referenceStatus: ReferenceStatus;
   unlockState: UnlockState;
+  verificationStatus?: EntitlementVerificationStatus;
 }
 
 const UNLOCK_RECOVERY_COPY: Partial<Record<UnlockState, string>> = {
@@ -50,7 +60,28 @@ export function deriveEntitlementState({
   listingActive,
   referenceStatus,
   unlockState,
+  verificationStatus = "unknown",
 }: DeriveEntitlementStateParams): EntitlementDescriptor {
+  if (verificationStatus === "not_entitled") {
+    return {
+      state: "not_entitled",
+      label: "No current entitlement",
+      summary:
+        "The latest verified ledger state does not show an active licence for this wallet. Older purchase records do not grant current access.",
+      unlockReadiness: "Access is unavailable until the on-chain entitlement is restored.",
+    };
+  }
+
+  if (verificationStatus === "unverifiable" || verificationStatus === "unknown") {
+    return {
+      state: "unverifiable",
+      label: "Unable to verify",
+      summary:
+        "Current on-chain entitlement could not be confirmed. A receipt or indexed purchase record alone is not proof of current access.",
+      unlockReadiness: "Retry verification before relying on this licence.",
+    };
+  }
+
   if (!listingActive) {
     return {
       state: "unavailable",
@@ -69,8 +100,8 @@ export function deriveEntitlementState({
       state: "pending",
       label: "Pending indexing",
       summary:
-        "Your purchase is confirmed on-chain, but our indexer hasn't recorded a transaction reference yet. This is usually a short delay, not a failed purchase.",
-      unlockReadiness: "Waiting for the purchase record to finish indexing.",
+        "Your current on-chain entitlement is verified, but our indexer hasn't recorded a transaction reference yet. This is usually a short delay, not a failed purchase.",
+      unlockReadiness: "Current access is verified; waiting for the receipt reference to finish indexing.",
     };
   }
 

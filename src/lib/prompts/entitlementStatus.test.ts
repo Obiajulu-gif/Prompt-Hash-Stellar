@@ -7,6 +7,7 @@ describe("deriveEntitlementState — issue #490", () => {
       listingActive: false,
       referenceStatus: "ready",
       unlockState: "success",
+      verificationStatus: "verified",
     });
 
     expect(descriptor.state).toBe("unavailable");
@@ -18,6 +19,7 @@ describe("deriveEntitlementState — issue #490", () => {
       listingActive: false,
       referenceStatus: "pending",
       unlockState: "failed",
+      verificationStatus: "verified",
     });
 
     expect(descriptor.state).toBe("unavailable");
@@ -28,6 +30,7 @@ describe("deriveEntitlementState — issue #490", () => {
       listingActive: true,
       referenceStatus: "pending",
       unlockState: "idle",
+      verificationStatus: "verified",
     });
 
     expect(descriptor.state).toBe("pending");
@@ -43,6 +46,7 @@ describe("deriveEntitlementState — issue #490", () => {
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "success",
+      verificationStatus: "verified",
     });
 
     expect(descriptor.state).toBe("active");
@@ -54,6 +58,7 @@ describe("deriveEntitlementState — issue #490", () => {
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "idle",
+      verificationStatus: "verified",
     });
 
     expect(descriptor.state).toBe("verification_needed");
@@ -70,6 +75,7 @@ describe("deriveEntitlementState — issue #490", () => {
         listingActive: true,
         referenceStatus: "ready",
         unlockState,
+        verificationStatus: "verified",
       });
 
       expect(descriptor.state).toBe("verification_needed");
@@ -82,24 +88,62 @@ describe("deriveEntitlementState — issue #490", () => {
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "signing",
+      verificationStatus: "verified",
     });
     const verifying = deriveEntitlementState({
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "verifying",
+      verificationStatus: "verified",
     });
 
     expect(signing.unlockReadiness).toMatch(/verifying/i);
     expect(verifying.unlockReadiness).toMatch(/verifying/i);
   });
 
-  it("treats an unknown reference status (loading/error) as verification-needed rather than pending", () => {
+  it("does not treat a missing verification result as current access", () => {
     const descriptor = deriveEntitlementState({
       listingActive: true,
-      referenceStatus: "unknown",
+      referenceStatus: "ready",
       unlockState: "idle",
     });
 
-    expect(descriptor.state).toBe("verification_needed");
+    expect(descriptor.state).toBe("unverifiable");
+  });
+
+  it("shows pending indexing only after current ledger entitlement is verified", () => {
+    const descriptor = deriveEntitlementState({
+      listingActive: true,
+      referenceStatus: "pending",
+      unlockState: "idle",
+      verificationStatus: "verified",
+    });
+
+    expect(descriptor.state).toBe("pending");
+    expect(descriptor.unlockReadiness).toMatch(/current access is verified/i);
+  });
+
+  it("does not present a historical receipt as access after on-chain entitlement is revoked", () => {
+    const descriptor = deriveEntitlementState({
+      listingActive: true,
+      referenceStatus: "ready",
+      unlockState: "success",
+      verificationStatus: "not_entitled",
+    });
+
+    expect(descriptor.state).toBe("not_entitled");
+    expect(descriptor.summary).toMatch(/older purchase records do not grant current access/i);
+  });
+
+  it("exposes ledger divergence or stale state as unverifiable", () => {
+    const descriptor = deriveEntitlementState({
+      listingActive: true,
+      referenceStatus: "ready",
+      unlockState: "success",
+      verificationStatus: "unverifiable",
+    });
+
+    expect(descriptor.state).toBe("unverifiable");
+    expect(descriptor.summary).toMatch(/not proof of current access/i);
   });
 });

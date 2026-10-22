@@ -216,7 +216,7 @@ export function migratePromptMetadata(raw: any): LegacyMigrationResult {
     };
   }
 
-  if (!LEGACY_PROMPT_SCHEMA_VERSIONS._includes(sourceVersion as LegacyPromptSchemaVersion)) {
+  if (!LEGACY_PROMPT_SCHEMA_VERSIONS.includes(sourceVersion as LegacyPromptSchemaVersion)) {
     return {
       data: null,
       error: `Unsupported legacy schema version: ${sourceVersion}.`,

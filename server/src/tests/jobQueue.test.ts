@@ -132,5 +132,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await teardownDb();
-  } catch {}
+  } catch {
+    // Setup failures can leave no database to tear down.
+  }
 });

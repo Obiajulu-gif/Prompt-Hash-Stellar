@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock DB connection
@@ -81,7 +82,7 @@ describe("Export Service", () => {
         { id: "2", title: "Test 2" },
       ];
       // Generate a checksum
-      const hash = require("crypto").createHash("sha256");
+      const hash = createHash("sha256");
       for (const r of records) {
         hash.update(JSON.stringify(r));
         hash.update("\n");

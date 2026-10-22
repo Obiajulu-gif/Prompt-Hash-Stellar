@@ -50,6 +50,16 @@ const TONE_STYLES: Record<
     badge: "border-cyan-300/30 bg-cyan-300/10 text-cyan-100",
     icon: <ShieldQuestion className="h-4 w-4" />,
   },
+  not_entitled: {
+    container: "border-rose-300/20 bg-rose-300/[0.05]",
+    badge: "border-rose-300/30 bg-rose-300/10 text-rose-100",
+    icon: <XCircle className="h-4 w-4" />,
+  },
+  unverifiable: {
+    container: "border-amber-300/20 bg-amber-300/[0.05]",
+    badge: "border-amber-300/30 bg-amber-300/10 text-amber-100",
+    icon: <ShieldQuestion className="h-4 w-4" />,
+  },
 };
 
 function truncateMiddle(value: string, lead = 10, tail = 6): string {
@@ -141,19 +151,22 @@ export function EntitlementStatusPanel({
 
       {(onRetryReference || onRetryVerification) && (
         <div className="flex flex-wrap gap-2 pt-1">
-          {descriptor.state === "pending" && onRetryReference && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRetryReference}
-              disabled={isRetryingReference}
-              className="h-8 border border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10 text-xs"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {isRetryingReference ? "Checking…" : "Check indexing again"}
-            </Button>
-          )}
-          {descriptor.state === "verification_needed" &&
+          {(descriptor.state === "pending" ||
+            descriptor.state === "unverifiable") &&
+            onRetryReference && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onRetryReference}
+                disabled={isRetryingReference}
+                className="h-8 border border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10 text-xs"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {isRetryingReference ? "Checking…" : "Check indexing again"}
+              </Button>
+            )}
+          {(descriptor.state === "verification_needed" ||
+            descriptor.state === "unverifiable") &&
             onRetryVerification &&
             descriptor.unlockReadiness !== "Verifying wallet signature…" && (
               <Button

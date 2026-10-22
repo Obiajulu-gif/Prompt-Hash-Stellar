@@ -17,6 +17,7 @@ describe("EntitlementStatusPanel — issue #490", () => {
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "success",
+      verificationStatus: "verified",
     });
 
     renderWithProviders(
@@ -42,6 +43,7 @@ describe("EntitlementStatusPanel — issue #490", () => {
       listingActive: true,
       referenceStatus: "pending",
       unlockState: "idle",
+      verificationStatus: "verified",
     });
 
     renderWithProviders(
@@ -68,6 +70,7 @@ describe("EntitlementStatusPanel — issue #490", () => {
       listingActive: false,
       referenceStatus: "ready",
       unlockState: "idle",
+      verificationStatus: "verified",
     });
 
     renderWithProviders(<EntitlementStatusPanel descriptor={descriptor} />);
@@ -89,6 +92,7 @@ describe("EntitlementStatusPanel — issue #490", () => {
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "failed",
+      verificationStatus: "verified",
     });
 
     renderWithProviders(
@@ -116,6 +120,7 @@ describe("EntitlementStatusPanel — issue #490", () => {
       listingActive: true,
       referenceStatus: "ready",
       unlockState: "verifying",
+      verificationStatus: "verified",
     });
 
     renderWithProviders(
