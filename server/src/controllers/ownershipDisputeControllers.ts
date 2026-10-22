@@ -215,8 +215,7 @@ export const GetOwnershipDispute = async (req: Request, res: Response): Promise<
 };
 
 /**
- * Hands the listing back to the transfer's original owner. Succeeds only if
- * the recipient still owns it, so a later owner is never moved.
+ * Hands the listing back to the transfer's original owner. Succeeds only if * the recipient still owns it, so a later owner is never moved.
  */
 async function revertListingOwnership(dispute: { promptId: string; fromWallet: string; toWallet: string }) {
   const [fromUser, toUser] = await Promise.all([
@@ -282,7 +281,7 @@ export const ResolveOwnershipDispute = async (req: AdminRequest, res: Response):
 
   await recordAccessOrOwnershipChange({
     action: action === "accept" ? "ownership_dispute_accepted" : "ownership_dispute_rejected",
-    actor,
+    actor: actor,
     target: String(dispute.transferId),
     targetType: "prompt",
     promptId: dispute.promptId,
