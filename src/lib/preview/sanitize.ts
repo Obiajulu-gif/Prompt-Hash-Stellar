@@ -53,6 +53,7 @@ export function sanitizeLinkHref(href: string | undefined): string | null {
   if (/^\s*vbscript:/i.test(trimmed)) return null;
   if (!isSafeUrl(trimmed)) return null;
   // Block URLs with embedded newlines or control chars that may bypass checks
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\x7f]/.test(trimmed)) return null;
   return trimmed;
 }
@@ -74,6 +75,7 @@ export function sanitizeImageSrc(src: string | undefined): string | null {
   if (!src) return null;
   const trimmed = src.trim();
   if (!isSafeImageUrl(trimmed)) return null;
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\x7f]/.test(trimmed)) return null;
   return trimmed;
 }

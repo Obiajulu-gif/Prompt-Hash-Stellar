@@ -16,8 +16,10 @@ import {
   getPrompt,
   hasAccess,
   verifyEntitlement,
+  getCurrentEntitlementStatus,
   type PromptHashConfig,
   type LedgerVerifiedEntitlement,
+  type CurrentEntitlementStatus,
   DEFAULT_MAX_LEDGER_AGE,
 } from "../../src/lib/stellar/promptHashClient";
 import { fetchCiphertextFromIpfs } from "../../src/lib/ipfs/gateway";
@@ -62,6 +64,28 @@ export interface UnlockSuccessResponse {
   contentHashAlgorithm: "SHA-256";
   contentHashVersion: 1;
   plaintext: string;
+  entitlement: {
+    status: CurrentEntitlementStatus;
+    ledgerSequence?: number;
+    ledgerHash?: string;
+    networkId?: string;
+    contractId?: string;
+    checkedAt: number;
+    reason?: string;
+  };
+}
+
+function entitlementEvidence(
+  entitlement: LedgerVerifiedEntitlement,
+): UnlockSuccessResponse["entitlement"] {
+  return {
+    status: getCurrentEntitlementStatus(entitlement),
+    ledgerSequence: entitlement.ledgerSequence,
+    ledgerHash: entitlement.ledgerHash,
+    networkId: entitlement.networkId,
+    contractId: entitlement.contractId,
+    checkedAt: entitlement.checkedAt,
+  };
 }
 
 function promptVersionClaim(prompt: {
@@ -402,6 +426,7 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   // Set once the ledger confirms the buyer paid; from then on a failure is a
   // paid-but-undelivered purchase and opens a recoverable dispute (#755).
   let entitlementConfirmed = false;
+  let verifiedEntitlement: LedgerVerifiedEntitlement | undefined;
 
   try {
     // Support multiple active secrets during rotation grace period
@@ -536,6 +561,7 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
         id,
         DEFAULT_MAX_LEDGER_AGE,
       );
+      verifiedEntitlement = entitlement;
     } catch {
       // Throttle repeated ledger-verification failures for the same prompt.
       if (
@@ -573,10 +599,17 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       res
         .status(403)
         .json(
-          apiError(
-            ErrorCode.ACCESS_NOT_PURCHASED,
-            "Unable to verify access. Please try again.",
-          ),
+          {
+            ...apiError(
+              ErrorCode.ACCESS_NOT_PURCHASED,
+              "Unable to verify access. Please try again.",
+            ),
+            entitlement: {
+              status: "unverifiable",
+              checkedAt: Date.now(),
+              reason: "verification_failed",
+            },
+          },
         );
       return;
     }
@@ -634,10 +667,13 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       res
         .status(403)
         .json(
-          apiError(
-            ErrorCode.ACCESS_NOT_PURCHASED,
-            "Prompt access has not been purchased.",
-          ),
+          {
+            ...apiError(
+              ErrorCode.ACCESS_NOT_PURCHASED,
+              "Prompt access has not been purchased.",
+            ),
+            entitlement: entitlementEvidence(entitlement),
+          },
         );
       return;
     }
@@ -835,6 +871,7 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       contentHashAlgorithm: integrity.algorithm,
       contentHashVersion: integrity.version,
       plaintext,
+      entitlement: entitlementEvidence(entitlement),
     };
     if (idempotencyKey) {
       void storeIdempotencyResult(
@@ -898,10 +935,15 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
     }
 
     if (isExpired) {
-      const body = apiError(
-        ErrorCode.CHALLENGE_EXPIRED,
-        "The challenge token has expired. Please request a new one.",
-      );
+      const body = {
+        ...apiError(
+          ErrorCode.CHALLENGE_EXPIRED,
+          "The challenge token has expired. Please request a new one.",
+        ),
+        ...(verifiedEntitlement
+          ? { entitlement: entitlementEvidence(verifiedEntitlement) }
+          : {}),
+      };
       if (idempotencyKey) {
         void storeIdempotencyResult(
           String(idempotencyKey),
@@ -915,7 +957,12 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       }
       res.status(400).json(body);
     } else if (isTokenMismatch) {
-      const body = apiError(ErrorCode.INVALID_SIGNATURE, "Invalid challenge token or signature.");
+      const body = {
+        ...apiError(ErrorCode.INVALID_SIGNATURE, "Invalid challenge token or signature."),
+        ...(verifiedEntitlement
+          ? { entitlement: entitlementEvidence(verifiedEntitlement) }
+          : {}),
+      };
       if (idempotencyKey) {
         void storeIdempotencyResult(
           String(idempotencyKey),
@@ -929,10 +976,15 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       }
       res.status(401).json(body);
     } else {
-      const body = apiError(
-        ErrorCode.TEMPORARY_FAILURE,
-        "Failed to unlock prompt. Please try again.",
-      );
+      const body = {
+        ...apiError(
+          ErrorCode.TEMPORARY_FAILURE,
+          "Failed to unlock prompt. Please try again.",
+        ),
+        ...(verifiedEntitlement
+          ? { entitlement: entitlementEvidence(verifiedEntitlement) }
+          : {}),
+      };
       if (idempotencyKey) {
         void storeIdempotencyResult(
           String(idempotencyKey),

@@ -17,9 +17,101 @@ export const DOMAIN_INVARIANTS = {
   INV_08_RATING_BOUNDS_AND_BUYER_ELIGIBILITY: "INV-08: Rating score must be between 1 and 5 and reviewer must hold purchase entitlement",
   INV_09_QUARANTINED_PROMPTS_NOT_LISTABLE: "INV-09: Quarantined or flagged prompts cannot be listed or purchased",
   INV_10_ENTITLEMENT_INTEGRITY: "INV-10: User entitlement must trace to a verified purchase or author ownership",
+  INV_11_BALANCE_ENTRY_DIRECTION: "INV-11: Balance entries must be finite and use canonical debit/credit direction",
+  INV_12_OWNERSHIP_TRANSITION: "INV-12: Ownership transitions require the expected current owner and a distinct recipient",
+  INV_13_ENTITLEMENT_TRANSITION_EVIDENCE: "INV-13: Entitlement transitions require identity and auditable evidence",
 };
 
 export class DomainInvariantsService {
+  static assertLedgerBalanceEntry(
+    entryType: "sale" | "fee" | "refund" | "adjustment" | "payout",
+    amount: number,
+  ): InvariantResult {
+    const isFiniteAmount = Number.isFinite(amount);
+    const validDirection =
+      entryType === "adjustment" ||
+      (entryType === "sale" ? amount >= 0 : amount <= 0);
+    const passed = isFiniteAmount && validDirection;
+
+    return {
+      invariantId: "INV-11",
+      name: DOMAIN_INVARIANTS.INV_11_BALANCE_ENTRY_DIRECTION,
+      passed,
+      message: passed
+        ? undefined
+        : !isFiniteAmount
+          ? `Ledger amount must be finite; received: ${amount}`
+          : `${entryType} entries must use the canonical ${entryType === "sale" ? "credit" : "debit"} direction.`,
+      context: { entryType, amount },
+    };
+  }
+
+  static assertOwnershipTransition(
+    expectedOwnerId: string,
+    currentOwnerId: string,
+    nextOwnerId: string,
+  ): InvariantResult {
+    const ownerMatches =
+      expectedOwnerId.trim().toLowerCase() ===
+      currentOwnerId.trim().toLowerCase();
+    const ownerChanges =
+      currentOwnerId.trim().toLowerCase() !== nextOwnerId.trim().toLowerCase();
+    const passed = ownerMatches && ownerChanges;
+
+    return {
+      invariantId: "INV-12",
+      name: DOMAIN_INVARIANTS.INV_12_OWNERSHIP_TRANSITION,
+      passed,
+      message: passed
+        ? undefined
+        : !ownerMatches
+          ? "Ownership changed before this transition could be applied."
+          : "Ownership transition must move to a different owner.",
+      context: { expectedOwnerId, currentOwnerId, nextOwnerId },
+    };
+  }
+
+  static assertEntitlementTransition(
+    input: {
+      action: "grant" | "revoke";
+      userAddress: string;
+      promptId: string;
+      sourceRef?: string;
+      reason?: string;
+    },
+  ): InvariantResult {
+    const hasIdentity = Boolean(input.userAddress.trim() && input.promptId.trim());
+    const hasEvidence =
+      input.action === "grant"
+        ? Boolean(input.sourceRef?.trim())
+        : Boolean(input.reason?.trim());
+    const passed = hasIdentity && hasEvidence;
+
+    return {
+      invariantId: "INV-13",
+      name: DOMAIN_INVARIANTS.INV_13_ENTITLEMENT_TRANSITION_EVIDENCE,
+      passed,
+      message: passed
+        ? undefined
+        : !hasIdentity
+          ? "Entitlement transitions require both a user address and prompt ID."
+          : input.action === "grant"
+            ? "Entitlement grants require a purchase or repair source reference."
+            : "Entitlement revocations require a reason.",
+      context: {
+        action: input.action,
+        hasIdentity,
+        hasEvidence,
+      },
+    };
+  }
+
+  static requireInvariant(result: InvariantResult): void {
+    if (!result.passed) {
+      throw new DomainInvariantError(result);
+    }
+  }
+
   /**
    * INV-01: Price validation
    */
@@ -203,5 +295,15 @@ export class DomainInvariantsService {
       message: passed ? undefined : "User holds entitlement without corresponding purchase or authorship record.",
       context: { hasActiveEntitlement, isAuthor, hasFulfilledPurchase },
     };
+  }
+}
+
+export class DomainInvariantError extends Error {
+  readonly invariant: InvariantResult;
+
+  constructor(invariant: InvariantResult) {
+    super(`${invariant.invariantId} failed: ${invariant.message}`);
+    this.name = "DomainInvariantError";
+    this.invariant = invariant;
   }
 }

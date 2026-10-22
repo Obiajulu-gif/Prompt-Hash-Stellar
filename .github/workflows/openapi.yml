@@ -61,7 +61,7 @@ jobs:
           node -e "
             const fs = require('fs');
             const path = require('path');
-            const specPath = path.resolve(__dirname, '../docs/openapi.json');
+            const specPath = path.resolve(__dirname, 'docs/openapi.json');
             const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
             if (spec.openapi !== '3.0.3') process.exit(1);
             console.log('Schema valid. Paths:', Object.keys(spec.paths).length, 'Schemas:', Object.keys(spec.components.schemas).length);

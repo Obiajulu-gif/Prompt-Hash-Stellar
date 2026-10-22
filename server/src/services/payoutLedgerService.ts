@@ -1,4 +1,5 @@
 import { LedgerEntry, LedgerEntryType, ILedgerEntry } from "../models/LedgerEntry";
+import { DomainInvariantsService } from "./domainInvariants";
 
 /**
  * Upper bound on rows materialised by a single ledger export or balance scan
@@ -66,10 +67,38 @@ export interface AccountingExportRow {
 
 const round4 = (val: number): number => Number(val.toFixed(4));
 
+function canonicalLedgerAmount(
+  entryType: LedgerEntryType,
+  amount: number,
+): number {
+  if (!Number.isFinite(amount)) {
+    DomainInvariantsService.requireInvariant(
+      DomainInvariantsService.assertLedgerBalanceEntry(entryType, amount),
+    );
+  }
+
+  if (entryType === "sale" && amount < 0) {
+    DomainInvariantsService.requireInvariant(
+      DomainInvariantsService.assertLedgerBalanceEntry(entryType, amount),
+    );
+  }
+
+  const canonicalAmount =
+    entryType === "fee" || entryType === "refund" || entryType === "payout"
+      ? -Math.abs(amount)
+      : amount;
+  DomainInvariantsService.requireInvariant(
+    DomainInvariantsService.assertLedgerBalanceEntry(entryType, canonicalAmount),
+  );
+  return round4(canonicalAmount);
+}
+
 /**
  * Append an immutable ledger entry.
  */
 export async function recordLedgerEntry(input: CreateLedgerEntryInput): Promise<ILedgerEntry> {
+  const amount = canonicalLedgerAmount(input.entryType, input.amount);
+
   const existing = await LedgerEntry.findOne({ referenceId: input.referenceId });
   if (existing) {
     // If settlement reference exists, ensure we do not overwrite or duplicate it
@@ -84,7 +113,7 @@ export async function recordLedgerEntry(input: CreateLedgerEntryInput): Promise<
     ...input,
     creatorAddress: input.creatorAddress.toLowerCase(),
     currency: input.currency || "XLM",
-    amount: round4(input.amount),
+    amount,
   });
 
   return await entry.save();

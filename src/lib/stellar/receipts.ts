@@ -30,6 +30,13 @@ export interface BuiltReceipt {
   signerKeyId: string;
 }
 
+export class ReceiptEventNotFoundError extends Error {
+  constructor() {
+    super("No matching PromptPurchased/LicenseTransferred event found for this transaction.");
+    this.name = "ReceiptEventNotFoundError";
+  }
+}
+
 const PURCHASE_EVENT_TOPICS = new Set(["PromptPurchased", "LicenseTransferred"]);
 
 function sortKeysDeep(value: unknown): unknown {
@@ -153,9 +160,7 @@ export async function buildAndSignReceipt(input: BuildReceiptInput): Promise<Bui
     });
 
   if (matchIndex === -1) {
-    throw new Error(
-      "No matching PromptPurchased/LicenseTransferred event found for this transaction.",
-    );
+    throw new ReceiptEventNotFoundError();
   }
 
   const sameTxEvents = events.events.filter((event) => event.txHash === txHash);

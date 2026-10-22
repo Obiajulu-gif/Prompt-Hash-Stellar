@@ -713,6 +713,294 @@
         }
       }
     },
+    "/api/prompts/permalink/{identifier}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Resolve a prompt permalink",
+        "description": "Resolves a prompt by its current or historical slug, on-chain ID, or record ID. Responses use sanitized public metadata. Renamed records return a 301 redirect; restricted and deleted records do not expose private prompt content.",
+        "operationId": "resolvePromptPermalink",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "viewerWallet",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional viewer wallet used to determine whether a restricted listing may be shown."
+          },
+          {
+            "name": "x-wallet-address",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Alternative to viewerWallet for identifying the viewer."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active or archived prompt resolved with sanitized record metadata."
+          },
+          "301": {
+            "description": "Historical slug resolved to its canonical permalink."
+          },
+          "400": {
+            "description": "The identifier is missing or invalid."
+          },
+          "403": {
+            "description": "The prompt is restricted and the viewer is not authorized."
+          },
+          "404": {
+            "description": "No prompt matches the identifier."
+          },
+          "410": {
+            "description": "The prompt has been deleted."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/resolve/{identifier}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Resolve a prompt permalink (alias)",
+        "description": "Alias for GET /api/prompts/permalink/{identifier}. Resolves current or historical slugs, on-chain IDs, or record IDs with the same sanitized responses and redirect behavior.",
+        "operationId": "resolvePromptIdentifier",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "viewerWallet",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-wallet-address",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active or archived prompt resolved with sanitized record metadata."
+          },
+          "301": {
+            "description": "Historical slug resolved to its canonical permalink."
+          },
+          "403": {
+            "description": "The prompt is restricted and the viewer is not authorized."
+          },
+          "404": {
+            "description": "No prompt matches the identifier."
+          },
+          "410": {
+            "description": "The prompt has been deleted."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/receipt": {
+      "get": {
+        "tags": [
+          "Buyer"
+        ],
+        "summary": "Get a signed purchase receipt and current entitlement (#675)",
+        "description": "Builds a receipt from the confirmed Stellar transaction event and independently checks current buyer entitlement against fresh ledger state. A historical receipt alone is not proof of current access. When the purchase record or matching event is not indexed yet, returns HTTP 200 with `receipt: null` and `receiptStatus: pending`.",
+        "operationId": "getPromptPurchaseReceipt",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "buyerWallet",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "txHash",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional transaction hash; otherwise resolved from the indexed purchase."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt status and current entitlement evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "receipt",
+                    "receiptStatus",
+                    "entitlement"
+                  ],
+                  "properties": {
+                    "receipt": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Signed receipt object when its matching purchase event is available; otherwise null."
+                    },
+                    "signature": {
+                      "type": "string"
+                    },
+                    "signerPublicKey": {
+                      "type": "string"
+                    },
+                    "receiptStatus": {
+                      "type": "string",
+                      "enum": [
+                        "ready",
+                        "pending"
+                      ]
+                    },
+                    "entitlement": {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "ledgerSequence",
+                        "ledgerHash",
+                        "networkId",
+                        "contractId",
+                        "checkedAt"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "verified",
+                            "not_entitled",
+                            "unverifiable"
+                          ]
+                        },
+                        "ledgerSequence": {
+                          "type": "integer"
+                        },
+                        "ledgerHash": {
+                          "type": "string"
+                        },
+                        "networkId": {
+                          "type": "string"
+                        },
+                        "contractId": {
+                          "type": "string"
+                        },
+                        "checkedAt": {
+                          "type": "integer",
+                          "description": "Unix timestamp in seconds."
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/unlock": {
+      "post": {
+        "tags": [
+          "Buyer"
+        ],
+        "summary": "Verify entitlement and unlock prompt content (#675)",
+        "description": "Verifies the signed wallet challenge, then checks the buyer's entitlement against fresh finalized ledger state before returning decrypted content. No plaintext is returned for an unverifiable or missing entitlement.",
+        "operationId": "unlockPromptContent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token",
+                  "promptId",
+                  "address",
+                  "signedMessage"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "promptId": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "signedMessage": {
+                    "type": "string"
+                  },
+                  "idempotencyKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decrypted content and verified ledger entitlement evidence."
+          },
+          "403": {
+            "description": "Entitlement denied or could not be verified; response includes `entitlement.status` as `not_entitled` or `unverifiable`."
+          }
+        }
+      }
+    },
     "/api/prompts/hash/{contentHash}": {
       "get": {
         "tags": [

@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { withObservability } from "../../src/lib/observability/wrapper";
 import {
   buildAndSignReceipt,
+  ReceiptEventNotFoundError,
   type ReceiptContractConfig,
 } from "../../src/lib/stellar/receipts";
 import connectDb from "../../server/src/db/connectDb";
@@ -10,6 +11,12 @@ import {
   RECEIPT_ERROR_KEYS,
   PURCHASE_KEYS,
 } from "../../src/lib/i18n/serverMessages";
+import {
+  DEFAULT_MAX_LEDGER_AGE,
+  getCurrentEntitlementStatus,
+  verifyEntitlement,
+  type PromptHashConfig,
+} from "../../src/lib/stellar/promptHashClient";
 
 /**
  * GET /api/prompts/receipt?promptId=&buyerWallet=&txHash=
@@ -21,7 +28,7 @@ import {
  *
  * Error responses include i18n keys for user-facing messages.
  */
-function getServerConfig(): ReceiptContractConfig {
+function getServerConfig(): ReceiptContractConfig & PromptHashConfig {
   const rpcUrl =
     process.env.PUBLIC_STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org";
   const networkPassphrase =
@@ -37,7 +44,29 @@ function getServerConfig(): ReceiptContractConfig {
     networkPassphrase,
     promptHashContractId,
     nativeAssetContractId,
+    rpcUrls: process.env.PUBLIC_STELLAR_RPC_URLS?.split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
+    entitlementQuorum: process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM
+      ? Number(process.env.PUBLIC_STELLAR_ENTITLEMENT_QUORUM)
+      : undefined,
     allowHttp: new URL(rpcUrl).hostname === "localhost",
+  };
+}
+
+function entitlementEvidence(
+  entitlement: Awaited<ReturnType<typeof verifyEntitlement>>,
+) {
+  return {
+    status: getCurrentEntitlementStatus(entitlement),
+    ledgerSequence: entitlement.ledgerSequence,
+    ledgerHash: entitlement.ledgerHash,
+    networkId: entitlement.networkId,
+    contractId: entitlement.contractId,
+    checkedAt: entitlement.checkedAt,
+    ...(entitlement.divergenceReason
+      ? { reason: entitlement.divergenceReason }
+      : {}),
   };
 }
 
@@ -54,24 +83,13 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
     return;
   }
 
+  const normalizedPromptId = String(promptId);
+  const normalizedBuyerWallet = String(buyerWallet);
+  let entitlement: Awaited<ReturnType<typeof verifyEntitlement>> | undefined;
+
   try {
     let txHash = typeof txHashParam === "string" ? txHashParam : undefined;
     let purchase = null;
-
-    await connectDb();
-    purchase = await Purchase.findOne({
-      promptId: String(promptId),
-      buyerWallet: String(buyerWallet).toLowerCase(),
-    }).sort({ createdAt: -1 });
-
-    if (!txHash && !purchase?.txHash) {
-      res.status(404).json({
-        error: RECEIPT_ERROR_KEYS.NOT_FOUND,
-        code: "RECEIPT_NOT_FOUND",
-      });
-      return;
-    }
-    txHash = txHash || purchase?.txHash;
 
     const config = getServerConfig();
     if (!config.promptHashContractId) {
@@ -82,10 +100,34 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       return;
     }
 
+    entitlement = await verifyEntitlement(
+      config,
+      normalizedBuyerWallet,
+      BigInt(normalizedPromptId),
+      DEFAULT_MAX_LEDGER_AGE,
+    );
+    const currentEntitlement = entitlementEvidence(entitlement);
+
+    await connectDb();
+    purchase = await Purchase.findOne({
+      promptId: normalizedPromptId,
+      buyerWallet: normalizedBuyerWallet.toLowerCase(),
+    }).sort({ createdAt: -1 });
+
+    if (!txHash && !purchase?.txHash) {
+      res.status(200).json({
+        receipt: null,
+        receiptStatus: "pending",
+        entitlement: currentEntitlement,
+      });
+      return;
+    }
+    txHash = txHash || purchase?.txHash;
+
     const signed = await buildAndSignReceipt({
       config,
-      promptId: String(promptId),
-      buyerWallet: String(buyerWallet),
+      promptId: normalizedPromptId,
+      buyerWallet: normalizedBuyerWallet,
       txHash,
     });
 
@@ -105,6 +147,8 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
 
     res.status(200).json({
       ...signed,
+      receiptStatus: "ready",
+      entitlement: currentEntitlement,
       purchaseStatus,
       purchaseStatusKey: statusKey,
       disputeResolution,
@@ -114,10 +158,21 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
     const message =
       error instanceof Error ? error.message : RECEIPT_ERROR_KEYS.BUILD_FAILED;
     req.logger?.error({ error: message }, "Receipt build failed");
+    if (error instanceof ReceiptEventNotFoundError && entitlement) {
+      res.status(200).json({
+        receipt: null,
+        receiptStatus: "pending",
+        entitlement: entitlementEvidence(entitlement),
+      });
+      return;
+    }
     res.status(400).json({
       error: RECEIPT_ERROR_KEYS.BUILD_FAILED,
       code: "RECEIPT_BUILD_FAILED",
       details: message,
+      ...(entitlement
+        ? { entitlement: entitlementEvidence(entitlement) }
+        : {}),
     });
   }
 }

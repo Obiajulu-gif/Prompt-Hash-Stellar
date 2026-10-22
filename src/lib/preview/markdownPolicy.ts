@@ -154,6 +154,7 @@ export const MARKDOWN_SANITIZE_SCHEMA = {
  * Normalizes and decodes obfuscated characters to check for protocol evasion.
  */
 function normalizeObfuscatedUrl(raw: string): string {
+  // eslint-disable-next-line no-control-regex
   let normalized = raw.replace(/[\x00-\x1f\x7f]/g, "").trim();
 
   normalized = normalized.replace(/&#x([0-9a-fA-F]+);?/gi, (_, hex) => {

@@ -71,6 +71,15 @@ describe("licence entitlement status panel — issue #490", () => {
           },
           signature: "sig",
           signerPublicKey: "pubkey",
+          receiptStatus: "ready",
+          entitlement: {
+            status: "verified",
+            ledgerSequence: 42,
+            ledgerHash: "ledger-hash",
+            networkId: "network-id",
+            contractId: "prompt-hash-contract",
+            checkedAt: Date.now(),
+          },
         }),
       ),
     );
@@ -97,11 +106,27 @@ describe("licence entitlement status panel — issue #490", () => {
     );
   });
 
-  it("shows 'pending' (not a failure) when the purchase hasn't been indexed yet", async () => {
+  it("shows pending indexing only when current on-chain entitlement is verified", async () => {
     const prompt = makePrompt({ id: 12n, title: "Freshly purchased prompt" });
     getPromptsByBuyerMock.mockResolvedValue([prompt]);
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "not found" }, 404)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          receipt: null,
+          receiptStatus: "pending",
+          entitlement: {
+            status: "verified",
+            ledgerSequence: 42,
+            ledgerHash: "ledger-hash",
+            networkId: "network-id",
+            contractId: "prompt-hash-contract",
+            checkedAt: Date.now(),
+          },
+        }),
+      ),
+    );
 
     renderWithProviders(<BuyerLibrary />, {
       wallet: { address: buyerWallet, signMessage: vi.fn() },
@@ -117,6 +142,78 @@ describe("licence entitlement status panel — issue #490", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not show access from a historical receipt when the latest entitlement is revoked", async () => {
+    const prompt = makePrompt({ id: 14n, title: "Revoked prompt" });
+    getPromptsByBuyerMock.mockResolvedValue([prompt]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          receipt: {
+            version: 1,
+            prompt: { id: "14", revision: 1 },
+            buyer: buyerWallet,
+            transaction: {
+              hash: "historical-tx-hash",
+              ledger: 42,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            amount: { stroops: "50000000" },
+            issuedAt: "2026-01-01T00:00:01.000Z",
+          },
+          receiptStatus: "ready",
+          entitlement: {
+            status: "not_entitled",
+            ledgerSequence: 50,
+            ledgerHash: "current-ledger-hash",
+            networkId: "network-id",
+            contractId: "prompt-hash-contract",
+            checkedAt: Date.now(),
+          },
+        }),
+      ),
+    );
+
+    renderWithProviders(<BuyerLibrary />, {
+      wallet: { address: buyerWallet, signMessage: vi.fn() },
+    });
+
+    const panel = await screen.findByTestId("entitlement-status-panel");
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "not_entitled"));
+    expect(within(panel).getByText("No current entitlement")).toBeInTheDocument();
+  });
+
+  it("does not treat a mismatched or stale ledger result as current access", async () => {
+    const prompt = makePrompt({ id: 15n, title: "Unverifiable prompt" });
+    getPromptsByBuyerMock.mockResolvedValue([prompt]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          receipt: null,
+          receiptStatus: "pending",
+          entitlement: {
+            status: "unverifiable",
+            ledgerSequence: 20,
+            ledgerHash: "stale-ledger-hash",
+            networkId: "wrong-network",
+            contractId: "prompt-hash-contract",
+            checkedAt: Date.now(),
+            reason: "stale_ledger",
+          },
+        }),
+      ),
+    );
+
+    renderWithProviders(<BuyerLibrary />, {
+      wallet: { address: buyerWallet, signMessage: vi.fn() },
+    });
+
+    const panel = await screen.findByTestId("entitlement-status-panel");
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "unverifiable"));
+    expect(within(panel).getByText("Unable to verify")).toBeInTheDocument();
+  });
+
   it("shows 'unavailable' for a delisted prompt even if a receipt exists", async () => {
     const prompt = makePrompt({
       id: 13n,
@@ -124,7 +221,23 @@ describe("licence entitlement status panel — issue #490", () => {
       active: false,
     });
     getPromptsByBuyerMock.mockResolvedValue([prompt]);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "not found" }, 404)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          receipt: null,
+          receiptStatus: "pending",
+          entitlement: {
+            status: "verified",
+            ledgerSequence: 42,
+            ledgerHash: "ledger-hash",
+            networkId: "network-id",
+            contractId: "prompt-hash-contract",
+            checkedAt: Date.now(),
+          },
+        }),
+      ),
+    );
 
     renderWithProviders(<BuyerLibrary />, {
       wallet: { address: buyerWallet, signMessage: vi.fn() },

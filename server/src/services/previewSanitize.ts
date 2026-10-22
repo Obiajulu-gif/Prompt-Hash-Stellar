@@ -88,6 +88,7 @@ export const PREVIEW_SANITIZE_SCHEMA = {
  */
 function normalizeObfuscatedUrl(raw: string): string {
   // Strip null bytes and control characters
+  // eslint-disable-next-line no-control-regex
   let normalized = raw.replace(/[\x00-\x1f\x7f]/g, "").trim();
 
   // Decode common HTML entity evasion (e.g. &#x6a;avascript: or &#58;)

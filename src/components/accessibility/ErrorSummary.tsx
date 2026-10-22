@@ -41,7 +41,6 @@ export function ErrorSummary({
   // Move focus once per submit attempt, never as individual errors change.
   useEffect(() => {
     if (errors.length > 0) setFocusOn(ref.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusToken]);
 
   if (errors.length === 0) return null;

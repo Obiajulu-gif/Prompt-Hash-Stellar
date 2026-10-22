@@ -174,15 +174,17 @@ class OfflineOperationQueue {
 
     switch (type) {
       case 'purchase':
-      case 'update_price':
+      case 'update_price': {
         const promptId = payload.promptId;
         const response = await fetch(`${baseUrl}/api/prompts/${promptId}`);
         if (!response.ok) throw new Error('Failed to fetch prompt state');
         return await response.json();
+      }
 
-      case 'list_prompt':
+      case 'list_prompt': {
         const listResponse = await fetch(`${baseUrl}/api/prompts/${payload.promptId}`);
         return { exists: listResponse.ok };
+      }
 
       default:
         return {};

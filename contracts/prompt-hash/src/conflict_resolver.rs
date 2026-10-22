@@ -1,5 +1,5 @@
-use soroban_sdk::{contracttype, Address, Bytes, Env, String};
 use super::types::Error;
+use soroban_sdk::{contracttype, Address, Bytes, Env, String};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

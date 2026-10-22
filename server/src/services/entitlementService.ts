@@ -1,6 +1,7 @@
 import { Entitlement, IEntitlement, EntitlementStatus } from "../models/Entitlement";
 import Purchase from "../models/Purchase";
 import { recordAuditEvent } from "./auditTrail";
+import { DomainInvariantsService } from "./domainInvariants";
 
 export interface EntitlementCheckResult {
   hasAccess: boolean;
@@ -108,6 +109,14 @@ export async function grantEntitlement(
   sourceRef: string,
 ): Promise<IEntitlement> {
   const normalizedAddress = userAddress.toLowerCase();
+  DomainInvariantsService.requireInvariant(
+    DomainInvariantsService.assertEntitlementTransition({
+      action: "grant",
+      userAddress: normalizedAddress,
+      promptId: String(promptId),
+      sourceRef,
+    }),
+  );
 
   return await Entitlement.findOneAndUpdate(
     { userAddress: normalizedAddress, promptId: String(promptId) },
@@ -131,6 +140,14 @@ export async function revokeEntitlement(
   status: "refunded" | "revoked" = "refunded",
 ): Promise<IEntitlement | null> {
   const normalizedAddress = userAddress.toLowerCase();
+  DomainInvariantsService.requireInvariant(
+    DomainInvariantsService.assertEntitlementTransition({
+      action: "revoke",
+      userAddress: normalizedAddress,
+      promptId: String(promptId),
+      reason,
+    }),
+  );
 
   return await Entitlement.findOneAndUpdate(
     { userAddress: normalizedAddress, promptId: String(promptId) },
