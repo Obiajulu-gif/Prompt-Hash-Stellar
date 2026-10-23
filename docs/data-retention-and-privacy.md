@@ -38,6 +38,10 @@ dropped at the write boundary. Public marketplace content and financial or
 on-chain records are separate data classes and are not copied into operational
 events.
 
+The field-by-field operational metadata inventory, sensitive-field
+justifications, and migration/cleanup guidance are maintained in
+[operational-metadata-inventory.md](./operational-metadata-inventory.md).
+
 - **Challenges & Nonces**: Stored temporarily in memory/Redis and expire after 5 minutes. Never persisted to long-term storage.
 - **Fulfillment & Unlock Records**: Retained indefinitely to allow buyers to re-download purchased materials, unless an explicit deletion request is made.
 - **Payout Statements**: Generated on demand from purchase and refund events. They are recomputed, not stored, and may be regenerated for any period within the purchase history retention window (creators: see the [creator publishing guide](./creator-publishing-guide.md)).
