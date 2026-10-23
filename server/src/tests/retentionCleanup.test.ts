@@ -144,6 +144,7 @@ describe("retention cleanup job", () => {
           archivedAt: now,
           rawBody: "",
           rawHeaders: {},
+          errorMessage: null,
         },
       },
     );

@@ -683,7 +683,10 @@ export async function trackDerivedPrompts(
 /**
  * Get all forks and remixes of a prompt (combines ProvenanceRecord and PromptRelation data).
  */
-export async function getDerivativesWithProvenance(promptId: string): Promise<any[]> {
+export async function getDerivativesWithProvenance(
+  promptId: string,
+  viewerContext?: { viewerWallet?: string; role?: string }
+): Promise<any[]> {
   const [provenanceDerivatives, relationDerivatives] = await Promise.all([
     ProvenanceRecord.find({ parentRecordId: promptId }).lean(),
     PromptRelation.find({
@@ -723,7 +726,63 @@ export async function getDerivativesWithProvenance(promptId: string): Promise<an
     }
   }
 
-  return Array.from(derivativeMap.values()).sort(
+  // Sanitize derived prompts according to visibility boundaries (Issue #913)
+  const derivedPromptIds = Array.from(derivativeMap.keys());
+  const promptDocs: any[] = derivedPromptIds.length
+    ? await Prompt.find({
+        $or: [
+          { onChainId: { $in: derivedPromptIds } },
+          { _id: { $in: derivedPromptIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+        ],
+      })
+        .select("onChainId title isActive listingStatus moderationStatus isDeleted lifecycleState visibility deletedAt owner")
+        .populate("owner", "walletAddress")
+        .lean()
+    : [];
+
+  const promptDocMap = new Map();
+  for (const doc of promptDocs) {
+    if (doc.onChainId) promptDocMap.set(String(doc.onChainId), doc);
+    promptDocMap.set(String(doc._id), doc);
+  }
+
+  const { evaluateVisibility } = await import("./visibilityService.js");
+
+  const sanitizedDerivatives: any[] = [];
+  for (const item of derivativeMap.values()) {
+    const doc = promptDocMap.get(item.promptId) || (item.onChainId ? promptDocMap.get(item.onChainId) : null);
+    const visEval = evaluateVisibility(doc, viewerContext);
+
+    if (visEval.isPublic) {
+      sanitizedDerivatives.push({
+        ...item,
+        visibility: "public",
+        title: doc?.title || null,
+      });
+    } else if (visEval.canAccess && visEval.visibility !== "deleted") {
+      sanitizedDerivatives.push({
+        ...item,
+        visibility: visEval.visibility,
+        title: doc?.title || null,
+      });
+    } else {
+      // Redacted for public/unauthorized viewers — no sensitive payloads leaked
+      sanitizedDerivatives.push({
+        promptId: item.promptId,
+        onChainId: item.onChainId,
+        visibility: visEval.visibility,
+        relationKind: item.relationKind,
+        relationOrigin: item.relationOrigin,
+        source: item.source,
+        createdAt: item.createdAt,
+        actor: null,
+        transformations: [],
+        title: null,
+      });
+    }
+  }
+
+  return sanitizedDerivatives.sort(
     (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
   );
 }

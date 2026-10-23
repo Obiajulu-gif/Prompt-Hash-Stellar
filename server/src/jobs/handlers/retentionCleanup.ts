@@ -156,7 +156,7 @@ export async function runRetentionCleanup(
           createdAt: { $lt: eventCutoff },
         },
         {
-          $set: { archivedAt: now, rawBody: "", rawHeaders: {} },
+          $set: { archivedAt: now, rawBody: "", rawHeaders: {}, errorMessage: null },
         },
         { dryRun, batchSize, heldIds: held.inboundWebhookEvents },
       ),
