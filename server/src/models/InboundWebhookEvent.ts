@@ -20,9 +20,10 @@
  *
  *  Safe metadata storage
  *  ---------------------
- *  `rawHeaders` stores only non-sensitive headers (signature, delivery id,
- *  event type, timestamp). `rawBody` stores the payload as received for
- *  debugging/replay purposes. It must never contain decrypted secrets or PII.
+ *  `rawHeaders` stores only allowlisted non-secret headers (delivery id, event
+ *  type, timestamp); signatures, authorization, and cookies are excluded.
+ *  `rawBody` stores the payload as received for debugging/replay purposes. It
+ *  must never contain decrypted secrets or unnecessary PII.
  *
  *  Retention
  *  ---------
@@ -55,8 +56,8 @@ export interface IInboundWebhookEvent extends Document {
   verificationStatus: InboundWebhookVerificationStatus;
   processingStatus: InboundWebhookProcessingStatus;
   /**
-   * Non-sensitive header subset retained for debugging.
-   * Never store Authorization, Cookie, or any secret-bearing header here.
+  * Allowlisted non-secret header subset retained for debugging.
+  * Signatures, Authorization, Cookie, and other credentials are excluded.
    */
   rawHeaders: Record<string, string>;
   /**

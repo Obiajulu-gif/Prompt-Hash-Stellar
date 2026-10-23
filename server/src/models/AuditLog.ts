@@ -166,10 +166,6 @@ const auditLogSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    clientIp: {
-      type: String,
-      default: null,
-    },
     reason: {
       type: String,
       default: null,

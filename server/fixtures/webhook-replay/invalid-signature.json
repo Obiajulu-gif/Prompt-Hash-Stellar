@@ -1,0 +1,8 @@
+{
+  "eventId": "fixture-invalid-signature-914",
+  "deliveryId": "fixture-delivery-invalid-914",
+  "eventType": "PromptPurchased",
+  "timestampOffsetSeconds": 0,
+  "rawBody": "{\"promptId\":\"fixture-prompt-4\",\"buyerWallet\":\"GTESTBUYER914\"}",
+  "signature": "invalid"
+}

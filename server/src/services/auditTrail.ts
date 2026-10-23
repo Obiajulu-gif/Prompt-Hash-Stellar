@@ -232,7 +232,8 @@ async function appendChainedRecord(
         afterState: params.afterState ?? null,
         metadata: params.metadata ?? null,
         requestId: params.requestId ?? null,
-        clientIp: params.clientIp ?? null,
+        // clientIp remains accepted by the input type for call-site
+        // compatibility, but is deliberately not persisted (#915).
         reason: params.reason ?? null,
         recordHash,
         previousHash,

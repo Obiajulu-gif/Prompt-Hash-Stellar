@@ -1,0 +1,9 @@
+{
+  "eventId": "fixture-duplicate-914",
+  "deliveryId": "fixture-delivery-duplicate-914",
+  "eventType": "PromptPurchased",
+  "timestampOffsetSeconds": 0,
+  "rawBody": "{\"promptId\":\"fixture-prompt-2\",\"buyerWallet\":\"GTESTBUYER914\"}",
+  "signature": "valid",
+  "deliveries": 2
+}
