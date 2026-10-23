@@ -32,15 +32,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/openai@npm:^3.0.53":
-  version: 3.0.121
-  resolution: "@ai-sdk/openai@npm:3.0.121"
+"@ai-sdk/openai@npm:^4.0.98":
+  version: 4.0.98
+  resolution: "@ai-sdk/openai@npm:4.0.98"
   dependencies:
-    "@ai-sdk/provider": "npm:3.0.18"
-    "@ai-sdk/provider-utils": "npm:4.0.56"
+    "@ai-sdk/provider": "npm:4.0.31"
+    "@ai-sdk/provider-utils": "npm:5.0.64"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10c0/9006f4e144dd2a959568620f1eee9e75f14a7e40c7adeca421a0b9b7438df359732e81503644001a9a132ea76e49feae6487a34864b1187051e863c4981183dd
+  checksum: 10c0/925bb48440f81d35f4a8adc34169c4909d0acf9f9d2dba2f83ede92336831679485b9183cf67698fc3997fc3325b63c528ddad1b9be4aba2d8d681aacff644b5
   languageName: node
   linkType: hard
 
@@ -58,12 +58,36 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ai-sdk/provider-utils@npm:5.0.64":
+  version: 5.0.64
+  resolution: "@ai-sdk/provider-utils@npm:5.0.64"
+  dependencies:
+    "@ai-sdk/provider": "npm:4.0.31"
+    "@standard-schema/spec": "npm:^1.1.0"
+    "@workflow/serde": "npm:4.1.0"
+    eventsource-parser: "npm:^3.0.8"
+    undici: "npm:^7.29.0"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10c0/e33c8f160ddc9f9f8acd14e11ca8ece97d90b40defdfdb9b0c3cfe8b20023c61dbb3df2a3dd3fbb529ddfadaa4f56e15a5769174a3ccd4adf71332cb9194e439
+  languageName: node
+  linkType: hard
+
 "@ai-sdk/provider@npm:3.0.18":
   version: 3.0.18
   resolution: "@ai-sdk/provider@npm:3.0.18"
   dependencies:
     json-schema: "npm:^0.4.0"
   checksum: 10c0/ec3a4cc01f3724a95c0b20c8cff936ceb27750717158a9df9a6dacd601ce0733c989b5f8ce17d12ea188dc25efeea41f23719c7a01aa41d4911618a6e3848e9e
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/provider@npm:4.0.31":
+  version: 4.0.31
+  resolution: "@ai-sdk/provider@npm:4.0.31"
+  dependencies:
+    json-schema: "npm:^0.4.0"
+  checksum: 10c0/606efa6857d81c9e381a1c3b9fb092402e0feba4f1fce77979694954a7dc7bf8c63feb268510254207688056f36394ac9e2933372e1107cfabb182677b317516
   languageName: node
   linkType: hard
 
@@ -2910,7 +2934,7 @@ __metadata:
   resolution: "@prompthash/schema@workspace:packages/schema"
   dependencies:
     "@types/uuid": "npm:^10.0.0"
-    typescript: "npm:^5.0.0"
+    typescript: "npm:^6.0.3"
     vitest: "npm:^2.0.0"
     zod: "npm:^4.4.3"
   languageName: unknown
@@ -7126,6 +7150,13 @@ __metadata:
     "@walletconnect/window-getters": "npm:^1.0.1"
     tslib: "npm:1.14.1"
   checksum: 10c0/f190e9bed77282d8ba868a4895f4d813e135f9bbecb8dd4aed988ab1b06992f78128ac19d7d073cf41d8a6a74d0c055cd725908ce0a894649fd25443ad934cf4
+  languageName: node
+  linkType: hard
+
+"@workflow/serde@npm:4.1.0":
+  version: 4.1.0
+  resolution: "@workflow/serde@npm:4.1.0"
+  checksum: 10c0/8ec68cd9448b486bc8244d1f2b33d64d4af4b0fc18d33417699ce29345b21e4359d880c5ea5d66872def4576c0cddcfa2a63282d1f4d661c455663c075595e81
   languageName: node
   linkType: hard
 
@@ -13906,7 +13937,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "prompthash-server@workspace:server"
   dependencies:
-    "@ai-sdk/openai": "npm:^3.0.53"
+    "@ai-sdk/openai": "npm:^4.0.98"
     "@eslint/js": "npm:^10.0.1"
     "@prompthash/schema": "file:../packages/schema"
     "@prompthash/sdk": "file:../packages/sdk"
@@ -16307,6 +16338,13 @@ __metadata:
   version: 6.29.0
   resolution: "undici@npm:6.29.0"
   checksum: 10c0/3fb2117985be977ba8b6bd6a242fec915e1b1d0f9681f5adb3f508fb1717352452d65bcfd3bed09e7c776cfda403a4e8edb24a318492f8b2d793439af2b8699b
+  languageName: node
+  linkType: hard
+
+"undici@npm:^7.29.0":
+  version: 7.30.1
+  resolution: "undici@npm:7.30.1"
+  checksum: 10c0/c838089b010e8e28a9a5358d4bf4621e0c8d7bb70058b23e819667349c4c0b6791a7c8bc9bbe94ff0923db132faae0d9d9592b9743eda4f2b49466fa57482213
   languageName: node
   linkType: hard
 
