@@ -130,30 +130,56 @@ export async function assertNoCycle(
 
 function visibilityOf(doc: any): NodeVisibility {
   if (!doc) return "deleted";
-  if (doc.moderationStatus === "restricted" || doc.moderationStatus === "retired") {
+  if (doc.isDeleted === true || doc.deletedAt != null || doc.lifecycleState === "retired") {
+    return "deleted";
+  }
+  if (
+    doc.moderationStatus === "restricted" ||
+    doc.moderationStatus === "retired" ||
+    doc.moderationStatus === "hidden" ||
+    doc.moderationStatus === "rejected" ||
+    doc.lifecycleState === "suspended" ||
+    doc.lifecycleState === "hidden"
+  ) {
     return "hidden";
   }
-  if (doc.isActive === false || doc.listingStatus === "archived") return "private";
+  if (
+    doc.visibility === "private" ||
+    doc.isPrivate === true ||
+    doc.isActive === false ||
+    doc.listingStatus === "archived" ||
+    doc.lifecycleState === "archived" ||
+    doc.lifecycleState === "draft" ||
+    doc.lifecycleState === "review"
+  ) {
+    return "private";
+  }
   return "public";
 }
 
-async function loadNodes(promptIds: string[]) {
+async function loadNodes(promptIds: string[], viewerWallet?: string) {
   const docs: any[] = promptIds.length
     ? await Prompt.find({ onChainId: { $in: promptIds } })
-        .select("onChainId title isActive listingStatus moderationStatus")
+        .select("onChainId title isActive listingStatus moderationStatus isDeleted lifecycleState visibility deletedAt owner")
+        .populate("owner", "walletAddress")
         .lean()
     : [];
   const byId = new Map(docs.map((doc) => [String(doc.onChainId), doc]));
+  const normalizedViewer = viewerWallet?.toLowerCase();
+
   return (promptId: string) => {
     const doc = byId.get(promptId);
     const visibility = visibilityOf(doc);
-    return visibility === "public"
+    const ownerWallet = String(doc?.owner?.walletAddress || doc?.owner || "").toLowerCase();
+    const isOwner = Boolean(normalizedViewer && ownerWallet && normalizedViewer === ownerWallet);
+
+    return (visibility === "public" || (isOwner && visibility !== "deleted"))
       ? { visibility, title: doc.title ?? `Prompt #${promptId}`, link: `/prompts/${promptId}` }
       : { visibility, title: null, link: null };
   };
 }
 
-export async function getLineage(promptId: string) {
+export async function getLineage(promptId: string, viewerWallet?: string) {
   if (!isPromptId(promptId)) throw new ProvenanceError(400, "Invalid prompt id.");
 
   const [{ edges, truncated }, derivativeRows] = await Promise.all([
@@ -165,13 +191,16 @@ export async function getLineage(promptId: string) {
   ]);
   const derivatives = sortEdges(derivativeRows).slice(0, MAX_DERIVATIVES);
 
-  const node = await loadNodes([
-    ...new Set([
-      promptId,
-      ...edges.map((edge) => edge.relatedPromptId),
-      ...derivatives.map((edge) => String(edge.promptId)),
-    ]),
-  ]);
+  const node = await loadNodes(
+    [
+      ...new Set([
+        promptId,
+        ...edges.map((edge) => edge.relatedPromptId),
+        ...derivatives.map((edge) => String(edge.promptId)),
+      ]),
+    ],
+    viewerWallet
+  );
 
   return {
     promptId,

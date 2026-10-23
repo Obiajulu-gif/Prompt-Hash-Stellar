@@ -449,7 +449,37 @@ export async function resolvePermalink(
     };
   }
 
-  // 5. Active Record (Normal canonical access)
+  // 5. Handle Private / Draft / Inactive Records (Issue #913)
+  const isPrivate =
+    prompt.visibility === "private" ||
+    prompt.isPrivate === true ||
+    prompt.listingStatus === "draft" ||
+    prompt.lifecycleState === "draft" ||
+    prompt.isActive === false;
+
+  if (isPrivate) {
+    const ownerWallet =
+      typeof prompt.owner === "object" && prompt.owner?.walletAddress
+        ? String(prompt.owner.walletAddress).toLowerCase()
+        : typeof prompt.creator === "string"
+        ? prompt.creator.toLowerCase()
+        : null;
+
+    const viewer = context?.viewerWallet?.toLowerCase();
+    const isOwner = Boolean(viewer && ownerWallet && viewer === ownerWallet);
+    const isAdmin = context?.role === "admin";
+
+    if (!isOwner && !isAdmin) {
+      return {
+        status: "not_found",
+        statusCode: 404,
+        canonicalUrl: "",
+        message: "Listing not found or is private.",
+      };
+    }
+  }
+
+  // 6. Active Record (Normal canonical access)
   return {
     status: "active",
     statusCode: 200,
