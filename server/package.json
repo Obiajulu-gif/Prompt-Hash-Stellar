@@ -29,7 +29,8 @@
     "retention:enqueue": "ts-node scripts/enqueueRetentionCleanup.ts",
     "repair:entitlement": "ts-node scripts/repairEntitlement.ts",
     "data:integrity:monitor": "ts-node scripts/dataIntegrityMonitor.ts",
-    "monitor:synthetic": "ts-node scripts/runSyntheticJourney.ts"
+    "monitor:synthetic": "ts-node scripts/runSyntheticJourney.ts",
+    "webhook:replay": "ts-node scripts/replayWebhook.ts"
   },
   "files": [
     "build"
