@@ -10,6 +10,21 @@ yarn check:setup
 
 It never prints secret values — only whether each variable is set and valid.
 
+Compare local, staging, and production-like environment files without exposing
+their values:
+
+```bash
+yarn config:drift --local .env --staging .env.staging --production .env.production --json
+```
+
+The report contains key names, environment labels, and drift statuses only;
+configuration values are never included in text or JSON output. Missing
+required settings and mismatches in cross-environment safety controls return a
+nonzero exit code. Network, endpoint, deployment ID, and credential values are
+allowed to differ by environment and are reported as allowed differences.
+See [configuration drift policy](operations/configuration-drift.md) before
+adding a key to the comparison contract.
+
 ---
 
 ## Quick start (local development)
