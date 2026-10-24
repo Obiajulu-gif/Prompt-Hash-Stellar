@@ -31,7 +31,9 @@ import {
   buildMongoCompoundQuery,
   encodeCompoundCursor,
   PaginationError,
-} from "../utils/pagination.js";
+  buildPublicVisibilityFilter,
+  stripSensitivePromptFields,
+} from "../services/visibilityService.js";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -140,7 +142,9 @@ export const GetPrompts = async (
     const cached = await cacheGetJson<{ data: any[]; metadata: any }>(cacheKey);
     if (cached) return sendConditionalJson(req, res, cached);
 
-    const query: any = { listingStatus: "published", isActive: true };
+    const query: any = {
+      ...buildPublicVisibilityFilter(),
+    };
 
     if (category) {
       query.category = category;
@@ -175,8 +179,14 @@ export const GetPrompts = async (
       nextCursor = null;
     }
 
+    const sanitizedPrompts = prompts.map((p: any) =>
+      typeof p.toObject === "function"
+        ? stripSensitivePromptFields(p.toObject())
+        : stripSensitivePromptFields(p)
+    );
+
     const responsePayload = {
-      data: prompts,
+      data: sanitizedPrompts,
       metadata: {
         hasNextPage,
         nextCursor,
@@ -860,11 +870,10 @@ export const GetPromptsByContentHash = async (
       return res.status(400).json({ error: "Invalid content hash format." });
     }
 
-    // Query for prompts with matching content hash
+    // Query for prompts with matching content hash that meet public visibility rules
     const promptQuery: any = Prompt.find({
       contentHash: contentHash,
-      listingStatus: "published",
-      isActive: true,
+      ...buildPublicVisibilityFilter(),
     });
     const matches = (
       typeof promptQuery?.select === "function"

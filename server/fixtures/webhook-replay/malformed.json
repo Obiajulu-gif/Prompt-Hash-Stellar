@@ -1,0 +1,8 @@
+{
+  "eventId": "fixture-malformed-914",
+  "deliveryId": "fixture-delivery-malformed-914",
+  "eventType": "PromptPurchased",
+  "timestampOffsetSeconds": 0,
+  "rawBody": "{\"promptId\":",
+  "signature": "valid"
+}

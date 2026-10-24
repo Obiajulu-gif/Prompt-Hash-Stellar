@@ -44,3 +44,18 @@ export type {
   SanitizedPublicPrompt,
   PermalinkResolution,
 } from "./permalink.js";
+export {
+  RECORD_VISIBILITIES,
+  SENSITIVE_PROMPT_FIELDS,
+  evaluateVisibility,
+  isPubliclyVisible,
+  buildPublicVisibilityFilter,
+  stripSensitivePromptFields,
+  sanitizeRelationshipNode,
+} from "./visibility.js";
+export type {
+  RecordVisibility,
+  ViewerContext,
+  VisibilityEvaluation,
+} from "./visibility.js";
+

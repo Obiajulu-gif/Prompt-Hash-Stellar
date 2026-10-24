@@ -52,6 +52,7 @@ async function inbound(extra: Record<string, unknown> = {}) {
     processingStatus: "processed",
     rawBody: "private diagnostic payload",
     rawHeaders: { trace: "private" },
+    errorMessage: "private diagnostic error details",
     createdAt: old,
     updatedAt: old,
     ...extra,
@@ -86,6 +87,7 @@ describe("sensitive operational retention against real MongoDB", () => {
       const doc = await InboundWebhookEvent.findById(id).lean();
       expect(doc.rawBody).toBe("");
       expect(doc.rawHeaders).toEqual({});
+      expect(doc.errorMessage).toBeNull();
       expect(doc.idempotencyKey).toBe(String(id));
       expect(doc.archivedAt).toEqual(now);
     }

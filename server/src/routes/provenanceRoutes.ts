@@ -51,7 +51,8 @@ provenanceRouter.get(
 provenanceRouter.get("/:promptId", async (req: Request, res: Response) => {
   try {
     await connectDb();
-    res.json(await getLineage(String(req.params.promptId)));
+    const viewerWallet = (req.query.viewerWallet as string) || (req.headers["x-wallet-address"] as string) || undefined;
+    res.json(await getLineage(String(req.params.promptId), viewerWallet));
   } catch (err) {
     handleProvenanceError(res, err);
   }
