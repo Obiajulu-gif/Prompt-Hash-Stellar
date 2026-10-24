@@ -234,19 +234,80 @@ export const PostPromptUpdate = async (req: Request, res: Response): Promise<Res
   }
 };
 
+import {
+  parsePaginationParams,
+  encodeCompoundCursor,
+  decodeCompoundCursor,
+  PaginationError,
+} from "../utils/pagination";
+
 export const GetPromptVersions = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
     const { promptId } = req.params;
     if (!promptId) return res.status(400).json({ error: "promptId is required." });
 
+    let limit = 20;
+    let cursor: string | undefined;
+
+    try {
+      const parsed = parsePaginationParams(req.query as Record<string, unknown>, {
+        defaultLimit: 20,
+        maxLimit: 50,
+      });
+      limit = parsed.limit;
+      cursor = parsed.cursor;
+    } catch (paramErr) {
+      if (paramErr instanceof PaginationError) {
+        return res.status(paramErr.status).json({
+          error: paramErr.message,
+          code: paramErr.code,
+        });
+      }
+      throw paramErr;
+    }
+
+    const query: Record<string, any> = { promptId: String(promptId) };
+
+    if (cursor) {
+      const decoded = decodeCompoundCursor(cursor);
+      const cursorSeq = decoded.sequence ?? 0;
+      query.$or = [
+        { versionIndex: { $gt: cursorSeq } },
+        { versionIndex: cursorSeq, _id: { $gt: decoded.id } },
+      ];
+    }
+
     // Public metadata only; content is stripped regardless of actor.
-    const versions = await PromptVersion.find({ promptId: String(promptId) })
+    const versions = await PromptVersion.find(query)
       .select("promptId versionIndex changeNote createdBy createdAt")
-      .sort({ versionIndex: 1 })
+      .sort({ versionIndex: 1, _id: 1 })
+      .limit(limit + 1)
       .lean();
 
-    return res.status(200).json({ versions });
+    let hasNextPage = false;
+    let nextCursor: string | null = null;
+
+    if (versions.length > limit) {
+      hasNextPage = true;
+      versions.pop();
+      const last = versions[versions.length - 1];
+      nextCursor = encodeCompoundCursor({
+        timestamp: last.createdAt,
+        id: String(last._id),
+        sequence: last.versionIndex,
+      });
+    }
+
+    return res.status(200).json({
+      versions,
+      metadata: {
+        limit,
+        hasNextPage,
+        nextCursor,
+        count: versions.length,
+      },
+    });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

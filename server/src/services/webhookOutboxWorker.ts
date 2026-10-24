@@ -28,6 +28,19 @@ const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
 let tickInFlight = false;
+let workerPaused = false;
+
+export function pauseWebhookWorker(): void {
+  workerPaused = true;
+}
+
+export function resumeWebhookWorker(): void {
+  workerPaused = false;
+}
+
+export function isWebhookWorkerPaused(): boolean {
+  return workerPaused;
+}
 
 function canonicalSignaturePayload(input: {
   body: string;
@@ -76,6 +89,9 @@ function retryAfterMs(value: string | string[] | undefined): number | null {
 
 /** Exported for tests — the atomic per-row claim used by the poll loop. */
 export async function claimRow(now: Date) {
+  if (workerPaused) {
+    return null;
+  }
   return WebhookOutboxEvent.findOneAndUpdate(
     {
       status: "pending",
