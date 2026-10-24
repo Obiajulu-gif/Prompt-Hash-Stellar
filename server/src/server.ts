@@ -187,10 +187,21 @@ if (process.env.SENTRY_DSN) {
   }
 }
 
-app.listen(port, () => {
-  startIndexer().catch((err) => {
-    console.error("Failed to start Soroban Indexer:", err);
+import { validateStartupConfig } from "./config/startupValidation";
+
+// Validate startup configuration and secrets (Issue #1095)
+try {
+  validateStartupConfig(process.env, {
+    throwOnError: process.env.NODE_ENV === "production" || process.env.FAIL_ON_CONFIG_ERROR === "true",
   });
+} catch (err) {
+  console.error("Startup validation error:", err instanceof Error ? err.message : String(err));
+  if (process.env.NODE_ENV === "production" || process.env.FAIL_ON_CONFIG_ERROR === "true") {
+    process.exit(1);
+  }
+}
+
+app.listen(port, () => {
   startIndexer().catch((err) => {
     console.error("Failed to start Soroban Indexer:", err);
   });
