@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, LifeBuoy, LockKeyhole, Wallet } from "lucide-react";
 import { classifyUnlockError, type UnlockErrorCategory } from "@/lib/api/errorCodes";
@@ -26,6 +26,7 @@ export const UnlockErrorBanner: React.FC<UnlockErrorBannerProps> = ({
   onRetry,
 }) => {
   const { t } = useTranslation();
+  const messageId = useId();
   const rawMessage = error?.message ?? message ?? t("unlockErrors.unknown");
 
   const metaCode = error?.code ? getUnlockErrorMeta(error.code) : null;
@@ -73,25 +74,30 @@ export const UnlockErrorBanner: React.FC<UnlockErrorBannerProps> = ({
     },
   }[category];
 
+  // role="alert" is implicitly assertive. An explicit aria-live="polite"
+  // override made some screen readers queue the failure behind other speech,
+  // so it is now announced as soon as the unlock fails (#1134).
   return (
     <div
       className={`rounded-lg p-4 border flex items-start gap-3 w-full ${config.classes}`}
       role="alert"
-      aria-live="polite"
+      aria-atomic="true"
     >
       {config.icon}
       <div className="flex-1 min-w-0">
         <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${config.labelClass}`}>
           {config.label}
         </p>
-        <p className="text-sm">{displayMessage}</p>
+        <p id={messageId} className="text-sm">{displayMessage}</p>
         {supportReference && (
           <p className="text-xs text-slate-400 mt-1">{supportReference}</p>
         )}
       </div>
       {retryable && onRetry && (
         <button
+          type="button"
           onClick={onRetry}
+          aria-describedby={messageId}
           className={`ml-2 shrink-0 px-3 py-1.5 text-sm font-bold rounded transition-colors ${config.retryClass}`}
         >
           {t("common.retry")}
