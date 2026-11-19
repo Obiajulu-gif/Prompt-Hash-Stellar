@@ -29,8 +29,19 @@ import { logger, recordAuditEvent, sanitizeAuditState } from "./auditTrail";
 
 export const ADMIN_CONFIG_TARGET_TYPE = "admin_config";
 
-export type AdminConfigType = "feature_flag";
-export type AdminConfigOperation = "create" | "update" | "delete" | "emergency_disable";
+export type AdminConfigType =
+  | "feature_flag"
+  | "policy_limit"
+  | "maintenance_banner"
+  | "system_config";
+
+export type AdminConfigOperation =
+  | "create"
+  | "update"
+  | "delete"
+  | "emergency_disable"
+  | "revoke"
+  | "toggle";
 
 type ConfigState = Record<string, unknown>;
 

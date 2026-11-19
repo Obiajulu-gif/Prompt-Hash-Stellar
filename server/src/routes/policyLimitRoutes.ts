@@ -7,8 +7,13 @@ import {
   OverrideScopeType,
   PolicyOverrideChange,
   PolicyOverrideDiffReport,
+  snapshotPolicyOverride,
 } from "../services/policyLimitService";
 import { assertReviewedDiff, PermissionDiffError } from "../services/permissionDiff";
+import {
+  applyAuditedConfigChange,
+  AuditEvidenceUnavailableError,
+} from "../services/adminConfigAudit";
 
 export const policyLimitRouter = express.Router();
 
@@ -136,25 +141,55 @@ policyLimitRouter.post(
     const report = policyLimitService.previewOverrideChange(change)!;
     if (rejectUnreviewed(res, req.body.diffDigest, report)) return;
 
-    const grantedBy = (req as any).adminToken?.sub || "admin";
+    const grantedBy = (req as any).adminToken?.sub || (req as any).admin?.sub || "admin";
+    const idempotencyKey = req.headers["idempotency-key"];
+    const changeId = typeof idempotencyKey === "string" && idempotencyKey ? idempotencyKey : null;
+    const clientIp = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "") || null;
+    const mapKey = `${change.scopeType}:${change.scopeType === "wallet" ? change.scopeValue.toLowerCase() : change.scopeValue}:${change.operation}`;
 
     try {
-      const override = await policyLimitService.addOverride({
-        scopeType: change.scopeType,
-        scopeValue: change.scopeValue,
-        operation: change.operation,
-        limit: change.limit,
-        durationSeconds: change.durationSeconds,
-        reason: String(req.body.reason),
-        grantedBy,
+      const result = await applyAuditedConfigChange({
+        actor: grantedBy,
+        configType: "policy_limit",
+        configKey: mapKey,
+        operation: "create",
+        reason: String(req.body.reason || ""),
+        changeId,
+        clientIp,
+        requestId: (req as any).correlationId ?? (req as any).requestId ?? null,
+        load: async () => policyLimitService.getOverrideByKey(mapKey) ?? null,
+        apply: async () => {
+          return await policyLimitService.addOverride({
+            scopeType: change.scopeType,
+            scopeValue: change.scopeValue,
+            operation: change.operation,
+            limit: change.limit,
+            durationSeconds: change.durationSeconds,
+            reason: String(req.body.reason),
+            grantedBy,
+          });
+        },
+        restore: async (before) => {
+          policyLimitService.setOverrideDirect(mapKey, before);
+        },
+        snapshot: (item) => snapshotPolicyOverride(item),
       });
 
+      res.setHeader("X-Config-Change-Id", result.changeId);
       return res.json({
         success: true,
         message: `Override created for ${change.scopeType}:${change.scopeValue} on ${change.operation}`,
-        override,
+        override: result.value,
       });
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof AuditEvidenceUnavailableError) {
+        res.setHeader("Retry-After", "30");
+        return res.status(503).json({
+          error: err.code,
+          message: err.message,
+          rolledBack: err.rolledBack,
+        });
+      }
       return res.status(500).json({
         error: (err as Error).message || "Failed to create policy override",
       });
@@ -173,7 +208,7 @@ policyLimitRouter.delete(
   async (req: Request, res: Response) => {
     const { overrideId } = req.params;
     const { reason, diffDigest } = req.body ?? {};
-    const revokedBy = (req as any).adminToken?.sub || "admin";
+    const revokedBy = (req as any).adminToken?.sub || (req as any).admin?.sub || "admin";
 
     if (!overrideId) {
       return res.status(400).json({ error: "overrideId is required" });
@@ -188,19 +223,58 @@ policyLimitRouter.delete(
     }
     if (rejectUnreviewed(res, diffDigest, report)) return;
 
-    const revoked = await policyLimitService.revokeOverride(
-      String(overrideId),
-      revokedBy,
-      reason || "Manual revocation by admin"
-    );
-
-    if (!revoked) {
+    const entry = policyLimitService.getOverrideById(String(overrideId));
+    if (!entry || entry.override.revokedAt) {
       return res.status(404).json({ error: "Override not found or already revoked" });
     }
+    const { key: mapKey, override: beforeOverride } = entry;
+    const idempotencyKey = req.headers["idempotency-key"];
+    const changeId = typeof idempotencyKey === "string" && idempotencyKey ? idempotencyKey : null;
+    const clientIp = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "") || null;
 
-    return res.json({
-      success: true,
-      message: `Override ${overrideId} revoked successfully`,
-    });
+    try {
+      const result = await applyAuditedConfigChange({
+        actor: revokedBy,
+        configType: "policy_limit",
+        configKey: mapKey,
+        operation: "revoke",
+        reason: reason || "Manual revocation by admin",
+        changeId,
+        clientIp,
+        requestId: (req as any).correlationId ?? (req as any).requestId ?? null,
+        load: async () => policyLimitService.getOverrideByKey(mapKey) ?? null,
+        apply: async () => {
+          const success = await policyLimitService.revokeOverride(
+            String(overrideId),
+            revokedBy,
+            reason || "Manual revocation by admin",
+          );
+          if (!success) return null;
+          return { ...beforeOverride, revokedAt: Date.now() };
+        },
+        restore: async (before) => {
+          policyLimitService.setOverrideDirect(mapKey, before);
+        },
+        snapshot: (item) => snapshotPolicyOverride(item),
+      });
+
+      res.setHeader("X-Config-Change-Id", result.changeId);
+      return res.json({
+        success: true,
+        message: `Override ${overrideId} revoked successfully`,
+      });
+    } catch (err: any) {
+      if (err instanceof AuditEvidenceUnavailableError) {
+        res.setHeader("Retry-After", "30");
+        return res.status(503).json({
+          error: err.code,
+          message: err.message,
+          rolledBack: err.rolledBack,
+        });
+      }
+      return res.status(500).json({
+        error: (err as Error).message || "Failed to revoke policy override",
+      });
+    }
   }
 );

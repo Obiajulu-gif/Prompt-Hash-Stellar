@@ -220,6 +220,27 @@ class PolicyLimitService {
     return { limit: defaultLimit };
   }
 
+  public getOverrideByKey(key: string): PolicyOverride | undefined {
+    return this.overrides.get(key);
+  }
+
+  public getOverrideById(overrideId: string): { key: string; override: PolicyOverride } | undefined {
+    for (const [key, override] of this.overrides.entries()) {
+      if (override.overrideId === overrideId) {
+        return { key, override };
+      }
+    }
+    return undefined;
+  }
+
+  public setOverrideDirect(key: string, override: PolicyOverride | null): void {
+    if (override) {
+      this.overrides.set(key, override);
+    } else {
+      this.overrides.delete(key);
+    }
+  }
+
   private activeOverride(key: string, now: number): PolicyOverride | undefined {
     const override = this.overrides.get(key);
     return override && !override.revokedAt && override.expiresAt > now ? override : undefined;
@@ -503,3 +524,18 @@ class PolicyLimitService {
 }
 
 export const policyLimitService = new PolicyLimitService();
+
+export function snapshotPolicyOverride(override: PolicyOverride | null): Record<string, unknown> {
+  if (!override) return {};
+  return {
+    overrideId: override.overrideId,
+    scopeType: override.scopeType,
+    scopeValue: override.scopeValue,
+    operation: override.operation,
+    limit: override.limit,
+    expiresAt: new Date(override.expiresAt).toISOString(),
+    reason: override.reason,
+    grantedBy: override.grantedBy,
+    revokedAt: override.revokedAt ? new Date(override.revokedAt).toISOString() : null,
+  };
+}
