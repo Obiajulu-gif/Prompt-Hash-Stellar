@@ -51,7 +51,7 @@ import {
   UpdatePromptLicense,
 } from "../controllers/licensingControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
-import { reportLimiter, publishLimiter } from "../middleware/rateLimiter";
+import { reportLimiter, publishLimiter, hashLookupLimiter } from "../middleware/rateLimiter";
 import { enforcePolicyLimit } from "../middleware/policyLimitMiddleware";
 import { requireIdempotency } from "../middleware/idempotency";
 import { abuseRiskGuard } from "../middleware/abuseRiskGuard";
@@ -104,8 +104,8 @@ promptRouter.post(
   RestrictPromptRecord
 );
 
-// Content hash lookup for duplicate detection (#333)
-promptRouter.get("/hash/:contentHash", GetPromptsByContentHash);
+// Content hash lookup for duplicate detection (#333, #1093)
+promptRouter.get("/hash/:contentHash", hashLookupLimiter, GetPromptsByContentHash);
 
 // Semantic similarity check for anti-plagiarism
 promptRouter.post(
