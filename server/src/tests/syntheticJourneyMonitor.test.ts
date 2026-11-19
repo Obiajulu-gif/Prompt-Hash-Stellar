@@ -119,4 +119,40 @@ describe("synthetic critical journey (#1039)", () => {
     expect(result.steps[0]).toMatchObject({ attempts: 3, status: 503 });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("fails fast with 400 when authorized mode is requested without signChallenge", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json([{ onChainId: 42 }]))
+      .mockResolvedValueOnce(json({ token: "token", challenge: "sign-me" }));
+    const result = await runSyntheticJourney(config, {
+      fetch: fetchMock,
+      // missing signChallenge
+      sleep: vi.fn(),
+    });
+    expect(result.success).toBe(false);
+    expect(result.failedStep).toBe("unlock");
+    expect(result.steps[2]).toMatchObject({
+      attempts: 1,
+      status: 400,
+      error: "authorized_signer_missing",
+    });
+  });
+
+  it("detects authorization boundary failure if probe receives unexpected 200 OK", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json([{ onChainId: 42 }]))
+      .mockResolvedValueOnce(json({ token: "token", challenge: "sign-me" }))
+      .mockResolvedValueOnce(json({ plaintext: "unauthorized content leak" }, 200));
+
+    const result = await runSyntheticJourney(
+      { ...config, mode: "authorization-probe" },
+      { fetch: fetchMock, sleep: vi.fn() }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.failedStep).toBe("unlock");
+    expect(result.steps[2].error).toBe("authorization_boundary_failed");
+  });
 });

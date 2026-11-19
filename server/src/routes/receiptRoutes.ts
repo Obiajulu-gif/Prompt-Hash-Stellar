@@ -4,8 +4,13 @@ import {
   SignedReceiptService,
   CreateReceiptParams,
 } from "../services/signedReceiptService";
+import {
+  PrivilegedActionReceiptService,
+  PrivilegedReceiptError,
+} from "../services/privilegedActionReceiptService";
 import { CriticalOperationType } from "../models/SignedReceipt";
 import { requireIdempotency } from "../middleware/idempotency";
+import { requireAdminScope, AdminRequest } from "../middleware/adminAuth";
 
 export const receiptRouter = express.Router();
 
@@ -151,3 +156,55 @@ receiptRouter.post("/", requireIdempotency, async (req: Request, res: Response) 
     });
   }
 });
+
+/**
+ * POST /api/receipts/privileged
+ * Generate an immutable signed audit receipt for a privileged action (#1127).
+ * Requires admin token authorization.
+ */
+receiptRouter.post(
+  "/privileged",
+  requireAdminScope("audit:write"),
+  requireIdempotency,
+  async (req: Request, res: Response) => {
+    const adminReq = req as AdminRequest;
+    const actor = adminReq.admin?.sub || req.body.actor;
+    const { action, scope, status, payload, target, targetType, grantId, promptId, txHash, idempotencyKey, reason } = req.body;
+
+    if (!actor || !action || !scope || !status || !payload) {
+      return res.status(400).json({
+        error: "Missing required fields: actor, action, scope, status, and payload are required.",
+      });
+    }
+
+    try {
+      await connectDb();
+      const receipt = await PrivilegedActionReceiptService.issueReceipt({
+        actor,
+        action,
+        scope,
+        status,
+        payload,
+        target,
+        targetType,
+        grantId,
+        promptId,
+        txHash,
+        idempotencyKey,
+        reason,
+      });
+
+      return res.status(201).json({
+        success: true,
+        data: receipt,
+      });
+    } catch (err) {
+      if (err instanceof PrivilegedReceiptError) {
+        return res.status(400).json({ error: err.message, code: err.code });
+      }
+      return res.status(500).json({
+        error: (err as Error).message || "Failed to issue privileged action receipt",
+      });
+    }
+  }
+);
