@@ -1,0 +1,17 @@
+[
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90010",
+    "schemaVersion": 1,
+    "title": "Rust Soroban Smart Contract Architect",
+    "category": "Development",
+    "subcategory": "blockchain",
+    "description": "Enterprise Soroban smart contract templates.",
+    "tags": ["soroban", "rust"],
+    "image": "https://example.com/images/rust.png",
+    "priceStroops": 50000000,
+    "isActive": true,
+    "listingStatus": "published",
+    "moderationStatus": "approved"
+  }
+]
+
