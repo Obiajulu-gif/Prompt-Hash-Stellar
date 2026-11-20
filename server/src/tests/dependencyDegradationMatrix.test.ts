@@ -16,6 +16,7 @@ import {
   buildDegradationMatrix,
   type ProbeEnv,
   type DependencyName,
+  type DependencyEntry,
 } from "../services/dependencyDegradationMatrix.js";
 
 // ---------------------------------------------------------------------------
@@ -113,11 +114,7 @@ describe("runDegradationMatrixProbes (Issue #980)", () => {
 
   it("returns overallHealthy=true when all probes succeed", async () => {
     // Replace all probes with healthy stubs
-    vi.spyOn(
-      await import("../services/dependencyDegradationMatrix.js"),
-      "buildDegradationMatrix"
-    ).mockReturnValue(
-      EXPECTED_DEPENDENCIES.map((name) => ({
+    const stubMatrix: DependencyEntry[] = EXPECTED_DEPENDENCIES.map((name) => ({
         name,
         purpose: "stub",
         failureModes: [],
@@ -127,20 +124,16 @@ describe("runDegradationMatrixProbes (Issue #980)", () => {
           latencyMs: 10,
           checkedAt: new Date().toISOString(),
         }),
-      }))
-    );
+      }));
 
-    const report = await runDegradationMatrixProbes(TEST_ENV);
+    const report = await runDegradationMatrixProbes(TEST_ENV, stubMatrix);
     expect(report.overallHealthy).toBe(true);
     expect(report.degradedDependencies).toHaveLength(0);
     expect(report.results).toHaveLength(EXPECTED_DEPENDENCIES.length);
   });
 
   it("reports degraded dependencies when probes fail", async () => {
-    vi.spyOn(
-      await import("../services/dependencyDegradationMatrix.js"),
-      "buildDegradationMatrix"
-    ).mockReturnValue([
+    const stubMatrix: DependencyEntry[] = [
       {
         name: "stellar_rpc" as DependencyName,
         purpose: "stub",
@@ -164,19 +157,16 @@ describe("runDegradationMatrixProbes (Issue #980)", () => {
           checkedAt: new Date().toISOString(),
         }),
       },
-    ]);
+    ];
 
-    const report = await runDegradationMatrixProbes(TEST_ENV);
+    const report = await runDegradationMatrixProbes(TEST_ENV, stubMatrix);
     expect(report.overallHealthy).toBe(false);
     expect(report.degradedDependencies).toContain("stellar_rpc");
     expect(report.degradedDependencies).not.toContain("mongodb");
   });
 
   it("gracefully handles a probe that throws an unhandled error", async () => {
-    vi.spyOn(
-      await import("../services/dependencyDegradationMatrix.js"),
-      "buildDegradationMatrix"
-    ).mockReturnValue([
+    const stubMatrix: DependencyEntry[] = [
       {
         name: "ipfs_pinata" as DependencyName,
         purpose: "stub",
@@ -185,24 +175,32 @@ describe("runDegradationMatrixProbes (Issue #980)", () => {
           throw new Error("unexpected probe crash");
         },
       },
-    ]);
+    ];
 
-    // runDegradationMatrixProbes uses Promise.all — a thrown probe should not
-    // crash the runner; wrap probe to handle gracefully.
-    // This test verifies the probe itself handles the error path:
-    const matrix = buildDegradationMatrix({ ...TEST_ENV, ipfsGatewayUrl: "http://[::1]:1" });
-    const ipfsEntry = matrix.find((e) => e.name === "ipfs_pinata")!;
-    const result = await ipfsEntry.probe();
+    // A thrown probe must not crash the runner (#1126); it is reported as
+    // unavailable while the other dependencies are still classified.
+    stubMatrix.push({
+      name: "mongodb" as DependencyName,
+      purpose: "stub",
+      failureModes: [],
+      probe: async () => ({
+        dependency: "mongodb" as DependencyName,
+        healthy: true,
+        latencyMs: 1,
+        checkedAt: new Date().toISOString(),
+      }),
+    });
+    const report = await runDegradationMatrixProbes(TEST_ENV, stubMatrix);
 
-    expect(result.healthy).toBe(false);
-    expect(result.dependency).toBe("ipfs_pinata");
+    expect(report.overallHealthy).toBe(false);
+    expect(report.degradedDependencies).toEqual(["ipfs_pinata"]);
+    const ipfs = report.results.find((r) => r.dependency === "ipfs_pinata")!;
+    expect(ipfs.failureMode).toBe("unavailable");
+    expect(ipfs.detail).toBe("unexpected probe crash");
   });
 
   it("probe report includes checkedAt timestamp", async () => {
-    vi.spyOn(
-      await import("../services/dependencyDegradationMatrix.js"),
-      "buildDegradationMatrix"
-    ).mockReturnValue([
+    const stubMatrix: DependencyEntry[] = [
       {
         name: "redis" as DependencyName,
         purpose: "stub",
@@ -215,9 +213,9 @@ describe("runDegradationMatrixProbes (Issue #980)", () => {
           checkedAt: new Date().toISOString(),
         }),
       },
-    ]);
+    ];
 
-    const report = await runDegradationMatrixProbes(TEST_ENV);
+    const report = await runDegradationMatrixProbes(TEST_ENV, stubMatrix);
     expect(report.checkedAt).toBeTruthy();
     expect(new Date(report.checkedAt).getTime()).toBeGreaterThan(0);
     for (const result of report.results) {

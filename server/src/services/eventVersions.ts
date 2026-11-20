@@ -116,6 +116,12 @@ export function validateEventStructure(
 ): EventValidationResult {
   const errors: string[] = [];
 
+  // A null/array/primitive payload is a malformed record, not a crash (#1128).
+  if (!isPlainObject(data)) {
+    errors.push("Event payload must be an object");
+    return { valid: false, errors };
+  }
+
   // Check if event type is known
   if (!SUPPORTED_VERSIONS[eventType]) {
     errors.push(`Unknown event type: ${eventType}`);
@@ -156,6 +162,7 @@ function validatePromptCreated(version: number, data: any, errors: string[]): vo
     if (!data.prompt_id) errors.push("Missing required field: prompt_id");
     if (!data.creator) errors.push("Missing required field: creator");
     if (data.price_stroops === undefined) errors.push("Missing required field: price_stroops");
+    else if (!isIntegerAmount(data.price_stroops)) errors.push("Invalid type for field: price_stroops");
     if (!data.asset) errors.push("Missing required field: asset");
   }
 }
@@ -189,8 +196,121 @@ function validatePromptPurchased(version: number, data: any, errors: string[]): 
     if (!data.buyer) errors.push("Missing required field: buyer");
     if (!data.creator) errors.push("Missing required field: creator");
     if (data.price_stroops === undefined) errors.push("Missing required field: price_stroops");
+    else if (!isIntegerAmount(data.price_stroops)) errors.push("Invalid type for field: price_stroops");
     // referrer is optional (Option<Address>)
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Soroban i128 amounts may be decoded as bigint, a safe integer, or a decimal
+ * string. Anything else (floats, "12.5", booleans) is a type change.
+ */
+function isIntegerAmount(value: unknown): boolean {
+  if (typeof value === "bigint") return true;
+  if (typeof value === "number") return Number.isSafeInteger(value);
+  if (typeof value === "string") return /^-?\d+$/.test(value);
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Fail-safe record classification (#1128)
+// ---------------------------------------------------------------------------
+
+export type VersionDetection =
+  | { ok: true; version: number }
+  | { ok: false; reason: "invalid_payload" | "malformed_version" };
+
+/**
+ * Strict counterpart of detectEventVersion for ingestion paths.
+ *
+ * detectEventVersion treats any non-numeric `version` (e.g. the string "2")
+ * as implicit V1, which would validate a V2 record against the V1 schema.
+ * This variant only infers V1 when the field is absent; a present but
+ * malformed version is reported so the record can be quarantined.
+ */
+export function detectEventVersionStrict(data: unknown): VersionDetection {
+  if (!isPlainObject(data)) return { ok: false, reason: "invalid_payload" };
+  if (!("version" in data) || data.version === undefined) return { ok: true, version: 1 };
+  const version = data.version;
+  if (typeof version === "number" && Number.isSafeInteger(version) && version >= 1) {
+    return { ok: true, version };
+  }
+  return { ok: false, reason: "malformed_version" };
+}
+
+export type EventRecordClassification =
+  | { disposition: "accept"; eventType: string; version: number }
+  | {
+      disposition: "quarantine";
+      eventType: string;
+      version?: number;
+      reason: string;
+      /** True when deploying a newer consumer would let the record be accepted on retry. */
+      retryAfterUpgrade: boolean;
+      errors: string[];
+    };
+
+/**
+ * Decide whether a decoded contract event can be indexed. Never throws: any
+ * record this consumer cannot interpret with certainty is quarantined with a
+ * reason, never silently coerced. Classification is pure, so re-running it
+ * on a quarantined record after a consumer upgrade is safe and idempotent.
+ */
+export function classifyEventRecord(eventType: string, data: unknown): EventRecordClassification {
+  if (!SUPPORTED_VERSIONS[eventType]) {
+    return {
+      disposition: "quarantine",
+      eventType,
+      reason: "unknown_event_type",
+      retryAfterUpgrade: true,
+      errors: [`Unknown event type: ${eventType}`],
+    };
+  }
+
+  const detection = detectEventVersionStrict(data);
+  if (!detection.ok) {
+    return {
+      disposition: "quarantine",
+      eventType,
+      reason: detection.reason,
+      retryAfterUpgrade: false,
+      errors: [
+        detection.reason === "invalid_payload"
+          ? "Event payload must be an object"
+          : "Event version must be a positive integer",
+      ],
+    };
+  }
+
+  const { version } = detection;
+  if (!isSupportedVersion(eventType, version)) {
+    return {
+      disposition: "quarantine",
+      eventType,
+      version,
+      reason: formatQuarantineReason(eventType, version),
+      retryAfterUpgrade: version > getLatestSupportedVersion(eventType),
+      errors: [`Unsupported version ${version} for event type ${eventType}`],
+    };
+  }
+
+  const validation = validateEventStructure(eventType, version, data);
+  if (!validation.valid) {
+    return {
+      disposition: "quarantine",
+      eventType,
+      version,
+      reason: "invalid_structure",
+      retryAfterUpgrade: false,
+      errors: validation.errors,
+    };
+  }
+
+  return { disposition: "accept", eventType, version };
 }
 
 /**

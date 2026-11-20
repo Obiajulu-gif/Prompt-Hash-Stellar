@@ -89,7 +89,13 @@ export function buildStatementLine(
   prompt: PayoutPromptSource | undefined,
 ): PayoutStatementLine {
   const refund = isRefund(source);
-  const price = typeof prompt?.price === "number" ? prompt.price : 0;
+  // A corrupt price (NaN, Infinity, negative) must not poison the statement
+  // with NaN or turn a sale into a creator debit (INV-11); it counts as zero.
+  const rawPrice = prompt?.price;
+  const price =
+    typeof rawPrice === "number" && Number.isFinite(rawPrice) && rawPrice >= 0
+      ? rawPrice
+      : 0;
   const direction = refund ? -1 : 1;
   const grossAmount = round4(price * direction);
   const platformFee = round4(grossAmount * PLATFORM_FEE_RATE);
