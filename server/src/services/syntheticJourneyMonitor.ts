@@ -47,12 +47,17 @@ export interface SyntheticMonitorDependencies {
 type JsonResponse = { status: number; ok: boolean; body: unknown };
 
 class JourneyFailure extends Error {
+  public readonly status?: number;
+  public readonly code?: string;
+
   constructor(
     message: string,
-    readonly status?: number,
-    readonly code?: string,
+    status?: number,
+    code?: string,
   ) {
     super(message);
+    this.status = status;
+    this.code = code;
   }
 }
 
