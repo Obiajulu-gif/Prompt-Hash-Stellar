@@ -1,0 +1,17 @@
+[
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90030",
+    "schemaVersion": 3,
+    "title": "Canonical V3 Production Prompt",
+    "category": "Design",
+    "description": "Clean target schema representation without legacy aliases.",
+    "tags": ["design", "v3"],
+    "imageUrl": "https://example.com/images/v3.png",
+    "priceStroops": 20000000,
+    "active": true,
+    "lifecycleState": "published",
+    "licence": "standard",
+    "moderationStatus": "approved"
+  }
+]
+

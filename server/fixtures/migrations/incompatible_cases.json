@@ -1,0 +1,43 @@
+[
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90041",
+    "schemaVersion": 1,
+    "title": "Unmapped Legacy Price Record",
+    "category": "Marketing",
+    "description": "Predates stroop denomination with only raw price.",
+    "price": 2.5,
+    "image": "https://example.com/legacy.png",
+    "reasonExpected": "unmapped_deprecated_field"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90042",
+    "schemaVersion": 2,
+    "title": "Conflicting Image Renames",
+    "category": "Writing",
+    "description": "Image and ImageUrl disagree.",
+    "image": "https://example.com/old.png",
+    "imageUrl": "https://example.com/new.png",
+    "priceStroops": 10000000,
+    "reasonExpected": "conflicting_rename"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90043",
+    "schemaVersion": 99,
+    "title": "Future Schema Document",
+    "category": "Future",
+    "description": "From a future release that cannot be safely processed.",
+    "priceStroops": 10000000,
+    "imageUrl": "https://example.com/future.png",
+    "reasonExpected": "future_schema_version"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90044",
+    "schemaVersion": 2,
+    "category": "Writing",
+    "description": "Missing mandatory title.",
+    "priceStroops": 10000000,
+    "imageUrl": "https://example.com/no-title.png",
+    "reasonExpected": "missing_required_field"
+  }
+]
+

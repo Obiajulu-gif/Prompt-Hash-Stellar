@@ -1,0 +1,21 @@
+[
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90020",
+    "schemaVersion": 2,
+    "title": "Full Production Prompt V2",
+    "category": "Design",
+    "description": "Midjourney photorealism prompts.",
+    "tags": ["midjourney", "art"],
+    "imageUrl": "https://example.com/images/midjourney.png",
+    "image": "https://example.com/images/midjourney.png",
+    "priceStroops": 15000000,
+    "price": 1.5,
+    "active": true,
+    "isActive": true,
+    "lifecycleState": "published",
+    "listingStatus": "published",
+    "licence": "standard",
+    "moderationStatus": "approved"
+  }
+]
+

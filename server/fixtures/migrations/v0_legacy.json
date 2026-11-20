@@ -1,0 +1,26 @@
+[
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90001",
+    "schemaVersion": 0,
+    "title": "SEO Copywriting Master Pack",
+    "category": "Marketing",
+    "description": "High-converting SEO prompt pack for agencies.",
+    "tags": ["seo", "copywriting", "marketing"],
+    "image": "https://example.com/images/seo-pack.png",
+    "priceStroops": 25000000,
+    "licence": "commercial",
+    "isActive": true,
+    "listingStatus": "published",
+    "moderationStatus": "approved"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90002",
+    "schemaVersion": 0,
+    "title": "Minimal Prompt Without Optional Fields",
+    "category": "Coding",
+    "image": "https://example.com/images/code.png",
+    "priceStroops": 10000000,
+    "isActive": false
+  }
+]
+
