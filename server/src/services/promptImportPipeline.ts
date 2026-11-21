@@ -29,6 +29,11 @@ import {
   type PromptImportRow,
 } from "./promptImport";
 import { redactSensitiveFields } from "./sensitiveContent";
+import {
+  createImportAttestation,
+  type ImportAttestation as CryptographicAttestation,
+  type ProvenanceSigner,
+} from "./importProvenance";
 
 export type QuarantineReasonCode =
   | "missing_identity"
@@ -91,6 +96,11 @@ export interface ImportReceipt {
   receiptHash: string;
   rows: ImportReceiptRow[];
   quarantined: QuarantinedRow[];
+  /**
+   * Present only when the caller supplies a signing key (#1206). Its absence
+   * preserves the original receipt contract for unsigned imports.
+   */
+  attestation?: CryptographicAttestation;
 }
 
 export interface RollbackReport {
@@ -176,7 +186,7 @@ export function previewPromptImport(
   const unsafe: QuarantinedRow[] = [];
 
   for (const planned of planRowsInInputOrder(rows, report)) {
-    const ref = computeRowRef(planned.row);
+    const ref = computeRowRef(planned.identity);
     if (containsUnsafeContent(planned.row)) {
       unsafe.push({
         rowRef: ref,
@@ -226,7 +236,10 @@ function canonicalReceipt(input: {
 }
 
 interface PlannedRow {
+  /** Sanitized row from the planner (no raw `payloadRef`), used for storage. */
   row: PromptImportRow;
+  /** The caller's row, used for the stable `rowRef` identity. */
+  identity: PromptImportRow;
   action: "create" | "update";
 }
 
@@ -235,25 +248,35 @@ interface PlannedRow {
  * updates" order) so previews and receipts read like the input, and duplicate
  * identities only surface once (later duplicates are quarantined by the
  * planner and never accepted).
+ *
+ * The planner intentionally drops `payloadRef` from its output so a dry run
+ * never echoes raw references. Identity therefore comes from the caller's row:
+ * we pair plan entries back in order under the same `externalId` bucket (or
+ * the payloadRef-only bucket, where planner order is input order).
  */
 function planRowsInInputOrder(
   rows: PromptImportRow[],
   report: ReturnType<typeof planPromptImport>,
 ): PlannedRow[] {
-  const byRef = new Map<string, PlannedRow>();
-  for (const row of report.created)
-    byRef.set(computeRowRef(row), { row, action: "create" });
-  for (const row of report.updated)
-    byRef.set(computeRowRef(row), { row, action: "update" });
+  const queues = new Map<string, Array<{ row: PromptImportRow; action: "create" | "update" }>>();
+  const enqueue = (row: PromptImportRow, action: "create" | "update") => {
+    const key = row.externalId?.trim() || "";
+    const queue = queues.get(key) ?? [];
+    queue.push({ row, action });
+    queues.set(key, queue);
+  };
+  for (const row of report.created) enqueue(row, "create");
+  for (const row of report.updated) enqueue(row, "update");
 
   const ordered: PlannedRow[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
     const ref = computeRowRef(row);
-    const planned = byRef.get(ref);
-    if (!planned || seen.has(ref)) continue;
+    if (seen.has(ref)) continue;
+    const planned = queues.get(row.externalId?.trim() || "")?.shift();
+    if (!planned) continue;
     seen.add(ref);
-    ordered.push(planned);
+    ordered.push({ row: planned.row, identity: row, action: planned.action });
   }
   return ordered;
 }
@@ -267,7 +290,20 @@ function planRowsInInputOrder(
 export async function commitPromptImport(
   store: ImportStore,
   rows: PromptImportRow[],
-  context: { previewId: string; now?: Date },
+  context: {
+    previewId: string;
+    now?: Date;
+    /**
+     * Opt-in cryptographic provenance (#1206). When set, the receipt carries
+     * a signed, hash-chained attestation over the accepted rows. Signing is
+     * deterministic for a fixed `now`/`issuedAt`, so a retried commit
+     * reproduces the same attestation.
+     */
+    provenance?: {
+      signer: ProvenanceSigner;
+      issuedAt?: Date;
+    };
+  },
 ): Promise<ImportReceipt> {
   const existing = await store.listExisting();
   const preview = previewPromptImport(
@@ -286,11 +322,15 @@ export async function commitPromptImport(
 
   const importId = preview.previewId;
   const receiptRows: ImportReceiptRow[] = [];
+  // The signed payload is the exact record persisted by the store, so a
+  // verifier can replay the chain from a store export without needing the
+  // caller's pre-normalization rows.
+  const attestedRecords: Array<{ rowRef: string; record: Record<string, unknown> }> = [];
 
   for (const planned of accepted) {
     const row = planned.row;
     const externalId = row.externalId!;
-    const rowRef = computeRowRef(row);
+    const rowRef = computeRowRef(planned.identity);
     const current = await store.get(externalId);
 
     if (current && current.importId === importId) {
@@ -301,6 +341,10 @@ export async function commitPromptImport(
         externalId,
         rowRef: current.rowRef,
         importId,
+      });
+      attestedRecords.push({
+        rowRef: current.rowRef,
+        record: current.row as unknown as Record<string, unknown>,
       });
       continue;
     }
@@ -317,6 +361,10 @@ export async function commitPromptImport(
     };
     await store.put(record);
     receiptRows.push({ action: origin, externalId, rowRef, importId });
+    attestedRecords.push({
+      rowRef,
+      record: record.row as unknown as Record<string, unknown>,
+    });
   }
 
   const receiptBase = {
@@ -327,10 +375,21 @@ export async function commitPromptImport(
     quarantined: preview.quarantined,
   };
 
-  return {
+  const receipt: ImportReceipt = {
     ...receiptBase,
     receiptHash: sha256(canonicalReceipt(receiptBase)),
   };
+
+  if (context.provenance) {
+    receipt.attestation = createImportAttestation({
+      subject: importId,
+      records: attestedRecords,
+      signer: context.provenance.signer,
+      issuedAt: context.provenance.issuedAt ?? context.now ?? new Date(),
+    });
+  }
+
+  return receipt;
 }
 
 /**

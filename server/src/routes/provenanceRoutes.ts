@@ -15,6 +15,7 @@ import {
   getBulkImportStatus,
   listBulkImports,
 } from "../controllers/bulkImportController";
+import { verifyImportAttestationHandler } from "../controllers/importAttestationController";
 
 /**
  * Prompt provenance graph (#753).
@@ -118,6 +119,15 @@ provenanceRouter.delete(
       handleProvenanceError(res, err);
     }
   },
+);
+
+// ── Cryptographic Import Provenance (#1206) ─────────────────────────────────
+// POST /api/provenance/imports/verify — verify a stored import attestation
+// (admin; read-only; requires IMPORT_PROVENANCE_SIGNING_KEY on the server)
+provenanceRouter.post(
+  "/imports/verify",
+  requireAdminScope("provenance:read"),
+  verifyImportAttestationHandler,
 );
 
 // ── Bulk Import Routes (Issue #929) ──────────────────────────────────────────
