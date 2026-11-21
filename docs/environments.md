@@ -68,7 +68,7 @@ yarn dev
 ### Preview (Vercel)
 
 - Configure the same variables in the Vercel project **Environment Variables** panel for **Preview**
-- `PUBLIC_CHAT_API_BASE` can point to a staging gateway
+- `PUBLIC_CHAT_API_BASE` can point to a staging backend origin (the backend, not the AI provider; see `docs/AI_PROVIDER_BOUNDARY.md`)
 - `CHALLENGE_TOKEN_SECRET` must be unique per preview environment
 - Contract ID should match the preview/testnet deployment used by that branch
 
@@ -110,7 +110,9 @@ yarn dev
 
 | Variable | Used by |
 |----------|---------|
-| `PUBLIC_CHAT_API_BASE` | Chat UI |
+| `PUBLIC_CHAT_API_BASE` | Chat UI: backend origin for AI routes (empty = same-origin) |
+| `AI_PROVIDER_BASE_URL` / `AI_PROVIDER_API_KEY` | Server AI boundary (unset = AI disabled) |
+| `UNLOCK_KEYS_JSON` / `UNLOCK_ACTIVE_KEY_ID` / `UNLOCK_LEGACY_KEY_ID` | Unlock key ring for rotation (`docs/UNLOCK_KEY_CUSTODY.md`) |
 | `REDIS_URL` | Rate limiting (in-memory fallback) |
 | `ADMIN_ROTATION_TOKEN` | Secret rotation admin |
 | `CHALLENGE_TOKEN_SECRET_PREVIOUS` | Rotation grace period |
