@@ -164,7 +164,7 @@ export async function runSyntheticJourney(
   const baseUrl = config.baseUrl.replace(/\/$/, "");
   const startedAt = now();
   const correlationId = `synth_${startedAt}_${Math.random().toString(36).slice(2, 10)}`;
-  const idempotencyKey = `synthetic:${config.promptId}:${config.mode}:${startedAt}`;
+  const idempotencyKey = `synthetic:${config.promptId}:${config.mode}:${correlationId}`;
   const steps: SyntheticStep[] = [];
   let challengeBody: { token: string; challenge: string } | undefined;
   const stepOptions = { maxAttempts, retryBaseMs, sleep, now };
