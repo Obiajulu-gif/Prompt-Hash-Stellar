@@ -8,8 +8,8 @@
  *     same action and the same resource.
  *   - The subject is resolved by the caller. It must come from an
  *     authenticated source (wallet session, verified token). The default
- *     resolver reads `req.walletAddress`/`req.body.walletAddress` and is only
- *     a fallback for routes that already authenticate elsewhere.
+ *     resolver reads `req.sessionWallet`, populated by wallet-session
+ *     authentication. Request-body identity is never trusted.
  *
  * A successful check consumes the grant before the handler runs, so a handler
  * crash cannot leave a usable token behind for a retry. Denials are 401 when
@@ -30,6 +30,7 @@ import {
 
 export interface CapabilityGrantRequest extends Request {
   walletAddress?: string;
+  sessionWallet?: string;
   capabilityGrant?: CapabilityGrantSummary;
 }
 
@@ -54,7 +55,7 @@ function tokenFromRequest(req: Request): string | undefined {
 }
 
 function defaultSubject(req: CapabilityGrantRequest): string | undefined {
-  return req.walletAddress ?? (req.body as { walletAddress?: unknown } | undefined)?.walletAddress?.toString();
+  return req.sessionWallet;
 }
 
 function deny(

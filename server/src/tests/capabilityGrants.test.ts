@@ -356,6 +356,35 @@ describe("issuance validation", () => {
 // ── middleware authorization ─────────────────────────────────────────────────
 
 describe("requireCapabilityGrant middleware", () => {
+  it("rejects body identity without a verified session and leaves the grant usable", () => {
+    const store = new CapabilityGrantStore();
+    const issued = issue(store);
+    const mw = requireCapabilityGrant({
+      action: "prompt.delete",
+      resource: () => "prompt-1",
+      store,
+      now: () => NOW + 1,
+    });
+    const res = mockRes();
+    const next = vi.fn();
+    mw(mockReq({
+      headers: { "x-capability-grant": issued.token },
+      body: { walletAddress: "g-alice" },
+    }), res, next);
+    expect(res.statusCode).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+    expect(store.findByGrantId(issued.grantId)!.usedAt).toBeNull();
+
+    const authenticated = mockRes();
+    mw(mockReq({
+      headers: { "x-capability-grant": issued.token },
+      sessionWallet: "g-alice",
+      body: { walletAddress: "someone-else" },
+    }), authenticated, next);
+    expect(authenticated.statusCode).toBe(200);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
   function middlewareFor(store: CapabilityGrantStore, overrides: Record<string, unknown> = {}) {
     return requireCapabilityGrant({
       action: "prompt.delete",
