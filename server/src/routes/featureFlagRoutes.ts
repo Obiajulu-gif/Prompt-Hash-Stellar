@@ -108,7 +108,7 @@ featureFlagRouter.get(
   requireAdminScope("flags:read"),
   async (req, res) => {
     try {
-      const flag = await featureFlagService.getFlag(req.params.name);
+      const flag = await featureFlagService.getFlag(String(req.params.name));
       if (!flag) {
         return res.status(404).json({ error: "Flag not found" });
       }

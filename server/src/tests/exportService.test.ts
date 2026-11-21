@@ -66,11 +66,11 @@ describe("Export Service", () => {
       lifecycleHistory: [{ to: "active", from: "draft", reason: "private-note" }],
     };
     const cursor = { async *[Symbol.asyncIterator]() { yield prompt; }, close: vi.fn() };
-    const select = vi.fn((_fields: string) => ({ sort: () => ({ lean: () => ({ cursor: () => cursor }) }) }));
+    const select = vi.fn(() => ({ sort: () => ({ lean: () => ({ cursor: () => cursor }) }) }));
     vi.mocked(Prompt.find).mockReturnValue({ select } as never);
     const admin = await collectExportRecords("owner", "full", false);
     const owner = await collectExportRecords("owner", "full", true);
-    expect(select.mock.calls[0]).toEqual([expect.not.stringContaining("contentHash")]);
+    expect(select).toHaveBeenNthCalledWith(1, expect.not.stringContaining("contentHash"));
     expect(JSON.stringify(admin)).not.toMatch(/integrity-digest|protected-content|private-note|wallet-address/);
     expect(owner[0]).toHaveProperty("contentHash", "integrity-digest");
     expect(admin[1]).toMatchObject({ event: "active", result: "draft" });

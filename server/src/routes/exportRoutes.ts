@@ -2,7 +2,7 @@ import {
   responseAbortSignal,
   TransferError,
 } from "../services/transferExecution";
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import connectDb from "../db/connectDb";
 import { authLimiter } from "../middleware/rateLimiter";
 import { requireAdminScope, type AdminRequest } from "../middleware/adminAuth";
@@ -10,11 +10,9 @@ import { requireIdempotency } from "../middleware/idempotency";
 import {
   runUserExport,
   listUserExports,
-  cleanupExpiredExports,
   verifyExportChecksum,
   collectExportRecords,
   mayDownloadExport,
-  EXPORT_SCOPES,
   type ExportScope,
 } from "../services/exportService";
 import { ExportRecord } from "../models/ExportRecord";
@@ -91,11 +89,9 @@ exportRouter.post(
       const {
         userId,
         scope = "prompt",
-        reason = "User-initiated data export",
       } = req.body as {
         userId?: string;
         scope?: ExportScope;
-        reason?: string;
       };
 
       // Determine the target user
