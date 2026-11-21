@@ -12,8 +12,10 @@ export {
   PROMPT_METADATA_LIMITS,
   promptMetadataSchema,
   validatePromptMetadata,
+  migratePromptMetadata,
 } from "./promptMetadata.js";
 export type {
+  LegacyMigrationResult,
   PromptMetadata,
   PromptCategory,
   PromptLicence,

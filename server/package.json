@@ -30,7 +30,8 @@
     "repair:entitlement": "ts-node scripts/repairEntitlement.ts",
     "data:integrity:monitor": "ts-node scripts/dataIntegrityMonitor.ts",
     "monitor:synthetic": "ts-node scripts/runSyntheticJourney.ts",
-    "webhook:replay": "ts-node scripts/replayWebhook.ts"
+    "webhook:replay": "ts-node scripts/replayWebhook.ts",
+    "load:import": "npm --prefix ../packages/schema run build && ts-node --transpile-only scripts/importLoadProbe.ts"
   },
   "files": [
     "build"
