@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Dependency-aware public health on the status page (#1179)
+- The `/status` page now renders dependency-aware readiness from
+  `GET /api/health`: one row per dependency with status, criticality, latency
+  and a redacted reason code, plus the overall `ok`/`degraded`/`down` state.
+- The panel honours `Retry-After` (bounded to 0–60 s), retries automatically
+  during an outage, offers a manual refresh, and degrades safely on network
+  errors, malformed bodies, and older deployments that do not report
+  dependency detail. Raw server detail is never rendered.
+- Coverage: `src/test/health/dependencyHealth.test.ts` and
+  `src/test/components/DependencyHealthPanel.test.tsx` (normal, failure,
+  retry, redaction/authorization, legacy and malformed paths). See
+  `docs/operations/public-health-endpoint.md`.
+
 #### Risk, permission review, API errors, and release evidence (Issues #1188, #1189, #1198, #1199)
 - High-risk action assessments now explain the score calculation and include each fired signal's rationale in their summary.
 - Permission previews expose both sides of a role transition; missing and stale review digests carry stable `PERMISSION_DIFF_REQUIRED` and `STALE_PERMISSION_DIFF` API codes.
