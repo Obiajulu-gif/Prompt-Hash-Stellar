@@ -14,3 +14,5 @@ Malformed authorization values are expected to fail closed at the existing chall
 - Exact encrypted-payload limits are accepted; one character over is rejected. Off-chain prompt storage remains unchanged.
 - Validators treat wrong runtime types as missing/invalid instead of throwing. They do not echo hostile input into an error response.
 - If the stricter price parser blocks a previously accepted client, roll back only `xlmToStroops`, capture the input as a regression fixture, and publish a migration rule before restoring strict parsing. Do not disable the malformed-payload suite.
+
+Single-field mutations also check that a malformed required field cannot pass because all other fields are valid. Correcting that field should allow the same listing to pass validation.

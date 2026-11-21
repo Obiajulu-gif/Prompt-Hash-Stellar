@@ -34,7 +34,7 @@ export function requireIdempotency(
       path: `${req.baseUrl}${req.path}`,
       reason: keyError,
     });
-    errorResponse(res, 400, "IDEMOTENCY_KEY_REQUIRED", keyError);
+    errorResponse(res, 400, "IDEMPOTENCY_KEY_REQUIRED", keyError);
     return;
   }
 

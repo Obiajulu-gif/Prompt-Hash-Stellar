@@ -70,6 +70,19 @@ describe("BoundedCache (#1040)", () => {
     expect(loader).toHaveBeenCalledTimes(2);
   });
 
+  it("does not cache a load invalidated while in flight", async () => {
+    const cache = new BoundedCache<string>({ maxEntries: 2, defaultTtlMs: 100 });
+    let finish!: (value: string) => void;
+    const load = () => new Promise<string>((resolve) => { finish = resolve; });
+    const old = cache.getOrLoad("account:one", load);
+    await Promise.resolve();
+    expect(cache.invalidateWhere((key) => key.startsWith("account:"))).toBe(1);
+    await expect(cache.getOrLoad("account:one", async () => "new")).resolves.toBe("new");
+    finish("old");
+    await expect(old).resolves.toBe("old");
+    expect(cache.get("account:one")).toBe("new");
+  });
+
   it("rejects unbounded or invalid configuration", () => {
     expect(() => new BoundedCache({ maxEntries: 0, defaultTtlMs: 1 })).toThrow(
       /maxEntries/,

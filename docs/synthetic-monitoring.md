@@ -26,3 +26,5 @@ HTTP 408, 425, 429, and 5xx responses retry up to three attempts with exponentia
 - Secret rotation: update `SYNTHETIC_BUYER_SECRET` and its derived address atomically, then run once manually.
 - To disable the monitor during an incident, stop only its scheduler/cron entry. No application rollback is required and application traffic is unaffected.
 - If a deploy changes a route contract, keep the old monitor running until the new path passes once, then update the service and tests together. The API itself is not modified by this monitor.
+
+Unlock retries reuse the journey's idempotency key. Each new journey gets a separate key, including concurrent journeys that start in the same millisecond.

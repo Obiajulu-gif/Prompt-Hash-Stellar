@@ -63,3 +63,5 @@ npm --prefix server run db:migrate
 Migration `006_idempotency_records` creates the unique `(scope, key)` index and
 lookup indexes. Existing routes keep their response bodies; only requests to
 the protected routes need the new header.
+
+An overlapping duplicate receives an in-progress response without entering the controller. Once the original response finishes, retrying the same request replays that outcome, including a denial captured from the controller. Correct the authorization issue before starting a new operation.

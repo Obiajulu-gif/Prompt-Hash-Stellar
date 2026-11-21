@@ -20,6 +20,31 @@ const json = (body: unknown, status = 200) =>
   });
 
 describe("synthetic critical journey (#1039)", () => {
+  it("keeps unlock retries correlated without sharing keys across journeys", async () => {
+    const run = async () => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(json([{ onChainId: 42 }]))
+        .mockResolvedValueOnce(json({ token: "token", challenge: "sign-me" }))
+        .mockResolvedValueOnce(json({ code: "TEMPORARY_FAILURE" }, 503))
+        .mockResolvedValueOnce(json({ plaintext: "fixture" }));
+      const result = await runSyntheticJourney(config, {
+        fetch: fetchMock,
+        signChallenge: vi.fn().mockResolvedValue("signature"),
+        sleep: vi.fn(),
+        now: () => 42,
+      });
+      expect(result.success).toBe(true);
+      const keys = fetchMock.mock.calls.slice(2).map(
+        ([, options]) => JSON.parse(options.body).idempotencyKey,
+      );
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).toBe(keys[1]);
+      return keys[0];
+    };
+    const [first, second] = await Promise.all([run(), run()]);
+    expect(first).not.toBe(second);
+  });
+
   it("covers browse, challenge, and an authorized unlock", async () => {
     const fetchMock = vi
       .fn()
