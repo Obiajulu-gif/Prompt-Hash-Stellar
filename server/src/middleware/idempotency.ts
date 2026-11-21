@@ -6,7 +6,7 @@ import {
   replayStatus,
   validateIdempotencyKey,
 } from "../services/idempotencyService";
-import { safeLog } from "../services/logger";
+import { logger } from "../services/structuredLogger";
 
 function errorResponse(res: Response, status: number, code: string, error: string) {
   return res.status(status).json({ code, error });
@@ -20,12 +20,12 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
   const key = req.get("Idempotency-Key");
   const keyError = validateIdempotencyKey(key);
   if (keyError) {
-    safeLog.info("idempotency.key_invalid", {
+    logger.info("idempotency.key_invalid", {
       method: req.method,
       path: `${req.baseUrl}${req.path}`,
       reason: keyError,
     });
-    errorResponse(res, 400, "IDEMOTENCY_KEY_REQUIRED", keyError);
+    errorResponse(res, 400, "IDEMPOTENCY_KEY_REQUIRED", keyError);
     return;
   }
 
@@ -35,7 +35,7 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
   void beginIdempotentRequest({ scope, key: key as string, requestHash })
     .then((decision) => {
       if (decision.kind === "conflict") {
-        safeLog.warn("idempotency.conflict", {
+        logger.warn("idempotency.conflict", {
           method: req.method,
           path: scope,
           requestHash,
@@ -44,7 +44,7 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
         return;
       }
       if (decision.kind === "expired") {
-        safeLog.warn("idempotency.expired", {
+        logger.warn("idempotency.expired", {
           method: req.method,
           path: scope,
           requestHash,
@@ -53,7 +53,7 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
         return;
       }
       if (decision.kind === "in_progress") {
-        safeLog.info("idempotency.in_progress", {
+        logger.info("idempotency.in_progress", {
           method: req.method,
           path: scope,
           requestHash,
@@ -62,7 +62,7 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
         return;
       }
       if (decision.kind === "replay") {
-        safeLog.info("idempotency.replay", {
+        logger.info("idempotency.replay", {
           method: req.method,
           path: scope,
           requestHash,
@@ -94,7 +94,7 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
         return originalSend(body);
       }) as Response["send"];
       res.once("finish", () => {
-        safeLog.info("idempotency.completed", {
+        logger.info("idempotency.completed", {
           method: req.method,
           path: scope,
           requestHash,
