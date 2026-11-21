@@ -53,6 +53,31 @@ function fuzzValue(depth = 0): unknown {
 }
 
 describe(`deterministic malformed-payload fuzzing (seed=${seed})`, () => {
+  it("rejects a malformed required field in an otherwise valid listing", () => {
+    const valid = {
+      imageUrl: "https://example.com/cover.png",
+      title: "Marketplace fixture",
+      category: "Writing",
+      previewText: "A sufficiently long preview for this marketplace validation fixture.",
+      fullPrompt: "Write a short story.",
+      priceXlm: "1",
+      coCreators: [],
+    };
+    expect(validateListingForm(valid)).toEqual({});
+    const requiredFields = [
+      "imageUrl", "title", "category", "previewText", "fullPrompt", "priceXlm",
+    ] as const;
+    const nextField = random(seed);
+    for (let run = 0; run < 300; run++) {
+      const field = requiredFields[Math.floor(nextField() * requiredFields.length)]!;
+      const value = fuzzValue();
+      if (typeof value === "string") continue;
+      const errors = validateListingForm({ ...valid, [field]: value });
+      expect(Object.keys(errors), `run=${run} seed=${seed} field=${field}`).toEqual([field]);
+      expect(validateListingForm(valid)).toEqual({});
+    }
+  });
+
   it("fails closed without throwing for arbitrary listing field types", () => {
     for (let run = 0; run < 500; run++) {
       const payload = {
