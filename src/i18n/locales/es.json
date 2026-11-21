@@ -212,6 +212,8 @@
       "STALE_REQUEST": "Esta solicitud es demasiado antigua. Inténtalo de nuevo.",
       "NOT_FOUND": "No se pudo encontrar el elemento solicitado.",
       "OPERATION_NOT_ALLOWED": "Esta operación no está permitida en este momento.",
+      "PERMISSION_DIFF_REQUIRED": "Revisa los cambios de permisos antes de aplicarlos.",
+      "STALE_PERMISSION_DIFF": "Los permisos cambiaron después de la revisión. Crea y revisa una nueva vista previa.",
       "DUPLICATE_EVENT": "Este evento ya se procesó.",
       "INTERNAL_ERROR": "Algo salió mal de nuestro lado. Inténtalo de nuevo más tarde."
     }

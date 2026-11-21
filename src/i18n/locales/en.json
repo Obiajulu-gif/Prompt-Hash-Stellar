@@ -212,6 +212,8 @@
       "STALE_REQUEST": "This request is too old. Please try again.",
       "NOT_FOUND": "The requested item could not be found.",
       "OPERATION_NOT_ALLOWED": "This operation is not allowed right now.",
+      "PERMISSION_DIFF_REQUIRED": "Review the permission changes before applying them.",
+      "STALE_PERMISSION_DIFF": "Permissions changed after review. Create and review a fresh preview.",
       "DUPLICATE_EVENT": "This event has already been processed.",
       "INTERNAL_ERROR": "Something went wrong on our end. Please try again later."
     }

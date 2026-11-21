@@ -43,6 +43,8 @@ export const PROBLEMS: Record<ErrorCode, ProblemDefinition> = {
   STALE_PROMPT_TERMS: { statuses: [409], title: "Prompt terms changed", remediation: "Re-fetch the prompt, review the new price or version, and sign again.", retryable: true },
   INVALID_STATE: { statuses: [409], title: "Invalid state for action", remediation: "Check the record's current status; perform an allowed transition instead.", retryable: false },
   OPERATION_NOT_ALLOWED: { statuses: [400], title: "Operation not allowed", remediation: "This record cannot be modified this way; see the operation's documentation.", retryable: false },
+  PERMISSION_DIFF_REQUIRED: { statuses: [409], title: "Permission review required", remediation: "Request a permission preview and submit its digest after review.", retryable: false },
+  STALE_PERMISSION_DIFF: { statuses: [409], title: "Permission preview is stale", remediation: "Request and review a fresh permission preview before retrying.", retryable: true },
   IDEMPOTENCY_CONFLICT: { statuses: [409], title: "Idempotency key conflict", remediation: "Use a new idempotency key for a different request body.", retryable: false },
   DUPLICATE_EVENT: { statuses: [409], title: "Duplicate event", remediation: "No action needed; the event was already processed.", retryable: false },
   RATE_LIMIT_IP: { statuses: [429], title: "Rate limit exceeded (IP)", remediation: "Wait until the reset time, then retry with backoff.", retryable: true },

@@ -64,6 +64,7 @@ Copy this block into your pull request description and check each item before re
 ### Rollback
 - [ ] Rollback plan described in the PR (feature flag disable, migration rollback command, or revert tag)
 - [ ] Rollback rehearsed in staging (deploy → rollback → smoke) with evidence linked
+- [ ] Recovery evidence linked: document the retry/restore path and attach the resulting verification evidence.
 - [ ] Contract upgrade: `scripts/preflight_upgrade.py check` passes and upgrade strategy is documented
 - [ ] Data migrations: rollback command tested: `yarn --cwd server db:rollback`
 
@@ -87,6 +88,7 @@ build when evidence is missing**, not only when a job failed:
 | `security` | always | ticked "Security checks pass" |
 | `rollback-plan` | always | ticked "Rollback plan described" |
 | `rollback-rehearsal` | always | ticked "Rollback rehearsed" |
+| `recovery-evidence` | always | ticked "Recovery evidence linked" with a recovery procedure and verification result |
 | `migration-dry-run` | `server/src/db/migrations/` changed | ticked "Schema migration dry-run passes" **and** the Migration Dry-Run job succeeded |
 | `migration-reversible` | migrations changed | ticked "No irreversible data transforms" |
 | contract preflight | `contracts/` changed | Contract Upgrade Preflight job succeeded |
@@ -111,6 +113,7 @@ PR_BODY="$(cat pr-body.md)" HIGH_RISK=true HAS_MIGRATION=true CHECKLIST_RESULT=s
 - *Path detection misses a high-risk file* — the gate passes trivially; extend the grep in `detect-high-risk` and add the path to the table above.
 - *Gate script itself broken* — revert the commit touching `scripts/release-readiness-gate.mjs`; the workflow has no other state. Tests: `server/src/tests/releaseReadinessGate.test.ts`.
 - *Rollback rehearsal impossible (e.g. irreversible contract upgrade)* — waive `rollback-rehearsal` via the Exception block and link the forward-fix plan.
+- *Recovery cannot be exercised safely before release* — document the constraint and recovery procedure in the PR; waive `recovery-evidence` only with an incident ticket and a follow-up issue.
 
 ---
 

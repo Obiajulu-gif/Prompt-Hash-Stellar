@@ -59,12 +59,15 @@ export function diffDigest(subject: unknown): string {
 export type PermissionDiffErrorCode = "diff_required" | "stale_diff";
 
 export class PermissionDiffError extends Error {
+  public readonly apiCode: "PERMISSION_DIFF_REQUIRED" | "STALE_PERMISSION_DIFF";
+
   constructor(
     public readonly code: PermissionDiffErrorCode,
     message: string,
   ) {
     super(message);
     this.name = "PermissionDiffError";
+    this.apiCode = code === "diff_required" ? "PERMISSION_DIFF_REQUIRED" : "STALE_PERMISSION_DIFF";
   }
 }
 

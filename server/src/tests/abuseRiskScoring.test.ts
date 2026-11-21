@@ -65,6 +65,10 @@ describe("assessRisk", () => {
     expect(velocity.threshold).toBe(DEFAULT_RISK_THRESHOLDS.maxOperationsInWindow);
     expect(velocity.explanation).toContain("12");
     expect(a.summary).toContain("velocity_burst");
+    expect(a.summary).toContain(`score ${a.score}/100`);
+    expect(a.summary).toContain(`${a.rawScore} raw`);
+    expect(a.summary).toContain(`${a.impactWeight} impact`);
+    expect(a.summary).toContain(velocity.explanation);
   });
 
   it("caps a single signal at step_up even when its points are large", () => {
