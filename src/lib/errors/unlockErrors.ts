@@ -42,6 +42,8 @@ const UNLOCK_ERROR_META: Record<UnlockErrorCode, Omit<UnlockErrorMeta, "code">> 
   STALE_REQUEST: { category: "server", retryable: true, i18nKey: "STALE_REQUEST" },
   NOT_FOUND: { category: "server", retryable: false, i18nKey: "NOT_FOUND" },
   OPERATION_NOT_ALLOWED: { category: "server", retryable: false, i18nKey: "OPERATION_NOT_ALLOWED" },
+  PERMISSION_DIFF_REQUIRED: { category: "access", retryable: false, i18nKey: "PERMISSION_DIFF_REQUIRED" },
+  STALE_PERMISSION_DIFF: { category: "access", retryable: true, i18nKey: "STALE_PERMISSION_DIFF" },
   DUPLICATE_EVENT: { category: "server", retryable: false, i18nKey: "DUPLICATE_EVENT" },
   INTERNAL_ERROR: { category: "server", retryable: true, i18nKey: "INTERNAL_ERROR" },
   [NETWORK_ERROR_CODE]: { category: "server", retryable: true, i18nKey: "NETWORK_ERROR" },
