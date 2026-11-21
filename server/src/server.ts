@@ -39,6 +39,7 @@ import { lifecycleCaptureRouter, lifecycleReportRouter } from "./routes/lifecycl
 import { adminRateLimitRouter } from "./routes/adminRateLimitRoutes";
 import { supportAccessRouter } from "./routes/supportAccessRoutes";
 import { maintainerAccessRouter } from "./routes/maintainerAccessRoutes"; // #912
+import { capabilityGrantRouter } from "./routes/capabilityGrantRoutes"; // #1171
 import { recordMergeRouter } from "./routes/recordMergeRoutes"; // #902
 import { maintainerNoteRouter } from "./routes/maintainerNoteRoutes"; // #903
 import { failureEscalationRouter } from "./routes/failureEscalationRoutes"; // #904
@@ -120,6 +121,7 @@ app.use("/api/receipts", receiptRouter);
 app.use("/api/admin/abuse-risk", abuseRiskRouter);
 app.use("/api/admin/retention-holds", retentionHoldRouter);
 app.use("/api/admin/maintainer-grants", maintainerAccessRouter); // #912
+app.use("/api/capabilities", capabilityGrantRouter); // #1171
 app.use("/api/admin/record-merges", recordMergeRouter); // #902
 app.use("/api/admin/maintainer-notes", maintainerNoteRouter); // #903
 app.use("/api/admin/escalations", failureEscalationRouter); // #904
