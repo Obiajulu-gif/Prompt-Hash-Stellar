@@ -155,6 +155,29 @@ describe("TransactionFeedbackProvider + TransactionErrorBanner", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Purchase failed");
   });
 
+  it("keeps the keyboard trigger focused as the live region moves from pending to success", async () => {
+    const user = userEvent.setup();
+    let complete!: () => void;
+    const attempt = vi.fn(() => new Promise<void>((resolve) => { complete = resolve; }));
+    render(
+      <TransactionFeedbackProvider>
+        <PurchaseHarness attempt={attempt} />
+      </TransactionFeedbackProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Buy prompt" });
+    const region = liveRegion();
+    await user.tab();
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(region).toHaveTextContent("Transaction in progress.");
+    expect(trigger).toHaveFocus();
+    await act(async () => complete());
+    expect(liveRegion()).toBe(region);
+    expect(region).toHaveTextContent("Transaction successful.");
+    expect(trigger).toHaveFocus();
+  });
+
   it("retry clears the error and moves focus to a stable control instead of <body>", async () => {
     const user = userEvent.setup();
     const attempt = vi.fn().mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce(undefined);
