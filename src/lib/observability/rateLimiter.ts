@@ -26,14 +26,33 @@ const limits: Record<
     classification: "security", // Challenge tokens — replay protection is security-critical
   },
   unlock: {
-    unauthenticated: { max: 3, windowMs: 60_000 },
-    authenticated: { max: 5, windowMs: 60_000 },
+    unauthenticated: {
+      max: Number(process.env.RATE_LIMIT_UNLOCK_IP_MAX) || 3,
+      windowMs: Number(process.env.RATE_LIMIT_UNLOCK_IP_WINDOW_MS || process.env.RATE_LIMIT_UNLOCK_WINDOW_MS) || 60_000,
+    },
+    authenticated: {
+      max: Number(process.env.RATE_LIMIT_UNLOCK_WALLET_MAX || process.env.RATE_LIMIT_UNLOCK_IDENTITY_MAX) || 5,
+      windowMs: Number(process.env.RATE_LIMIT_UNLOCK_WALLET_WINDOW_MS || process.env.RATE_LIMIT_UNLOCK_WINDOW_MS) || 60_000,
+    },
     classification: "security", // Unlock — payment-gated, must not be bypassed
+  },
+  hash_lookup: {
+    unauthenticated: {
+      max: Number(process.env.RATE_LIMIT_HASH_LOOKUP_IP_MAX) || 30,
+      windowMs: Number(process.env.RATE_LIMIT_HASH_LOOKUP_IP_WINDOW_MS || process.env.RATE_LIMIT_HASH_LOOKUP_WINDOW_MS) || 60_000,
+    },
+    authenticated: {
+      max: Number(process.env.RATE_LIMIT_HASH_LOOKUP_IDENTITY_MAX) || 60,
+      windowMs: Number(process.env.RATE_LIMIT_HASH_LOOKUP_IDENTITY_WINDOW_MS || process.env.RATE_LIMIT_HASH_LOOKUP_WINDOW_MS) || 60_000,
+    },
+    classification: "best-effort",
   },
 };
 
 // In-memory LRU fallback for best-effort controls only.
 const fallbackCaches = new Map<string, LRUCache<string, number>>();
+const cooldownStore = new Map<string, number>();
+const burstStore = new Map<string, { count: number; resetAt: number }>();
 
 function getFallbackCache(key: string, config: RateLimitConfig) {
   if (!fallbackCaches.has(key)) {
@@ -43,16 +62,39 @@ function getFallbackCache(key: string, config: RateLimitConfig) {
 }
 
 /**
- * Optional overrides for composite (buyer/prompt/failure) throttling.
- *
- * `scope` is appended to the bucket key so distinct concerns get independent
- * counters. `maxOverride`/`windowOverride` let a composite bucket use a tighter
- * or looser window than the base `type` without adding a whole new limits entry.
+ * Optional overrides for composite (buyer/prompt/failure) throttling,
+ * burst control, cooldowns, and trusted internal calls (#1093).
  */
 export interface ScopedRateLimitOptions {
   scope?: string;
   maxOverride?: number;
   windowOverride?: number;
+  burstMax?: number;
+  burstWindowMs?: number;
+  cooldownMs?: number;
+  isTrusted?: boolean;
+}
+
+export interface RateLimitCheckResult {
+  success: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+  retryAfter?: number;
+  cooldownActive?: boolean;
+  reason?: string;
+}
+
+export function resetRateLimits(key?: string): void {
+  if (key) {
+    cooldownStore.delete(key);
+    burstStore.delete(key);
+    fallbackCaches.delete(key);
+  } else {
+    cooldownStore.clear();
+    burstStore.clear();
+    fallbackCaches.clear();
+  }
 }
 
 function inMemoryCheck(
@@ -104,37 +146,107 @@ function failClosedResult(type: string): {
 }
 
 export async function checkRateLimit(
-  type: "challenge" | "unlock",
+  type: "challenge" | "unlock" | "hash_lookup" | string,
   identifier: string,
   authenticated = false,
   options: ScopedRateLimitOptions = {},
-): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
-  const entry = limits[type];
+): Promise<RateLimitCheckResult> {
+  // 1. Trusted internal caller bypass (#1093)
+  if (options.isTrusted === true) {
+    return {
+      success: true,
+      limit: Infinity,
+      remaining: Infinity,
+      reset: 0,
+    };
+  }
+
+  const entry = limits[type] ?? {
+    authenticated: { max: 10, windowMs: 60_000 },
+    unauthenticated: { max: 5, windowMs: 60_000 },
+    classification: "best-effort" as ControlClassification,
+  };
   const baseConfig = entry[authenticated ? "authenticated" : "unauthenticated"];
 
-  // Apply composite overrides when a scoped bucket is requested (e.g. per-prompt
-  // or per-failure-reason throttling for unlock). The classification stays tied
-  // to the base `type` so security controls still fail closed.
   const config: RateLimitConfig = {
     max: options.maxOverride ?? baseConfig.max,
     windowMs: options.windowOverride ?? baseConfig.windowMs,
   };
   const bucketKey = `${type}:${identifier}${options.scope ? `:${options.scope}` : ""}`;
+  const now = Date.now();
 
+  // 2. Cooldown check (#1093)
+  const cooldownUntil = cooldownStore.get(bucketKey);
+  if (cooldownUntil && now < cooldownUntil) {
+    const remainingCooldown = cooldownUntil - now;
+    return {
+      success: false,
+      limit: config.max,
+      remaining: 0,
+      reset: remainingCooldown,
+      retryAfter: Math.ceil(remainingCooldown / 1000),
+      cooldownActive: true,
+      reason: "cooldown_active",
+    };
+  } else if (cooldownUntil) {
+    cooldownStore.delete(bucketKey);
+  }
+
+  // 3. Burst limit check (#1093)
+  if (options.burstMax && options.burstWindowMs) {
+    const burstEntry = burstStore.get(bucketKey);
+    if (!burstEntry || now > burstEntry.resetAt) {
+      burstStore.set(bucketKey, { count: 1, resetAt: now + options.burstWindowMs });
+    } else {
+      burstEntry.count += 1;
+      if (burstEntry.count > options.burstMax) {
+        const cooldownMs = options.cooldownMs || options.burstWindowMs;
+        cooldownStore.set(bucketKey, now + cooldownMs);
+        return {
+          success: false,
+          limit: options.burstMax,
+          remaining: 0,
+          reset: cooldownMs,
+          retryAfter: Math.ceil(cooldownMs / 1000),
+          cooldownActive: true,
+          reason: "burst_limit_exceeded",
+        };
+      }
+    }
+  }
+
+  // 4. Standard window check
+  let checkResult: { success: boolean; limit: number; remaining: number; reset: number };
   let redisAvailable = false;
   try {
     const redis = await getRedisClient();
     if (redis) {
       redisAvailable = true;
-      return await redisCheck(redis, bucketKey, config);
+      checkResult = await redisCheck(redis, bucketKey, config);
+    } else {
+      checkResult = inMemoryCheck(bucketKey, config);
     }
   } catch {
-    // Redis connection error
+    if (entry.classification === "security" && !redisAvailable) {
+      checkResult = failClosedResult(type);
+    } else {
+      checkResult = inMemoryCheck(bucketKey, config);
+    }
   }
 
-  // Redis unavailable
-  if (entry.classification === "security") {
-    return failClosedResult(type);
+  if (!checkResult.success) {
+    if (options.cooldownMs && options.cooldownMs > 0) {
+      cooldownStore.set(bucketKey, now + options.cooldownMs);
+    }
+    const retryAfter = Math.ceil(
+      Math.max(checkResult.reset, options.cooldownMs ?? 0) / 1000,
+    );
+    return {
+      ...checkResult,
+      retryAfter,
+      reason: "rate_limit_exceeded",
+    };
   }
-  return inMemoryCheck(bucketKey, config);
+
+  return checkResult;
 }

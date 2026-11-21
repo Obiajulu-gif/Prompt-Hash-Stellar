@@ -110,6 +110,61 @@ describe("Observability Utilities", () => {
         expect(ledger.success).toBe(true);
       });
     });
+
+    describe("issue #1093 abuse controls (bursts, cooldowns, trusted calls)", () => {
+      it("bypasses rate limiting for trusted calls", async () => {
+        const result = await checkRateLimit("unlock", "trusted-service-ip", false, {
+          isTrusted: true,
+        });
+        expect(result.success).toBe(true);
+        expect(result.limit).toBe(Infinity);
+        expect(result.remaining).toBe(Infinity);
+      });
+
+      it("handles burst limits and returns 429 Retry-After when burst is exceeded", async () => {
+        const id = "burst-client-1";
+        const burstOpts = {
+          burstMax: 2,
+          burstWindowMs: 5_000,
+          cooldownMs: 30_000,
+        };
+
+        const res1 = await checkRateLimit("hash_lookup", id, false, burstOpts);
+        expect(res1.success).toBe(true);
+
+        const res2 = await checkRateLimit("hash_lookup", id, false, burstOpts);
+        expect(res2.success).toBe(true);
+
+        // Exceeds burst limit of 2
+        const res3 = await checkRateLimit("hash_lookup", id, false, burstOpts);
+        expect(res3.success).toBe(false);
+        expect(res3.cooldownActive).toBe(true);
+        expect(res3.retryAfter).toBeGreaterThan(0);
+      });
+
+      it("enforces cooldowns on subsequent requests while cooldown is active", async () => {
+        const id = "cooldown-client-1";
+        const opts = {
+          burstMax: 1,
+          burstWindowMs: 5_000,
+          cooldownMs: 60_000,
+        };
+
+        // 1st request ok
+        await checkRateLimit("unlock", id, false, opts);
+
+        // 2nd request triggers burst & cooldown
+        const burstResult = await checkRateLimit("unlock", id, false, opts);
+        expect(burstResult.success).toBe(false);
+
+        // 3rd request during active cooldown is rejected
+        const cooldownResult = await checkRateLimit("unlock", id, false, opts);
+        expect(cooldownResult.success).toBe(false);
+        expect(cooldownResult.cooldownActive).toBe(true);
+        expect(cooldownResult.reason).toBe("cooldown_active");
+        expect(cooldownResult.retryAfter).toBeGreaterThan(0);
+      });
+    });
   });
 
   describe("Logger", () => {
