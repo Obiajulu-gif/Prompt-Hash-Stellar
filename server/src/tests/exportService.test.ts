@@ -6,20 +6,25 @@ vi.mock("../db/connectDb", () => ({
   default: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock("../services/transferExecution", () => ({
+  beginTransfer: vi.fn(),
+  TransferCancelledError: class extends Error {},
+}));
+
 // Mock mongoose models
 vi.mock("../models/Prompt", () => {
-  const m: any = {
+  const m = {
     find: vi.fn(),
     findOne: vi.fn(),
     findById: vi.fn(),
     lean: vi.fn(),
     exec: vi.fn(),
   };
-  return m;
+  return { default: m };
 });
 
 vi.mock("../models/User", () => {
-  const m: any = {
+  const m = {
     findById: vi.fn(),
     findOne: vi.fn(),
     exec: vi.fn(),
@@ -28,24 +33,25 @@ vi.mock("../models/User", () => {
 });
 
 vi.mock("../models/ExportRecord", () => {
-  const m: any = {
+  const m = {
     findById: vi.fn(),
     create: vi.fn(),
     find: vi.fn(),
     deleteMany: vi.fn(),
     countDocuments: vi.fn(),
   };
-  return m;
+  return { ExportRecord: m };
 });
 
 vi.mock("../services/auditTrail", () => {
-  const m: any = {
-    hashWalletAddress: vi.fn((addr: string) => `0x${addr.slice(-16)}`),
+  const m = {
+    hashWalletAddress: vi.fn(() => "wallet-fingerprint"),
   };
   return m;
 });
 
-import { EXPORT_SCOPES, EXPORT_RETENTION_MS } from "../services/exportService";
+import { EXPORT_SCOPES, EXPORT_RETENTION_MS, collectExportRecords, mayDownloadExport, type ExportScope } from "../services/exportService";
+import Prompt from "../models/Prompt";
 import { verifyExportChecksum } from "../services/exportService";
 
 describe("Export Service", () => {
@@ -53,11 +59,36 @@ describe("Export Service", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps owner-only digests and private lifecycle fields out of admin projections", async () => {
+    const prompt = {
+      _id: "prompt-1", owner: "wallet-address", contentHash: "integrity-digest",
+      encryptedPrompt: "protected-content",
+      lifecycleHistory: [{ to: "active", from: "draft", reason: "private-note" }],
+    };
+    const cursor = { async *[Symbol.asyncIterator]() { yield prompt; }, close: vi.fn() };
+    const select = vi.fn(() => ({ sort: () => ({ lean: () => ({ cursor: () => cursor }) }) }));
+    vi.mocked(Prompt.find).mockReturnValue({ select } as never);
+    const admin = await collectExportRecords("owner", "full", false);
+    const owner = await collectExportRecords("owner", "full", true);
+    expect(select).toHaveBeenNthCalledWith(1, expect.not.stringContaining("contentHash"));
+    expect(JSON.stringify(admin)).not.toMatch(/integrity-digest|protected-content|private-note|wallet-address/);
+    expect(owner[0]).toHaveProperty("contentHash", "integrity-digest");
+    expect(admin[1]).toMatchObject({ event: "active", result: "draft" });
+    expect(cursor.close).toHaveBeenCalledTimes(2);
+  });
+
+  it("limits owner-created downloads to the owner and denies incomplete provenance", () => {
+    const selfExport = { userId: "owner", auditTrail: { performedBy: "owner" } };
+    expect(mayDownloadExport(selfExport, "owner")).toBe(true);
+    expect(mayDownloadExport(selfExport, "other-admin")).toBe(false);
+    expect(mayDownloadExport({ userId: "owner" }, "owner")).toBe(false);
+  });
+
   describe("EXPORT_SCOPES", () => {
     it("should define all three export scopes", () => {
       const scopes: ExportScope[] = ["prompt", "history", "full"];
       for (const scope of scopes) {
-        expect(EXPORT_SCOPES).toHaveProperty(scope);
+        expect(Object.values(EXPORT_SCOPES)).toContain(scope);
       }
     });
 

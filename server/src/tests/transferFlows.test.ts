@@ -221,7 +221,7 @@ describe("export cancellation and deletion", () => {
       },
     };
     vi.spyOn(Prompt, "find").mockReturnValueOnce({
-      select: () => ({ lean: () => ({ cursor: () => cursor }) }),
+      select: () => ({ sort: () => ({ lean: () => ({ cursor: () => cursor }) }) }),
     } as any);
     await expect(
       runUserExport(owner, undefined, "full", false, { signal: abort.signal }),

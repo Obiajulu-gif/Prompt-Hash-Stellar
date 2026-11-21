@@ -22,21 +22,6 @@ export type ExportScope = (typeof EXPORT_SCOPES)[keyof typeof EXPORT_SCOPES];
 export const EXPORT_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Generate a signed download URL for an export.
- * In production, this would use a signed URL service (e.g., S3 CloudFront).
- * For now, returns a simple path with a time-limited token.
- */
-function generateDownloadUrl(exportId: string, expiresAt: Date): string {
-  const token = crypto
-    .createHash("sha256")
-    .update(exportId + Date.now().toString())
-    .digest("hex");
-  return `/api/exports/${exportId}/download?token=${token}&exp=${Math.floor(
-    expiresAt.getTime() / 1000,
-  )}`;
-}
-
-/**
  * Check if a user is authorized to export another user's data.
  * Regular users can only export their own data.
  * Admin users (with admin token) can export any user's data.
@@ -86,9 +71,9 @@ function buildExportPrompt(prompt: any, isSelfExport: boolean): any {
 function buildExportHistoryEntry(prompt: any, event: any): any {
   return {
     promptId: prompt._id,
-    event: event.action,
-    result: event.result,
-    timestamp: event.createdAt,
+    event: event.to ?? event.action,
+    result: event.from ?? event.result,
+    timestamp: event.at ?? event.createdAt,
     // Wallet hash for privacy (may be null if event doesn't involve a wallet)
     walletHash: event.walletHash ?? null,
     lifecycleState: prompt.lifecycleState,
@@ -169,35 +154,10 @@ export async function runUserExport(
     );
     if (exportRecord.expiresAt <= now)
       throw new Error("Export expired; create a new transfer");
-    const records: any[] = [];
-    // Cursor avoids loading the entire source collection before cancellation
-    // can be observed. It is closed on success, failure and cancellation.
-    const isSelfExport = requestingUserId === userIdToExport;
-    const cursor = Prompt.find({ owner: userIdToExport })
-      .select(
-        "_id onChainId title category isActive price owner createdAt updatedAt lifecycleState lifecycleHistory" +
-          (isSelfExport ? " contentHash" : ""),
-      )
-      .lean()
-      .cursor();
-    try {
-      for await (const prompt of cursor) {
-        await execution.check();
-        if (scope !== "history")
-          records.push(buildExportPrompt(prompt, isSelfExport));
-        if (scope !== "prompt") {
-          records.push(
-            ...(prompt.lifecycleHistory ?? [])
-              .slice(0, 100)
-              .map((event: any) => buildExportHistoryEntry(prompt, event)),
-          );
-        }
-      }
-    } finally {
-      await cursor.close();
-    }
-    await execution.check();
-    const downloadUrl = generateDownloadUrl(exportId, exportRecord.expiresAt);
+    const records = await collectExportRecords(
+      userIdToExport, scope, requestingUserId === userIdToExport, () => execution.check(),
+    );
+    const downloadUrl = `/api/exports/${exportId}/download`;
     const completed = await execution.step("publish", exportId, () =>
       ExportRecord.findByIdAndUpdate(
         exportId,
@@ -231,6 +191,52 @@ export async function runUserExport(
     await execution.finish(cancelled ? "cancelled" : "failed");
     throw err;
   }
+}
+
+export async function collectExportRecords(
+  userId: string,
+  scope: ExportScope,
+  isSelfExport: boolean,
+  check?: () => Promise<void>,
+): Promise<unknown[]> {
+  const records: any[] = [];
+  // Cursor avoids loading the entire source collection before cancellation
+  // can be observed. It is closed on success, failure and cancellation.
+  const cursor = Prompt.find({ owner: userId })
+    .select(
+      "_id onChainId title category isActive price owner createdAt updatedAt lifecycleState lifecycleHistory" +
+        (isSelfExport ? " contentHash" : ""),
+    )
+    .sort({ _id: 1 })
+    .lean()
+    .cursor();
+  try {
+    for await (const prompt of cursor) {
+      await check?.();
+      if (scope !== "history")
+        records.push(buildExportPrompt(prompt, isSelfExport));
+      if (scope !== "prompt") {
+        records.push(
+          ...(prompt.lifecycleHistory ?? [])
+            .slice(0, 100)
+            .map((event: any) => buildExportHistoryEntry(prompt, event)),
+        );
+      }
+    }
+  } finally {
+    await cursor.close();
+  }
+  await check?.();
+  return records;
+}
+
+export function mayDownloadExport(
+  record: { userId: unknown; auditTrail?: { performedBy?: string } },
+  requester: string,
+): boolean {
+  if (!requester || !record.auditTrail?.performedBy) return false;
+  const owner = String(record.userId);
+  return record.auditTrail.performedBy !== owner || requester === owner;
 }
 
 /**
