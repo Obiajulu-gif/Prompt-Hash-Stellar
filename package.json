@@ -37,6 +37,7 @@
     "renew:ttl": "node scripts/renew-critical-keys.mjs",
     "seed:preview": "node server/scripts/seedPreview.mjs",
     "verify:smoke": "node scripts/smoke-verification.mjs",
+    "policy:simulate": "node --experimental-strip-types scripts/policy-simulation.mjs",
     "health:report": "corepack yarn --cwd server health:report",
     "validate:invariants": "corepack yarn --cwd server validate:invariants"
   },
