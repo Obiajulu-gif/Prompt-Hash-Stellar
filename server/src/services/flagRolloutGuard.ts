@@ -68,9 +68,14 @@ export function evaluateRolloutGuard(
   let allow = true;
   let requireRollback = false;
 
-  if (req.rolloutPercentage < 0 || req.rolloutPercentage > 100) {
+  if (!Number.isInteger(req.rolloutPercentage) || req.rolloutPercentage < 0 || req.rolloutPercentage > 100) {
     allow = false;
     reasons.push("rolloutPercentage must be within 0..100");
+  }
+  if (!Number.isFinite(signals.errorRate) || signals.errorRate < 0 || signals.errorRate > 1 ||
+      typeof signals.p1Incident !== "boolean" ||
+      !Number.isSafeInteger(signals.invariantViolations) || signals.invariantViolations < 0) {
+    return { allow: false, requireRollback: false, reasons: ["Invalid rollout health signals"] };
   }
   if (signals.errorRate > thresholds.maxErrorRate) {
     allow = false;
@@ -122,9 +127,9 @@ export interface RollbackVerification {
 
 export function verifyRollback(evidence: RollbackEvidence): RollbackVerification {
   const failures: string[] = [];
-  if (!evidence.flagDisabledEverywhere) failures.push("flag still enabled in at least one environment");
-  if (!evidence.noPartialWrites) failures.push("partial writes detected (indexer/outbox/entitlement disagree)");
-  if (!evidence.invariantsPass) failures.push("domain invariants failing after rollback");
-  if (!evidence.noLedgerDrift) failures.push("ledger/settlement drift vs. on-chain state");
+  if (evidence.flagDisabledEverywhere !== true) failures.push("flag still enabled in at least one environment");
+  if (evidence.noPartialWrites !== true) failures.push("partial writes detected (indexer/outbox/entitlement disagree)");
+  if (evidence.invariantsPass !== true) failures.push("domain invariants failing after rollback");
+  if (evidence.noLedgerDrift !== true) failures.push("ledger/settlement drift vs. on-chain state");
   return { verified: failures.length === 0, failures };
 }

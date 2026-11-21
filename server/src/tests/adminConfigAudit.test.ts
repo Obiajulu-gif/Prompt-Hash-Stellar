@@ -220,6 +220,29 @@ describe("feature flag changes leave audit evidence (#1026)", () => {
     expect(evidence.body.records[1].changedFields).toEqual(["status"]);
   });
 
+  it("rejects an unsafe rollout before writing and accepts a healthy retry", async () => {
+    if (!dbReady) return;
+    expect((await createFlag()).status).toBe(200);
+    const update = (errorRate: number) =>
+      jsonCall(http.baseUrl, "/api/flags/strict_settlement_checks", {
+        method: "PATCH",
+        headers: WRITER,
+        body: JSON.stringify({
+          status: "experimental",
+          rolloutPercentage: 10,
+          rolloutHealth: { errorRate, p1Incident: false, invariantViolations: 0 },
+        }),
+      });
+
+    const blocked = await update(0.2);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.requireRollback).toBe(true);
+    expect((await FeatureFlag.findOne({ name: "strict_settlement_checks" }).lean()).status).toBe("disabled");
+    const retry = await update(0.01);
+    expect(retry.status).toBe(200);
+    expect(retry.body).toMatchObject({ status: "experimental", rolloutPercentage: 10 });
+  });
+
   it("emergency disable is audited, and an audit outage does not block the kill switch", async () => {
     if (!dbReady) return;
     expect(
@@ -237,6 +260,7 @@ describe("feature flag changes leave audit evidence (#1026)", () => {
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({ auditRecorded: true, reason: "INC-7 settlement drift" });
     expect(first.body.flag.status).toBe("disabled");
+    expect(first.body.verification.verified).toBe(false);
     const record: any = await AuditLog.findOne({ "metadata.operation": "emergency_disable" }).lean();
     expect(record.afterState.environments).toEqual({ development: false, staging: false, production: false });
 

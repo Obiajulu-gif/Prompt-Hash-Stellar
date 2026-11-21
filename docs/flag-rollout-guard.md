@@ -3,7 +3,7 @@
 Issue: #988. Policy: `server/src/services/flagRolloutGuard.ts`
 (tested by `server/src/tests/flagRolloutGuard.test.ts`). Persistence and
 per-user hashing stay in `server/src/services/featureFlagService.ts` —
-the guard adds no schema or API changes.
+the guard adds no storage schema changes.
 
 ## Rollout
 
@@ -38,3 +38,5 @@ complete only when `verified === true`:
 - Rollback verification fails → keep flag disabled, page maintainer,
   repair via `operationRecoveryService` (`RETRY`/`ROLLBACK`/`MANUAL_REVIEW`),
   replay quarantined events, then re-verify before any re-rollout.
+
+A flag administrator can send olloutHealth with olloutPercentage in a PATCH request to enforce the production guard before a write. A blocked rollout returns HTTP 409. Emergency disablement works even when health is missing or audit storage is down. Verification stays incomplete until all three domain checks are explicitly supplied as true and every environment is disabled.
