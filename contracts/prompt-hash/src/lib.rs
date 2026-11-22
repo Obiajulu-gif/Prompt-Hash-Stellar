@@ -1,12 +1,14 @@
-#![no_std]
-#![allow(dead_code)]
-#![allow(clippy::too_many_arguments)]
+#no_std
+callow(dead_code)]
+#allow(clippy::too_many_arguments)]
 
 mod capability_tokens;
 mod conflict_resolver;
 mod contract;
 mod contract_tests;
 mod events;
+mod invariants;
+mod invariants_test;
 mod load_test;
 mod ownership_transfer_test;
 mod pagination;

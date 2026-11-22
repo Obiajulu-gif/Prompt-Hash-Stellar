@@ -1387,6 +1387,68 @@ impl Storage {
         }
     }
 
+    /// Verify balance and ownership invariants for a single asset (#invariant-monitoring).
+    ///
+    /// Checks that the aggregate escrow liability for `asset` is internally
+    /// consistent: neither bucket may be negative, and the sum must not
+    /// overflow when recomputed. Returns `(pending_ok, disputed_ok, total)`.
+    ///
+    /// Edge cases:
+    /// - Missing liability record is treated as `(0, 0)` (not an error).
+    /// - Negative buckets indicate a prior underflow bug; reported as failure.
+    pub fn verify_asset_liability_invariants(env: &Env, asset: &Address) -> (bool, bool, i128) {
+        let liability = Self::get_asset_liability(env, asset);
+        let pending_ok = liability.pending >= 0;
+        let disputed_ok = liability.disputed >= 0;
+        let total = liability.pending.saturating_add(liability.disputed);
+        (pending_ok, disputed_ok, total)
+    }
+
+    /// Verify that a buyer's purchase index entry matches the canonical
+    /// purchase record for `prompt_id` (#invariant-monitoring).
+    ///
+    /// Returns `true` when the buyer index contains `prompt_id` iff a
+    /// purchase record exists for `(prompt_id, buyer)`. A mismatch indicates
+    /// drift between the ownership index and the canonical record.
+    ///
+    /// Edge cases:
+    /// - Missing buyer index is treated as empty (not an error).
+    /// - Expired purchases still count as owned; expiry is a separate concern.
+    pub fn verify_purchase_ownership(env: &Env, prompt_id: u64, buyer: &Address) -> bool {
+        let key = DataKey::BuyerPrompts(buyer.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        let in_index = ids.contains(prompt_id);
+        let has_record = Self::get_purchase(env, prompt_id, buyer).is_some();
+        in_index == has_record
+    }
+
+    /// Verify that a prompt's creator index entry matches the canonical
+    /// prompt record (#invariant-monitoring).
+    ///
+    /// Returns `true` when the creator index contains `prompt_id` iff a
+    /// prompt record exists with that id and the given creator.
+    ///
+    /// Edge cases:
+    /// - Missing prompt is treated as "not owned" (index must not contain it).
+    /// - Missing creator index is treated as empty (not an error).
+    pub fn verify_prompt_ownership(env: &Env, prompt_id: u64, creator: &Address) -> bool {
+        let key = DataKey::CreatorPrompts(creator.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        let in_index = ids.contains(prompt_id);
+        let has_record = Self::get_prompt(env, prompt_id)
+            .map(|p| p.creator == *creator)
+            .unwrap_or(false);
+        in_index == has_record
+    }
+
     /// Reconciles prompt sales counters for pre-existing clamped records (#653).
     pub fn reconcile_sales_counter(env: &Env, prompt_id: u64) -> Result<u64, Error> {
         let prompt = Self::require_prompt(env, prompt_id)?;

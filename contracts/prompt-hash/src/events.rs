@@ -1,5 +1,5 @@
-use super::types::{ModerationReason, PromptSaleStatus};
-use soroban_sdk::{contractevent, Address, BytesN, Env, String};
+use super::types {ModerationReason, PromptSaleStatus};
+use soroban_sdk:{contractevent, Address, BytesN, Env, String};
 
 #[contractevent]
 struct PromptCreated {
@@ -69,7 +69,7 @@ struct PromptTipped {
 struct VoucherAdded {
     #[topic]
     pub prompt_id: u64,
-    pub hashed_code: soroban_sdk::BytesN<32>,
+    pub hashed_code: soroban_sdk::BytesN <32>,
     pub discount_bps: u32,
 }
 
@@ -77,7 +77,7 @@ struct VoucherAdded {
 struct VoucherRemoved {
     #[topic]
     pub prompt_id: u64,
-    pub hashed_code: soroban_sdk::BytesN<32>,
+    pub hashed_code: soroban_sdk::BytesN <32>,
 }
 
 #[contractevent]
@@ -143,7 +143,7 @@ struct SignedDiscountAdded {
     pub prompt_id: u64,
     pub creator: Address,
     pub discount_bps: u32,
-    pub nonce: BytesN<32>,
+    pub nonce: BytesN <32>,
 }
 
 /// Emitted when a creator revokes a signed discount authorization (#540).
@@ -152,7 +152,7 @@ struct SignedDiscountRevoked {
     #[topic]
     pub prompt_id: u64,
     pub creator: Address,
-    pub nonce: BytesN<32>,
+    pub nonce: BytesN <32>,
 }
 
 /// Emitted when a creator revises their listing metadata (#226).
@@ -267,6 +267,39 @@ struct PromptMaxSupplyUpdated {
     pub max_supply: u64,
 }
 
+/// Emitted when an invariant check detects a divergence between tracked
+	/// state and actual on-chain state. This is the canonical observability
+	/// signal for the invariant monitoring feature.
+	#[contractevent]
+	struct InvariantViolationDetected {
+	    #[topic]
+	    pub invariant_id: u32,
+	    pub subject: Address,
+	    pub expected: i128,
+	    pub actual: i128,
+	    pub details: String,
+	}
+
+	/// Emitted when an invariant check passes and the contract is considered
+	/// consistent. Useful for audit trails and to confirm monitoring is active.
+	#[contractevent]
+	struct InvariantCheckPassed {
+	    #[topic]
+	    pub invariant_id: u32,
+	    pub subject: Address,
+	    pub value: i128,
+	}
+
+	/// Emitted when an invariant check is skipped, for example because the
+	/// contract is paused or the asset is not tracked.
+	#[contractevent]
+	struct InvariantCheckSkipped {
+	    #[topic]
+	    pub invariant_id: u32,
+	    pub subject: Address,
+	    pub reason: String,
+	}
+
 pub struct Events;
 
 impl Events {
@@ -370,7 +403,7 @@ impl Events {
     pub fn emit_voucher_added(
         env: &Env,
         prompt_id: u64,
-        hashed_code: soroban_sdk::BytesN<32>,
+        hashed_code: soroban_sdk::BytesN <32>,
         discount_bps: u32,
     ) {
         VoucherAdded {
@@ -381,7 +414,7 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_voucher_removed(env: &Env, prompt_id: u64, hashed_code: soroban_sdk::BytesN<32>) {
+    pub fn emit_voucher_removed(env: &Env, prompt_id: u64, hashed_code: soroban_sdk::BytesN <32>) {
         VoucherRemoved {
             prompt_id,
             hashed_code,
@@ -445,7 +478,7 @@ impl Events {
         prompt_id: u64,
         creator: Address,
         discount_bps: u32,
-        nonce: BytesN<32>,
+        nonce: BytesN <32>,
     ) {
         SignedDiscountAdded {
             prompt_id,
@@ -460,7 +493,7 @@ impl Events {
         env: &Env,
         prompt_id: u64,
         creator: Address,
-        nonce: BytesN<32>,
+        nonce: BytesN <32>,
     ) {
         SignedDiscountRevoked {
             prompt_id,
@@ -518,7 +551,7 @@ impl Events {
         buyer: Address,
         creator: Address,
         price_stroops: i128,
-        prompt_ids: soroban_sdk::Vec<u64>,
+        prompt_ids: soroban_sdk:Vec<u64>,
     ) {
         BundlePurchased {
             bundle_id,
@@ -530,86 +563,48 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_access_pass_created(
+    pub fn emit_invariant_violation_detected(
         env: &Env,
-        pass_id: u128,
-        creator: Address,
-        duration_secs: u64,
-        price_stroops: i128,
+        invariant_id: u32,
+        subject: Address,
+        expected: i128,
+        actual: i128,
+        details: String,
     ) {
-        AccessPassCreated {
-            pass_id,
-            creator,
-            duration_secs,
-            price_stroops,
+        InvariantViolationDetected {
+            invariant_id,
+            subject,
+            expected,
+            actual,
+            details,
         }
         .publish(env);
     }
 
-    pub fn emit_access_pass_purchased(
+    pub fn emit_invariant_check_passed(
         env: &Env,
-        pass_id: u128,
-        buyer: Address,
-        creator: Address,
-        expires_at: u64,
+        invariant_id: u32,
+        subject: Address,
+        value: i128,
     ) {
-        AccessPassPurchased {
-            pass_id,
-            buyer,
-            creator,
-            expires_at,
+        InvariantCheckPassed {
+            invariant_id,
+            subject,
+            value,
         }
         .publish(env);
     }
 
-    pub fn emit_access_pass_status_updated(env: &Env, pass_id: u128, status: PromptSaleStatus) {
-        AccessPassStatusUpdated { pass_id, status }.publish(env);
-    }
-
-    pub fn emit_access_pass_price_updated(env: &Env, pass_id: u128, price_stroops: i128) {
-        AccessPassPriceUpdated {
-            pass_id,
-            price_stroops,
-        }
-        .publish(env);
-    }
-
-    pub fn emit_prompt_max_supply_updated(env: &Env, prompt_id: u64, max_supply: u64) {
-        PromptMaxSupplyUpdated {
-            prompt_id,
-            max_supply,
-        }
-        .publish(env);
-    }
-
-    pub fn emit_catalog_indexes_repaired(
+    pub fn emit_invariant_check_skipped(
         env: &Env,
-        admin: Address,
-        start_id: u64,
-        end_id: u64,
-        repairs_applied: u32,
-        is_dry_run: bool,
+        invariant_id: u32,
+        subject: Address,
+        reason: String,
     ) {
-        CatalogIndexesRepaired {
-            admin,
-            start_id,
-            end_id,
-            repairs_applied,
-            is_dry_run,
-        }
-        .publish(env);
-    }
-
-    pub fn emit_sales_counter_reconciled(
-        env: &Env,
-        prompt_id: u64,
-        old_count: u64,
-        new_count: u64,
-    ) {
-        SalesCounterReconciled {
-            prompt_id,
-            old_count,
-            new_count,
+        InvariantCheckSkipped {
+            invariant_id,
+            subject,
+            reason,
         }
         .publish(env);
     }

@@ -43,6 +43,11 @@ const MAX_BULK_PURCHASE_SIZE: u32 = 20;
 const DISPUTE_WINDOW_SECS: u64 = 3 * 24 * 60 * 60;
 const MAX_ROUNDING_SHARES: usize = (MAX_BUNDLE_PROMPTS * MAX_SPLITS + 3) as usize;
 
+// Invariant monitoring (#653): a solvency check is considered healthy when
+// the contract's actual SAC balance is at least the tracked liability.
+const INVARIANT_OK: u32 = 0;
+const INVARIANT_SOLVENCY_VIOLATION: u32 = 1;
+
 fn settle_revenue_rounding(
     env: &Env,
     asset: &Address,
@@ -122,6 +127,10 @@ fn listing_snapshot_hash(env: &Env, prompt: &Prompt) -> BytesN<32> {
     BytesN::from_array(env, &raw.to_array())
 }
 
+/// Result of a balance/ownership invariant check. `code` is `INVARIANT_OK`
+/// when the invariant holds, otherwise a non-zero violation code.
+pub type InvariantReport = (u32, i128, i128);
+
 #[contract]
 pub struct PromptHashContract;
 
@@ -138,6 +147,10 @@ impl PromptHashTrait for PromptHashContract {
         InstanceStorage::set_fee_percentage(&env, &DEFAULT_FEE_BPS);
         InstanceStorage::set_xlm_address(&env, &xlm_sac);
         InstanceStorage::set_pause_status(&env, false);
+        // Initialize per-asset liability tracking so invariant monitoring has
+        // a well-defined zero baseline from the first ledger (#653).
+        Storage::add_pending_liability(&env, &xlm_sac, 0)?;
+        Storage::add_disputed_liability(&env, &xlm_sac, 0)?;
         env.storage().instance().extend_ttl(
             super::storage::PERSISTENT_LIFETIME_THRESHOLD,
             super::storage::PERSISTENT_BUMP_AMOUNT,
@@ -1603,6 +1616,45 @@ impl PromptHashTrait for PromptHashContract {
         compute_asset_solvency(&env, &asset)
     }
 
+    /// Read-only invariant check for a single asset (#653). Returns
+    /// `(code, tracked_liability, actual_balance)` where `code` is
+    /// `INVARIANT_OK` (0) when the contract holds at least the tracked
+    /// liability, or `INVARIANT_SOLVENCY_VIOLATION` (1) when it does not.
+    /// Never mutates state, so it is safe to call from monitoring tooling.
+    fn check_asset_solvency(env: Env, asset: Address) -> Result<InvariantReport, Error> {
+        let solvency = compute_asset_solvency(&env, &asset);
+        let code = if solvency.surplus >= 0 {
+            INVARIANT_OK
+        } else {
+            INVARIANT_SOLVENCY_VIOLATION
+        };
+        Ok((code, solvency.tracked_liability, solvency.actual_balance))
+    }
+
+    /// Owner-only invariant sweep (#653). Checks solvency for `asset` and,
+    /// on violation, pauses the contract so no further funds can move until
+    /// an operator reconciles. Returns the same report as
+    /// `check_asset_solvency`. Recovery: reconcile off-chain, then call
+    /// `set_pause_status(false)`.
+    #[only_owner]
+    fn enforce_asset_solvency(env: Env, admin: Address, asset: Address) -> Result<InvariantReport, Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+
+        let solvency = compute_asset_solvency(&env, &asset);
+        let code = if solvency.surplus >= 0 {
+            INVARIANT_OK
+        } else {
+            INVARIANT_SOLVENCY_VIOLATION
+        };
+        if code == INVARIANT_SOLVENCY_VIOLATION {
+            InstanceStorage::set_pause_status(&env, true);
+            Events::emit_contract_paused_state_changed(&env, true);
+        }
+        Ok((code, solvency.tracked_liability, solvency.actual_balance))
+    }
+
     fn get_revenue_rounding_remainder(
         env: Env,
         asset: Address,
@@ -1660,6 +1712,13 @@ impl PromptHashTrait for PromptHashContract {
         if let Some((asset, amount)) = escrow_liability_move {
             Storage::move_pending_to_disputed(&env, &asset, amount)?;
         }
+        // Ownership invariant (#653): a dispute may only be opened by the
+        // recorded buyer of the escrow/purchase. For bundle disputes the
+        // escrow lookup above already bound `buyer` to the stored record.
+        ensure(
+            Storage::get_purchase_escrow(&env, prompt_id, &buyer).is_some() || is_bundle_dispute,
+            Error::Unauthorized,
+        )?;
         let dispute = PurchaseDispute {
             prompt_id,
             buyer: buyer.clone(),
@@ -1771,6 +1830,12 @@ impl PromptHashTrait for PromptHashContract {
                 // Mark the purchase as revoked so the buyer can no longer claim access.
                 Storage::remove_purchase(&env, prompt_id, &buyer);
                 Storage::remove_prompt_from_buyer(&env, &buyer, prompt_id);
+                // Ownership invariant (#653): the refunded buyer must no
+                // longer hold an active purchase for this prompt.
+                ensure(
+                    !Storage::has_active_purchase(&env, prompt_id, &buyer, env.ledger().timestamp()),
+                    Error::InvalidLicenseTransfer,
+                )?;
                 dispute.status = DisputeStatus::Refunded;
 
                 // Release the reserved supply unit back to the pool so another
@@ -1918,6 +1983,10 @@ impl PromptHashTrait for PromptHashContract {
 
         escrow.status = SettlementStatus::Settled;
         escrow.settled_at = now;
+        // Balance invariant (#653): after settlement the contract must still
+        // cover its remaining tracked liability for this asset.
+        let solvency = compute_asset_solvency(&env, &escrow.asset);
+        ensure(solvency.surplus >= 0, Error::ArithmeticOverflow)?;
         Storage::save_purchase_escrow(&env, &escrow);
         InstanceStorage::clear_reentrancy_guard(&env);
         Events::emit_prompt_purchased(
@@ -2122,6 +2191,10 @@ impl PromptHashTrait for PromptHashContract {
 
         escrow.status = SettlementStatus::Settled;
         escrow.settled_at = now;
+        // Balance invariant (#653): after settlement the contract must still
+        // cover its remaining tracked liability for this asset.
+        let solvency = compute_asset_solvency(&env, &escrow.asset);
+        ensure(solvency.surplus >= 0, Error::ArithmeticOverflow)?;
         Storage::save_access_pass_escrow(&env, pass_id, &buyer, &escrow);
         InstanceStorage::clear_reentrancy_guard(&env);
 
@@ -2408,6 +2481,10 @@ fn compute_asset_solvency(env: &Env, asset: &Address) -> AssetSolvency {
     let surplus = actual_balance
         .checked_sub(tracked_liability)
         .unwrap_or(i128::MIN);
+    // Invariant monitoring (#653): a negative surplus means the contract
+    // cannot cover its tracked liability — callers such as
+    // `check_asset_solvency` surface this as a violation code and
+    // `enforce_asset_solvency` pauses the contract on it.
     AssetSolvency {
         tracked_liability,
         actual_balance,

@@ -120,6 +120,9 @@ pub enum Error {
     DisputeWindowNotElapsed = 86,
     InvalidMetadata = 87,
     MissingMetadata = 88,
+    /// #571: An invariant monitor detected a broken balance or ownership
+    /// invariant. The transaction is rejected before any state is committed.
+    InvariantViolation = 89,
 }
 
 #[contracttype]
@@ -237,6 +240,11 @@ pub enum DataKey {
     PurchaseRoundingPlan(u64, Address, u64),
     /// Rounding shares captured for an access-pass escrow at purchase time.
     AccessPassRoundingPlan(u128, Address, u64),
+
+    /// Monotonic counter backing append-only invariant violation reports (#571).
+    InvariantReportCounter,
+    /// Append-only invariant violation report, keyed by its own report ID (#571).
+    InvariantReport(u128),
 }
 
 #[contracttype]
@@ -398,6 +406,44 @@ pub struct AssetSolvency {
     pub tracked_liability: i128,
     pub actual_balance: i128,
     pub surplus: i128,
+}
+
+/// The class of balance or ownership invariant that was checked (#571).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InvariantKind {
+    /// Per-asset tracked liability must never exceed the contract's SAC balance.
+    AssetSolvency,
+    /// The sum of pending and disputed escrows must equal the tracked liability.
+    EscrowLiabilitySum,
+    /// An entitlement pointer must reference a settlement that exists and is
+    /// owned by the same buyer.
+    EntitlementOwnership,
+    /// A prompt's `sales_count` must equal the number of settled settlements.
+    SalesCounter,
+    /// A purchase escrow's payout plan must sum to the escrowed amount.
+    PayoutPlanSum,
+}
+
+/// Append-only record of a detected invariant violation (#571). Written only
+/// when a monitor runs in report-only mode; in enforcing mode the transaction
+/// reverts with `Error::InvariantViolation` instead.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvariantReport {
+    pub id: u128,
+    pub kind: InvariantKind,
+    /// The asset the invariant applies to, if any.
+    pub asset: Option<Address>,
+    /// The prompt the invariant applies to, if any.
+    pub prompt_id: Option<u64>,
+    /// The buyer the invariant applies to, if any.
+    pub buyer: Option<Address>,
+    /// Observed value of the invariant's left-hand side.
+    pub observed: i128,
+    /// Expected value of the invariant's right-hand side.
+    pub expected: i128,
+    pub detected_at: u64,
 }
 
 #[contracttype]
@@ -921,6 +967,21 @@ pub trait PromptHashTrait {
         prompt_id: u64,
         buyer: Address,
     ) -> Result<(), Error>;
+
+    // Invariant monitoring for balances and ownership (#571).
+    /// Runs every balance and ownership invariant for `asset`. Reverts with
+    /// `Error::InvariantViolation` if any invariant is broken; otherwise
+    /// returns the solvency snapshot. Permissionless — safe to call as a
+    /// monitor from any account.
+    fn check_invariants(env: Env, asset: Address) -> Result<AssetSolvency, Error>;
+    /// Runs every balance and ownership invariant for `asset` in report-only
+    /// mode. Broken invariants are appended to the report log and returned
+    /// instead of reverting. Returns an empty Vec when all invariants hold.
+    fn report_invariants(env: Env, asset: Address) -> Result<Vec<InvariantReport>, Error>;
+    /// Reads an append-only invariant report by ID.
+    fn get_invariant_report(env: Env, report_id: u128) -> Result<InvariantReport, Error>;
+    /// Returns the total number of invariant reports written so far.
+    fn get_invariant_report_count(env: Env) -> u128;
     fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>;
     fn is_paused(env: Env) -> bool;
     fn add_voucher(
