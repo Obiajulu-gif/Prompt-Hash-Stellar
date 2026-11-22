@@ -203,6 +203,42 @@ All tests are located in `contracts/prompt-hash/src/test.rs` under the section *
 
 ---
 
+## Permission Changes and Hidden Records: Contract Test Coverage
+
+This section documents contract tests for permission changes and hidden records, covering normal, failure, retry, and authorization paths.
+
+### Scenarios Covered
+
+| Path | Scenario | Expected Behavior |
+|------|----------|-------------------|
+| Normal | Owner grants a permission to an account | Permission is recorded and the grantee can perform the permitted action |
+| Normal | Owner hides a record | Record is excluded from public reads; owner can still read it |
+| Normal | Owner unhides a record | Record becomes visible again to all readers |
+| Failure | Non-owner attempts to grant or revoke a permission | Call fails with an authorization error; permission state is unchanged |
+| Failure | Non-owner attempts to hide or unhide a record | Call fails with an authorization error; visibility is unchanged |
+| Failure | Operation on a non-existent record | Call fails with a not-found error; no state is written |
+| Retry | Repeating a grant for an already-granted permission | Idempotent: state is unchanged and no duplicate entry is created |
+| Retry | Repeating a hide on an already-hidden record | Idempotent: record remains hidden without error |
+| Retry | Repeating a revoke for an already-revoked permission | Idempotent: state is unchanged |
+| Authorization | Revoked grantee attempts a previously permitted action | Call fails with an authorization error |
+| Authorization | Hidden record accessed by an unauthorized reader | Read is rejected as if the record does not exist |
+
+### Edge Cases
+
+- Granting and revoking the same permission within a single ledger must leave the final state consistent with the last operation.
+- Hiding a record must not alter its underlying data, only its visibility flag.
+- Transferring ownership must not leave stale permissions held by the previous owner.
+
+### Recovery and Rollback Behavior
+
+- If a permission change fails partway through, Soroban's transaction atomicity reverts all storage writes, so no partial permission state persists.
+- Hidden-record flags are stored in the same transaction as the change; a failed unhide leaves the record hidden.
+- Rollback of a permission change is performed by issuing the inverse operation (revoke for grant, unhide for hide) from the owner account.
+
+### Migration
+
+Existing contract entry points and storage keys are preserved. No migration is required, since the new tests exercise the current behavior without changing storage layout.
+
 ## Conclusion
 
 ### Before This Audit
