@@ -32,7 +32,7 @@ class SupportCaseService {
     const caseDoc = new SupportCase({
       type: input.type,
       promptId: input.promptId,
-      buyerWallet: input.buyerWallet.toLowerCase(),
+      buyerWallet: String(input.buyerWallet).toLowerCase(),
       creatorWallet: input.creatorWallet?.toLowerCase(),
       title: input.title,
       description: input.description,

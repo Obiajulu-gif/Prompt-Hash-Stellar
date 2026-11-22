@@ -63,7 +63,7 @@ class QualityCheckService {
       });
     }
 
-    const blockingFailures = checks.filter((c) => c.severity === "blocking" && !c.passed);
+    const blockingFailures = checks.filter((c: any) => c.severity === "blocking" && !c.passed);
     const overallStatus = blockingFailures.length === 0 ? "passed" : "failed";
 
     let result = await QualityCheckResult.findOne({ promptId });
@@ -102,11 +102,11 @@ class QualityCheckService {
     }
 
     const failures = result.checks
-      .filter((c) => !c.passed)
-      .map((c) => c.message || `Failed: ${c.name}`);
+      .filter((c: any) => !c.passed)
+      .map((c: any) => c.message || `Failed: ${c.name}`);
 
     const isOverridden = result.overriddenAt && !result.blockedAt;
-    const blockingFailures = result.checks.filter((c) => c.severity === "blocking" && !c.passed);
+    const blockingFailures = result.checks.filter((c: any) => c.severity === "blocking" && !c.passed);
 
     return {
       canPublish: isOverridden || blockingFailures.length === 0,

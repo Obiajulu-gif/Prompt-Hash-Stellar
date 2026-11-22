@@ -99,7 +99,7 @@ maintainerAccessRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const grant = await findMaintainerGrant(req.params.grantId);
+      const grant = await findMaintainerGrant(String(req.params.grantId));
       if (!grant) {
         return res.status(404).json({ error: "Maintainer grant not found." });
       }
@@ -122,7 +122,7 @@ maintainerAccessRouter.post(
     try {
       await connectDb();
       const admin = (req as AdminRequest).admin;
-      const result = await revokeMaintainerGrant(req.params.grantId, {
+      const result = await revokeMaintainerGrant(String(req.params.grantId), {
         actor: admin?.sub ?? "",
         requestId: req.correlationId ?? null,
       });

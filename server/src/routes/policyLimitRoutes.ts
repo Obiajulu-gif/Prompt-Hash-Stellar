@@ -206,7 +206,7 @@ policyLimitRouter.delete(
   "/overrides/:overrideId",
   requireAdminScope("ratelimit:write"),
   async (req: Request, res: Response) => {
-    const { overrideId } = req.params;
+    const { overrideId } = req.params as Record<string, string>;
     const { reason, diffDigest } = req.body ?? {};
     const revokedBy = (req as any).adminToken?.sub || (req as any).admin?.sub || "admin";
 

@@ -66,7 +66,7 @@ export async function linkExternalIdentity(params: {
   }
 
   const existingProvider = await ExternalIdentityLink.findOne({
-    walletAddress: params.walletAddress.toLowerCase(),
+    walletAddress: String(params.walletAddress).toLowerCase(),
     provider: params.provider,
     status: "active",
   }).lean();
@@ -114,7 +114,7 @@ export async function unlinkExternalIdentity(params: {
   clientIp?: string | null;
 }): Promise<void> {
   const current = await ExternalIdentityLink.findOne({
-    walletAddress: params.walletAddress.toLowerCase(),
+    walletAddress: String(params.walletAddress).toLowerCase(),
     provider: params.provider,
     subject: params.subject,
     status: "active",
@@ -152,7 +152,7 @@ export async function unlinkExternalIdentity(params: {
 }
 
 export async function listExternalIdentities(walletAddress: string) {
-  return ExternalIdentityLink.find({ walletAddress: walletAddress.toLowerCase(), status: "active" })
+  return ExternalIdentityLink.find({ walletAddress: String(walletAddress).toLowerCase(), status: "active" })
     .select("provider subject status verificationMethod verifiedAt linkedAt")
     .sort({ linkedAt: 1 })
     .lean();

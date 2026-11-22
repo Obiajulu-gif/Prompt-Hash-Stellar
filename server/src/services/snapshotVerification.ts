@@ -46,7 +46,7 @@ const INVARIANTS: InvariantCheck[] = [
         WHERE status = 'completed' AND on_chain_verified = false
       `);
       
-      const unverified = purchases.rows[0]?.count || 0;
+      const unverified = Number(purchases.rows[0]?.count ?? 0);
       
       return {
         passed: unverified === 0,
@@ -74,7 +74,7 @@ const INVARIANTS: InvariantCheck[] = [
       
       let mismatches = 0;
       for (const prompt of prompts.rows) {
-        const computedHash = await computeContentHash(prompt.encrypted_payload);
+        const computedHash = await computeContentHash(String(prompt.encrypted_payload));
         if (computedHash !== prompt.content_hash) {
           mismatches++;
         }
@@ -115,7 +115,7 @@ const INVARIANTS: InvariantCheck[] = [
           ? 'All creators have valid prompts'
           : `${orphanedCreators} creators have no prompts`,
         affectedRecords: orphanedCreators,
-        details: { orphanedWallets: creators.rows.map(r => r.wallet_address) }
+        details: { orphanedWallets: creators.rows.map((r: any) => r.wallet_address) }
       };
     },
     repairSteps: [
@@ -291,15 +291,15 @@ export async function verifySnapshotRestore(): Promise<VerificationReport> {
         });
         
         if (invariant.repairSteps) {
-          logger.error(`Repair steps for ${invariant.name}:`, invariant.repairSteps);
+          logger.error(`Repair steps for ${invariant.name}:`, { repairSteps: invariant.repairSteps });
         }
       }
     } catch (error) {
       failed++;
-      logger.error(`Error running check ${invariant.name}:`, error);
+      logger.error(`Error running check ${invariant.name}:`, { error });
       results.push({
         passed: false,
-        message: `Check failed with error: ${error.message}`,
+        message: `Check failed with error: ${error instanceof Error ? error.message : String(error)}`,
         checkName: invariant.name
       });
     }
@@ -313,7 +313,7 @@ export async function verifySnapshotRestore(): Promise<VerificationReport> {
       await index.rebuild();
       rebuiltIndexes.push(index.name);
     } catch (error) {
-      logger.error(`Error rebuilding index ${index.name}:`, error);
+      logger.error(`Error rebuilding index ${index.name}:`, { error });
       warnings++;
     }
   }

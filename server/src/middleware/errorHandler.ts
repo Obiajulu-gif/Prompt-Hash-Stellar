@@ -230,7 +230,7 @@ export function errorHandlerMiddleware(
   const originalSend = res.send;
 
   // Override res.send to intercept error responses
-  res.send = function (body: any) {
+  (res as any).send = function (body: any) {
     // If this is an error response (status >= 400) and body is an Error object
     if (res.statusCode >= 400 && body instanceof Error) {
       const explanation = mapFailureToRejection(body);

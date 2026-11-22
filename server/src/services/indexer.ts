@@ -20,17 +20,38 @@ import {
   METADATA_TTL_SECONDS,
 } from "./cacheService";
 import os from "os";
-import { decodeEvent } from "@prompthash/sdk";
+import { decodeEvent } from "../../../packages/sdk/src/events/decode.js";
 import { logger } from "./structuredLogger";
 import { applyDisputeTransition } from "./purchaseDisputes";
 import { trackBlockchainIndexing } from "../middleware/provenanceMiddleware";
 import { journalIndexedEvent } from "./eventJournal";
+import { createNotification, fanOutNotification } from "./notificationService";
+import { applySafetyScan } from "./safetyScannerHook";
+import { snapshotLicenseForPurchase } from "./licensingService";
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
 const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 
 let tickInFlight = false; // single-flight guard for the current process
+
+/**
+ * Enqueues a durable webhook delivery, swallowing enqueue errors so a webhook
+ * problem never blocks indexing. `dedupeKey` is the chain event id.
+ */
+async function notify(
+  wallet: string | undefined | null,
+  event: string,
+  data: Record<string, unknown>,
+  dedupeKey: string,
+): Promise<void> {
+  if (!wallet) return;
+  try {
+    await enqueueWebhookEvent(wallet, event, data, dedupeKey);
+  } catch (err) {
+    logger.error("Webhook enqueue failed", { action: "indexer", event, error: err });
+  }
+}
 
 // `processEvent` and `replayQuarantinedEvents` resolve the decoder through
 // this seam; it was referenced but never defined, so every event failed as a
@@ -73,7 +94,7 @@ export async function cachePromptMetadata<T>(
  * profile claims to prevent unearned reputation from landing in the index.
  */
 async function ensureUser(walletAddress: string) {
-  const normalized = walletAddress.toLowerCase();
+  const normalized = String(walletAddress).toLowerCase();
   let user = await User.findOne({ walletAddress: normalized });
   if (!user) {
     user = await User.create({ walletAddress: normalized });
@@ -81,9 +102,6 @@ async function ensureUser(walletAddress: string) {
   return user;
 }
 
-
-const CONTRACT_ID = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
-const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
 
 /**
  * Main entry point to start the background indexing process.
@@ -93,8 +111,20 @@ const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
  * transfers. Returns early (without starting the loop) when the required RPC /
  * contract configuration is missing, so it is safe to call unconditionally.
  */
-export async function startIndexer() {
-  await connectDb();
+export async function startIndexer(): Promise<void> {
+  const rpcUrl = process.env.PUBLIC_STELLAR_RPC_URL;
+  const contractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
+
+  if (!rpcUrl || !contractId) {
+    logger.warn("Soroban indexer disabled - missing configuration", {
+      action: "startIndexer",
+    });
+    return;
+  }
+
+  const server = new rpc.Server(rpcUrl, {
+    allowHttp: rpcUrl.startsWith("http://"),
+  });
 
   const state = await IndexerState.findOneAndUpdate(
     { key: "prompt_hash_contract" },
@@ -118,6 +148,34 @@ export async function startIndexer() {
 
     tickInFlight = true;
     try {
+      // Acquire or renew the distributed lease via a compare-and-swap write.
+      // Only one replica holds the lease at a time; others skip their tick.
+      const now = new Date();
+      const leaseExpiry = new Date(now.getTime() + LEASE_TTL_MS);
+
+      const leased = await IndexerState.findOneAndUpdate(
+        {
+          key: "prompt_hash_contract",
+          $or: [
+            { leaseHolder: REPLICA_ID }, // we already hold it
+            { leaseExpiresAt: { $lt: now } }, // it has expired
+            { leaseHolder: null }, // nobody holds it
+          ],
+        },
+        {
+          $set: { leaseHolder: REPLICA_ID, leaseExpiresAt: leaseExpiry },
+          $inc: { fencingToken: 1 },
+        },
+        { new: true },
+      );
+
+      if (!leased) {
+        // Another replica holds a valid lease — yield this tick.
+        return;
+      }
+
+      const myToken = leased.fencingToken;
+
       const latestLedger = await server.getLatestLedger();
       const startLedger = (state.lastIndexedLedger || 0) + 1;
 
@@ -133,8 +191,11 @@ export async function startIndexer() {
 
       for (const event of response.events) {
         // Skip provisional events — only process finalized transactions
-        if ((event as any).inSuccessfulContractInvocation === false || (event as any).inSuccessfulContractCall === false) {
-          logger.debug("Skipping provisional event", { action: "processEvent", ledger: event.ledger });
+        if (event.inSuccessfulContractCall === false) {
+          logger.debug("Skipping provisional event", {
+            action: "processEvent",
+            ledger: event.ledger,
+          });
           continue;
         }
         await processEvent(event);
@@ -173,7 +234,7 @@ export async function startIndexer() {
  * Emits alerts and updates indexer quarantine state without advancing a lossy checkpoint.
  */
 export async function quarantineEvent(
-  event: StellarRpc.Api.EventResponse,
+  event: rpc.Api.EventResponse,
   reason:
     | "unknown_type"
     | "unsupported_version"
@@ -228,7 +289,7 @@ export async function quarantineEvent(
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
+export async function processEvent(event: rpc.Api.EventResponse): Promise<void> {
   let rawTopic: unknown;
   let rawData: unknown;
 
@@ -368,6 +429,8 @@ export async function routeDecodedEvent(
         { upsert: true, new: true },
       );
 
+      const upserted = prompt;
+
       // Mirror into the search index
       await MarketplaceIndex.findOneAndUpdate(
         { onChainId: prompt_id.toString() },
@@ -421,16 +484,14 @@ export async function routeDecodedEvent(
       // Track blockchain provenance for on-chain prompts (#929) — creates
       // a provenance record with blockchain source metadata. This runs
       // asynchronously and must never block the indexer loop.
-      trackBlockchainIndexing(
-        String(prompt._id),
-        {
-          transactionHash: txHash,
-          ledgerNumber: ledger,
-          onChainId: promptId,
-          contractId: CONTRACT_ID,
-        },
-        creator,
-      ).catch((err) =>
+      trackBlockchainIndexing({
+        promptId: String(prompt._id),
+        transactionHash: txHash ?? "",
+        ledgerSequence: ledger ?? 0,
+        onChainId: promptId,
+        creatorWallet: String(creator),
+        eventType: "PromptCreated",
+      }).catch((err) =>
         logger.error("Provenance tracking error", {
           action: "blockchainProvenance",
           promptId,

@@ -48,7 +48,7 @@ receiptRouter.post("/verify", async (req: Request, res: Response) => {
  * Only the actor or maintainer/admin can access.
  */
 receiptRouter.get("/:receiptId", async (req: Request, res: Response) => {
-  const { receiptId } = req.params;
+  const { receiptId } = req.params as Record<string, string>;
   const callerWallet =
     (req.headers["x-wallet-address"] as string) ||
     (req.query.walletAddress as string);

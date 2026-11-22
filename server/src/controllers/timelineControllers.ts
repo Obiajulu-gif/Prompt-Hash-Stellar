@@ -11,7 +11,7 @@ export const GetTimeline = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
     const { limit, cursor, includeMaintainer, eventTypes } = req.query;
 
     if (!walletAddress) {
@@ -42,7 +42,7 @@ export const GetResourceTimeline = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { resourceType, resourceId } = req.params;
+    const { resourceType, resourceId } = req.params as Record<string, string>;
     const { limit, cursor } = req.query;
 
     if (!resourceType || !resourceId) {

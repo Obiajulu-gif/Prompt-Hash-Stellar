@@ -30,7 +30,7 @@ export const RegisterWebhook = async (req: Request, res: Response): Promise<Resp
       : ["PromptPurchased"];
 
     const existing = await WebhookSubscription.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     });
 
     if (existing) {
@@ -43,7 +43,7 @@ export const RegisterWebhook = async (req: Request, res: Response): Promise<Resp
     }
 
     const sub = new WebhookSubscription({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
       url,
       secret,
       events: resolvedEvents,
@@ -86,7 +86,7 @@ export const DeleteWebhook = async (req: Request, res: Response): Promise<Respon
       return res.status(400).json({ error: "walletAddress is required." });
     }
 
-    await WebhookSubscription.deleteOne({ walletAddress: walletAddress.toLowerCase() });
+    await WebhookSubscription.deleteOne({ walletAddress: String(walletAddress).toLowerCase() });
     return res.status(200).json({ message: "Webhook removed." });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
@@ -118,7 +118,7 @@ export const ListWebhookDeadLetters = async (req: Request, res: Response): Promi
 export const ReplayWebhookDeadLetter = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const replayed = await replayDeadLetter(req.params.id);
+    const replayed = await replayDeadLetter(String(req.params.id));
     if (!replayed) {
       return res.status(404).json({ error: "No dead-lettered event found with that id." });
     }
@@ -135,7 +135,7 @@ export const ReplayWebhookDeadLetter = async (req: Request, res: Response): Prom
 export const RotateWebhookSecret = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const newSecret = await rotateSigningKey(req.params.id);
+    const newSecret = await rotateSigningKey(String(req.params.id));
     if (!newSecret) {
       return res.status(404).json({ error: "No webhook subscription found with that id." });
     }

@@ -103,7 +103,7 @@ export async function resolveActor(
     return { actor: "anonymous", user: null };
   }
 
-  const normalized = walletAddress.toLowerCase();
+  const normalized = String(walletAddress).toLowerCase();
   const user = await User.findOne({ walletAddress: normalized });
   if (!user) {
     return { actor: "anonymous", user: null };
@@ -194,7 +194,7 @@ export const PostPromptUpdate = async (req: Request, res: Response): Promise<Res
       versionIndex: nextVersion,
       content,
       changeNote: changeNote ?? "",
-      createdBy: walletAddress.toLowerCase(),
+      createdBy: String(walletAddress).toLowerCase(),
     });
 
     await Prompt.findByIdAndUpdate(prompt._id, {
@@ -244,7 +244,7 @@ import {
 export const GetPromptVersions = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     if (!promptId) return res.status(400).json({ error: "promptId is required." });
 
     let limit = 20;
@@ -316,7 +316,7 @@ export const GetPromptVersions = async (req: Request, res: Response): Promise<Re
 export const GetBuyerVersion = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const { promptId, versionIndex } = req.params;
+    const { promptId, versionIndex } = req.params as Record<string, string>;
     const walletAddress = req.body?.walletAddress ?? req.query?.walletAddress;
     if (!promptId) {
       return res.status(400).json({ error: "promptId is required." });

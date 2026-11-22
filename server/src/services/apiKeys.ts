@@ -63,7 +63,7 @@ export async function issueApiKey(input: {
     keyId,
     keyHash: keyHashHex(secret),
     keyPrefix: `${API_KEY_PREFIX}_${keyId}`,
-    walletAddress: input.walletAddress.toLowerCase(),
+    walletAddress: String(input.walletAddress).toLowerCase(),
     name: input.name.trim(),
     scopes: input.scopes,
   });
@@ -78,7 +78,7 @@ export async function issueApiKey(input: {
 }
 
 export async function listApiKeys(walletAddress: string) {
-  const documents = await ApiKey.find({ walletAddress: walletAddress.toLowerCase() })
+  const documents = await ApiKey.find({ walletAddress: String(walletAddress).toLowerCase() })
     .select("-keyHash")
     .sort({ createdAt: -1 })
     .lean();
@@ -87,7 +87,7 @@ export async function listApiKeys(walletAddress: string) {
 
 export async function revokeApiKey(walletAddress: string, keyId: string) {
   return ApiKey.findOneAndUpdate(
-    { keyId, walletAddress: walletAddress.toLowerCase(), revokedAt: null },
+    { keyId, walletAddress: String(walletAddress).toLowerCase(), revokedAt: null },
     { $set: { revokedAt: new Date() } },
     { new: true },
   )
@@ -98,7 +98,7 @@ export async function revokeApiKey(walletAddress: string, keyId: string) {
 export async function rotateApiKey(walletAddress: string, keyId: string, name?: string) {
   const current = await ApiKey.findOne({
     keyId,
-    walletAddress: walletAddress.toLowerCase(),
+    walletAddress: String(walletAddress).toLowerCase(),
     revokedAt: null,
   }).select("+keyHash");
 

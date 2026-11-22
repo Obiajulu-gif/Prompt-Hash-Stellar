@@ -54,7 +54,7 @@ export const GetPurchaseTransactions = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
@@ -81,7 +81,7 @@ export const GetPurchaseTransactions = async (
     }
 
     const query: Record<string, any> = {
-      buyerWallet: walletAddress.toLowerCase(),
+      buyerWallet: String(walletAddress).toLowerCase(),
     };
 
     if (cursor) {
@@ -183,14 +183,14 @@ export const GetCreatorSalesAnalytics = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     }).select("_id");
 
     if (!user) {
@@ -284,14 +284,14 @@ export const GetCreatorSupportMetrics = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     }).select("_id");
 
     if (!user) {
@@ -402,7 +402,7 @@ export const GetCreatorPayoutStatement = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
     const { startDate, endDate, format } = req.query;
 
     if (!walletAddress) {
@@ -410,7 +410,7 @@ export const GetCreatorPayoutStatement = async (
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     }).select("_id");
 
     if (!user) {

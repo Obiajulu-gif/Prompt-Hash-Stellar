@@ -131,7 +131,7 @@ supportCaseRouter.patch(
   async (req, res) => {
     try {
       const { status, assignedTo, resolution, resolutionNote } = req.body;
-      const caseDoc = await supportCaseService.updateCase(req.params.caseId, {
+      const caseDoc = await supportCaseService.updateCase(String(req.params.caseId), {
         status,
         assignedTo,
         resolution,
@@ -184,7 +184,7 @@ supportCaseRouter.post(
     try {
       const { resolution, resolutionNote } = req.body;
       const caseDoc = await supportCaseService.resolveCase(
-        req.params.caseId,
+        String(req.params.caseId),
         resolution,
         resolutionNote
       );

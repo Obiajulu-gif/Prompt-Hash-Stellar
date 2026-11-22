@@ -20,7 +20,7 @@ import {
   invalidatePromptCaches,
   DEFAULT_TTL_SECONDS,
 } from "../services/cacheService.js";
-import MaintenanceBanner from "../models/MaintenanceBanner.js";
+import { MaintenanceBanner } from "../models/MaintenanceBanner.js";
 import { sendConditionalJson, markPrivate } from "../middleware/etag.js";
 import { notifyPromptReported } from "../services/emailNotifications.js";
 import { announceNewPrompt } from "../services/discordNotifications.js";
@@ -31,6 +31,8 @@ import {
   buildMongoCompoundQuery,
   encodeCompoundCursor,
   PaginationError,
+} from "../utils/pagination.js";
+import {
   buildPublicVisibilityFilter,
   stripSensitivePromptFields,
 } from "../services/visibilityService.js";
@@ -152,7 +154,7 @@ export const GetPrompts = async (
 
     if (walletAddress) {
       const user = await User.findOne({
-        walletAddress: walletAddress.toLowerCase(),
+        walletAddress: String(walletAddress).toLowerCase(),
       }).lean();
       if (user) {
         query.owner = user._id;
@@ -213,7 +215,7 @@ export const GetOwnedPrompts = async (
   try {
     await connectDb();
 
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
 
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
@@ -223,7 +225,7 @@ export const GetOwnedPrompts = async (
     const limit = Math.min(parseInt(limitParam as string) || 20, 50);
     const cursor = req.query.cursor as string;
 
-    const query: any = { buyerWallet: walletAddress.toLowerCase() };
+    const query: any = { buyerWallet: String(walletAddress).toLowerCase() };
 
     if (cursor) {
       query._id = { $lt: cursor };
@@ -278,7 +280,7 @@ export const CreateUser = async (
 
     // Check if user already exists
     const existingUser = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     });
 
     if (existingUser) {
@@ -294,7 +296,7 @@ export const CreateUser = async (
 
     // Create new user if doesn't exist
     const newUser = new User({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
       username: generatedUsername,
       rating: 4,
     });
@@ -328,7 +330,7 @@ export const GetUsers = async (
 
     if (walletAddress) {
       const user = await User.findOne({
-        walletAddress: walletAddress.toLowerCase(),
+        walletAddress: String(walletAddress).toLowerCase(),
       });
 
       if (!user) {
@@ -632,14 +634,14 @@ export const GetSavedPrompts = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     });
     if (!user) {
       return res.status(404).json({ error: "User not found." });
@@ -679,7 +681,7 @@ export const SavePrompt = async (
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     });
     if (!user) {
       return res.status(404).json({ error: "User not found." });
@@ -719,7 +721,7 @@ export const UnsavePrompt = async (
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     });
     if (!user) {
       return res.status(404).json({ error: "User not found." });
@@ -745,14 +747,14 @@ export const GetDraftPrompts = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
     }
 
     const user = await User.findOne({
-      walletAddress: walletAddress.toLowerCase(),
+      walletAddress: String(walletAddress).toLowerCase(),
     });
     if (!user) {
       return res.status(404).json({ error: "User not found." });
@@ -781,7 +783,7 @@ export const GetPriceHistory = async (
   try {
     await connectDb();
 
-    const { onChainId } = req.params;
+    const { onChainId } = req.params as Record<string, string>;
     let limit = 20;
     let cursor: string | undefined;
 
@@ -859,7 +861,7 @@ export const GetPromptsByContentHash = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { contentHash } = req.params;
+    const { contentHash } = req.params as Record<string, string>;
 
     if (!contentHash) {
       return res.status(400).json({ error: "contentHash is required." });

@@ -2910,7 +2910,7 @@ __metadata:
   resolution: "@prompthash/schema@workspace:packages/schema"
   dependencies:
     "@types/uuid": "npm:^10.0.0"
-    typescript: "npm:^5.0.0"
+    typescript: "npm:^6.0.3"
     vitest: "npm:^2.0.0"
     zod: "npm:^4.4.3"
   languageName: unknown

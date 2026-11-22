@@ -194,7 +194,7 @@ function buildDrillSteps(env: DrillEnv): DrillStep[] {
           const matrix = mod.getDegradationMatrixDefinition();
           const names = matrix.map((e) => e.name);
           const required: string[] = ["stellar_rpc", "stellar_horizon", "mongodb", "redis", "ipfs_pinata", "safety_scanner"];
-          const missing = required.filter((n) => !names.includes(n));
+          const missing = required.filter((n) => !names.includes(n as never));
           return {
             stepId: "B1_dependency_probes_importable",
             status: missing.length === 0 ? "pass" : "fail",
@@ -365,7 +365,7 @@ function buildDrillSteps(env: DrillEnv): DrillStep[] {
             "validateOrphanedAuxiliaryRecords",
           ];
           const missing = requiredMethods.filter(
-            (m) => typeof (svc as Record<string, unknown>)[m] !== "function"
+            (m) => typeof (svc as unknown as Record<string, unknown>)[m] !== "function"
           );
           return {
             stepId: "C3_disaster_recovery_validator_importable",

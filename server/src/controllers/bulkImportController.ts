@@ -397,7 +397,7 @@ export async function getBulkImportStatus(
   res: Response,
 ): Promise<Response> {
   try {
-    const { batchId } = req.params;
+    const { batchId } = req.params as Record<string, string>;
 
     const provenanceRecords = await provenanceService.queryProvenance({
       batchId,

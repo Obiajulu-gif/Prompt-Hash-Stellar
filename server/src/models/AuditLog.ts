@@ -101,11 +101,46 @@ export const AUDIT_ACTIONS = [
   "maintainer_grant_revoked",
   "maintainer_grant_used",
   "maintainer_grant_denied",
+  // provenance and import tracking (#929/#1206)
+  "provenance_record_created",
+  "provenance_verified",
+  "provenance_disputed",
+  "provenance_deleted",
+  "bulk_import_completed",
+  "prompt.derived",
+  "prompt.updated",
+  "prompt.archived",
+  "prompt.restored",
+  "prompt_created",
+  // permalinks
+  "prompt_permalink_renamed",
+  "prompt_permalink_archived",
+  "prompt_permalink_restored",
+  "prompt_permalink_deleted",
+  "prompt_permalink_restricted",
+  // category taxonomy
+  "category_created",
+  "category_renamed",
+  "category_merged",
+  "category_deprecated",
+  // scoped support access
+  "support_access_granted",
+  "support_access_revoked",
+  "support_access_used",
+  "support_access_denied",
+  // notification preferences / moderation queue
+  "notification_preference_updated",
+  "notification_mandatory_delivered",
+  "moderation_approve",
+  "moderation_reject",
+  "moderation_hide",
+  "moderation_restore",
+  "moderation_rollback",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
-export type AuditResult = "success" | "failure" | "blocked";
+export type AuditResult = "success" | "failure" | "blocked" | "denied" | "pending" | "partial_success";
 
 /**
  * Actions the schema historically accepted on top of `AUDIT_ACTIONS`. They are
@@ -141,7 +176,14 @@ const auditLogSchema = new mongoose.Schema(
     result: {
       type: String,
       required: true,
-      enum: ["success", "failure", "blocked"] as AuditResult[],
+      enum: [
+        "success",
+        "failure",
+        "blocked",
+        "denied",
+        "pending",
+        "partial_success",
+      ] as AuditResult[],
       index: true,
     },
     promptId: {

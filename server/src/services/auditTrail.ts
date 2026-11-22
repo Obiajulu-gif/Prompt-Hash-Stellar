@@ -130,7 +130,7 @@ export function hashInputFromRow(row: any): AuditHashInput {
  *   action      - AuditAction enum value (e.g. "unlock_attempt", "access_granted")
  *   result      - AuditResult enum value ("success" | "failure" | "denied")
  *   requestId   - UUID from withObservability middleware; links log → DB row
- *   walletHash  - SHA-256(walletAddress.toLowerCase()); never the raw address
+ *   walletHash  - SHA-256(String(walletAddress).toLowerCase()); never the raw address
  *   promptId    - Numeric prompt ID from the contract
  *   reason      - Human-readable explanation for denials/failures (no sensitive content)
  *

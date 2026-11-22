@@ -172,7 +172,7 @@ export async function repairEntitlementState(): Promise<RepairReport> {
   for (const purchase of purchases) {
     if (!purchase.buyerWallet || !purchase.promptId) continue;
 
-    const buyerWallet = purchase.buyerWallet.toLowerCase();
+    const buyerWallet = String(purchase.buyerWallet).toLowerCase();
     const promptId = String(purchase.promptId);
     const isRefunded = purchase.disputeResolution === "refunded" || purchase.status === "refunded";
 

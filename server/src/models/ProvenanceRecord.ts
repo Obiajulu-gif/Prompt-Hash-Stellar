@@ -46,6 +46,10 @@ export const TRANSFORM_TYPES = [
   "merge",            // Merged from multiple sources
   "extraction",       // Extracted from larger content
   "customization",    // Customized for specific use case
+  "FORK",
+  "REMIX",
+  "VERSION_UPDATE",
+  "CONTENT_ENHANCEMENT",
 ] as const;
 export type TransformType = (typeof TRANSFORM_TYPES)[number];
 
@@ -100,6 +104,9 @@ export interface ITransformMetadata {
   transformedFields?: string[];       // Which fields were transformed
   transformTimestamp: Date;           // When transform was applied
   transformDuration?: number;         // Duration in milliseconds
+  actor?: IActorMetadata;             // Actor who applied the transform
+  details?: string;                   // Human-readable transform summary
+  metadata?: Record<string, any>;     // Additional transform metadata
 }
 
 /**

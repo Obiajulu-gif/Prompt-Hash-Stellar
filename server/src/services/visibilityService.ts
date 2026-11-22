@@ -21,6 +21,7 @@ import {
 } from "../../../packages/schema/src/visibility.js";
 
 import { logger } from "./structuredLogger.js";
+import type { AuditAction } from "../models/AuditLog";
 import { recordAuditEvent } from "./auditTrail.js";
 import { cacheDel } from "./cacheService.js";
 
@@ -283,7 +284,7 @@ export async function logVisibilityViolation(params: {
 }): Promise<void> {
   try {
     await recordAuditEvent({
-      action: params.action,
+      action: params.action as AuditAction,
       result: "denied",
       promptId: params.promptId,
       walletAddress: params.attemptedBy || null,

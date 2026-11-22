@@ -93,7 +93,7 @@ fulfillmentRouter.get(
     const buyerWallet = String(req.params.buyerWallet);
     const record = await FulfillmentRecord.findOne({
       promptId,
-      buyerWallet: buyerWallet.toLowerCase(),
+      buyerWallet: String(buyerWallet).toLowerCase(),
     });
     if (!record) {
       res.status(404).json({ error: "Fulfillment record not found" });
@@ -143,7 +143,7 @@ fulfillmentRouter.post(
       return;
     }
 
-    const key = { promptId: String(promptId), buyerWallet: buyerWallet.toLowerCase() };
+    const key = { promptId: String(promptId), buyerWallet: String(buyerWallet).toLowerCase() };
     const eventKey = eventId ? `service:${eventId}` : idempotencyKey(req, "service");
 
     if (status === "failed") {
@@ -210,7 +210,7 @@ fulfillmentRouter.post(
 
     const record = await FulfillmentRecord.findOne({
       promptId,
-      buyerWallet: buyerWallet.toLowerCase(),
+      buyerWallet: String(buyerWallet).toLowerCase(),
     });
 
     if (!record) {

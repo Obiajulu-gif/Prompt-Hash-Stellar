@@ -6,8 +6,8 @@
  * preflight, and purchase preflight workflows.
  */
 
-import { Keypair, Horizon } from "@stellar/stellar-sdk";
-import { Server as RpcServer } from "@stellar/stellar-sdk/rpc";
+import { Keypair, Horizon, rpc } from "@stellar/stellar-sdk";
+const RpcServer = rpc.Server;
 const StellarServer = Horizon.Server;
 import { logger } from "./structuredLogger.js";
 
