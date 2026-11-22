@@ -279,6 +279,27 @@ describe("retry path", () => {
 // Authorization path
 // ---------------------------------------------------------------------------
 
+describe("dependency outage recovery UX", () => {
+  it("offers retry guidance for transient outages but never for credential failures", () => {
+    const transient = resolveFallbackDecision(
+      "purchase_prompt",
+      withFailure("stellar_rpc", "timeout"),
+    );
+    expect(transient.outcome).toBe("blocked");
+    expect(transient.retryable).toBe(true);
+    expect(transient.retryAfterSeconds).toBeGreaterThan(0);
+    expect(transient.userMessage).toMatch(/try again|temporarily/i);
+
+    const credentialFailure = resolveFallbackDecision(
+      "purchase_prompt",
+      withFailure("stellar_rpc", "auth_failure"),
+    );
+    expect(credentialFailure.outcome).toBe("blocked");
+    expect(credentialFailure.retryable).toBe(false);
+    expect(credentialFailure.retryAfterSeconds).toBeUndefined();
+  });
+});
+
 describe("authorization path", () => {
   it("credential rejection blocks the capability and is not client-retryable", () => {
     const d = resolveFallbackDecision("purchase_prompt", withFailure("stellar_rpc", "auth_failure"));
