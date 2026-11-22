@@ -39,6 +39,7 @@ Line-based diff3 (LCS), no external dependency:
 | Both changed different regions | `merged`, both applied |
 | Both made the same change | `merged`, applied once |
 | Both changed the same region differently | `conflict`, marker block |
+| One side's replacement overlaps several hunks on the other | `conflict` over the union span; each side rebuilt across the whole span |
 | Insertions at the same caret, different text | `conflict` |
 | Insertion at the boundary of the other side's replacement | both applied deterministically |
 
@@ -101,6 +102,11 @@ requires `sessionWallet` to equal `ownerWallet` (case-insensitive). Changing
 - Empty files: an empty side is one empty line; merges and conflicts behave
   normally.
 - Adjacent edits (mine ends exactly where theirs begins) do **not** conflict.
+- Overlaps are transitive: if one side's replacement overlaps two hunks on the
+  other side, the whole overlap is one conflict spanning the union. `mineLines`
+  and `theirsLines` are rebuilt across that full span, so unchanged base lines
+  between hunks are preserved and choosing a side applies that side's complete
+  edit rather than just its first hunk.
 - The same caret insertion from both sides conflicts only when the text differs.
 - A conflict whose chosen result happens to contain a marker-shaped line is
   written verbatim; indices, not marker scanning, are the contract.

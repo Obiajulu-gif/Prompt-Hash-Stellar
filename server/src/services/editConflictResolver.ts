@@ -109,10 +109,11 @@ interface Hunk {
 }
 
 interface HunkGroup {
+  /** Union span over `base` covered by every hunk in the group. */
   start: number;
   end: number;
-  mine?: Hunk;
-  theirs?: Hunk;
+  mine: Hunk[];
+  theirs: Hunk[];
 }
 
 function assertContent(value: unknown, label: string): string {
@@ -227,7 +228,16 @@ function hunksCollide(a: Hunk, b: Hunk): boolean {
   return a.start === a.end && b.start === b.end && a.start === b.start;
 }
 
-function groupHunks(base: string[], mine: Hunk[], theirs: Hunk[]): HunkGroup[] {
+/**
+ * Cluster hunks into conflict groups over transitive overlap.
+ *
+ * A single replacement on one side can overlap several hunks on the other
+ * side. The whole overlap is one group spanning the union, so an edit can
+ * never leak past the conflict and unchanged base context between hunks is
+ * kept. Hunks are sorted by base position, so comparing each newcomer with
+ * the group's members finds the full transitive closure in one pass.
+ */
+function groupHunks(mine: Hunk[], theirs: Hunk[]): HunkGroup[] {
   const all: Array<{ side: "mine" | "theirs"; hunk: Hunk }> = [
     ...mine.map((hunk) => ({ side: "mine" as const, hunk })),
     ...theirs.map((hunk) => ({ side: "theirs" as const, hunk })),
@@ -236,42 +246,46 @@ function groupHunks(base: string[], mine: Hunk[], theirs: Hunk[]): HunkGroup[] {
   const groups: HunkGroup[] = [];
   for (const entry of all) {
     const last = groups[groups.length - 1];
-    const lastHunk = last ? last[entry.side] : undefined;
     const collidesWithGroup =
       last !== undefined &&
-      ((lastHunk !== undefined && hunksCollide(entry.hunk, lastHunk)) ||
-        // Compare against the union range for cross-side overlap.
-        (entry.hunk.start < last.end && last.start < entry.hunk.end) ||
-        (entry.hunk.start === entry.hunk.end &&
-          last.start === last.end &&
-          entry.hunk.start === last.start));
+      [...last.mine, ...last.theirs].some((hunk) => hunksCollide(entry.hunk, hunk));
 
     if (last && collidesWithGroup) {
       last.start = Math.min(last.start, entry.hunk.start);
       last.end = Math.max(last.end, entry.hunk.end);
-      // Same-side overlapping hunks cannot occur from a diff; if they did,
-      // keeping the later one would silently drop content, so start a new
-      // group instead.
-      if (last[entry.side]) {
-        groups.push({
-          start: entry.hunk.start,
-          end: entry.hunk.end,
-          [entry.side]: entry.hunk,
-        });
-      } else {
-        last[entry.side] = entry.hunk;
-      }
+      last[entry.side].push(entry.hunk);
     } else {
       groups.push({
         start: entry.hunk.start,
         end: entry.hunk.end,
-        [entry.side]: entry.hunk,
+        mine: entry.side === "mine" ? [entry.hunk] : [],
+        theirs: entry.side === "theirs" ? [entry.hunk] : [],
       });
     }
   }
 
-  void base;
   return groups;
+}
+
+/**
+ * Rebuild one side's content across a group's full union span by applying all
+ * of that side's hunks in base order and keeping untouched base lines in
+ * between. Without this, a group holding several hunks would only expose the
+ * first one and drop the rest of that side's edit.
+ */
+function reconstructSide(base: string[], group: HunkGroup, side: "mine" | "theirs"): string[] {
+  const hunks = group[side];
+  if (hunks.length === 0) return [];
+
+  const lines: string[] = [];
+  let cursor = group.start;
+  for (const hunk of [...hunks].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    for (let index = cursor; index < hunk.start; index += 1) lines.push(base[index]);
+    lines.push(...hunk.lines);
+    cursor = Math.max(cursor, hunk.end);
+  }
+  for (let index = cursor; index < group.end; index += 1) lines.push(base[index]);
+  return lines;
 }
 
 function sameLines(a: string[], b: string[]): boolean {
@@ -322,7 +336,7 @@ export function resolveEditConflict(
 
   const mineHunks = diffHunks(base, mine);
   const theirsHunks = diffHunks(base, theirs);
-  const groups = groupHunks(base, mineHunks, theirsHunks);
+  const groups = groupHunks(mineHunks, theirsHunks);
 
   const conflicts: EditConflict[] = [];
   const out: string[] = [];
@@ -331,8 +345,9 @@ export function resolveEditConflict(
   for (const group of groups) {
     for (let index = cursor; index < group.start; index += 1) out.push(base[index]);
 
-    const mineLines = group.mine?.lines ?? null;
-    const theirsLines = group.theirs?.lines ?? null;
+    const mineLines = group.mine.length > 0 ? reconstructSide(base, group, "mine") : null;
+    const theirsLines =
+      group.theirs.length > 0 ? reconstructSide(base, group, "theirs") : null;
 
     if (mineLines && theirsLines) {
       if (sameLines(mineLines, theirsLines)) {

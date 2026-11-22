@@ -166,6 +166,99 @@ describe("conflicts", () => {
   });
 });
 
+// ── transitive overlap groups (#1170 regression) ─────────────────────────────
+// A single replacement on one side can overlap several hunks on the other.
+// The whole overlap must be one conflict spanning the union, and each side
+// must be reconstructed across that full span so no edit leaks out and no
+// unchanged base line between hunks is lost.
+
+describe("transitive overlap groups", () => {
+  const maintainerExample = {
+    base: edit("A\nB\nC\nD\nE", 5),
+    mine: edit("a\nB\nc\nD\nE", 5),
+    theirs: edit("X\nE", 6),
+  };
+
+  it("resolves the maintainer example with prefer_theirs to X/E", () => {
+    const result = resolveEditConflict({
+      ...maintainerExample,
+      strategy: "prefer_theirs",
+    });
+
+    expect(result.status).toBe("merged");
+    expect(result.resolved).toBe(true);
+    expect(result.content).toBe("X\nE");
+    expect(result.stats.conflictCount).toBe(1);
+    expect(result.conflicts[0].resolvedWith).toBe("theirs");
+  });
+
+  it("resolves the maintainer example with prefer_mine to the full mine edit", () => {
+    const result = resolveEditConflict({
+      ...maintainerExample,
+      strategy: "prefer_mine",
+    });
+
+    expect(result.status).toBe("merged");
+    expect(result.resolved).toBe(true);
+    expect(result.content).toBe("a\nB\nc\nD\nE");
+    expect(result.stats.conflictCount).toBe(1);
+    expect(result.conflicts[0].resolvedWith).toBe("mine");
+  });
+
+  it("keeps several hunks from one side in one conflict against one replacement", () => {
+    const base = "one\ntwo\nthree\nfour\nfive\nsix\nseven";
+    const mine = "one\nTWO\nthree\nfour\nfive\nSIX\nseven";
+    const theirs = "replacement";
+
+    const preferMine = resolveEditConflict({
+      base: edit(base),
+      mine: edit(mine),
+      theirs: edit(theirs),
+      strategy: "prefer_mine",
+    });
+    expect(preferMine.stats.conflictCount).toBe(1);
+    // Unchanged base lines between the two hunks survive on the mine side.
+    expect(preferMine.content).toBe(mine);
+
+    const preferTheirs = resolveEditConflict({
+      base: edit(base),
+      mine: edit(mine),
+      theirs: edit(theirs),
+      strategy: "prefer_theirs",
+    });
+    expect(preferTheirs.stats.conflictCount).toBe(1);
+    expect(preferTheirs.content).toBe(theirs);
+  });
+
+  it("preserves unchanged base lines between hunks in manual mode", () => {
+    const result = resolveEditConflict(maintainerExample);
+
+    expect(result.status).toBe("conflict");
+    expect(result.resolved).toBe(false);
+    expect(result.stats.conflictCount).toBe(1);
+    expect(result.conflicts[0].mineLines).toEqual(["a", "B", "c", "D"]);
+    expect(result.conflicts[0].theirsLines).toEqual(["X"]);
+    expect(result.content).toBe(
+      ["<<<<<<< mine (v5)", "a", "B", "c", "D", "=======", "X", ">>>>>>> theirs (v6)", "E"].join(
+        "\n",
+      ),
+    );
+  });
+
+  it("lets a manual conflict be resolved by index on retry", () => {
+    const first = resolveEditConflict(maintainerExample);
+    expect(first.status).toBe("conflict");
+
+    const second = resolveEditConflict({
+      ...maintainerExample,
+      resolutions: [{ index: 0, choice: "theirs" }],
+    });
+    expect(second.status).toBe("merged");
+    expect(second.resolved).toBe(true);
+    expect(second.content).toBe("X\nE");
+  });
+});
+
 // ── resolution and retry ─────────────────────────────────────────────────────
 
 describe("resolution and retry", () => {
