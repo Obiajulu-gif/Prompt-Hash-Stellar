@@ -6,6 +6,13 @@
  */
 
 /**
+ * Event Version Registry
+ * 
+ * Maintains a registry of supported contract event versions and provides
+ * utilities for version detection, validation, and conformance checking.
+ */
+
+/**
  * Registry of supported event versions by event type.
  * 
  * Keys are event type names (from contract events.rs).
@@ -15,6 +22,7 @@ export const SUPPORTED_VERSIONS: Record<string, number[]> = {
   PromptCreated: [1],
   PromptPurchased: [1],
   PromptAdminModerated: [1, 2], // V2 adds reason and policy_reference
+  PromptAdminModeratedV2: [1],
   DisputeOpened: [1],
   DisputeResolved: [1],
   PromptPriceUpdated: [1],
@@ -24,6 +32,7 @@ export const SUPPORTED_VERSIONS: Record<string, number[]> = {
   VoucherRemoved: [1],
 };
 
+
 /**
  * Check if a specific event version is supported by this consumer.
  * 
@@ -31,6 +40,7 @@ export const SUPPORTED_VERSIONS: Record<string, number[]> = {
  * @param version - The event version number
  * @returns true if supported, false otherwise
  */
+
 export function isSupportedVersion(eventType: string, version: number): boolean {
   const supported = SUPPORTED_VERSIONS[eventType];
   if (!supported) {
@@ -38,6 +48,7 @@ export function isSupportedVersion(eventType: string, version: number): boolean 
   }
   return supported.includes(version);
 }
+
 
 /**
  * Detect the version of an event from its data structure.
@@ -49,6 +60,7 @@ export function isSupportedVersion(eventType: string, version: number): boolean 
  * @param data - The decoded event data
  * @returns The detected version number
  */
+
 export function detectEventVersion(topic: string, data: any): number {
   // V2+ events have explicit version field
   if (data && typeof data.version === "number") {
@@ -59,12 +71,14 @@ export function detectEventVersion(topic: string, data: any): number {
   return 1;
 }
 
+
 /**
  * Get the latest supported version for an event type.
  * 
  * @param eventType - The contract event type name
  * @returns The highest supported version number, or 0 if unknown
  */
+
 export function getLatestSupportedVersion(eventType: string): number {
   const supported = SUPPORTED_VERSIONS[eventType];
   if (!supported || supported.length === 0) {
@@ -73,6 +87,7 @@ export function getLatestSupportedVersion(eventType: string): number {
   return Math.max(...supported);
 }
 
+
 /**
  * Check if a consumer needs to upgrade to support a detected version.
  * 
@@ -80,6 +95,7 @@ export function getLatestSupportedVersion(eventType: string): number {
  * @param detectedVersion - The version detected from the event
  * @returns true if consumer must upgrade, false if already supported
  */
+
 export function requiresUpgrade(eventType: string, detectedVersion: number): boolean {
   return !isSupportedVersion(eventType, detectedVersion);
 }
@@ -89,6 +105,7 @@ export function requiresUpgrade(eventType: string, detectedVersion: number): boo
  * 
  * @returns Array of event type names
  */
+
 export function getRegisteredEventTypes(): string[] {
   return Object.keys(SUPPORTED_VERSIONS);
 }
@@ -104,6 +121,7 @@ export function getRegisteredEventTypes(): string[] {
  * @param data - The event data to validate
  * @returns Validation result with errors if any
  */
+
 export interface EventValidationResult {
   valid: boolean;
   errors: string[];
@@ -117,6 +135,7 @@ export function validateEventStructure(
   const errors: string[] = [];
 
   // A null/array/primitive payload is a malformed record, not a crash (#1128).
+
   if (!isPlainObject(data)) {
     errors.push("Event payload must be an object");
     return { valid: false, errors };
@@ -157,6 +176,7 @@ export function validateEventStructure(
 /**
  * Validate PromptCreated event structure
  */
+
 function validatePromptCreated(version: number, data: any, errors: string[]): void {
   if (version === 1) {
     if (!data.prompt_id) errors.push("Missing required field: prompt_id");
@@ -170,6 +190,7 @@ function validatePromptCreated(version: number, data: any, errors: string[]): vo
 /**
  * Validate PromptAdminModerated event structure
  */
+
 function validatePromptAdminModerated(version: number, data: any, errors: string[]): void {
   if (version === 1) {
     if (!data.prompt_id) errors.push("Missing required field: prompt_id");
@@ -190,6 +211,7 @@ function validatePromptAdminModerated(version: number, data: any, errors: string
 /**
  * Validate PromptPurchased event structure
  */
+
 function validatePromptPurchased(version: number, data: any, errors: string[]): void {
   if (version === 1) {
     if (!data.prompt_id) errors.push("Missing required field: prompt_id");
@@ -205,6 +227,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+
 /**
  * Soroban i128 amounts may be decoded as bigint, a safe integer, or a decimal
  * string. Anything else (floats, "12.5", booleans) is a type change.
@@ -216,6 +239,7 @@ function isIntegerAmount(value: unknown): boolean {
   return false;
 }
 
+
 // ---------------------------------------------------------------------------
 // Fail-safe record classification (#1128)
 // ---------------------------------------------------------------------------
@@ -223,6 +247,7 @@ function isIntegerAmount(value: unknown): boolean {
 export type VersionDetection =
   | { ok: true; version: number }
   | { ok: false; reason: "invalid_payload" | "malformed_version" };
+
 
 /**
  * Strict counterpart of detectEventVersion for ingestion paths.
@@ -232,6 +257,7 @@ export type VersionDetection =
  * This variant only infers V1 when the field is absent; a present but
  * malformed version is reported so the record can be quarantined.
  */
+
 export function detectEventVersionStrict(data: unknown): VersionDetection {
   if (!isPlainObject(data)) return { ok: false, reason: "invalid_payload" };
   if (!("version" in data) || data.version === undefined) return { ok: true, version: 1 };
@@ -241,6 +267,7 @@ export function detectEventVersionStrict(data: unknown): VersionDetection {
   }
   return { ok: false, reason: "malformed_version" };
 }
+
 
 export type EventRecordClassification =
   | { disposition: "accept"; eventType: string; version: number }
@@ -254,12 +281,14 @@ export type EventRecordClassification =
       errors: string[];
     };
 
+
 /**
  * Decide whether a decoded contract event can be indexed. Never throws: any
  * record this consumer cannot interpret with certainty is quarantined with a
  * reason, never silently coerced. Classification is pure, so re-running it
  * on a quarantined record after a consumer upgrade is safe and idempotent.
  */
+
 export function classifyEventRecord(eventType: string, data: unknown): EventRecordClassification {
   if (!SUPPORTED_VERSIONS[eventType]) {
     return {
@@ -320,6 +349,7 @@ export function classifyEventRecord(eventType: string, data: unknown): EventReco
  * @param detectedVersion - The version detected from the event
  * @returns A standardized quarantine reason string
  */
+
 export function formatQuarantineReason(eventType: string, detectedVersion: number): string {
   const latestSupported = getLatestSupportedVersion(eventType);
   if (detectedVersion > latestSupported) {
@@ -335,6 +365,7 @@ export function formatQuarantineReason(eventType: string, detectedVersion: numbe
  * @param targetVersion - The version to upgrade to
  * @returns Human-readable upgrade instructions
  */
+
 export function getUpgradeInstructions(eventType: string, targetVersion: number): string {
   const current = getLatestSupportedVersion(eventType);
 
@@ -368,6 +399,7 @@ Consumer MUST be deployed before contract upgrade.
 /**
  * Event version metadata for documentation and auditing
  */
+
 export interface EventVersionMetadata {
   version: number;
   introduced: string; // ISO date
@@ -379,6 +411,7 @@ export interface EventVersionMetadata {
 /**
  * Registry of event version metadata for documentation
  */
+
 export const VERSION_METADATA: Record<string, Record<number, EventVersionMetadata>> = {
   PromptAdminModerated: {
     1: {
@@ -408,6 +441,7 @@ export const VERSION_METADATA: Record<string, Record<number, EventVersionMetadat
  * @param version - The event version number
  * @returns Metadata object or null if not found
  */
+
 export function getVersionMetadata(
   eventType: string,
   version: number
@@ -425,6 +459,7 @@ export function getVersionMetadata(
  * @param toVersion - The new version number
  * @returns true if transition is breaking, false otherwise
  */
+
 export function isBreakingTransition(
   eventType: string,
   fromVersion: number,

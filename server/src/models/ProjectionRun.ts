@@ -14,6 +14,10 @@ import mongoose from "mongoose";
 
 export type ProjectionRunStatus = "pending" | "running" | "failed" | "completed";
 
+export type ProjectionRunMode = "build" | "dry_run";
+
+export type ProjectionRunActivationState = "inactive" | "active" | "superseded" | "rolled_back";
+
 const projectionRunSchema = new mongoose.Schema(
   {
     runId: { type: String, required: true, unique: true },
@@ -27,6 +31,12 @@ const projectionRunSchema = new mongoose.Schema(
       default: "pending",
       index: true,
     },
+    activationState: {
+      type: String,
+      enum: ["inactive", "active", "superseded", "rolled_back"],
+      default: "inactive",
+      index: true,
+    },
     startedBy: { type: String, required: true },
     checkpoint: {
       ledger: { type: Number, default: 0 },
@@ -38,6 +48,8 @@ const projectionRunSchema = new mongoose.Schema(
       unsupported: { type: Number, default: 0 },
       malformed: { type: Number, default: 0 },
     },
+    lastEventId: { type: String, default: "" },
+    lastLedger: { type: Number, default: 0 },
     unsupportedSamples: { type: [mongoose.Schema.Types.Mixed], default: [] },
     malformedSamples: { type: [mongoose.Schema.Types.Mixed], default: [] },
     documents: { type: Number, default: 0 },
@@ -45,9 +57,14 @@ const projectionRunSchema = new mongoose.Schema(
     leaseExpiresAt: { type: Date, default: null },
     error: { type: String, default: null },
     completedAt: { type: Date, default: null },
+    activatedAt: { type: Date, default: null },
+    rolledBackAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
+
+projectionRunSchema.index({ projection: 1, projectionVersion: 1, status: 1 });
+projectionRunSchema.index({ status: 1, leaseExpiresAt: 1 });
 
 const projectionDocumentSchema = new mongoose.Schema(
   {
@@ -59,6 +76,7 @@ const projectionDocumentSchema = new mongoose.Schema(
   { timestamps: true },
 );
 projectionDocumentSchema.index({ runId: 1, key: 1 }, { unique: true });
+projectionDocumentSchema.index({ runId: 1, projection: 1 });
 
 const projectionPointerSchema = new mongoose.Schema(
   {
@@ -69,6 +87,10 @@ const projectionPointerSchema = new mongoose.Schema(
     previousVersion: { type: Number, default: null },
     activatedBy: { type: String, default: null },
     activatedAt: { type: Date, default: null },
+    rollbackRunId: { type: String, default: null },
+    rollbackVersion: { type: Number, default: null },
+    rolledBackBy: { type: String, default: null },
+    rolledBackAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
