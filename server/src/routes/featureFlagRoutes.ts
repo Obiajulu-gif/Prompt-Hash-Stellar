@@ -159,10 +159,14 @@ featureFlagRouter.patch(
       });
     }
     try {
-      if (rolloutHealth !== undefined && validation.value.status !== "disabled") {
-        if (!rolloutHealth || typeof rolloutHealth !== "object" ||
-            typeof validation.value.rolloutPercentage !== "number") {
-          return res.status(400).json({ error: "Rollout health requires a rollout percentage." });
+      // Production rollout guard (#988): any ramp (non-disabled status with a
+      // rollout percentage) must carry observed health and pass the guard
+      // before the write is attempted. Missing health on a ramp is refused.
+      if (validation.value.status !== "disabled" && typeof validation.value.rolloutPercentage === "number") {
+        if (!rolloutHealth || typeof rolloutHealth !== "object") {
+          return res.status(400).json({
+            error: "rolloutHealth (errorRate, p1Incident, invariantViolations) is required to ramp a flag.",
+          });
         }
         const scope: RolloutScope = name.includes("settlement") || name.includes("purchase_atomic")
           ? "settlement"
@@ -193,16 +197,13 @@ featureFlagRouter.patch(
   }
 );
 
-// Issue #1043: a one-call kill switch. The pure rollout-guard logic in
-// flagRolloutGuard.ts already existed but was never wired to anything —
-// disabling a flag still required a human to PATCH every environment by
-// hand mid-incident. This forces `disabled` globally and in every known
-// environment in one request, then runs `verifyRollback` so the response
-// says plainly whether the disable actually took. Domain checks this
-// route can't itself observe (indexer/outbox/ledger drift) are accepted
-// as caller-supplied evidence, remaining unverified when omitted. Wiring
-// those to the real indexer/ledger services is follow-up work, not part
-// of this flag-service-local slice.
+// Issue #1043: a one-call kill switch. Forces `disabled` globally and in every
+// known environment in one request, then runs `verifyRollback`. Domain checks
+// this route cannot observe itself (indexer/outbox/ledger drift) must be
+// supplied explicitly as `true`; any omitted check is reported as a failure,
+// so verification is never reported complete on absent evidence.
+// Emergency disablement does not depend on rolloutHealth and remains usable
+// when audit storage is down (evidence is best effort, see requireEvidence).
 featureFlagRouter.post(
   "/:name/emergency-disable",
   requireAdminScope("flags:write"),
@@ -210,8 +211,6 @@ featureFlagRouter.post(
     const name = String(req.params.name);
     try {
       const { reason, noPartialWrites, invariantsPass, noLedgerDrift } = req.body ?? {};
-      // Audited like any config change (#1026), but a kill switch must not be
-      // blocked by an audit-store outage: evidence is best effort here.
       const result = await applyAuditedConfigChange({
         ...auditContext(req),
         configType: "feature_flag",
@@ -232,7 +231,7 @@ featureFlagRouter.post(
 
       const verification = verifyRollback({
         flagDisabledEverywhere: flag?.status === "disabled" &&
-          (["development", "staging", "production"] as const).every((env) => flag.environments?.[env] === false),
+          ((["development", "staging", "production"] as const)).every((env) => flag.environments?.[env] === false),
         noPartialWrites: noPartialWrites === true,
         invariantsPass: invariantsPass === true,
         noLedgerDrift: noLedgerDrift === true,
@@ -296,4 +295,3 @@ featureFlagRouter.post(
     }
   }
 );
-

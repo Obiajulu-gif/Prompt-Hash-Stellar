@@ -71,6 +71,12 @@ export const KNOWN_FEATURE_FLAGS: Record<string, FeatureFlagDefinition> = {
   },
 };
 
+/**
+ * Flags that can never be left enabled by a rollout guard.
+ * Emergency disablement is always permitted for these.
+ */
+export const EMERGENCY_DISABLE_ALLOWED_ROLES = ["admin", "maintainer"] as const;
+
 export interface CreateFlagInput {
   name: string;
   description: string;
@@ -90,7 +96,7 @@ export interface FlagEvaluationResult {
   name: string;
   enabled: boolean;
   reason: string;
-  source: "database" | "default_fallback" | "safe_fallback";
+  source: "database" | "default_fallback" | "safe_fallback" | "emergency_disabled";
 }
 
 /** The audited, restorable view of a stored flag (#1026). */
@@ -102,6 +108,20 @@ export type FlagSnapshot = {
   rolloutPercentage: number;
   createdBy: string;
 };
+
+export interface RolloutGuardInput {
+  /** Actor requesting the change. */
+  actor: { id: string; role: string };
+  /** Requested rollout percentage; values outside 0-100 are rejected. */
+  rolloutPercentage?: number;
+  /** Requested status change. */
+  status?: FeatureFlagStatus;
+}
+
+export interface EmergencyDisableInput {
+  actor: { id: string; role: string };
+  reason: string;
+}
 
 export function snapshotFlag(flag: any): FlagSnapshot {
   const environments = flag.environments ?? {};
@@ -119,7 +139,28 @@ export function snapshotFlag(flag: any): FlagSnapshot {
   };
 }
 
+/**
+ * Validates a rollout change. Throws on invalid percentages or on attempts to
+ * raise rollout by actors who are not authorized to do so.
+ */
+export function validateRolloutChange(input: RolloutGuardInput): void {
+  if (input.rolloutPercentage !== undefined) {
+    const pct = input.rolloutPercentage;
+    if (typeof pct !== "number" || !Number.isFinite(pct) || pct < 0 || pct > 100) {
+      throw new Error(`Invalid rolloutPercentage: ${pct}. Must be a number between 0 and 100.`);
+    }
+  }
+  if (input.rolloutPercentage !== undefined && input.rolloutPercentage > 0) {
+    if (!(EMERGENCY_DISABLE_ALLOWED_ROLES as readonly string[]).includes(input.actor.role)) {
+      throw new Error(`Actor ${input.actor.id} with role "${input.actor.role}" is not authorized to change rollout percentage.`);
+    }
+  }
+}
+
 class FeatureFlagService {
+  /** Flags currently forced off by emergency disablement (in-process kill switch). */
+  private emergencyDisabled = new Map<string, string>();
+
   getSafeFallback(flagName: string): boolean {
     const normalized = flagName.toLowerCase();
     if (normalized in KNOWN_FEATURE_FLAGS) {
@@ -129,6 +170,11 @@ class FeatureFlagService {
   }
 
   async createFlag(input: CreateFlagInput): Promise<any> {
+    validateRolloutChange({
+      actor: { id: input.createdBy, role: "admin" },
+      rolloutPercentage: input.rolloutPercentage,
+    });
+
     const flag = new FeatureFlag({
       name: input.name.toLowerCase(),
       description: input.description,
@@ -143,7 +189,23 @@ class FeatureFlagService {
     return flag;
   }
 
-  async updateFlag(name: string, input: UpdateFlagInput): Promise<any> {
+  /**
+   * Guarded update: validates the rollout change and authorization before
+   * writing. Non-admin actors may only lower rollout, not raise it.
+   */
+  async updateFlag(name: string, input: UpdateFlagInput, actor?: { id: string; role: string }): Promise<any> {
+    if (actor) {
+      validateRolloutChange({
+        actor,
+        rolloutPercentage: input.rolloutPercentage,
+      });
+    } else if (input.rolloutPercentage !== undefined) {
+      validateRolloutChange({
+        actor: { id: "system", role: "admin" },
+        rolloutPercentage: input.rolloutPercentage,
+      });
+    }
+
     const flag = await FeatureFlag.findOneAndUpdate(
       { name: name.toLowerCase() },
       input,
@@ -156,6 +218,46 @@ class FeatureFlagService {
 
     logger.info(`Feature flag updated: ${name}`);
     return flag;
+  }
+
+  /**
+   * Emergency kill switch. Immediately forces the flag off in this process
+   * and persists status=disabled. Safe to call repeatedly (idempotent).
+   */
+  async emergencyDisable(name: string, input: EmergencyDisableInput): Promise<void> {
+    const normalized = name.toLowerCase();
+    if (!(EMERGENCY_DISABLE_ALLOWED_ROLES as readonly string[]).includes(input.actor.role)) {
+      throw new Error(`Actor ${input.actor.id} is not authorized to emergency-disable flags.`);
+    }
+    if (!input.reason || input.reason.trim().length === 0) {
+      throw new Error("Emergency disable requires a non-empty reason.");
+    }
+
+    this.emergencyDisabled.set(normalized, input.reason);
+
+    const result = await FeatureFlag.updateOne(
+      { name: normalized },
+      { $set: { status: "disabled", rolloutPercentage: 0 } },
+    );
+    if (result.matchedCount === 0) {
+      // Flag absent in DB; in-memory kill switch still holds.
+      logger.warn(`Emergency disable applied in-memory only; flag not in database: ${name}`);
+    }
+
+    logger.warn(`Feature flag EMERGENCY DISABLED: ${name} by ${input.actor.id}: ${input.reason}`);
+  }
+
+  /** Clears the in-process emergency disablement. Requires an authorized actor. */
+  async clearEmergencyDisable(name: string, actor: { id: string; role: string }): Promise<void> {
+    if (!(EMERGENCY_DISABLE_ALLOWED_ROLES as readonly string[]).includes(actor.role)) {
+      throw new Error(`Actor ${actor.id} is not authorized to clear emergency disablement.`);
+    }
+    this.emergencyDisabled.delete(name.toLowerCase());
+    logger.info(`Emergency disablement cleared: ${name} by ${actor.id}`);
+  }
+
+  isEmergencyDisabled(name: string): boolean {
+    return this.emergencyDisabled.has(name.toLowerCase());
   }
 
   async deleteFlag(name: string): Promise<void> {
@@ -202,6 +304,16 @@ class FeatureFlagService {
   ): Promise<FlagEvaluationResult> {
     const normalized = flagName.toLowerCase();
     const env = environment || ENVIRONMENT;
+
+    // Emergency kill switch takes precedence over every other rule.
+    if (this.emergencyDisabled.has(normalized)) {
+      return {
+        name: normalized,
+        enabled: false,
+        reason: `Emergency disabled: ${this.emergencyDisabled.get(normalized)}`,
+        source: "emergency_disabled",
+      };
+    }
 
     try {
       const flag = await FeatureFlag.findOne({
@@ -323,4 +435,3 @@ class FeatureFlagService {
 }
 
 export const featureFlagService = new FeatureFlagService();
-

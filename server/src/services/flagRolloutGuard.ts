@@ -12,6 +12,9 @@
  * - Verified: `verifyRollback` asserts the flag is disabled everywhere and
  *   no partial-write/ledger drift remains, so a rollback never leaves
  *   inconsistent state behind.
+ * - Emergency disablement: `evaluateEmergencyDisable` provides an
+ *   authorized, always-available kill switch that bypasses threshold
+ *   evaluation but still requires explicit operator authorization.
  *
  * Runbook: docs/flag-rollout-guard.md
  */
@@ -107,6 +110,55 @@ export function evaluateRolloutGuard(
   if (allow) reasons.push("guard passed: scoped, monitored, within thresholds");
 
   return { allow, requireRollback, reasons };
+}
+
+export interface EmergencyDisableRequest {
+  flag: string;
+  /** Identifier of the operator invoking the kill switch. */
+  operatorId: string;
+  /** Whether the operator holds the emergency-disable authorization role. */
+  operatorAuthorized: boolean;
+  /** Human-readable justification, required for audit. */
+  reason: string;
+}
+
+export interface EmergencyDisableDecision {
+  /** True when the flag must be forced off. */
+  disable: boolean;
+  /** True when the request was accepted and should be audited. */
+  audited: boolean;
+  reasons: string[];
+}
+
+/**
+ * Emergency kill switch. Disabling a flag is always the safe direction, so
+ * this path does not consult health thresholds. It still requires an
+ * authorized operator and a non-empty reason so every disablement is
+ * attributable. Unauthorized or malformed requests are rejected without
+ * changing flag state.
+ */
+export function evaluateEmergencyDisable(req: EmergencyDisableRequest): EmergencyDisableDecision {
+  const reasons: string[] = [];
+  if (typeof req.flag !== "string" || req.flag.trim().length === 0) {
+    reasons.push("flag is required");
+  }
+  if (typeof req.operatorId !== "string" || req.operatorId.trim().length === 0) {
+    reasons.push("operatorId is required for audit");
+  }
+  if (typeof req.reason !== "string" || req.reason.trim().length === 0) {
+    reasons.push("reason is required for audit");
+  }
+  if (req.operatorAuthorized !== true) {
+    reasons.push("operator is not authorized to perform emergency disablement");
+  }
+  if (reasons.length > 0) {
+    return { disable: false, audited: false, reasons };
+  }
+  return {
+    disable: true,
+    audited: true,
+    reasons: [`emergency disable accepted for ${req.flag} by ${req.operatorId}`],
+  };
 }
 
 export interface RollbackEvidence {

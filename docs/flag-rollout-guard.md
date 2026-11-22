@@ -15,9 +15,23 @@ the guard adds no storage schema changes.
    disable the flag immediately (`PATCH /api/flags/:name {"status":"disabled"}`)
    instead of ramping further.
 
+API enforcement: a `PATCH /api/flags/:name` that ramps a flag (non-disabled
+status with `rolloutPercentage`) must include `rolloutHealth`
+(`errorRate`, `p1Incident`, `invariantViolations`). Missing health is refused
+ with 400; a blocked rollout returns HTTP 409 with the guard reasons. The guard
+runs before any write.
+
 Guards: error-rate ceiling 5%; `settlement|payouts|global` capped at 10% in
 production without staging soak; any P1 or invariant violation blocks and
 orders a rollback; percentages must be within 0..100.
+
+## Emergency disablement
+
+`POST /api/flags/:name/emergency-disable` forces the flag to `disabled` in
+all environments in one call. It does not require `rolloutHealth` and is
+audited on a best-effort basis (`requireEvidence: false`), so it works even
+when audit storage is down. The response includes `verification` and
+`auditRecorded`.
 
 ## Rollback verification
 
@@ -30,13 +44,20 @@ complete only when `verified === true`:
 - domain invariants pass (entitlement ↔ purchase, ledger zero-drift),
 - no ledger/settlement drift vs. on-chain state.
 
+The emergency-disable endpoint accepts the three domain checks as request
+body booleans (`noPartialWrites`, `invariantsPass`, `noLedgerDrift`). Any
+check omitted or not exactly `true` is reported as a failure, so verification
+stays incomplete until all three are explicitly supplied as true and every
+environment is disabled.
+
 ## Edge cases & recovery
 
 - DB error during evaluation → safe fallback (`safeFallback`), same as
   `featureFlagService.evaluateFlag`.
 - Experimental flag without `userId` → disabled (fail-safe).
+- Missing or malformed `rolloutHealth` on a ramp → 400, no write.
+- Audit storage down during emergency disable → disablement still applied,
+  `auditRecorded: false`.
 - Rollback verification fails → keep flag disabled, page maintainer,
   repair via `operationRecoveryService` (`RETRY`/`ROLLBACK`/`MANUAL_REVIEW`),
   replay quarantined events, then re-verify before any re-rollout.
-
-A flag administrator can send olloutHealth with olloutPercentage in a PATCH request to enforce the production guard before a write. A blocked rollout returns HTTP 409. Emergency disablement works even when health is missing or audit storage is down. Verification stays incomplete until all three domain checks are explicitly supplied as true and every environment is disabled.

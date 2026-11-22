@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+// Note: tests exercise ../services/flagRolloutGuard.js; the module must export evaluateRolloutGuard and verifyRollback.
 import {
   evaluateRolloutGuard,
   verifyRollback,
