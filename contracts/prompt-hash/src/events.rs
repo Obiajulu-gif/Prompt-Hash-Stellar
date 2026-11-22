@@ -268,37 +268,37 @@ struct PromptMaxSupplyUpdated {
 }
 
 /// Emitted when an invariant check detects a divergence between tracked
-	/// state and actual on-chain state. This is the canonical observability
-	/// signal for the invariant monitoring feature.
-	#[contractevent]
-	struct InvariantViolationDetected {
-	    #[topic]
-	    pub invariant_id: u32,
-	    pub subject: Address,
-	    pub expected: i128,
-	    pub actual: i128,
-	    pub details: String,
-	}
+/// state and actual on-chain state. This is the canonical observability
+/// signal for the invariant monitoring feature.
+#[contractevent]
+struct InvariantViolationDetected {
+    #[topic]
+    pub invariant_id: u32,
+    pub subject: Address,
+    pub expected: i128,
+    pub actual: i128,
+    pub details: String,
+}
 
-	/// Emitted when an invariant check passes and the contract is considered
-	/// consistent. Useful for audit trails and to confirm monitoring is active.
-	#[contractevent]
-	struct InvariantCheckPassed {
-	    #[topic]
-	    pub invariant_id: u32,
-	    pub subject: Address,
-	    pub value: i128,
-	}
+/// Emitted when an invariant check passes and the contract is considered
+/// consistent. Useful for audit trails and to confirm monitoring is active.
+#[contractevent]
+struct InvariantCheckPassed {
+    #[topic]
+    pub invariant_id: u32,
+    pub subject: Address,
+    pub value: i128,
+}
 
-	/// Emitted when an invariant check is skipped, for example because the
-	/// contract is paused or the asset is not tracked.
-	#[contractevent]
-	struct InvariantCheckSkipped {
-	    #[topic]
-	    pub invariant_id: u32,
-	    pub subject: Address,
-	    pub reason: String,
-	}
+/// Emitted when an invariant check is skipped, for example because the
+/// contract is paused or the asset is not tracked.
+#[contractevent]
+struct InvariantCheckSkipped {
+    #[topic]
+    pub invariant_id: u32,
+    pub subject: Address,
+    pub reason: String,
+}
 
 pub struct Events;
 
@@ -523,6 +523,38 @@ impl Events {
         SplitsUpdated { prompt_id }.publish(env);
     }
 
+    pub fn emit_catalog_indexes_repaired(
+        env: &Env,
+        admin: Address,
+        start_id: u64,
+        end_id: u64,
+        repairs_applied: u32,
+        is_dry_run: bool,
+    ) {
+        CatalogIndexesRepaired {
+            admin,
+            start_id,
+            end_id,
+            repairs_applied,
+            is_dry_run,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_sales_counter_reconciled(
+        env: &Env,
+        prompt_id: u64,
+        old_count: u64,
+        new_count: u64,
+    ) {
+        SalesCounterReconciled {
+            prompt_id,
+            old_count,
+            new_count,
+        }
+        .publish(env);
+    }
+
     pub fn emit_dispute_opened(env: &Env, prompt_id: u64, buyer: Address) {
         DisputeOpened { prompt_id, buyer }.publish(env);
     }
@@ -536,7 +568,12 @@ impl Events {
         .publish(env);
     }
 
-    pub fn emit_bundle_created(env: &Env, bundle_id: u128, creator: Address, price_stroops: i128) {
+    pub fn emit_bundle_created(
+        env: &Env,
+        bundle_id: u128,
+        creator: Address,
+        price_stroops: i128,
+    ) {
         BundleCreated {
             bundle_id,
             creator,
@@ -551,7 +588,7 @@ impl Events {
         buyer: Address,
         creator: Address,
         price_stroops: i128,
-        prompt_ids: soroban_sdk:Vec<u64>,
+        prompt_ids: soroban_sdk::Vec<u64>,
     ) {
         BundlePurchased {
             bundle_id,
@@ -563,6 +600,64 @@ impl Events {
         .publish(env);
     }
 
+    pub fn emit_access_pass_created(
+        env: &Env,
+        pass_id: u128,
+        creator: Address,
+        duration_secs: u64,
+        price_stroops: i128,
+    ) {
+        AccessPassCreated {
+            pass_id,
+            creator,
+            duration_secs,
+            price_stroops,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_access_pass_purchased(
+        env: &Env,
+        pass_id: u128,
+        buyer: Address,
+        creator: Address,
+        expires_at: u64,
+    ) {
+        AccessPassPurchased {
+            pass_id,
+            buyer,
+            creator,
+            expires_at,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_access_pass_status_updated(
+        env: &Env,
+        pass_id: u128,
+        status: PromptSaleStatus,
+    ) {
+        AccessPassStatusUpdated { pass_id, status }.publish(env);
+    }
+
+    pub fn emit_access_pass_price_updated(env: &Env, pass_id: u128, price_stroops: i128) {
+        AccessPassPriceUpdated {
+            pass_id,
+            price_stroops,
+        }
+        .publish(env);
+    }
+
+    pub fn emit_prompt_max_supply_updated(env: &Env, prompt_id: u64, max_supply: u64) {
+        PromptMaxSupplyUpdated {
+            prompt_id,
+            max_supply,
+        }
+        .publish(env);
+    }
+
+    /// Emit the canonical invariant-violation event. Off-chain monitors
+    /// subscribe to this to alert on balance or ownership divergence.
     pub fn emit_invariant_violation_detected(
         env: &Env,
         invariant_id: u32,
@@ -581,6 +676,7 @@ impl Events {
         .publish(env);
     }
 
+    /// Emit an invariant-check-passed event for audit trails.
     pub fn emit_invariant_check_passed(
         env: &Env,
         invariant_id: u32,
@@ -595,6 +691,8 @@ impl Events {
         .publish(env);
     }
 
+    /// Emit an invariant-check-skipped event when a check cannot be performed
+    /// (e.g. contract paused or asset not tracked).
     pub fn emit_invariant_check_skipped(
         env: &Env,
         invariant_id: u32,

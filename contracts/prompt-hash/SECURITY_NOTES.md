@@ -134,7 +134,7 @@ pub fn set_reentrancy_guard(env: &Env) -> Result<, Error> {
         return Err(Error::Reentrancy);  // Reject nested call
     }
     env.storage().instance().set(&key, &true);
-    Ok()
+    Ok(())
 }
 
 pub fn clear_reentrancy_guard(env: &Env) {
@@ -164,7 +164,7 @@ Invariants are grouped into two categories and checked by the following function
 | Invariant | Description | Failure Error |
 |---------|-------------|-------------|
 | `BAL1-TOTAL-SUPPLY` | Total supply of the payment token held by the contract must equal the sum of escrow balances + fee liabilities + unclaimed royalties. | `Error::InvariantViolation` |
-| `BAL2-NON-NEGATIVE`) | Querying the contract's token balance must never return a negative value. | `Error::InvariantViolation` |
+| `BAL2-NON-NEGATIVE` | Querying the contract's token balance must never return a negative value. | `Error::InvariantViolation` |
 | `BAL3-ESCROW-SUM` | Sum of all open escrow records must not exceed the contract's actual token balance. | `Error::InvariantViolation` |
 | `BAL4-LIABLITY-NON-NEGATIVE | Accumulated fee liability and unclaimed royalty counters must never be negative. | `Error::InvariantViolation` |
 
@@ -172,10 +172,10 @@ Invariants are grouped into two categories and checked by the following function
 
 | Invariant | Description | Failure Error |
 |---------|-------------|-------------|
-| `OWN1-ADMIN-SET`) | The contract admin must always be set and must match the admin recorded in persistent storage. | `Error::InvariantViolation` |
-| `OWN2-PROMPT-OWNER`) | For every live prompt, the owner must be a non-empty address and must match the owner recorded in the prompt registry. | `Error::InvariantViolation` |
-| `OWN2-LICENSE-OWNER`) | For every active license, the current license holder must be non-empty and must match the holder recorded in the license registry. | `Error::InvariantViolation` |
-| `OWN3-NO-ORPHAN-OWNER`) | No live prompt or active license may reference an address that is not the recorded owner/holder (detects ownership drift caused by a token callback or partial write). | Error::InvariantViolation |
+| `OWN1-ADMIN-SET` | The contract admin must always be set and must match the admin recorded in persistent storage. | `Error::InvariantViolation` |
+| `OWN2-PROMPT-OWNER` | For every live prompt, the owner must be a non-empty address and must match the owner recorded in the prompt registry. | `Error::InvariantViolation` |
+| `OWN2-LICENSE-OWNER` | For every active license, the current license holder must be non-empty and must match the holder recorded in the license registry. | `Error::InvariantViolation` |
+| `OWN3-NO-ORPHAN-OWNER` | No live prompt or active license may reference an address that is not the recorded owner/holder (detects ownership drift caused by a token callback or partial write). | `Error::InvariantViolation` |
 
 ### Where Invariants Are Checked
 
@@ -198,7 +198,7 @@ pub fn assert_invariants(env: &Env) -> Result<(), Error> {
     Ok()
 }
 
-pub fn assert_balance_invariants(env: &Env) -> Result<, Error> {
+pub fn assert_balance_invariants(env: &Env) -> Result<(), Error> {
     // BAL1: contract token balance must cover escrow + fee liabilities + royalties.
     let contract_balance = token_balance(env);
     let liabilities = escrow_total(env)
@@ -220,7 +220,7 @@ pub fn assert_balance_invariants(env: &Env) -> Result<, Error> {
     if fee_liability(env) < 0 || unclaimed_royalties(env) < 0 {
         return Err(Error::InvariantViolation);
     }
-    Ok(()
+    Ok(())
 }
 
 pub fn assert_ownership_invariants(env: &Env) -> Result<(), Error> {
@@ -244,7 +244,7 @@ pub fn assert_ownership_invariants(env: &Env) -> Result<(), Error> {
     }
     // OWN3: no live prompt or active license may reference a non-owner address.
     // (This is enforced by the loops above combined with the persistent registry writes.)
-    Ok(()
+    Ok(())
 }
 ```
 

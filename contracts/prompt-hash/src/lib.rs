@@ -1,6 +1,6 @@
 #no_std
-callow(dead_code)]
-#allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 
 mod capability_tokens;
 mod conflict_resolver;
@@ -23,4 +23,8 @@ mod types;
 mod mock_asset;
 
 pub use contract::PromptHashContract;
+pub use invariants::{
+    enforce_balance_invariant, enforce_ownership_invariant, verify_balance_invariants,
+    verify_ownership_invariants, InvariantCheck, InvariantViolation,
+};
 pub use types::{DataKey, Error, Prompt};

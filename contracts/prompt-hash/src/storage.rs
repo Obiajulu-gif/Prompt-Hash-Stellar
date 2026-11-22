@@ -1,7 +1,7 @@
 use super::types::{
     AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, IndexDriftReport,
-    IndexRepairSummary, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
-    PurchaseEscrow, PurchaseRoundingPlan, RevenueRoundingReport, RevenueShareKind,
+    IndexRepairSummary, InstanceDataKey, InvariantReport, ListingRevisionRecord, Prompt, Purchase,
+    PurchaseDispute, PurchaseEscrow, PurchaseRoundingPlan, RevenueRoundingReport, RevenueShareKind,
 };
 use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
 
@@ -1447,6 +1447,53 @@ impl Storage {
             .map(|p| p.creator == *creator)
             .unwrap_or(false);
         in_index == has_record
+    }
+
+    /// Aggregate invariant check across balance and ownership surfaces
+    /// (#invariant-monitoring).
+    ///
+    /// Runs the per-asset balance invariant and the ownership invariants for
+    /// every prompt in `[start_id, end_id)` in a single bounded pass so
+    /// operators can monitor both families together. Returns an
+    /// `InvariantReport` describing the outcome; callers emit events based on
+    /// `ok()`.
+    ///
+    /// Edge cases:
+    /// - `end_id` is clamped to the current prompt counter.
+    /// - Missing prompts are skipped (not counted as violations).
+    /// - Expired purchases still count as owned; expiry is a separate concern.
+    pub fn verify_invariants(
+        env: &Env,
+        asset: &Address,
+        start_id: u64,
+        end_id: u64,
+    ) -> InvariantReport {
+        let total_prompts = InstanceStorage::get_prompt_counter(env);
+        let end_id = core::cmp::min(end_id, total_prompts);
+
+        let (pending_ok, disputed_ok, total_liability) =
+            Self::verify_asset_liability_invariants(env, asset);
+
+        let mut ownership_violations = 0u32;
+        let mut scanned = 0u64;
+        for prompt_id in start_id..end_id {
+            scanned += 1;
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                if !Self::verify_prompt_ownership(env, prompt_id, &prompt.creator) {
+                    ownership_violations += 1;
+                }
+            }
+        }
+
+        InvariantReport {
+            start_id,
+            end_id,
+            prompts_scanned: scanned,
+            pending_ok,
+            disputed_ok,
+            total_liability,
+            ownership_violations,
+        }
     }
 
     /// Reconciles prompt sales counters for pre-existing clamped records (#653).

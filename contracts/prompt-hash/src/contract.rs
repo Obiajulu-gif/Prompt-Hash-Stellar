@@ -47,6 +47,9 @@ const MAX_ROUNDING_SHARES: usize = (MAX_BUNDLE_PROMPTS * MAX_SPLITS + 3) as usiz
 // the contract's actual SAC balance is at least the tracked liability.
 const INVARIANT_OK: u32 = 0;
 const INVARIANT_SOLVENCY_VIOLATION: u32 = 1;
+// Ownership invariant: every prompt must be owned by a creator that is also
+// recorded in the creator index, and the contract must have an owner set.
+const INVARIANT_OWNERSHIP_VIOLATION: u32 = 2;
 
 fn settle_revenue_rounding(
     env: &Env,
@@ -130,6 +133,47 @@ fn listing_snapshot_hash(env: &Env, prompt: &Prompt) -> BytesN<32> {
 /// Result of a balance/ownership invariant check. `code` is `INVARIANT_OK`
 /// when the invariant holds, otherwise a non-zero violation code.
 pub type InvariantReport = (u32, i128, i128);
+
+/// Verifies the balance (solvency) invariant for `asset`: the contract's
+/// actual token balance must be at least its tracked liability. Returns an
+/// `InvariantReport` of `(code, actual_balance, tracked_liability)`.
+fn check_balance_invariant(env: &Env, asset: &Address) -> InvariantReport {
+    let contract = env.current_contract_address();
+    let actual = token::Client::new(env, asset).balance(&contract);
+    let liability = Storage::get_total_liability(env, asset);
+    if actual >= liability {
+        (INVARIANT_OK, actual, liability)
+    } else {
+        (INVARIANT_SOLVENCY_VIOLATION, actual, liability)
+    }
+}
+
+/// Verifies the ownership invariant: the contract has an owner and the given
+/// prompt's creator is recorded in the creator index. Returns `INVARIANT_OK`
+/// when it holds, otherwise `INVARIANT_OWNERSHIP_VIOLATION`.
+fn check_ownership_invariant(env: &Env, prompt: &Prompt) -> u32 {
+    if ownable::get_owner(env).is_none() {
+        return INVARIANT_OWNERSHIP_VIOLATION;
+    }
+    if !Storage::is_prompt_in_creator_index(env, &prompt.creator, prompt.id) {
+        return INVARIANT_OWNERSHIP_VIOLATION;
+    }
+    INVARIANT_OK
+}
+
+/// Runs both invariants and emits an event when a violation is detected so
+/// off-chain observers can react. Returns the balance report.
+fn enforce_invariants(env: &Env, asset: &Address, prompt: &Prompt) -> InvariantReport {
+    let report = check_balance_invariant(env, asset);
+    if report.0 != INVARIANT_OK {
+        Events::emit_invariant_violation(env, report.0, report.1, report.2);
+    }
+    let ownership_code = check_ownership_invariant(env, prompt);
+    if ownership_code != INVARIANT_OK {
+        Events::emit_invariant_violation(env, ownership_code, 0, 0);
+    }
+    report
+}
 
 #[contract]
 pub struct PromptHashContract;
