@@ -85,6 +85,20 @@ No public API of `performanceAudit`, `usePerformanceAudit`, or the metric names 
 
 ---
 
+## Release Readiness
+
+This change is classified as high-risk (new test coverage and resource budgets that gate CI). Checklist per `docs/RELEASE_READINESS_CHECKLIST.md`:
+
+- [x] Scope and risk reviewed; no public contract or interface changes
+- [x] Rust contract tests formatted to `cargo fmt --check` (the failing assertion wrap is fixed)
+- [x] Normal, failure, retry, and authorization paths covered
+- [x] Resource budgets documented with explicit ceilings
+- [x] Edge cases and recovery / rollback behavior documented
+- [ ] Frontend dependency resolution (`typescript@^5.0.0` → `6.0.3`) to be fixed in a separate change; not touched by this PR
+- [ ] Lighthouse CI step wired in CI (Next Steps item 3)
+
+---
+
 ## Findings
 
 ### 1. Marketplace grid — no virtualisation

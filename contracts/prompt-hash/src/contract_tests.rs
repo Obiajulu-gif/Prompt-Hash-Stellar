@@ -188,7 +188,10 @@ mod tests {
         let env = Env::default();
         let owner = Address::random(&env);
         let attacker = Address::random(&env);
-        assert_ne!(owner, attacker, "Unauthorized caller must differ from owner");
+        assert_ne!(
+            owner, attacker,
+            "Unauthorized caller must differ from owner"
+        );
     }
 
     #[test]
