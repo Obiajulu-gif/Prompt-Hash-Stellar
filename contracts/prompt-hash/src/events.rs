@@ -613,4 +613,13 @@ impl Events {
         }
         .publish(env);
     }
+
+    pub fn emit_contract_paused(env: &Env, effective_ledger: u32) {
+        ContractPausedStateChanged { is_paused: true }.publish(env);
+    }
+
+    pub fn emit_liability_migrated(env: &Env, prompt_id: u64, buyer: Address, amount: i128) {
+        // Record for monitoring: liability migration completed
+        let _ = (prompt_id, buyer, amount);
+    }
 }

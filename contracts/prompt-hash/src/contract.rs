@@ -1613,6 +1613,59 @@ impl PromptHashTrait for PromptHashContract {
         Storage::get_revenue_rounding_carry(&env, &asset, &recipient, kind, source_id)
     }
 
+    fn check_asset_solvency(env: Env, asset: Address) -> Result<AssetSolvency, Error> {
+        // Compute current solvency state
+        let solvency = compute_asset_solvency(&env, &asset);
+        
+        // If surplus is negative (tracked liability exceeds actual balance),
+        // pause the contract to prevent further fund movements (#570)
+        if solvency.surplus < 0 {
+            InstanceStorage::set_pause_status(&env, true)
+                .map_err(|_| Error::ContractIsPaused)?;
+            Events::emit_contract_paused(&env, env.ledger().sequence());
+        }
+        
+        Ok(solvency)
+    }
+
+    fn migrate_asset_liability(
+        env: Env,
+        admin: Address,
+        prompt_id: u64,
+        buyer: Address,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let owner = ownable::get_owner(&env).ok_or(Error::Unauthorized)?;
+        ensure(owner == admin, Error::Unauthorized)?;
+        
+        // Check if already migrated to avoid double-counting
+        if Storage::is_escrow_liability_migrated(&env, prompt_id, &buyer) {
+            return Ok(());
+        }
+        
+        // Look up the escrow for this purchase
+        if let Some(escrow) = Storage::get_purchase_escrow(&env, prompt_id, &buyer) {
+            // Determine which liability bucket to update based on escrow status
+            match escrow.status {
+                SettlementStatus::Pending => {
+                    Storage::add_pending_liability(&env, &escrow.asset, escrow.amount)?;
+                }
+                SettlementStatus::Disputed => {
+                    Storage::add_disputed_liability(&env, &escrow.asset, escrow.amount)?;
+                }
+                SettlementStatus::Settled | SettlementStatus::Refunded => {
+                    // Already settled or refunded, no liability to migrate
+                }
+            }
+            
+            // Mark this escrow as migrated so retry calls are idempotent
+            Storage::mark_escrow_liability_migrated(&env, prompt_id, &buyer);
+            Events::emit_liability_migrated(&env, prompt_id, buyer, escrow.amount);
+        }
+        
+        Ok(())
+    }
+
     fn open_dispute(
         env: Env,
         buyer: Address,
