@@ -39,6 +39,16 @@ Checks performed by `contractMap.test.ts`:
 Drift reports are advisory in CI for additive-only diffs and blocking for
 removals or type changes (see Version rules).
 
+## CI prerequisite: dependency resolution
+
+The Playwright and Frontend workflows currently fail during `Install dependencies`
+with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. The
+`resolutions` entry pins `typescript` to a version outside the range the
+workspace declares. Until the resolution is aligned (either move the pin into
+`^5.0.0` or bump the declared range deliberately in a separate PR), the drift
+tests in `contractMap.test.ts` cannot run in CI. Treat this as a blocking
+prerequisite for the drift gate, not as part of the schema change itself.
+
 ## Version rules
 
 - Contract events are implicit V1 (no on-wire `version` field); explicit
@@ -81,3 +91,5 @@ Delivery is at-least-once everywhere; consumers must be idempotent
 - Rollback: consumer rollback = revert consumer deploy + replay quarantine;
   contract rollback = downgrade to previous `WASM_HASH`; migration rollback =
   `yarn --cwd server db:rollback`. Never grant/revoke access off-chain.
+- CI install failure (`YN0078` on `typescript`) → fix the `resolutions` pin or
+  declared range first; drift checks cannot be trusted until install succeeds.

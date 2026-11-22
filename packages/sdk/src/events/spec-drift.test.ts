@@ -32,6 +32,11 @@
  *  - Rollback: if an intentional ABI change lands, update `spec-baseline.json`
  *    and `EVENT_SCHEMAS` in the same commit and bump the ABI version per
  *    docs/abi-versioning-policy.md. Reverting either side alone will fail here.
+ *
+ * CI note: the Frontend and Playwright jobs fail earlier at dependency install
+ * (YN0078: `typescript@npm:^5.0.0` cannot resolve to `npm:6.0.3`). That is a
+ * workspace/lockfile issue, not a logic failure in this suite; the fix belongs
+ * in the package.json resolution/lockfile, not here.
  */
 import fs from "node:fs";
 import path from "node:path";

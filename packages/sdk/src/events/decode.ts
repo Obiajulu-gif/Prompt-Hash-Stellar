@@ -26,6 +26,9 @@
  *   contract) but listed in `drift.extraFields` so it is visible to operators.
  * - Coercion failure (e.g. non-numeric value for u64): the field is returned
  *   as `undefined` and recorded in `drift.invalidFields` instead of throwing.
+ * - Drift is detected identically on the `version` fallback path: the version
+ *   is read from the payload when present, otherwise from the `version`
+ *   argument, and the same schema lookup/drift comparison runs for both.
  */
 import {
   CURRENT_EVENT_SCHEMA_VERSION,
