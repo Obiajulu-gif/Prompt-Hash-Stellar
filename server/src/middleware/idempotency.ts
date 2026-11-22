@@ -19,6 +19,19 @@ function errorResponse(res: Response, status: number, code: string, error: strin
 /**
  * Protects a high-risk mutation with a durable request/outcome gate.
  * The route keeps its original response shape; only replay metadata is added.
+ *
+ * Concurrency behavior:
+ * - Two simultaneous requests with the same key and body: the first claims the
+ *   record and proceeds; the second receives IDEMPOTENCY_REQUEST_IN_PROGRESS (409)
+ *   and must retry after the first completes, at which point it gets a replay.
+ * - Same key, different body or scope: IDEMPOTENCY_KEY_CONFLICT (409).
+ * - Expired key: IDEMPOTENCY_KEY_EXPIRED (409); clients must mint a new key.
+ * - Failure before completion: the record remains in progress until the service
+ *   expires it; the outcome is never recorded as a successful replay, so a retry
+ *   after expiry re-executes the mutation. Rollback of partial side effects is the
+ *   responsibility of the route handler.
+ * - Authorization: the actor is folded into the store scope, so the same key used
+ *   by different actors does not collide or leak replay responses across actors.
  */
 export function requireIdempotency(
   req: Request,
@@ -95,9 +108,9 @@ export function requireIdempotency(
         return originalJson(body);
       }) as Response["json"];
       res.send = ((body?: unknown) => {
-        // `res.json()` delegates to `res.send()` with the ALEADY-STRINGIFIED
+        // `res.json()` delegates to `res.send()` with the ALREADY-STRINGIFIED
         // payload. Without this guard the send wrapper overwrites the object
-        // captured by json, and every replay double-encodes the stored body —
+        // captured by json, and every replay double-encodes the stored body --
         // the client then receives a JSON string instead of the original
         // response object (#1041).
         if (!capturedJson) {

@@ -38,6 +38,23 @@ export function validateIdempotencyKey(key: string | undefined): string | null {
   return null;
 }
 
+/**
+ * Claims an idempotency key for a request.
+ *
+ * Concurrency model: the unique index on (scope, key) is the sole gate. The
+ * first writer to insert wins and receives `new`; every other concurrent
+ * attempt receives a duplicate-key error and is resolved against the stored
+ * record:
+ *   - different requestHash        -> conflict (never replayed)
+ *   - expiresAt <= now             -> expired (caller must mint a new key)
+ *   - status "processing"          -> in_progress (caller should back off/retry)
+ *   - succeeded / failed           -> replay (cached response returned)
+ *
+ * Recovery: a record stuck in "processing" (e.g. the worker crashed before
+ * completeIdempotentRequest) is NOT auto-released here; it stays in_progress
+ * until its TTL lapses, after which the key reports expired. Callers must not
+ * retry the side effect under the same key while in_progress.
+ */
 export async function beginIdempotentRequest(input: {
   scope: string;
   key: string;
@@ -95,13 +112,18 @@ export async function completeIdempotentRequest(input: {
 }): Promise<void> {
   const status: IdempotencyRecordStatus =
     input.statusCode >= 200 && input.statusCode < 400 ? "succeeded" : "failed";
-  await IdempotencyRecord.findByIdAndUpdate(input.recordId, {
-    $set: {
-      status,
-      statusCode: input.statusCode,
-      responseBody: input.responseBody ?? null,
+  // Only transition records that are still "processing" so a late or duplicate
+  // completion cannot overwrite an already-finalized response.
+  await IdempotencyRecord.updateOne(
+    { _id: input.recordId, status: "processing" },
+    {
+      $set: {
+        status,
+        statusCode: input.statusCode,
+        responseBody: input.responseBody ?? null,
+      },
     },
-  });
+  );
 }
 
 export function replayStatus(record: IIdempotencyRecord): number {

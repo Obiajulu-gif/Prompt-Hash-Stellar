@@ -33,6 +33,12 @@ what is actually asserted:
 | Purchase re-submission | 201 on first write, 200 `Already purchased.` afterwards, exactly one row |
 | Endpoint guards | HTTP 400 for missing fields or a collection outside the allowlist, HTTP 404 for an unknown prompt |
 
+`server/src/tests/duplicateSubmissionConcurrency.test.ts` adds a deterministic,
+DB-free layer over the gate itself: N concurrent submissions reserve the key
+exactly once, a duplicate never re-runs the controller, failed outcomes and
+captured authorization denials replay rather than re-execute, conflicting
+payloads and expired keys are rejected, and keys are scoped per actor.
+
 Shared helpers live in `server/src/tests/helpers/` (`realMongo.ts`,
 `httpApp.ts`) so future route suites reuse the real-Mongo + ephemeral-HTTP
 harness. The suites skip themselves gracefully when mongodb-memory-server is

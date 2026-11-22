@@ -498,6 +498,61 @@ describe("Concurrency harness: edge cases", () => {
     expect(store.size).toBe(1);
   });
 
+  it("unique insert: a failed insert does not leave a partial record behind", async () => {
+    const store = new Map<string, unknown>();
+    await atomicUniqueInsert(store, "k1", { ok: true });
+    const results = await race(5, () => atomicUniqueInsert(store, "k1", { ok: false }));
+    expect(results.ok).toHaveLength(0);
+    expect(results.err).toHaveLength(5);
+    expect(store.get("k1")).toEqual({ ok: true });
+    expect(store.size).toBe(1);
+  });
+
+  it("retry after a duplicate-key rejection can still succeed on a different key", async () => {
+    const store = new Map<string, unknown>();
+    await atomicUniqueInsert(store, "a", { v: 1 });
+    await expect(atomicUniqueInsert(store, "a", { v: 2 })).rejects.toBeInstanceOf(DuplicateKeyError);
+    await atomicUniqueInsert(store, "b", { v: 3 });
+    expect(store.size).toBe(2);
+  });
+
+  it("versioned update: authorized writer retrying with the refreshed version succeeds", async () => {
+    const store = new Map<string, { v: number; _version: number }>();
+    store.set("doc", { v: 0, _version: 1 });
+    await atomicVersionedUpdate(store, "doc", 1, { v: 1 });
+    const refreshed = store.get("doc")!._version;
+    await atomicVersionedUpdate(store, "doc", refreshed, { v: 2 });
+    expect(store.get("doc")).toEqual({ v: 2, _version: 3 });
+  });
+
+  it("versioned update: unauthorized-style stale retry without refresh is rejected and state is unchanged", async () => {
+    const store = new Map<string, { v: number; _version: number }>();
+    store.set("doc", { v: 0, _version: 1 });
+    await atomicVersionedUpdate(store, "doc", 1, { v: 1 });
+    await expect(atomicVersionedUpdate(store, "doc", 1, { v: 9 })).rejects.toBeInstanceOf(
+      StaleVersionError,
+    );
+    expect(store.get("doc")).toEqual({ v: 1, _version: 2 });
+  });
+
+  it("upsert: concurrent creators with identical payloads produce a single record", async () => {
+    const store = new Map<string, unknown>();
+    const { ok, err } = await race(10, () => atomicUpsert(store, "same", { x: 1 }));
+    expect(err).toHaveLength(0);
+    expect(ok.filter((r) => r.created)).toHaveLength(1);
+    expect(store.size).toBe(1);
+  });
+
+  it("idempotency gate: retry after conflict does not overwrite the original registered hash", async () => {
+    const store = new Map<string, string>();
+    await atomicIdempotencyGate(store, "k", "h1");
+    await expect(atomicIdempotencyGate(store, "k", "h2")).rejects.toBeInstanceOf(
+      IdempotencyConflictError,
+    );
+    expect(store.get("k")).toBe("h1");
+    expect(await atomicIdempotencyGate(store, "k", "h1")).toBe("replay");
+  });
+
   it("atomicVersionedUpdate on a missing key throws StaleVersionError", async () => {
     const store = new Map<string, { _version: number }>();
     await expect(

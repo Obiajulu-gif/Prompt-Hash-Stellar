@@ -123,7 +123,6 @@ describe("requireIdempotency middleware", () => {
       responseBody: denial,
     });
 
-
     mocks.begin.mockResolvedValueOnce({
       kind: "replay",
       record: { statusCode: 403, responseBody: denial },
