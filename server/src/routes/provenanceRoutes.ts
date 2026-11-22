@@ -273,7 +273,9 @@ provenanceRouter.post(
         ...req.body,
         actor: {
           ...req.body.actor,
-          walletAddress: req.sessionWallet,
+          actorWallet: req.sessionWallet,
+          actorId: req.sessionWallet ?? "anonymous",
+          actorType: "user",
         },
       });
       res.status(201).json(result);
@@ -314,8 +316,9 @@ provenanceRouter.post(
         ...req.body,
         actor: {
           ...req.body.actor,
-          walletAddress: req.sessionWallet,
-          timestamp: new Date(),
+          actorWallet: req.sessionWallet,
+          actorId: req.sessionWallet ?? "anonymous",
+          actorType: "user",
         },
       });
       res.json(result);
