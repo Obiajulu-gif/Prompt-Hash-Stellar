@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
+pub mod allowlist;
 mod capability_tokens;
 mod conflict_resolver;
 mod contract;
