@@ -11,11 +11,11 @@ The Dry-Run Policy Evaluator (`server/src/services/dryRunPolicyEvaluator.ts`) pr
 1. **Policy Specification**:
    An operator submits a policy definition declaring the target resource (`prompts`, `users`, `purchases`, `maintainer_grants`), matching predicates (`field`, `operator`, `value`), action type, and required permission.
 2. **Permission Check**:
-   The actor must possess explicit permissions (`policy:evaluate` or `admin`). Unauthorized actors are rejected before any records are scanned.
+   The actor must possess explicit permissions (`policy:evaluate` or `admin`). Unauthorized actors are rejected before any records are scanned. Rejection returns `authorization_denied` and no database reads are performed.
 3. **Bounded Scan & Evaluation ($O(N)$ Time, $O(K)$ Space)**:
-   Candidate records (up to `MAX_EVALUATION_RECORDS = 10,000`) are inspected. Predicates are evaluated in $O(1)$ time per record. Previews are capped to `MAX_PREVIEW_RECORDS = 100` to prevent memory blowup while preserving exact aggregate metrics.
+   Candidate records (up to `MAX_EVALUATION_RECORDS = 10,000`) are inspected. Predicates are evaluated in $O(1)$ time per record. Previews are capped to `MAX_PREVIEW_RECORDS = 100` to prevent memory blowup while preserving exact aggregate metrics (counts, XLM volume, and fee shift are computed over all matching records, not just the previewed subset).
 4. **Impact Analysis & Finality Warnings**:
-   - Diffs: Field-by-field before and after projections.
+   - Diffs: Field-by-field before and after projections for each previewed record.
    - Financial Impact: Aggregate XLM volume / fee shift calculated across matching records.
    - Irreversibility: Transitions to `retired` status on Soroban are flagged as `isIrreversible: true` with `severity: "critical"`, alerting operators to smart contract finality constraints.
 5. **HMAC Plan Confirmation Token**:
@@ -32,7 +32,9 @@ The Dry-Run Policy Evaluator (`server/src/services/dryRunPolicyEvaluator.ts`) pr
 | `lt` / `lte` | number | Numeric comparison (e.g. `platformFeeBps < 200`). |
 | `in` / `not_in` | Array | Set membership checks. |
 | `contains` | string, Array | Substring containment or array element inclusion. |
-| `regex` | string | Safe regex pattern evaluation. |
+| `regex` | string | Safe regex pattern evaluation. Patterns exceeding 256 characters or containing nested quantifiers are rejected with `invalid_predicate` to prevent catastrophic backtracking. |
+
+Type mismatches (e.g. `gt` applied to a string field) are rejected at specification time with `invalid_predicate` rather than silently evaluating to false.
 
 ---
 
@@ -42,14 +44,41 @@ Certain Soroban contract actions cannot be reversed on the Stellar ledger:
 - Transitioning a prompt to `PromptSaleStatus::Retired` is permanent (`ensure(prompt.status != PromptSaleStatus::Retired, Error::InvalidStatusTransition)`).
 - The evaluator flags these transitions with `isIrreversible: true` and `severity: "critical"`.
 - Operators must review the itemized previews before executing any plan bearing irreversible flags.
+- **Rollback behavior**: Dry-run evaluation has no side effects, so there is nothing to roll back at evaluation time. Once a plan is executed, reversible transitions (fee changes, pricing changes) may be reverted by submitting a new inverse policy through the same workflow. Irreversible transitions cannot be rolled back on-chain; recovery is limited to off-chain compensation (e.g. buyer communication and refund processes handled outside the contract).
 
 ---
 
 ## 4. Operational Recovery & Failure Modes
 
+- **Unauthorized Actor (`authorization_denied`)**:
+  The actor lacks `policy:evaluate` or `admin`. No records are scanned and no token is issued. The attempt is logged for audit.
 - **Oversized Batches (`selection_too_large`)**:
-  Requests exceeding 10,000 records are rejected to protect server event loops. Operators should paginate or partition policy evaluations.
+  Requests exceeding 10,000 records are rejected to protect server event loops. Operators should paginate or partition policy evaluations by resource ID range or creation date.
+- **Invalid Predicate (`invalid_predicate`)**:
+  Unknown operators, type mismatches, or unsafe regex patterns are rejected before scanning begins.
 - **Record State Drift (`confirmation_mismatch`)**:
-  If a listing is updated or retired by a creator between the dry-run and execution, the confirmation token fails verification, preventing stale executions.
+  If a listing is updated or retired by a creator between the dry-run and execution, the confirmation token fails verification, preventing stale executions. The operator must re-run the dry-run to obtain a fresh token.
+- **Token Expiry (`token_expired`)**:
+  Confirmation tokens carry a short TTL. Expired tokens are rejected and require a new dry-run.
 - **Read Retries**:
-  Record loading handles transient database faults with exponential backoff before reporting evaluation results.
+  Record loading handles transient database faults with exponential backoff (base 100 ms, max 3 attempts) before reporting `evaluation_unavailable`. Partial results are never returned; a retry exhaustion fails the whole evaluation.
+
+---
+
+## 5. Verification Coverage
+
+The evaluator test suite (`server/src/services/dryRunPolicyEvaluator.test.ts`) covers:
+- **Normal path**: matching predicates produce correct diffs, aggregates, and a valid HMAC token.
+- **Authorization path**: actors without `policy:evaluate` or `admin` are rejected before any repository read.
+- **Failure path**: oversized selections, invalid predicates, and unsafe regex are rejected with the documented error codes.
+- **Retry path**: transient repository faults are retried with backoff and succeed when recovery occurs; exhausted retries surface `evaluation_unavailable`.
+- **Drift path**: modifying any affected record's version after token issuance causes `confirmation_mismatch` on execution.
+- **Irreversibility path**: transitions to `retired` set `isIrreversible: true` and `severity: "critical"`.
+
+Run with `npm test --workspace server -- dryRunPolicyEvaluator`.
+
+---
+
+## 6. Compatibility
+
+The evaluator is additive. It introduces no changes to existing Soroban contract interfaces or REST endpoints for policy execution. Existing policy execution paths continue to function without requiring a dry-run; operators are encouraged but not forced to simulate. A future migration may make dry-run mandatory for policies touching `retired` transitions, which would require a feature flag rollout and an updated runbook entry before enforcement.

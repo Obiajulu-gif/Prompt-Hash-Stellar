@@ -82,6 +82,10 @@ function rejectUnreviewed(
  * Permission-diff report for a create (`action: "create"`, same fields as
  * POST /overrides) or revoke (`action: "revoke"`, `overrideId`) without
  * applying it. Pass the returned `digest` as `diffDigest` to apply.
+ *
+ * Also returns an `affectedRecords` preview: the wallets/keys/IPs whose
+ * effective limit for the operation would change if the change were applied.
+ * The preview is read-only and never mutates state.
  */
 policyLimitRouter.post(
   "/overrides/diff",
@@ -104,7 +108,8 @@ policyLimitRouter.post(
     if ("error" in parsed) {
       return res.status(400).json({ error: parsed.error });
     }
-    return res.json({ success: true, report: policyLimitService.previewOverrideChange(parsed.change) });
+    const report = policyLimitService.previewOverrideChange(parsed.change);
+    return res.json({ success: true, report });
   }
 );
 
@@ -128,6 +133,15 @@ policyLimitRouter.get(
  * POST /api/admin/policy-limits/overrides
  * Create a scoped override for an expensive operation. Requires the
  * `diffDigest` of a report from POST /overrides/diff (#1036).
+ *
+ * Edge cases / recovery:
+ * - 400: validation failure, nothing is written.
+ * - 428/409: diff missing or stale; the response includes the fresh report so
+ *   the caller can re-review and retry with the new digest.
+ * - Retries: supply the same `Idempotency-Key` header; the audit layer uses it
+ *   as the change id so duplicate submissions are not applied twice.
+ * - 503 (audit evidence unavailable): the change was rolled back; retry after
+ *   `Retry-After` seconds.
  */
 policyLimitRouter.post(
   "/overrides",
@@ -201,6 +215,9 @@ policyLimitRouter.post(
  * DELETE /api/admin/policy-limits/overrides/:overrideId
  * Revoke an active override. Requires the `diffDigest` of a revoke report
  * from POST /overrides/diff (#1036).
+ *
+ * Edge cases / recovery: same status semantics as POST /overrides. A revoke
+ * that fails audit evidence is rolled back, leaving the override active.
  */
 policyLimitRouter.delete(
   "/overrides/:overrideId",
