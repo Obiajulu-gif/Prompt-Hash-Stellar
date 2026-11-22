@@ -16,6 +16,7 @@ const MyPurchasesPage = lazy(
 );
 const StatusPage = lazy(() => import("./pages/status/page.tsx"));
 const SellerPage = lazy(() => import("./pages/sellers/page.tsx"));
+const CategoryPage = lazy(() => import("./pages/category/page.tsx"));
 const PromptDetailPage = lazy(
   () => import("./pages/prompts/PromptDetailPage.tsx"),
 );
@@ -65,6 +66,7 @@ function App() {
           <Route path="/prompts/:id" element={<PromptDetailPage />} />
           <Route path="/status" element={<StatusPage />} />
           <Route path="/sellers/:sellerId" element={<SellerPage />} />
+          <Route path="/category/:categoryName" element={<CategoryPage />} />
           <Route path="/admin/reports" element={<AdminReportsPage />} />
           <Route path="/admin/config" element={<AdminConfigPage />} />
           <Route path="/admin/disputes" element={<AdminDisputesPage />} />
