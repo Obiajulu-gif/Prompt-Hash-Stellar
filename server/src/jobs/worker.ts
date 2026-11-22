@@ -6,6 +6,12 @@
  *   startWorker().catch(console.error);
  *
  *   // or for testing: `processOne(workerId)` to handle a single job deterministically.
+ *
+ * Cancellation:
+ *   Long-running handlers receive an AbortSignal via `job.signal`-style context.
+ *   `cancelJobSignal(jobId)` aborts an in-flight job; the worker treats an
+ *   aborted handler as a cancellation (not a retryable failure), runs cleanup
+ *   hooks registered for the job, and marks it cancelled.
  */
 
 import { claimNextJob, markJobCompleted, markJobFailed } from "./jobQueue";
@@ -20,7 +26,16 @@ import { handleStaleDisputeCleanup } from "./handlers/staleDisputeCleanup";
 import { handleRetentionCleanup } from "./handlers/retentionCleanup";
 import { handleStaleCacheRepair } from "./handlers/staleCacheRepair";
 
-type Handler = (job: JobRecordDTO) => Promise<void>;
+export type CleanupHook = () => Promise<void> | void;
+
+/** Context handed to handlers; `signal` fires when the job is cancelled. */
+export interface JobContext {
+  signal: AbortSignal;
+  /** Register cleanup to run exactly once if the job is cancelled or fails. */
+  onCleanup: (hook: CleanupHook) => void;
+}
+
+type Handler = (job: JobRecordDTO, ctx: JobContext) => Promise<void>;
 
 const HANDLERS: Record<string, Handler> = {
   settlement_poll: handleSettlementPoll,
@@ -32,8 +47,54 @@ const HANDLERS: Record<string, Handler> = {
   stale_cache_repair: handleStaleCacheRepair,
 };
 
+/** Thrown (or used as the abort reason) when a job is cancelled. */
+export class JobCancelledError extends Error {
+  constructor(jobId: string) {
+    super(`Job cancelled: ${jobId}`);
+    this.name = "JobCancelledError";
+  }
+}
+
+/** Active in-flight jobs keyed by job id → controller. */
+const activeJobs = new Map<string, AbortController>();
+
 export function getHandler(type: string): Handler | undefined {
   return HANDLERS[type];
+}
+
+/**
+ * Requests cancellation of an in-flight job on this worker.
+ * Returns true if the job was running locally and was signalled.
+ * Idempotent: repeat calls for the same job are no-ops.
+ */
+export function cancelJobSignal(jobId: string): boolean {
+  const controller = activeJobs.get(jobId);
+  if (!controller || controller.signal.aborted) return false;
+  controller.abort(new JobCancelledError(jobId));
+  return true;
+}
+
+/** Whether a job is currently executing on this worker. */
+export function isJobActive(jobId: string): boolean {
+  return activeJobs.has(jobId);
+}
+
+function isCancellation(err: unknown, signal: AbortSignal): boolean {
+  return signal.aborted && (err instanceof JobCancelledError || err === signal.reason || (err as any)?.name === "AbortError");
+}
+
+/**
+ * Runs cleanup hooks in reverse registration order. Errors are logged but
+ * never thrown, so cleanup cannot mask the original outcome.
+ */
+async function runCleanup(hooks: CleanupHook[], jobId: string): Promise<void> {
+  for (const hook of [...hooks].reverse()) {
+    try {
+      await hook();
+    } catch (err: any) {
+      console.error(`[worker] cleanup hook failed for job ${jobId}:`, err?.message ?? err);
+    }
+  }
 }
 
 export async function processOne(workerId = `worker-${process.pid}`): Promise<JobRecordDTO | null> {
@@ -45,13 +106,32 @@ export async function processOne(workerId = `worker-${process.pid}`): Promise<Jo
     return markJobFailed(job.id, `No handler registered for job type: ${job.type}`);
   }
 
+  const controller = new AbortController();
+  const cleanupHooks: CleanupHook[] = [];
+  const ctx: JobContext = {
+    signal: controller.signal,
+    onCleanup: (hook) => {
+      cleanupHooks.push(hook);
+    },
+  };
+
+  activeJobs.set(job.id, controller);
   try {
-    await handler(job);
+    if (controller.signal.aborted) throw new JobCancelledError(job.id);
+    await handler(job, ctx);
+    if (controller.signal.aborted) throw new JobCancelledError(job.id);
     await markJobCompleted(job.id);
     return job;
   } catch (err: any) {
+    if (isCancellation(err, controller.signal)) {
+      await runCleanup(cleanupHooks, job.id);
+      return markJobFailed(job.id, `cancelled: ${new JobCancelledError(job.id).message}`);
+    }
+    await runCleanup(cleanupHooks, job.id);
     const message = err?.message ?? String(err);
     return markJobFailed(job.id, message);
+  } finally {
+    activeJobs.delete(job.id);
   }
 }
 
@@ -87,6 +167,8 @@ export function startWorker(options: { pollIntervalMs?: number; workerId?: strin
     stop: () => {
       stopped = true;
       if (workerTimer) clearTimeout(workerTimer);
+      // Cancel any in-flight jobs so handlers can clean up promptly.
+      for (const id of activeJobs.keys()) cancelJobSignal(id);
       console.log("[worker] stopped");
     },
   };
