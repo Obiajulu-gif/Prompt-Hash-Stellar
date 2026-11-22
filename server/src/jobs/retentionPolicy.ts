@@ -120,7 +120,8 @@ export function isRetentionEligible(
  * - Authorization is enforced before any mutation occurs.
  */
 
-export type RetentionAction = (typeof RETENTION_POLICIES)[RetentionDataType]["action"];
+export type RetentionAction =
+  (typeof RETENTION_POLICIES)[RetentionDataType]["action"];
 
 export interface RetentionRecord extends RetentionCandidate {
   id: string;

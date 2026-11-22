@@ -1,6 +1,6 @@
 # Granular Retention Holds for Disputes and Investigations
 
-Records linked to an active dispute, investigation or legal matter are
+Records linked to an active dispute, investigation, or legal matter are
 protected from the `retention_cleanup` job until the hold is released.
 
 Code: `server/src/models/RetentionHold.ts` (ledger),
@@ -14,7 +14,7 @@ Tests: `server/src/tests/retentionHoldService.test.ts`,
 
 A **hold** = one case + the specific records it protects.
 
-| Field         | Meaning                                                   |
+| Field         | Meaning                                                              |
 | ------------- | --------------------------------------------------------------------- |
 | `caseType`    | `dispute` \\| `investigation` \\| `legal`                                  |
 | `caseRef`      | Your case/ticket/dispute id (max 200 chars)                          |
@@ -34,7 +34,7 @@ A **hold** = one case + the specific records it protects.
 | `supportEvidence`      | `Report`             | 365-day policy; `includePromptReportsFor` links every report on a prompt |
 
 `AuditLog`, `LedgerEntry`, `Purchase`, `PayoutStatement` and `ProcessedEvent`
-i are never archived, so they cannot be held (requests naming them are
+are never archived, so they cannot be held (requests naming them are
 rejected).
 
 Several holds may cover the same record. The record returns to normal
@@ -82,7 +82,7 @@ written.
 `POST` returns `201` for a new hold and `200` if an identical active hold
 (same case and records) already existed, so client retries are safe. Errors:
 `400 invalid_request`, `404 record_not_found | hold_not_found`,
-``409 already_released`, `503 ledger_unavailable`.
+`409 already_released`, `503 ledger_unavailable`.
 
 ## Audit
 

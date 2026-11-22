@@ -145,7 +145,7 @@ export async function verifyRetentionDeletion(
   const eventCutoff = requiredCutoff("promptEvents", now);
   const exportCutoff = requiredCutoff("exports", now);
   const supportCutoff = requiredCutoff("supportEvidence", now);
-  const held = await getActiveHeldIdsRecordIds();
+  const held = await getActiveHeldRecordIds();
 
   const checks: Array<{
     collection: string;
@@ -161,7 +161,7 @@ export async function verifyRetentionDeletion(
         processingStatus: { $in: ["processed", "skipped"] },
         createdAt: { $lt: eventCutoff },
       },
-      sensitiveFilter: { rawBody: { $ne: "" } },
+      sensitiveFilter: { rawBody: { $nin: ["", null] } },
       heldIds: held.inboundWebhookEvents,
     },
     {
@@ -171,7 +171,7 @@ export async function verifyRetentionDeletion(
         status: { $in: ["replayed", "discarded"] },
         updatedAt: { $lt: eventCutoff },
       },
-      sensitiveFilter: { rawTopic: { $ne: "" } },
+      sensitiveFilter: { rawTopic: { $nin: ["", null] } },
       heldIds: held.quarantinedEvents,
     },
     {
@@ -185,7 +185,12 @@ export async function verifyRetentionDeletion(
           { completedAt: null, updatedAt: { $lt: exportCutoff } },
         ],
       },
-      sensitiveFilter: { "payload.archived": { $ne: true } },
+      sensitiveFilter: {
+        $or: [
+          { "payload.archived": { $ne: true } },
+          { "payload.version": { $ne: 1 } },
+        ],
+      },
       heldIds: held.exports,
     },
     {
@@ -198,7 +203,14 @@ export async function verifyRetentionDeletion(
           { resolvedAt: null, updatedAt: { $lt: supportCutoff } },
         ],
       },
-      sensitiveFilter: { reporterAddress: { $ne: "[REDACTED]" } },
+      sensitiveFilter: {
+        $or: [
+          { reporterAddress: { $nin: ["[REDACTED]", null] } },
+          { description: { $nin: ["", null] } },
+          { adminNotes: { $nin: ["", null] } },
+          { evidence: { $exists: true, $not: { $size: 0 } } },
+        ],
+      },
       heldIds: held.supportEvidence,
     },
   ];
