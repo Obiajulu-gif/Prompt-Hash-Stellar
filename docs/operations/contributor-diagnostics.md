@@ -63,6 +63,17 @@ If the diagnostics themselves misbehave (for example a new required variable not
 
 `src/test/contributorDiagnostics.test.ts` covers each check group with injected `fetch`, command runner, and TCP probe, so it runs offline in `yarn test`.
 
+### CI dependency install failures (`YN0078`)
+
+The Playwright workflow and `test` check run fail at `Install dependencies` with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. This means a Yarn `resolutions` entry forces `typescript` to `6.0.3`, which does not satisfy the `^5.0.0` range requested by a dependency, so Yarn refuses to resolve.
+
+- **Symptom**: `yarn install` exits `1` in CI after the resolution step; the artifact upload that follows is unrelated noise.
+- **Cause**: a `resolutions` override pointing outside the declared semver range.
+- **Recovery**: align the `resolutions` override with the `^5.0.0` range (or bump the dependent package), regenerate `yarn.lock` locally with `yarn install`, and rerun `yarn diagnose --offline` to confirm the tooling and dependency groups pass.
+- **Rollback**: revert the `package.json` `resolutions` change and the `yarn.lock` diff together; never edit only one of them.
+
+`yarn diagnose` does not yet inspect `resolutions` ranges; this is a known gap tracked for a follow-up check in the `dependencies` group.
+
 Run `yarn diagnose --help` for accepted flags. Invalid options exit with code 2 before any checks or writes. If another process creates `.env` while `--fix` is running, diagnostics leave that file intact and continue.
 
 ### Authorization and retry paths

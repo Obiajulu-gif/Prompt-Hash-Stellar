@@ -5,7 +5,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { applySafeFixes } from "./contributor-diagnostics.mjs";
 
-
 test("the CLI explains usage and rejects mistyped options before running checks", () => {
   const cli = new URL("./contributor-diagnostics.mjs", import.meta.url);
   const run = (flag) => spawnSync(process.execPath, [fileURLToPath(cli), flag], { encoding: "utf8" });

@@ -13,9 +13,9 @@
     "url": "https://github.com/Obiajulu-gif/Prompt-Hash-Stellar"
   },
   "scripts": {
-    "dev": "node scripts/check-local-setup.mjs --warn-only && vite",
-    "start": "vite",
-    "build": "vite build",
+    "dev": "node init && node scripts/check-local-setup.mjs --warn-only && vite",
+    "start": "node init && vite",
+    "build": "node init && vite build",
     "prebuild": "node scripts/policy-scanner.mjs && node scripts/check-local-setup.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
