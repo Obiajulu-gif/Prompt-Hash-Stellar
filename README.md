@@ -492,7 +492,7 @@ Maintained by the PromptHash Stellar team for Drip Wave submission and ongoing o
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/health` | Service health check with indexer state |
+| GET | `/api/health` | Dependency-aware health (`ok`/`degraded`/`down`) with indexer state |
 | GET | `/api/status` | Multi-service status (RPC, Horizon, unlock) |
 | POST | `/api/auth/challenge` | Issue time-bound challenge token for wallet verification |
 | POST | `/api/auth/rotate-secret` | Rotate challenge token secrets with grace period |

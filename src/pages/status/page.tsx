@@ -13,6 +13,7 @@ import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DependencyHealthPanel } from "@/components/status/DependencyHealthPanel";
 
 type ServiceStatus = "up" | "degraded" | "down";
 
@@ -294,6 +295,9 @@ export default function StatusPage() {
             <p className="text-sm text-slate-400">Could not load status.</p>
           )}
         </section>
+
+        {/* Dependency-aware readiness (#1179) */}
+        <DependencyHealthPanel />
 
         {/* Health Probes */}
         {data?.probes && data.probes.length > 0 && (
