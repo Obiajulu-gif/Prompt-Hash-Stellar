@@ -381,13 +381,13 @@ export class OperationRecoveryService {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new Error("batchSize must be a positive integer");
     }
-    if (!options.runId || options.runId.trim().length === 0) {
-      throw new Error("runId is required");
+    if (!Number.isInteger(maxOrphanFailures) || maxOrphanFailures <= 0) {
+      throw new Error("maxOrphanFailures must be a positive integer");
     }
 
     const authorized = await options.isAuthorized(options.actorId);
     if (!authorized) {
-      throw new Error("Unauthorized: actor is not permitted to run orphan repair");
+      throw new Error("Unauthorized: actor may not run orphan repair.");
     }
 
     const existing = await store.loadCheckpoint(options.runId);
@@ -396,20 +396,17 @@ export class OperationRecoveryService {
 
     if (existing) {
       if (existing.status === "COMPLETED") {
-        return this.toResult(existing, false);
+        return toResult(existing, true);
       }
       if (existing.status === "FAILED" || existing.status === "CANCELLED") {
         throw new Error(
-          `Run ${options.runId} is ${existing.status}; start a new runId instead of resuming`
+          `Run ${options.runId} is ${existing.status}; use a new runId to start a fresh repair.`
         );
       }
       cp = { ...existing, status: "RUNNING", updatedAt: new Date() };
       resumed = true;
-      logger.info("Resuming orphan repair run", {
-        runId: options.runId,
-        lastProcessedId: cp.lastProcessedId,
-      });
     } else {
+      const now = new Date();
       cp = {
         runId: options.runId,
         lastProcessedId: null,
@@ -418,233 +415,76 @@ export class OperationRecoveryService {
         skipped: 0,
         failed: 0,
         status: "RUNNING",
-        startedAt: new Date(),
-        updatedAt: new Date(),
+        startedAt: now,
+        updatedAt: now,
       };
     }
     await store.saveCheckpoint(cp);
 
-    try {
-      while (true) {
-        const batch = await store.findOrphansAfter(cp.lastProcessedId, batchSize);
-        if (batch.length === 0) {
-          break;
-        }
+    let consecutiveFailures = 0;
 
-        for (const orphan of batch) {
-          let attempts = 0;
-          // Retry the single orphan in place with bounded attempts.
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            try {
-              const outcome = await store.repairOrphan(orphan);
-              cp.processed += 1;
-              if (outcome === "REPAIRED") {
-                cp.repaired += 1;
-              } else {
-                cp.skipped += 1;
-              }
-              cp.lastProcessedId = orphan.id;
-              break;
-            } catch (err) {
-              attempts += 1;
-              const message = err instanceof Error ? err.message : String(err);
-              logger.warn("Orphan repair attempt failed", {
-                runId: options.runId,
-                orphanId: orphan.id,
-                attempts,
-                error: message,
-              });
-              if (attempts >= maxOrphanFailures) {
-                cp.failed += 1;
-                cp.status = "FAILED";
-                cp.lastError = `orphan ${orphan.id}: ${message}`;
-                cp.updatedAt = new Date();
-                await store.saveCheckpoint(cp);
-                return this.toResult(cp, resumed);
-              }
-            }
+    while (true) {
+      const batch = await store.findOrphansAfter(cp.lastProcessedId, batchSize);
+      if (batch.length === 0) {
+        break;
+      }
+
+      for (const orphan of batch) {
+        let outcome: "REPAIRED" | "SKIPPED" | null = null;
+        let lastErr: unknown = null;
+
+        for (let attempt = 0; attempt < maxOrphanFailures; attempt++) {
+          try {
+            outcome = await store.repairOrphan(orphan);
+            break;
+          } catch (err) {
+            lastErr = err;
+            logger.warn("Orphan repair attempt failed", {
+              runId: cp.runId,
+              orphanId: orphan.id,
+              attempt: attempt + 1,
+              error: String(err),
+            });
           }
         }
 
-        cp.updatedAt = new Date();
-        await store.saveCheckpoint(cp);
-
-        if (batch.length < batchSize) {
-          break;
+        if (outcome === null) {
+          cp.failed += 1;
+          cp.status = "FAILED";
+          cp.lastError = `orphan ${orphan.id}: ${String(lastErr)}`;
+          cp.updatedAt = new Date();
+          await store.saveCheckpoint(cp);
+          return toResult(cp, resumed);
         }
+
+        if (outcome === "REPAIRED") {
+          cp.repaired += 1;
+        } else {
+          cp.skipped += 1;
+        }
+        cp.processed += 1;
+        cp.lastProcessedId = orphan.id;
+        cp.updatedAt = new Date();
+        consecutiveFailures = 0;
+        await store.saveCheckpoint(cp);
       }
-
-      cp.status = "COMPLETED";
-      cp.updatedAt = new Date();
-      await store.saveCheckpoint(cp);
-    } catch (err) {
-      cp.status = "FAILED";
-      cp.lastError = err instanceof Error ? err.message : String(err);
-      cp.updatedAt = new Date();
-      await store.saveCheckpoint(cp);
-      throw err;
     }
 
-    try {
-      await recordAccessOrOwnershipChange({
-        action: "orphan_repair",
-        result: "success",
-        actor: options.actorId,
-        target: options.runId,
-        targetType: "system",
-        beforeState: { resumed },
-        afterState: {
-          status: cp.status,
-          processed: cp.processed,
-          repaired: cp.repaired,
-          skipped: cp.skipped,
-        },
-        reason: resumed ? "orphan repair resumed" : "orphan repair started",
-      });
-    } catch (err) {
-      logger.warn("Could not audit orphan repair", { error: err });
-    }
-
-    return this.toResult(cp, resumed);
+    cp.status = "COMPLETED";
+    cp.updatedAt = new Date();
+    await store.saveCheckpoint(cp);
+    return toResult(cp, resumed);
   }
+}
 
-  private static toResult(cp: OrphanRepairCheckpoint, resumed: boolean): OrphanRepairResult {
-    return {
-      runId: cp.runId,
-      status: cp.status,
-      processed: cp.processed,
-      repaired: cp.repaired,
-      skipped: cp.skipped,
-      failed: cp.failed,
-      resumed,
-    };
-  }
-
-  /**
-   * Maintainer-triggered resolution or manual intervention for stuck operations.
-   */
-  static async maintainerResolve(
-    operationId: string,
-    action: "RESOLVE" | "FAIL" | "RETRY" | "MANUAL_REVIEW",
-    maintainerId: string,
-    reason: string
-  ): Promise<IOperationCheckpoint> {
-    if (!reason || reason.trim().length === 0) {
-      throw new Error("A justification reason is required for maintainer recovery actions.");
-    }
-
-    const checkpoint = await OperationCheckpoint.findOne({ operationId });
-    if (!checkpoint) {
-      throw new Error(`Operation not found: ${operationId}`);
-    }
-
-    const priorState = checkpoint.overallState;
-    const targetStateMap: Record<string, OperationStepState> = {
-      RESOLVE: "RESOLVED",
-      FAIL: "FAILED",
-      RETRY: "RETRYABLE",
-      MANUAL_REVIEW: "MANUALLY_REVIEWED",
-    };
-
-    const newState = targetStateMap[action];
-    checkpoint.overallState = newState;
-    checkpoint.nextRecoveryAction = `MAINTAINER_${action}`;
-
-    checkpoint.steps.push({
-      stepName: `MAINTAINER_ACTION_${action}`,
-      state: newState,
-      timestamp: new Date(),
-      data: { maintainerId, reason, priorStep: checkpoint.currentStep },
-    });
-
-    await checkpoint.save();
-
-    // Audit maintainer recovery action
-    try {
-      await recordAccessOrOwnershipChange({
-        action: "operation_recovery",
-        result: "success",
-        actor: maintainerId,
-        target: operationId,
-        targetType: "system",
-        beforeState: { priorState, action },
-        afterState: { newState, maintainerId },
-        reason,
-      });
-    } catch (err) {
-      logger.warn("Could not audit maintainer operation recovery", { error: err });
-    }
-
-    return checkpoint;
-  }
-
-  /**
-   * Expose diagnostics for stuck pending operations exceeding a configured threshold.
-   */
-  static async getStuckOperationsDiagnostics(
-    thresholdMinutes: number = DEFAULT_STUCK_THRESHOLD_MINUTES
-  ): Promise<{
-    thresholdMinutes: number;
-    totalStuck: number;
-    diagnostics: StuckOperationDiagnostic[];
-  }> {
-    const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
-    const stuckList = await OperationCheckpoint.find({
-      overallState: {
-        $in: [
-          "PENDING",
-          "INITIALIZED",
-          "PREVALIDATED",
-          "ONCHAIN_SUBMITTED",
-          "RETRYABLE",
-          "RECOVERABLE",
-          "MANUALLY_REVIEWED",
-        ],
-      },
-      updatedAt: { $lt: cutoff },
-    }).sort({ updatedAt: 1 });
-
-    const now = Date.now();
-    const diagnostics: StuckOperationDiagnostic[] = stuckList.map((doc: any) => {
-      const minutesStale = Math.round((now - new Date(doc.updatedAt).getTime()) / (60 * 1000));
-      const hasOnchainBroadcast = doc.steps.some(
-        (s: ICheckpointStep) => s.state === "ONCHAIN_SUBMITTED" || !!s.txHash
-      );
-      const onchainStep = doc.steps.find((s: ICheckpointStep) => !!s.txHash);
-
-      const canonicalState = this.normalizeState(doc.overallState);
-
-      let recommendedAction: "RETRY" | "ROLLBACK" | "MANUAL_REVIEW" = "RETRY";
-      if (doc.retryCount >= doc.maxRetries || canonicalState === "MANUALLY_REVIEWED") {
-        recommendedAction = "MANUAL_REVIEW";
-      } else if (canonicalState === "FAILED") {
-        recommendedAction = "ROLLBACK";
-      }
-
-      return {
-        operationId: doc.operationId,
-        operationType: doc.operationType,
-        userId: doc.userId,
-        currentStep: doc.currentStep,
-        overallState: doc.overallState,
-        canonicalState,
-        minutesStale,
-        retryCount: doc.retryCount,
-        maxRetries: doc.maxRetries,
-        lastError: doc.lastError,
-        recommendedAction,
-        hasOnchainBroadcast,
-        onchainTxHash: onchainStep?.txHash,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-      };
-    });
-
-    return {
-      thresholdMinutes,
-      totalStuck: diagnostics.length,
-      diagnostics,
-    };
-  }
+function toResult(cp: OrphanRepairCheckpoint, resumed: boolean): OrphanRepairResult {
+  return {
+    runId: cp.runId,
+    status: cp.status,
+    processed: cp.processed,
+    repaired: cp.repaired,
+    skipped: cp.skipped,
+    failed: cp.failed,
+    resumed,
+  };
 }

@@ -44,7 +44,8 @@ function parseArgs(args: string[]): ParsedArgs {
           "  npm run repair:entitlement -- --resume <run-id> --checkpoint-file <path> [--apply]\n" +
           "  npm run repair:entitlement -- --status --checkpoint-file <path>\n" +
           "Defaults to dry-run; --apply persists repairs and audit records.\n" +
-          "Batch runs checkpoint after every purchase so an interrupted run can be resumed.",
+          "Batch runs checkpoint after every purchase so an interrupted run can be resumed.\n" +
+          "Purchases that fail are retried up to 3 total attempts across resumes, then left FAILED for manual review.",
       );
       process.exit(0);
     } else {

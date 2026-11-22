@@ -33,8 +33,6 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Environment files
-.env
-.env.*
 !.env.example
 
 # Local-only files
@@ -43,7 +41,6 @@ lerna-debug.log*
 # Editor / OS artifacts
 .DS_Store
 Thumbs.db
-.vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea/
@@ -70,3 +67,4 @@ deploy-manifests/
 
 # Operator backfill checkpoints (#966)
 backfill-checkpoints/
+config.bat

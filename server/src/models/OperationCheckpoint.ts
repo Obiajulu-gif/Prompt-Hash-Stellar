@@ -235,6 +235,18 @@ export async function recordRepairCheckpoint(
   );
 }
 
+/**
+ * Resumable orphan-repair checkpoint support.
+ *
+ * Edge cases / recovery behavior:
+ * - Lease acquisition is atomic (single updateOne); an expired lease may be stolen,
+ *   so a worker must re-validate state after acquiring it.
+ * - recordRepairCheckpoint only writes when the caller still holds the lease; a
+ *   null return means the lease was lost and the worker must stop (no rollback needed,
+ *   the step was not recorded).
+ * - Retries are bounded by maxRetries; exhausting retries routes to manual review.
+ * - Releasing a lease owned by someone else is a no-op (returns false).
+ */
 export const OperationCheckpoint =
   (mongoose.models.OperationCheckpoint as mongoose.Model<IOperationCheckpoint>) ||
   mongoose.model<IOperationCheckpoint>(
