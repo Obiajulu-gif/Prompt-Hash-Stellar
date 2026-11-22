@@ -28,3 +28,20 @@ HTTP 408, 425, 429, and 5xx responses retry up to three attempts with exponentia
 - If a deploy changes a route contract, keep the old monitor running until the new path passes once, then update the service and tests together. The API itself is not modified by this monitor.
 
 Unlock retries reuse the journey's idempotency key. Each new journey gets a separate key, including concurrent journeys that start in the same millisecond.
+
+## Coverage and verification
+
+The synthetic journey is covered for the following paths:
+
+- **Normal path:** browse, challenge issuance, and unlock all return expected 2xx responses.
+- **Failure path:** a non-retryable validation or authorization failure stops the journey at the failing step, exits non-zero, and reports that step.
+- **Retry path:** HTTP 408, 425, 429, and 5xx responses retry up to three attempts with exponential backoff, reusing the same idempotency key on unlock.
+- **Authorization path:** the `authorization-probe` mode must receive `401 INVALID_SIGNATURE`; any 2xx is a critical failure. The `authorized` mode must receive a 2xx unlock from the pre-entitled fixture.
+
+Automated checks should exercise each path against a stubbed HTTP server so that retry counts, backoff behavior, stop-on-first-failure semantics, and exit codes are verified without touching a live environment.
+
+## Edge cases and rollback
+
+- If the monitor itself cannot reach the base URL (DNS or connection failure), treat it as a transient failure subject to the retry policy, and report the browse step as failed after retries are exhausted.
+- If a retry succeeds after a transient failure, the run is reported as passing, with the attempt count recorded.
+- Rollback is limited to the monitor: disable its scheduler entry and, if needed, restore the previous monitor revision. The application and its contracts are not changed by this document or the monitor.
