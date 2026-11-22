@@ -74,3 +74,25 @@ export function loseResponseAfter<A extends unknown[], R>(
     return result;
   };
 }
+
+/**
+ * Runs `attempt` with retries until it succeeds or the budget is spent. Retries
+ * reuse the same idempotency key, so a committed-but-unacknowledged call is
+ * replayed rather than duplicated. Returns the number of attempts used.
+ */
+export async function retryWithSameKey<R>(
+  attempt: (key: string) => Promise<R>,
+  key: string,
+  maxAttempts: number,
+): Promise<{ result: R; attempts: number }> {
+  let lastError: unknown;
+  for (let n = 1; n <= maxAttempts; n++) {
+    try {
+      return { result: await attempt(key), attempts: n };
+    } catch (err) {
+      if (!(err instanceof InjectedFault)) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
+}

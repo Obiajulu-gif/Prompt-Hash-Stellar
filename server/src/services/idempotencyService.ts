@@ -107,3 +107,32 @@ export async function completeIdempotentRequest(input: {
 export function replayStatus(record: IIdempotencyRecord): number {
   return record.statusCode ?? (record.status === "succeeded" ? 200 : 500);
 }
+
+/**
+ * Failure-injection hook for end-to-end tests of critical workflows.
+ * Injected failures simulate a crash between the durable `processing` gate and
+ * `completeIdempotentRequest`, so a subsequent retry must observe a
+ * `in_progress` (not a duplicate execution) decision. Disabled unless
+ * IDEMPOTENCY_FAILURE_INJECTION=1 so production behavior is unchanged.
+ */
+export type FailureInjectionPoint = "after_gate" | "before_complete";
+
+const injectedFailures = new Set<FailureInjectionPoint>();
+
+export function injectIdempotencyFailure(point: FailureInjectionPoint): void {
+  if (process.env.IDEMPOTENCY_FAILURE_INJECTION !== "1") {
+    throw new Error("Failure injection is disabled; set IDEMPOTENCY_FAILURE_INJECTION=1.");
+  }
+  injectedFailures.add(point);
+}
+
+export function clearIdempotencyFailures(): void {
+  injectedFailures.clear();
+}
+
+export function maybeFailAt(point: FailureInjectionPoint): void {
+  if (injectedFailures.has(point)) {
+    injectedFailures.delete(point);
+    throw new Error(`Injected idempotency failure at ${point}`);
+  }
+}

@@ -90,3 +90,31 @@ passing a different `EscalationNotifier` to `runEscalationSweep`.
 exhaustion, resolution, a policy change that moves a failure from due to not yet
 due, policy validation (every issue reported in one pass), the report ordering, and
 the sweep's claim and release paths.
+
+## Failure injection
+The end-to-end failure-injection coverage exercises the four path types for the
+escalation workflow:
+
+- **Normal path:** a failure is created, the first notice is sent at `afterMs`,
+  and repeats follow `repeatEveryMs` until `maxNotifications` is reached.
+- **Failure path:** a notifier send that throws releases its claim, increments
+  `notificationAttempts`, and records `escalation.lastError`. The next sweep
+  retries that same notice.
+- **Retry path:** after a released claim, a later sweep re-evaluates the failure
+  from persisted state. The notice is retried exactly once per successful claim.
+- **Authorization path:** `GET /policy` and `GET /report` require
+  `escalations:read`, and `POST /sweep` requires `escalations:write`. Requests
+  missing the scope are rejected before any state is read or changed.
+
+**Edge cases and recovery**
+
+- Overlapping sweeps cannot double-notify, because the guarded claim fails for
+  the loser.
+- A process crash between claim and send skips one notice (documented trade-off);
+  the failure remains visible as an active escalation in the report.
+- An invalid `ESCALATION_POLICY_JSON` fails loudly at startup and on
+  `GET /policy`; it never silently falls back to defaults.
+- Resolving a failure stops escalation immediately; no rollback of counters is
+  needed because `notificationsSent` is never decremented on resolution.
+- Policy changes are versioned via `policyVersion`; a change that pushes a failure
+  back into `not_yet_due` pauses notices without altering recorded counts.
