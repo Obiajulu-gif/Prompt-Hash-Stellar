@@ -7,6 +7,35 @@
  * per event. It mirrors the `#[contractevent]` struct definitions in
  * `contracts/prompt-hash/src/events.rs` as of schema version 1.
  *
+ * ## Schema drift detection
+ * `detectSchemaDrift` compares an observed event payload (field names and
+ * primitive shapes as seen on the wire or in a consumer's decoder) against
+ * the canonical schema for that event name and version. It classifies every
+ * mismatch so cross-service consumers can distinguish:
+ *   - `missing_field`: a field required by the schema is absent (breaking).
+ *   - `type_mismatch`: a field exists but its declared type disagrees (breaking).
+ *   - `unexpected_field`: the observed payload carries a field the schema does
+ *     not know about (additive drift; tolerated but reported).
+ *   - `unknown_event`: no schema is registered for the event name/version.
+ *
+ * Authorization path: drift reports are only trusted when the observed
+ * payload originates from a source on the allowlist passed by the caller.
+ * Payloads from unlisted sources are rejected with `unauthorized_source`
+ * and never produce a drift verdict, so an untrusted producer cannot spoof
+ * a "compatible" result for a breaking change.
+ *
+ * Retry path: `detectSchemaDriftWithRetry` re-runs detection when the
+ * observed payload is still being produced (transient decoding failure).
+ * Retries stop on the first conclusive verdict; exhausted retries return
+ * the last error so callers can roll back or alert instead of looping.
+ *
+ * ## Edge cases and recovery
+ * - An observed payload that is not an object yields `malformed_payload`.
+ * - An unknown version falls back to `unknown_event` (never silently to v1).
+ * - Rollback: callers should keep the previously pinned schema version and
+ *   switch back to it when `drift.breaking` is true; this module never mutates
+ *   the registry at runtime, so rollback is simply re-pinning a version.
+ *
  * ## What this does NOT cover yet (see docs/event-versioning.md)
  * - The contract does not currently emit an explicit `version` field on the
  *   wire — every event is treated as implicit version 1 until events.rs is
@@ -367,3 +396,197 @@ export function getEventSchema(type: string, version: number = 1): EventSchema |
   return ALL_EVENT_SCHEMAS[type]?.[version];
 }
 
+/** Classification of a single schema drift finding. */
+export type DriftKind =
+  | "missing_field"
+  | "type_mismatch"
+  | "unexpected_field";
+
+export interface DriftFinding {
+  kind: DriftKind;
+  field: string;
+  expected?: EventFieldType;
+  observed?: string;
+  /** `missing_field` and `type_mismatch` are breaking; `unexpected_field` is additive. */
+  breaking: boolean;
+}
+
+export type DriftStatus =
+  | "compatible"
+  | "drifted"
+  | "malformed_payload"
+  | "unknown_event"
+  | "unauthorized_source";
+
+export interface DriftReport {
+  status: DriftStatus;
+  eventName: string;
+  version: number;
+  findings: DriftFinding[];
+  /** True when any finding is breaking, or the verdict is not conclusive. */
+  breaking: boolean;
+}
+
+/** Observed payload: field name -> raw value as seen by the consumer. */
+export type ObservedPayload = Record<string, unknown>;
+
+/** Optional observed type tags, keyed by field name, used when values are ambiguous. */
+export type ObservedTypes = Record<string, string>;
+
+export interface DriftInput {
+  eventName: string;
+  version?: number;
+  payload: unknown;
+  /** Optional explicit observed types; when absent, types are inferred from values. */
+  observedTypes?: ObservedTypes;
+  /** Producer identifier; checked against `allowedSources` when provided. */
+  source?: string;
+}
+
+export interface DriftOptions {
+  /** If set, payloads whose `source` is not in this list are rejected. */
+  allowedSources?: readonly string[];
+}
+
+function inferObservedType(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "boolean") return "bool";
+  if (typeof value === "string") return value.startsWith("G") || value.startsWith("C") ? "address" : "string";
+  if (typeof value === "bigint") return "integer";
+  if (typeof value === "number") return Number.isInteger(value) ? "integer" : "number";
+  if (Array.isArray(value)) return "vec";
+  if (typeof value === "object") return "object";
+  return typeof value;
+}
+
+/** Whether an observed type tag is an acceptable realisation of a schema type. */
+function isCompatible(expected: EventFieldType, observed: string): boolean {
+  switch (expected) {
+    case "u32":
+    case "u64":
+    case "u128":
+    case "i128":
+      return observed === "integer" || observed === expected;
+    case "bool":
+      return observed === "bool";
+    case "string":
+      return observed === "string";
+    case "address":
+      return observed === "address" || observed === "string";
+    case "bytes32":
+      return observed === "bytes32" || observed === "string" || observed === "object";
+    case "option<address>":
+      return observed === "null" || observed === "address" || observed === "string";
+    case "vec<u64>":
+      return observed === "vec";
+    default:
+      return false;
+  }
+}
+
+/**
+ * Compares an observed payload against the canonical schema for an event.
+ * Pure function: does not mutate the registry or the input.
+ */
+export function detectSchemaDrift(input: DriftInput, options: DriftOptions = {}): DriftReport {
+  const version = input.version ?? 1;
+  const base = { eventName: input.eventName, version, findings: [] as DriftFinding[] };
+
+  if (
+    options.allowedSources &&
+    (input.source === undefined || !options.allowedSources.includes(input.source))
+  ) {
+    return { ...base, status: "unauthorized_source", breaking: true };
+  }
+
+  const schema = getEventSchema(input.eventName, version);
+  if (!schema) {
+    return { ...base, status: "unknown_event", breaking: true };
+  }
+
+  if (typeof input.payload !== "object" || input.payload === null || Array.isArray(input.payload)) {
+    return { ...base, status: "malformed_payload", breaking: true };
+  }
+
+  const payload = input.payload as ObservedPayload;
+  const findings: DriftFinding[] = [];
+  const expectedNames = new Set(schema.fields.map((f) => f.name));
+
+  for (const field of schema.fields) {
+    if (!(field.name in payload)) {
+      // Optional (`option<...>`) fields may be absent-as-null; absence of a
+      // required field is breaking.
+      if (field.type === "option<address>") continue;
+      findings.push({
+        kind: "missing_field",
+        field: field.name,
+        expected: field.type,
+        breaking: true,
+      });
+      continue;
+    }
+    const observed = input.observedTypes?.[field.name] ?? inferObservedType(payload[field.name]);
+    if (!isCompatible(field.type, observed)) {
+      findings.push({
+        kind: "type_mismatch",
+        field: field.name,
+        expected: field.type,
+        observed,
+        breaking: true,
+      });
+    }
+  }
+
+  for (const key of Object.keys(payload)) {
+    if (!expectedNames.has(key)) {
+      findings.push({ kind: "unexpected_field", field: key, observed: inferObservedType(payload[key]), breaking: false });
+    }
+  }
+
+  const breaking = findings.some((f) => f.breaking);
+  return {
+    ...base,
+    findings,
+    status: findings.length === 0 ? "compatible" : "drifted",
+    breaking,
+  };
+}
+
+export interface RetryOptions {
+  /** Total attempts including the first. Defaults to 3. */
+  maxAttempts?: number;
+  /** Produces the payload for a given attempt (1-based); used when the producer is still settling. */
+  fetchPayload: (attempt: number) => unknown;
+  /** Returns true when a report is conclusive and retrying should stop. */
+  isConclusive?: (report: DriftReport) => boolean;
+}
+
+export interface RetryResult {
+  report: DriftReport;
+  attempts: number;
+  exhausted: boolean;
+}
+
+/**
+ * Retries drift detection while the observed payload is not yet conclusive
+ * (by default: a `malformed_payload` result from a still-settling producer).
+ * Stops on the first conclusive verdict; returns the last report with
+ * `exhausted: true` when retries run out, so callers can alert or roll back.
+ */
+export function detectSchemaDriftWithRetry(
+  input: Omit<DriftInput, "payload">,
+  retry: RetryOptions,
+  options: DriftOptions = {},
+): RetryResult {
+  const maxAttempts = Math.max(1, retry.maxAttempts ?? 3);
+  const isConclusive =
+    retry.isConclusive ?? ((r: DriftReport) => r.status !== "malformed_payload");
+  let report: DriftReport | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    report = detectSchemaDrift({ ...input, payload: retry.fetchPayload(attempt) }, options);
+    if (isConclusive(report)) {
+      return { report, attempts: attempt, exhausted: false };
+    }
+  }
+  return { report: report!, attempts: maxAttempts, exhausted: true };
+}
