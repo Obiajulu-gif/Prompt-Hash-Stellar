@@ -77,6 +77,10 @@ The evaluator test suite (`server/src/services/dryRunPolicyEvaluator.test.ts`) c
 
 Run with `npm test --workspace server -- dryRunPolicyEvaluator`.
 
+### CI Note: Dependency Resolution Failure
+
+The Playwright, Frontend, and test check runs fail during Yarn's resolution step with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. The root cause is a `resolutions` entry in the root `package.json` that forces `typescript` to `6.0.3`, which does not satisfy the `^5.0.0` range declared by workspace dependents. To fix this, either align the `resolutions` entry with a version inside the `^5.0.0` range (e.g. `5.x`) or update the dependents' ranges to accept `6.x` after verifying compatibility. Until that is resolved, the install step will fail in CI before any tests or artifacts are produced.
+
 ---
 
 ## 6. Compatibility

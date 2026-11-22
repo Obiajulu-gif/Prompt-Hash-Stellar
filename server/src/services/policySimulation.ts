@@ -7,6 +7,15 @@
  * Vertical slice: a single entry point `simulatePolicyChange` that validates the
  * request, checks authorization, loads affected-record previews with bounded
  * retries, and returns a result. Recovery behavior is documented inline.
+ *
+ * Edge cases / recovery:
+ * - unauthorized actors are rejected before any database read.
+ * - invalid change payloads are rejected before any database read.
+ * - transient query failures are retried (bounded); exhausted retries surface
+ *   `query_failed` and no partial result is returned.
+ * - simulation is read-only: it never mutates state, so there is nothing to roll
+ *   back. Rollback constraints in the result describe how the *real* change could
+ *   be reverted later.
  */
 
 import { db } from '../db/connection';
@@ -80,6 +89,14 @@ export const SIMULATION_QUERY_ATTEMPTS = 3;
 /** Roles allowed to run simulations. Simulation is read-only but reveals business data. */
 const SIMULATION_ROLES = new Set(['admin', 'policy_reviewer']);
 
+const POLICY_CHANGE_TYPES: readonly PolicyChangeType[] = [
+  'fee_adjustment',
+  'price_limit',
+  'access_revocation',
+  'creator_suspension',
+  'bulk_refund',
+];
+
 export class PolicySimulationError extends Error {
   constructor(
     public readonly code:
@@ -100,7 +117,7 @@ export interface SimulationActor {
 }
 
 function assertAuthorized(actor: SimulationActor | undefined): asserts actor is SimulationActor {
-  if (!actor || !actor.id || !actor.roles.some((r) => SIMULATION_ROLES.has(r))) {
+  if (!actor || !actor.id || !Array.isArray(actor.roles) || !actor.roles.some((r) => SIMULATION_ROLES.has(r))) {
     throw new PolicySimulationError('unauthorized', 'Actor is not permitted to run policy simulations');
   }
 }
@@ -127,18 +144,14 @@ async function queryWithRetry<T = any>(text: string, params: any[] = []): Promis
 }
 
 function validateChange(change: PolicyChange): void {
-  const types: PolicyChangeType[] = [
-    'fee_adjustment',
-    'price_limit',
-    'access_revocation',
-    'creator_suspension',
-    'bulk_refund',
-  ];
-  if (!types.includes(change.type)) {
+  if (!POLICY_CHANGE_TYPES.includes(change.type)) {
     throw new PolicySimulationError('invalid_change', `Unknown policy change type: ${change.type}`);
   }
   if (!change.reason || !change.scheduledBy) {
     throw new PolicySimulationError('invalid_change', 'reason and scheduledBy are required');
+  }
+  if (!change.parameters || typeof change.parameters !== 'object') {
+    throw new PolicySimulationError('invalid_change', 'parameters must be an object');
   }
   if (change.type === 'fee_adjustment') {
     const pct = Number(change.parameters.newFeePercentage);
@@ -370,7 +383,7 @@ async function simulateBulkRefund(
   );
 
   const purchaseCount = purchases.length;
-  const totalRefund = purchases.reduce((sum, p) => sum + parseFloat(p.amount_xlm), 0);
+  const totalRefund = purchases.reduce((sum, p) => sum + (parseFloat(p.amount_xlm) || 0), 0);
   const uniqueBuyers = new Set(purchases.map((p) => p.buyer_address)).size;
 
   return {
@@ -378,82 +391,142 @@ async function simulateBulkRefund(
       users: uniqueBuyers,
       prompts: 1,
       purchases: purchaseCount,
-      settlements: purchaseCount,
-      totalXlmImpact: totalRefund,
+      settlements: 0,
+      totalXlmImpact: -totalRefund,
     },
     sideEffects: [
       {
-        description: `${totalRefund} XLM will be refunded to ${uniqueBuyers} buyers`,
-        severity: 'critical',
-        affectedEntities: ['buyers', 'platform_treasury'],
+        description: `${purchaseCount} completed purchases will be refunded`,
+        severity: purchaseCount > 100 ? 'critical' : 'high',
+        affectedEntities: ['purchases', 'buyers'],
         reversible: false,
       },
       {
-        description: 'Prompt will be delisted permanently',
+        description: 'Creator revenue for this prompt is reversed',
         severity: 'high',
-        affectedEntities: ['prompt', 'marketplace'],
-        reversible: false,
-      },
-      {
-        description: 'Buyer access will be revoked',
-        severity: 'high',
-        affectedEntities: ['access_rights'],
-        reversible: false,
-      },
-      {
-        description: 'Creator revenue clawed back',
-        severity: 'critical',
-        affectedEntities: ['creator_balance'],
+        affectedEntities: ['creator_settlements'],
         reversible: false,
       },
     ],
     rollbackConstraints: [
-      { constraint: 'Refunds are irreversible once processed', canRollback: false },
-      { constraint: 'On-chain transactions cannot be undone', canRollback: false },
-      { constraint: 'Access revocation is permanent', canRollback: false },
+      {
+        constraint: 'Refunds submitted on-chain cannot be recalled',
+        canRollback: false,
+      },
     ],
     risks: [
       {
-        description: 'Treasury may lack sufficient XLM for refunds',
-        probability: totalRefund > 10000 ? 'medium' : 'low',
+        description: 'Refund wave exceeds available treasury balance',
+        probability: 'medium',
         impact: 'critical',
-        mitigation: 'Verify treasury balance before execution',
-      },
-      {
-        description: 'Creator dispute and reputation damage',
-        probability: 'high',
-        impact: 'high',
-        mitigation: 'Clear violation evidence, legal review',
-      },
-      {
-        description: 'Processing time for large refund batch',
-        probability: purchaseCount > 100 ? 'high' : 'low',
-        impact: 'medium',
-        mitigation: 'Batch refunds in groups of 50, monitor progress',
+        mitigation: 'Verify treasury balance covers totalXlmImpact before execution',
       },
     ],
-    estimatedDuration: purchaseCount * 2,
+    estimatedDuration: Math.max(5, Math.ceil(purchaseCount / 10)),
     preview: {
-      sampleAffectedUsers: purchases.slice(0, MAX_PREVIEW_SAMPLE),
-      sampleAffectedPrompts: [],
-      sampleTransactions: [],
+      sampleAffectedUsers: [],
+      sampleAffectedPrompts: [{ id: promptId }],
+      sampleTransactions: purchases.slice(0, MAX_PREVIEW_SAMPLE),
     },
   };
 }
 
+async function simulatePriceLimit(
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const maxPriceXlm = Number(change.parameters.maxPriceXlm ?? NaN);
+  if (!Number.isFinite(maxPriceXlm) || maxPriceXlm < 0) {
+    throw new PolicySimulationError('invalid_change', 'maxPriceXlm must be a non-negative number');
+  }
+  const [over] = await queryWithRetry<{ count: string }>(
+    `SELECT COUNT(*) as count FROM prompts WHERE is_active = true AND price_xlm > $1`,
+    [maxPriceXlm],
+  );
+  const sample = await queryWithRetry(
+    `SELECT id, title, price_xlm FROM prompts
+     WHERE is_active = true AND price_xlm > $1 ORDER BY price_xlm DESC LIMIT $2`,
+    [maxPriceXlm, MAX_PREVIEW_SAMPLE],
+  );
+  const count = Number(over?.count ?? 0);
+  return {
+    affectedRecords: { users: 0, prompts: count, purchases: 0, settlements: 0, totalXlmImpact: 0 },
+    sideEffects: [
+      {
+        description: `${count} active prompts priced above ${maxPriceXlm} XLM would be repriced`,
+        severity: count > 0 ? 'medium' : 'low',
+        affectedEntities: ['prompts'],
+        reversible: true,
+      },
+    ],
+    rollbackConstraints: [
+      { constraint: 'Repricing applies to listings going forward', canRollback: true, timeWindow: 'any time' },
+    ],
+    risks: [
+      {
+        description: 'Creators object to forced repricing',
+        probability: 'medium',
+        impact: 'medium',
+        mitigation: 'Notify affected creators before applying',
+      },
+    ],
+    estimatedDuration: 3,
+    preview: { sampleAffectedUsers: [], sampleAffectedPrompts: sample, sampleTransactions: [] },
+  };
+}
+
+async function simulateAccessRevocation(
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const buyerAddress = String(change.parameters.buyerAddress ?? '');
+  if (!buyerAddress) {
+    throw new PolicySimulationError('invalid_change', 'buyerAddress is required');
+  }
+  const sample = await queryWithRetry(
+    `SELECT id, prompt_id, amount_xlm, created_at FROM purchases
+     WHERE buyer_address = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT $2`,
+    [buyerAddress, MAX_PREVIEW_SAMPLE],
+  );
+  const [totals] = await queryWithRetry<{ count: string; total: string }>(
+    `SELECT COUNT(*) as count, COALESCE(SUM(amount_xlm), 0) as total FROM purchases
+     WHERE buyer_address = $1 AND status = 'completed'`,
+    [buyerAddress],
+  );
+  const count = Number(totals?.count ?? 0);
+  return {
+    affectedRecords: {
+      users: 1,
+      prompts: 0,
+      purchases: count,
+      settlements: 0,
+      totalXlmImpact: 0,
+    },
+    sideEffects: [
+      {
+        description: `Buyer loses access to ${count} purchased prompts`,
+        severity: count > 0 ? 'high' : 'low',
+        affectedEntities: ['buyer_access'],
+        reversible: true,
+      },
+    ],
+    rollbackConstraints: [
+      { constraint: 'Access can be restored by re-granting', canRollback: true, timeWindow: 'any time' },
+    ],
+    risks: [
+      {
+        description: 'Buyer dispute over revoked access',
+        probability: 'medium',
+        impact: 'medium',
+        mitigation: 'Require documented reason and support escalation path',
+      },
+    ],
+    estimatedDuration: 2,
+    preview: { sampleAffectedUsers: [{ buyerAddress }], sampleAffectedPrompts: [], sampleTransactions: sample },
+  };
+}
+
 /**
- * Simulate a policy change. Read-only: never mutates prompts, purchases, or
- * settlements. Requires an authorized actor.
- *
- * Failure modes:
- * - unauthorized actor -> PolicySimulationError('unauthorized') before any query
- * - malformed change -> PolicySimulationError('invalid_change') before any query
- * - unknown creator / prompt -> PolicySimulationError('not_found')
- * - transient DB error -> retried up to SIMULATION_QUERY_ATTEMPTS, then 'query_failed'
- *
- * Rollback: nothing is written, so there is nothing to roll back. Simulation
- * results are advisory and may become stale; callers should re-simulate if the
- * underlying data changes before applying.
+ * Simulates a policy change and returns an affected-record preview.
+ * Read-only: performs no writes. Throws PolicySimulationError on failure.
  */
 export async function simulatePolicyChange(
   actor: SimulationActor | undefined,
@@ -473,17 +546,13 @@ export async function simulatePolicyChange(
     case 'bulk_refund':
       body = await simulateBulkRefund(change);
       break;
-    default:
-      throw new PolicySimulationError(
-        'invalid_change',
-        `Simulation not implemented for ${change.type}`,
-      );
+    case 'price_limit':
+      body = await simulatePriceLimit(change);
+      break;
+    case 'access_revocation':
+      body = await simulateAccessRevocation(change);
+      break;
   }
-
-  logger.info(
-    { actor: actor.id, type: change.type, users: body.affectedRecords.users },
-    'policy simulation completed',
-  );
 
   return {
     policyChange: change,
