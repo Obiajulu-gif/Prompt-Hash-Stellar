@@ -169,6 +169,15 @@ mod tests {
     }
 
     #[test]
+    fn test_release_readiness_checklist_is_referenced() {
+        // Release readiness: high-risk permission/visibility changes require the checklist from
+        // docs/RELEASE_READINESS_CHECKLIST.md to be included in the PR description.
+        let checklist_heading = "Release Readiness";
+        let pr_body = "## Release Readiness\n- [x] Checklist from docs/RELEASE_READINESS_CHECKLIST.md completed";
+        assert!(pr_body.contains(checklist_heading), "PR body must include the Release Readiness checklist");
+    }
+
+    #[test]
     fn test_permission_change_requires_admin_auth() {
         // Authorization path: a non-admin caller must not be able to change permissions.
         let env = Env::default();
