@@ -51,6 +51,46 @@ export const GRANT_STATUS_PRECEDENCE: Readonly<Record<string, number>> = Object.
   revoked: 4,
 });
 
+/**
+ * Status precedence for service components and probes (#1184).
+ * Operational dashboards and status pages surface `down` and `degraded`
+ * services ahead of `up`/`healthy` services, breaking ties by name.
+ */
+export const COMPONENT_STATUS_PRECEDENCE: Readonly<Record<string, number>> = Object.freeze({
+  down: 1,
+  degraded: 2,
+  up: 3,
+  healthy: 3,
+});
+
+/**
+ * Severity precedence for operational health exceptions and incidents (#1184).
+ */
+export const SEVERITY_STATUS_PRECEDENCE: Readonly<Record<string, number>> = Object.freeze({
+  critical: 1,
+  high: 2,
+  warning: 2,
+  medium: 3,
+  info: 4,
+  low: 4,
+});
+
+/**
+ * Status precedence for background jobs and webhook outbox/inbound events (#1184).
+ */
+export const JOB_AND_WEBHOOK_STATUS_PRECEDENCE: Readonly<Record<string, number>> = Object.freeze({
+  dead_letter: 1,
+  failed: 2,
+  verification_failed: 2,
+  quarantined: 3,
+  processing: 4,
+  pending: 5,
+  processed: 6,
+  delivered: 6,
+  completed: 6,
+  skipped: 7,
+});
+
 export interface SortableRecord {
   id: string;
   status: string;
@@ -110,6 +150,10 @@ export function getStatusRank(
   precedence: Record<string, number> = PROMPT_STATUS_PRECEDENCE,
 ): number {
   const norm = (status || "").toLowerCase().trim();
+  if (norm.startsWith("__rank_")) {
+    const parsed = Number.parseInt(norm.slice(7), 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
   return precedence[norm] ?? 999;
 }
 
@@ -252,6 +296,159 @@ export function decodeDeterministicCursor(
   } catch {
     throw new DeterministicSortError("invalid_cursor", "Failed to deserialize cursor payload.");
   }
+}
+
+function toEpochMs(value: unknown): number {
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+/**
+ * Deterministically orders service/probe status checks (#1184).
+ *
+ * Order:
+ *   1. Status severity (`down` < `degraded` < `up`/`healthy`)
+ *   2. Higher latency first among equal status (null latency treated as -1)
+ *   3. Canonical lexicographic name tie-breaker
+ */
+export function sortStatusComponentsDeterministically<
+  T extends { name: string; status: string; latencyMs?: number | null },
+>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => {
+    const rankA = getStatusRank(a.status, COMPONENT_STATUS_PRECEDENCE);
+    const rankB = getStatusRank(b.status, COMPONENT_STATUS_PRECEDENCE);
+    if (rankA !== rankB) return rankA - rankB;
+
+    const latA = typeof a.latencyMs === "number" && Number.isFinite(a.latencyMs) ? a.latencyMs : -1;
+    const latB = typeof b.latencyMs === "number" && Number.isFinite(b.latencyMs) ? b.latencyMs : -1;
+    if (latA !== latB) return latB - latA;
+
+    return String(a.name ?? "").localeCompare(String(b.name ?? ""), "en", { sensitivity: "variant" });
+  });
+}
+
+/**
+ * Deterministically orders maintenance banners (#1184).
+ *
+ * Order:
+ *   1. Severity (`critical` < `warning` < `info`)
+ *   2. Earlier `endsAt` first (soonest window boundary)
+ *   3. Canonical lexicographic `id` tie-breaker
+ */
+export function sortMaintenanceBannersDeterministically<
+  T extends { id?: string; _id?: unknown; severity?: string; endsAt?: string | Date; startsAt?: string | Date },
+>(banners: readonly T[]): T[] {
+  return [...banners].sort((a, b) => {
+    const sevA = getStatusRank(String(a.severity ?? "info"), SEVERITY_STATUS_PRECEDENCE);
+    const sevB = getStatusRank(String(b.severity ?? "info"), SEVERITY_STATUS_PRECEDENCE);
+    if (sevA !== sevB) return sevA - sevB;
+
+    const endA = toEpochMs(a.endsAt ?? a.startsAt);
+    const endB = toEpochMs(b.endsAt ?? b.startsAt);
+    if (endA !== endB) return endA - endB;
+
+    const idA = String(a.id ?? a._id ?? "");
+    const idB = String(b.id ?? b._id ?? "");
+    return idA.localeCompare(idB, "en", { sensitivity: "variant" });
+  });
+}
+
+/**
+ * Deterministically orders operational health exceptions or incidents (#1184).
+ *
+ * Order:
+ *   1. Severity / Priority (`CRITICAL` < `HIGH` < `MEDIUM` < `LOW`)
+ *   2. Timestamp (`occurredAt` or `createdAt`, newest first by default)
+ *   3. Canonical lexicographic `id` tie-breaker
+ */
+export function sortOperationalAlertsDeterministically<
+  T extends {
+    id: string;
+    severity?: string;
+    priority?: string;
+    status?: string;
+    occurredAt?: string | Date;
+    createdAt?: string | Date;
+  },
+>(items: readonly T[], direction: "asc" | "desc" = "desc"): T[] {
+  const timeFactor = direction === "desc" ? -1 : 1;
+  return [...items].sort((a, b) => {
+    const rankA = getStatusRank(String(a.severity ?? a.priority ?? a.status ?? ""), SEVERITY_STATUS_PRECEDENCE);
+    const rankB = getStatusRank(String(b.severity ?? b.priority ?? b.status ?? ""), SEVERITY_STATUS_PRECEDENCE);
+    if (rankA !== rankB) return rankA - rankB;
+
+    const timeA = toEpochMs(a.occurredAt ?? a.createdAt);
+    const timeB = toEpochMs(b.occurredAt ?? b.createdAt);
+    if (timeA !== timeB) return (timeA - timeB) * timeFactor;
+
+    return String(a.id ?? "").localeCompare(String(b.id ?? ""), "en", { sensitivity: "variant" });
+  });
+}
+
+/**
+ * Deterministically orders event lists (inbound webhooks, outbox dead-letters,
+ * background jobs, or timeline events) (#1184).
+ *
+ * Order:
+ *   1. Primary timestamp (`deadLetteredAt` ?? `createdAt` ?? `updatedAt`, newest first by default)
+ *   2. Status rank (`JOB_AND_WEBHOOK_STATUS_PRECEDENCE`)
+ *   3. Secondary sequence/attempt metric (`sequence` ?? `attemptCount` ?? `attempts`)
+ *   4. Canonical lexicographic `_id` / `id` / `eventId` tie-breaker
+ */
+export function sortEventListDeterministically<T extends Record<string, any>>(
+  events: readonly T[],
+  options: {
+    direction?: "asc" | "desc";
+    groupByStatus?: boolean;
+    timestampField?: string;
+  } = {},
+): T[] {
+  const direction = options.direction ?? "desc";
+  const factor = direction === "desc" ? -1 : 1;
+  const groupByStatus = options.groupByStatus ?? false;
+
+  return [...events].sort((a, b) => {
+    const idA = String(a._id ?? a.id ?? a.eventId ?? a.idempotencyKey ?? "");
+    const idB = String(b._id ?? b.id ?? b.eventId ?? b.idempotencyKey ?? "");
+    if (idA && idA === idB) return 0;
+
+    const statusA = String(a.processingStatus ?? a.status ?? "");
+    const statusB = String(b.processingStatus ?? b.status ?? "");
+    const rankA = getStatusRank(statusA, JOB_AND_WEBHOOK_STATUS_PRECEDENCE);
+    const rankB = getStatusRank(statusB, JOB_AND_WEBHOOK_STATUS_PRECEDENCE);
+
+    const tsField = options.timestampField;
+    const timeA = toEpochMs(
+      tsField ? a[tsField] : (a.deadLetteredAt ?? a.createdAt ?? a.updatedAt ?? a.occurredAt),
+    );
+    const timeB = toEpochMs(
+      tsField ? b[tsField] : (b.deadLetteredAt ?? b.createdAt ?? b.updatedAt ?? b.occurredAt),
+    );
+
+    if (groupByStatus) {
+      if (rankA !== rankB) return rankA - rankB;
+      if (timeA !== timeB) return (timeA - timeB) * factor;
+    } else {
+      if (timeA !== timeB) return (timeA - timeB) * factor;
+      if (rankA !== rankB) return rankA - rankB;
+    }
+
+    const seqA = Number(a.sequence ?? a.attemptCount ?? a.attempts ?? 0);
+    const seqB = Number(b.sequence ?? b.attemptCount ?? b.attempts ?? 0);
+    if (Number.isFinite(seqA) && Number.isFinite(seqB) && seqA !== seqB) {
+      return (seqA - seqB) * factor;
+    }
+
+    return idA.localeCompare(idB, "en", { sensitivity: "variant" }) * factor;
+  });
 }
 
 /**

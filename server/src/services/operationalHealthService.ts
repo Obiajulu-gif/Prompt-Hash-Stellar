@@ -13,6 +13,10 @@ import SupportCase from "../models/SupportCase.js";
 import { IndexerState } from "../models/IndexerState.js";
 import { LedgerEntry } from "../models/LedgerEntry.js";
 import { logger } from "./structuredLogger.js";
+import {
+  sortOperationalAlertsDeterministically,
+  sortEventListDeterministically,
+} from "./deterministicSorting.js";
 
 export interface RedactedExceptionItem {
   id: string;
@@ -338,20 +342,27 @@ export class OperationalHealthService {
       overallStatus = "DEGRADED";
     }
 
+    const sortedExceptions = sortOperationalAlertsDeterministically(exceptions, "desc");
+    const sortedStaleJobs = sortEventListDeterministically(
+      staleJobs.map((j) => ({ ...j, _sortKey: j.stuckDurationMinutes })),
+      { direction: "desc", timestampField: "_sortKey" },
+    ).map(({ _sortKey: _ignored, ...rest }) => rest as StaleJobItem);
+    const sortedIncidents = sortOperationalAlertsDeterministically(incidents, "desc");
+
     return {
       timestamp: now.toISOString(),
       status: overallStatus,
       summary: {
-        totalUnresolvedExceptions: exceptions.length,
-        staleJobsCount: staleJobs.length,
+        totalUnresolvedExceptions: sortedExceptions.length,
+        staleJobsCount: sortedStaleJobs.length,
         reconciliationDriftCount: reconciliationDrift.unsettledLedgerEntriesCount,
-        activeIncidentsCount: incidents.length,
+        activeIncidentsCount: sortedIncidents.length,
       },
       categories: {
-        unresolvedExceptions: exceptions,
-        staleJobs,
+        unresolvedExceptions: sortedExceptions,
+        staleJobs: sortedStaleJobs,
         reconciliationDrift,
-        activeIncidents: incidents,
+        activeIncidents: sortedIncidents,
       },
     };
   }

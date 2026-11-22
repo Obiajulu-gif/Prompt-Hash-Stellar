@@ -97,7 +97,7 @@ export async function listDeadLetters(filter: {
   const query: Record<string, unknown> = { status: "dead_letter" as WebhookOutboxStatus };
   if (filter.subscriptionId) query.subscriptionId = filter.subscriptionId;
   return WebhookOutboxEvent.find(query)
-    .sort({ deadLetteredAt: -1 })
+    .sort({ deadLetteredAt: -1, _id: -1 })
     .limit(Math.min(filter.limit ?? 100, 500));
 }
 

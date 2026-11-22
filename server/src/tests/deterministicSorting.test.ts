@@ -9,8 +9,13 @@ import {
   DeterministicSortError,
   PROMPT_STATUS_PRECEDENCE,
   EVENT_STATUS_PRECEDENCE,
+  sortStatusComponentsDeterministically,
+  sortMaintenanceBannersDeterministically,
+  sortOperationalAlertsDeterministically,
+  sortEventListDeterministically,
   SortableRecord,
 } from "../services/deterministicSorting";
+import { derivePublicStatus } from "../services/publicStatus";
 
 const CURSOR_SECRET = "cursor-secret-key-99999999";
 
@@ -177,5 +182,94 @@ describe("Deterministic Sorting for Mixed-Status Records and Events (#1032)", ()
       "quarantined",
       "dlq",
     ]);
+  });
+
+  it("recovers cleanly when the cursor anchor item is deleted between pages (#1184)", () => {
+    const records: SortableRecord[] = [
+      { id: "e1", status: "committed", primaryKey: 100, secondaryKey: 1 },
+      { id: "e2", status: "pending", primaryKey: 100, secondaryKey: 2 },
+      { id: "e3", status: "quarantined", primaryKey: 100, secondaryKey: 3 },
+      { id: "e4", status: "dlq", primaryKey: 200, secondaryKey: 1 },
+    ];
+    const page1 = paginateMixedStatusRecords(records, {
+      limit: 2,
+      secret: CURSOR_SECRET,
+      sortOptions: { groupByStatus: true, statusPrecedence: EVENT_STATUS_PRECEDENCE },
+    });
+    expect(page1.items.map((r) => r.id)).toEqual(["e1", "e2"]);
+
+    // Delete the cursor anchor ("e2") before fetching page 2
+    const remaining = records.filter((r) => r.id !== "e2");
+    const page2 = paginateMixedStatusRecords(remaining, {
+      limit: 2,
+      cursor: page1.nextCursor,
+      secret: CURSOR_SECRET,
+      sortOptions: { groupByStatus: true, statusPrecedence: EVENT_STATUS_PRECEDENCE },
+    });
+    expect(page2.items.map((r) => r.id)).toEqual(["e3", "e4"]);
+    expect(page2.hasMore).toBe(false);
+  });
+
+  it("deterministically sorts status components, maintenance banners, operational alerts, and event lists (#1184)", () => {
+    const components = [
+      { name: "Horizon", status: "up" as const, latencyMs: 50 },
+      { name: "Unlock Service", status: "degraded" as const, latencyMs: 900 },
+      { name: "Database", status: "down" as const, latencyMs: null },
+      { name: "Stellar RPC", status: "up" as const, latencyMs: 120 },
+    ];
+    const sortedForward = sortStatusComponentsDeterministically(components);
+    const sortedReversed = sortStatusComponentsDeterministically([...components].reverse());
+    expect(sortedForward.map((c) => c.name)).toEqual(["Database", "Unlock Service", "Stellar RPC", "Horizon"]);
+    expect(sortedReversed.map((c) => c.name)).toEqual(sortedForward.map((c) => c.name));
+
+    const banners = [
+      { id: "b-info", severity: "info", endsAt: "2026-10-18T10:00:00.000Z" },
+      { id: "b-crit-late", severity: "critical", endsAt: "2026-10-19T10:00:00.000Z" },
+      { id: "b-crit-early", severity: "critical", endsAt: "2026-10-17T10:00:00.000Z" },
+      { id: "b-warn", severity: "warning", endsAt: "2026-10-17T12:00:00.000Z" },
+    ];
+    expect(sortMaintenanceBannersDeterministically(banners).map((b) => b.id)).toEqual([
+      "b-crit-early",
+      "b-crit-late",
+      "b-warn",
+      "b-info",
+    ]);
+
+    // Public status integration with deterministicOrder: true
+    const pub = derivePublicStatus({
+      components,
+      probes: [],
+      maintenance: banners as any,
+      contractPaused: false,
+      deterministicOrder: true,
+    });
+    expect(pub.services.map((s) => s.name)).toEqual(["Database", "Unlock Service", "Stellar RPC", "Horizon"]);
+    expect(pub.maintenance.map((m) => m.id)).toEqual(["b-crit-early", "b-crit-late", "b-warn", "b-info"]);
+
+    // Operational alerts: severity first, then newest timestamp, then ID
+    const alerts = [
+      { id: "a-high-old", severity: "HIGH", occurredAt: "2026-10-17T08:00:00.000Z" },
+      { id: "a-crit", severity: "CRITICAL", occurredAt: "2026-10-17T07:00:00.000Z" },
+      { id: "a-high-b", severity: "HIGH", occurredAt: "2026-10-17T09:00:00.000Z" },
+      { id: "a-high-a", severity: "HIGH", occurredAt: "2026-10-17T09:00:00.000Z" },
+    ];
+    expect(sortOperationalAlertsDeterministically(alerts).map((a) => a.id)).toEqual([
+      "a-crit",
+      "a-high-a",
+      "a-high-b",
+      "a-high-old",
+    ]);
+
+    // Event list sorting: permutation-invariant with tie-breaking by status, sequence, and ID
+    const events = [
+      { _id: "ev-b", processingStatus: "failed", createdAt: "2026-10-17T10:00:00.000Z", attemptCount: 1 },
+      { _id: "ev-a", processingStatus: "failed", createdAt: "2026-10-17T10:00:00.000Z", attemptCount: 1 },
+      { _id: "ev-c", processingStatus: "dead_letter", createdAt: "2026-10-17T10:00:00.000Z", attemptCount: 5 },
+      { _id: "ev-d", processingStatus: "processed", createdAt: "2026-10-17T11:00:00.000Z", attemptCount: 1 },
+    ];
+    const evForward = sortEventListDeterministically(events, { direction: "desc" });
+    const evReversed = sortEventListDeterministically([...events].reverse(), { direction: "desc" });
+    expect(evForward.map((e) => e._id)).toEqual(["ev-d", "ev-c", "ev-b", "ev-a"]);
+    expect(evReversed.map((e) => e._id)).toEqual(evForward.map((e) => e._id));
   });
 });
