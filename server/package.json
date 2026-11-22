@@ -20,7 +20,7 @@
     "backup:validate": "ts-node src/scripts/validateBackupSnapshot.ts",
     "reindex": "ts-node scripts/reIndexFromLedger.ts",
     "reindex:dry-run": "ts-node scripts/reIndexFromLedger.ts --dry-run",
-    "schema:compat": "ts-node scripts/checkSchemaCompatibility.ts",
+    "schema:compat": "ts-node --transpile-only scripts/checkSchemaCompatibility.ts",
     "projections:replay": "ts-node scripts/replayProjection.ts",
     "backfill": "ts-node scripts/backfillTool.ts",
     "seed:preview": "node scripts/seedPreview.mjs",

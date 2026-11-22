@@ -3,10 +3,12 @@
  *
  * Usage:
  *   ts-node scripts/checkSchemaCompatibility.ts --input snapshot.json
+ *   ts-node scripts/checkSchemaCompatibility.ts --matrix [--json]
  *   ts-node scripts/checkSchemaCompatibility.ts --mongo [--collection prompts] [--limit 10000]
  *
  * Options:
  *   --input <file>   JSON array, or {"records": [...]}, exported from a backup.
+ *   --matrix         Evaluate the checked-in schema migration compatibility matrix & fixtures.
  *   --mongo          Read documents directly from MONGODB_URI (read-only).
  *   --collection <n> Collection to scan with --mongo (default: prompts).
  *   --limit <n>      Maximum documents to scan from Mongo (default: 10000).
@@ -31,9 +33,14 @@ import {
   checkPromptMigrationCompatibility,
   type PromptMigrationCompatibilityReport,
 } from "../src/services/schemaMigrationCompatibility";
+import {
+  buildSchemaMigrationCompatibilityMatrix,
+  type SchemaMigrationCompatibilityMatrix,
+} from "../src/services/migrationFixturesService";
 
 interface CliOptions {
   input?: string;
+  matrix: boolean;
   mongo: boolean;
   collection: string;
   limit: number;
@@ -46,6 +53,7 @@ function usage(): never {
     [
       "Usage:",
       "  ts-node scripts/checkSchemaCompatibility.ts --input <snapshot.json> [--json]",
+      "  ts-node scripts/checkSchemaCompatibility.ts --matrix [--json]",
       "  ts-node scripts/checkSchemaCompatibility.ts --mongo [--collection prompts] [--limit 10000]",
       "",
       "See docs/operations/schema-migration-compatibility.md.",
@@ -56,6 +64,7 @@ function usage(): never {
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
+    matrix: false,
     mongo: false,
     collection: "prompts",
     limit: 10_000,
@@ -68,6 +77,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--input":
         options.input = argv[++i];
         if (!options.input) usage();
+        break;
+      case "--matrix":
+        options.matrix = true;
         break;
       case "--mongo":
         options.mongo = true;
@@ -104,12 +116,14 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
-  if (!options.input && !options.mongo) {
-    console.error("Choose exactly one input source: --input <file> or --mongo.");
+  const sourceCount =
+    (options.input ? 1 : 0) + (options.mongo ? 1 : 0) + (options.matrix ? 1 : 0);
+  if (sourceCount === 0) {
+    console.error("Choose exactly one input source: --input <file>, --matrix, or --mongo.");
     usage();
   }
-  if (options.input && options.mongo) {
-    console.error("--input and --mongo are mutually exclusive.");
+  if (sourceCount > 1) {
+    console.error("--input, --matrix, and --mongo are mutually exclusive.");
     usage();
   }
   return options;
@@ -174,8 +188,38 @@ function printHuman(report: PromptMigrationCompatibilityReport): void {
   }
 }
 
+function printMatrixHuman(matrix: SchemaMigrationCompatibilityMatrix): void {
+  console.log(
+    `[schema-compat] Matrix v${matrix.fromVersion} → v${matrix.toVersion}: ` +
+      `${matrix.totalFixtures} fixtures, ${matrix.totalRecordsChecked} records checked, ` +
+      `allExpectationsMet=${matrix.allExpectationsMet}`,
+  );
+  console.log(`[schema-compat] matrixFingerprint: ${matrix.matrixFingerprint}`);
+
+  for (const cell of matrix.cells) {
+    console.log(
+      `[schema-compat] CELL ${cell.fixture} (source=${String(cell.sourceVersion)} → v${cell.targetVersion}): ` +
+        `status=${cell.actualStatus} expected=${cell.expectedStatus} match=${cell.matchesExpectation} ` +
+        `checked=${cell.checked} errors=${cell.errorCount} warnings=${cell.warningCount}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  if (options.matrix) {
+    const matrix = await buildSchemaMigrationCompatibilityMatrix({
+      targetVersion: options.toVersion,
+    });
+    if (options.json) {
+      console.log(JSON.stringify(matrix, null, 2));
+    } else {
+      printMatrixHuman(matrix);
+    }
+    process.exitCode = matrix.allExpectationsMet ? 0 : 1;
+    return;
+  }
+
   const records = await loadRecords(options);
   const report = checkPromptMigrationCompatibility(records, {
     toVersion: options.toVersion,

@@ -12,6 +12,20 @@
     "isActive": true,
     "listingStatus": "published",
     "moderationStatus": "approved"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90011",
+    "schemaVersion": 1,
+    "title": "Restricted Security Audit Template",
+    "category": "Security",
+    "description": "Moderated v1 record exercising moderation precedence over listingStatus.",
+    "tags": ["security", "audit"],
+    "image": "https://example.com/images/sec.png",
+    "priceStroops": 30000000,
+    "isActive": true,
+    "listingStatus": "published",
+    "moderationStatus": "restricted"
   }
 ]
+
 
