@@ -389,6 +389,9 @@ describe("OpenAPI schema completeness gate", () => {
       "/api/moderation/bulk",
       "/api/moderation/decisions",
       "/api/moderation/decisions/{id}/rollback",
+      "/api/admin/allow-list",
+      "/api/admin/allow-list/check",
+      "/api/admin/allow-list/override",
     ];
 
     for (const p of adminPaths) {
