@@ -216,7 +216,8 @@ describe("Stale Session and Token Revocation After Security Events (#1031)", () 
   });
 
   it("normalizes Stellar addresses to uppercase and handles lowercase inputs", () => {
-    const lower = "gbzxn7pirzgnmhga728r374oxzw6w5y45pnm26qcohohogiplptzqk7u";
+    // Must be a valid base32 Stellar address (G + 55 chars from [A-Z2-7])
+    const lower = "ga2c5rfpe6gckmy3us5pab6uzlkigahwkxx2gnoedvlqc5wwxbxrxg2v";
     expect(normalizeSubject(lower)).toBe(lower.toUpperCase());
     expect(normalizeSubject("*")).toBe("*");
     expect(normalizeSubject("  ops-Jane  ")).toBe("ops-jane");

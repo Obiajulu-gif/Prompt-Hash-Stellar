@@ -85,3 +85,26 @@ audit trail.
 **Unaffected sessions.** Subject events only cut off that account. Other
 accounts' sessions keep working, and sessions issued after the event sign in
 normally.
+
+---
+
+## 7. Admin HTTP Endpoints
+
+Mounted under `/api/admin/security-events` (`server/src/routes/securityEventRoutes.ts`):
+
+| Method | Path | Required Scope | Description |
+| --- | --- | --- | --- |
+| `POST` | `/api/admin/security-events/invalidate` | `security:revoke` | Record a security event (`{ type, subject, reason, metadata? }`) and invalidate matching sessions. |
+| `POST` | `/api/admin/security-events/reinstate` | `security:revoke` | Roll back a subject or global (`*`) revocation after a verified false alarm (`{ subject, reason }`). |
+| `GET` | `/api/admin/security-events/status/:subject` | `security:read` | Inspect current revocation status for a Stellar address, operator ID, or `*`. |
+| `GET` | `/api/admin/security-events/audit` | `security:read` | Retrieve the immutable in-memory security event audit trail (filterable by `type`, `subject`, `limit`). |
+
+---
+
+## 8. Edge Cases, Retry Semantics & Rollback Behavior
+
+- **Monotonic Idempotent Retries**: Duplicate or retried revocation calls for the same subject or global cutoff compute `Math.max(existingCutoff, newCutoff)`, ensuring an out-of-order retry with an older timestamp never weakens an active security cutoff while preserving every attempt in the audit trail.
+- **Boundary Timestamps**: Tokens with `issuedAt <= revokedBefore` are rejected; tokens minted at `revokedBefore + 1` or later are admitted. Future cutoffs beyond a 60-second clock-skew tolerance (`now + 60_000`) are rejected with `invalid_timestamp`.
+- **Case & Format Normalization**: Valid base32 Stellar addresses (`^G[A-Z2-7]{55}$`) are normalized to uppercase; operator handles are trimmed and lowercased so mixed-case inputs never bypass cutoffs.
+- **Precedence Order**: Global emergency cutoffs (`global_security_event`) are evaluated before subject cutoffs (`subject_revoked_by_security_event`), which are evaluated before individual token nonces (`token_nonce_revoked`).
+- **Rollback / False-Alarm Recovery**: Calling `POST /api/admin/security-events/reinstate` (or `registry.reinstateSubject`) removes the active cutoff immediately while keeping historical revocation records intact in the audit trail.
