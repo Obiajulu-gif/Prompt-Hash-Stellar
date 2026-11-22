@@ -26,11 +26,9 @@ describe("Fixture Generators for Rare Failure and Recovery Paths (#1033)", () =>
     expect(fixture.simulatedFault.canRetry).toBe(true);
     expect(fixture.expectedRecovery.action).toBe("RETRY");
     expect(fixture.expectedRecovery.compensationSteps).toContain("extend_max_ledger_bounds");
-
-    // Simulate recovery handler achieving expected final state
-    const actualRecoveryState = { ...fixture.expectedRecovery.expectedState };
-    const isValid = fixture.expectedRecovery.assertFinalState(actualRecoveryState);
-    expect(isValid).toBe(true);
+    expect(fixture.expectedRecovery.assertFinalState(fixture.expectedRecovery.expectedState)).toBe(true);
+    // Failure path: a state that did not rebroadcast must be rejected.
+    expect(fixture.expectedRecovery.assertFinalState({ ...fixture.expectedRecovery.expectedState, rebroadcast: false })).toBe(false);
   });
 
   it("verifies Stellar account sequence desynchronization (tx_bad_seq) recovery", () => {
@@ -39,14 +37,17 @@ describe("Fixture Generators for Rare Failure and Recovery Paths (#1033)", () =>
     expect(fixture.simulatedFault.errorCode).toBe("tx_bad_seq");
     expect(fixture.expectedRecovery.action).toBe("RESYNC");
     expect(fixture.expectedRecovery.compensationSteps).toContain("fetch_account_sequence_from_network");
-
-    // Assert network sequence is ahead of cached sequence
     expect(BigInt(fixture.initialState.actualNetworkSequence)).toBeGreaterThan(
       BigInt(fixture.initialState.cachedSequence),
     );
-
-    const actualState = { ...fixture.expectedRecovery.expectedState };
-    expect(fixture.expectedRecovery.assertFinalState(actualState)).toBe(true);
+    expect(fixture.expectedRecovery.assertFinalState(fixture.expectedRecovery.expectedState)).toBe(true);
+    // Failure path: stale cached sequence must not pass verification.
+    expect(
+      fixture.expectedRecovery.assertFinalState({
+        ...fixture.expectedRecovery.expectedState,
+        resyncedSequence: fixture.initialState.cachedSequence,
+      }),
+    ).toBe(false);
   });
 
   it("verifies partial bulk retire failure under irreversible Soroban ledger finality", () => {
@@ -56,7 +57,6 @@ describe("Fixture Generators for Rare Failure and Recovery Paths (#1033)", () =>
     expect(fixture.simulatedFault.canRetry).toBe(false);
     expect(fixture.expectedRecovery.action).toBe("ROLLBACK");
 
-    // Confirm that 1 prompt fails due to finality and 2 prompts succeed
     const expected = fixture.expectedRecovery.expectedState;
     expect(expected.failedCount).toBe(1);
     expect(expected.succeededCount).toBe(2);
@@ -75,6 +75,8 @@ describe("Fixture Generators for Rare Failure and Recovery Paths (#1033)", () =>
     expect(expected.quarantined).toBe(true);
     expect(expected.plaintextDelivered).toBe(false);
     expect(fixture.expectedRecovery.assertFinalState(expected)).toBe(true);
+    // Failure path: plaintext delivery must fail verification.
+    expect(fixture.expectedRecovery.assertFinalState({ ...expected, plaintextDelivered: true })).toBe(false);
   });
 
   it("verifies event journal ledger gap detection and targeted backfill resumption", () => {
@@ -89,6 +91,10 @@ describe("Fixture Generators for Rare Failure and Recovery Paths (#1033)", () =>
 
     const expected = fixture.expectedRecovery.expectedState;
     expect(fixture.expectedRecovery.assertFinalState(expected)).toBe(true);
+    // Failure path: cursor not advanced past the gap must be rejected.
+    expect(
+      fixture.expectedRecovery.assertFinalState({ ...expected, cursorLedger: fixture.initialState.lastProcessedLedger }),
+    ).toBe(false);
   });
 
   it("validates PRNG statistical distribution and repeatability", () => {

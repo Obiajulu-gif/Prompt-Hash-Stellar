@@ -1,6 +1,7 @@
 export interface RareFailureFixture {
   id: string;
   failureMode: string;
+  retryable?: boolean;
   description: string;
   schemaVersion: string;
   expectedRepairPath: string;
@@ -60,6 +61,35 @@ export const RARE_FAILURE_FIXTURES: RareFailureFixture[] = [
       status: "SEQUENCE_GAP",
     },
   },
+  {
+    id: "fix-004-retry-transient-horizon-timeout",
+    failureMode: "TRANSIENT_HORIZON_TIMEOUT",
+    description: "Horizon request timed out during payout sync; operation is safe to retry with the same idempotency key without duplicating entitlement.",
+    schemaVersion: "1.0.0",
+    expectedRepairPath: "Retry `OperationRecoveryService.syncUnclaimedPurchase(txHash)` with exponential backoff; abort after max attempts and roll back the pending entitlement marker.",
+    retryable: true,
+    payload: {
+      operationId: "op-retry-118",
+      promptId: "404",
+      buyerWallet: "GBUYER1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+      txHash: "b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1",
+      status: "RETRY_PENDING",
+    },
+  },
+  {
+    id: "fix-005-unauthorized-repair-attempt",
+    failureMode: "UNAUTHORIZED_REPAIR_ATTEMPT",
+    description: "Repair invoked by a wallet that is not the prompt creator or an operator; must be rejected without mutating entitlement state.",
+    schemaVersion: "1.0.0",
+    expectedRepairPath: "Reject the request with an authorization error and leave the ledger and entitlement records unchanged.",
+    retryable: false,
+    payload: {
+      operationId: "op-auth-665",
+      promptId: "505",
+      buyerWallet: "GUNAUTHORIZED1234567890ABCDEFGH1234567890ABCDEFGH1234567890",
+      status: "AUTH_REJECTED",
+    },
+  },
 ];
 
 /**
@@ -71,6 +101,38 @@ export function validateFixtureSchema(fixture: RareFailureFixture): boolean {
   if (!fixture.payload || typeof fixture.payload !== "object") return false;
   if (!fixture.payload.operationId || !fixture.payload.promptId || !fixture.payload.buyerWallet || !fixture.payload.status) return false;
   return true;
+}
+
+/**
+ * Returns fixtures whose failure mode is retryable.
+ */
+export function getRetryableFixtures(): RareFailureFixture[] {
+  return RARE_FAILURE_FIXTURES.filter((f) => f.retryable === true);
+}
+
+/**
+ * Generates a rare-failure fixture for a given failure mode, applying defaults
+ * for the normal, failure, retry, and authorization paths.
+ */
+export function generateRareFailureFixture(
+  id: string,
+  failureMode: string,
+  payload: RareFailureFixture["payload"],
+  retryable = false,
+): RareFailureFixture {
+  const fixture: RareFailureFixture = {
+    id,
+    failureMode,
+    description: `Generated fixture for ${failureMode}`,
+    schemaVersion: "1.0.0",
+    expectedRepairPath: "Manual review required",
+    retryable,
+    payload,
+  };
+  if (!validateFixtureSchema(fixture)) {
+    throw new Error(`Generated fixture failed validation: ${id}`);
+  }
+  return fixture;
 }
 
 /**
