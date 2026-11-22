@@ -283,9 +283,10 @@ export async function runSyntheticJourney(
   }
 
   const failed = steps.find((step) => !step.success);
+  const expectedSteps = config.mode === "authorized" ? 3 : 3;
   return {
     timestamp: new Date().toISOString(),
-    success: !failed && steps.length === 3,
+    success: !failed && steps.length === expectedSteps,
     mode: config.mode,
     totalDurationMs: now() - startedAt,
     steps,

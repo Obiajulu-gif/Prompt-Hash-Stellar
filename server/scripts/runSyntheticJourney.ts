@@ -59,59 +59,29 @@ function fetchWithTimeout(
   );
 }
 
-/**
- * Authorization-probe failures are expected outcomes (the probe asserts that
- * unauthorized access is rejected), so they are never retried. Only transport
- * errors and 5xx-style failures from the journey are retried.
- */
-function isRetryable(error: unknown): boolean {
-  if (error instanceof Error && error.name === "AbortError") return true;
-  if (error instanceof TypeError) return true; // network-level fetch failure
-  return false;
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function runWithRetry<T>(
-  operation: () => Promise<T>,
-): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (!isRetryable(error) || attempt === MAX_ATTEMPTS) {
-        throw error;
-      }
-      // Exponential backoff: base, 2*base, 4*base, ...
-      await sleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
-    }
-  }
-  throw lastError;
-}
-
 async function main(): Promise<void> {
-  const result = await runWithRetry(() =>
-    runSyntheticJourney(
-      {
-        baseUrl: process.env.SYNTHETIC_BASE_URL!,
-        promptId: process.env.SYNTHETIC_PROMPT_ID!,
-        buyerAddress: buyerAddress!,
-        mode,
-      },
-      {
-        fetch: fetchWithTimeout,
-        signChallenge: keypair
-          ? (challenge) =>
-              Buffer.from(keypair.sign(Buffer.from(challenge, "utf8"))).toString(
-                "base64",
-              )
-          : undefined,
-      },
-    ),
+  // Retries (transport, 408/425/429/5xx, exponential backoff) and the
+  // stop-on-first-failure semantics are handled inside runSyntheticJourney,
+  // so the runner must not re-run the whole journey and duplicate requests.
+  const result = await runSyntheticJourney(
+    {
+      baseUrl: process.env.SYNTHETIC_BASE_URL!,
+      promptId: process.env.SYNTHETIC_PROMPT_ID!,
+      buyerAddress: buyerAddress!,
+      mode,
+      timeoutMs: TIMEOUT_MS,
+      maxAttempts: MAX_ATTEMPTS,
+      retryBaseMs: RETRY_BASE_DELAY_MS,
+    },
+    {
+      fetch: fetchWithTimeout,
+      signChallenge: keypair
+        ? (challenge) =>
+            Buffer.from(keypair.sign(Buffer.from(challenge, "utf8"))).toString(
+              "base64",
+            )
+        : undefined,
+    },
   );
 
   console.log(JSON.stringify(result));
