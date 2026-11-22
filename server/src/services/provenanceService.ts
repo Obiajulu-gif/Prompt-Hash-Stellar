@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import type { TransferExecution } from "./transferExecution";
 import ProvenanceRecord, {
   ImportSourceType,
@@ -11,6 +12,7 @@ import Prompt from "../models/Prompt";
 import PromptRelation from "../models/PromptRelation";
 import { logger } from "./structuredLogger";
 import { recordAuditEvent } from "./auditTrail";
+import { canonicalJson } from "./canonicalSerialization";
 
 /**
  * Provenance Service - manages provenance tracking for prompts (Issue #929).
@@ -66,6 +68,24 @@ export interface ProvenanceExport {
   updatedAt: Date;
 }
 
+/** Stable digest of the fields that establish where an imported record came from. */
+export function computeProvenanceHash(input: {
+  promptId: string;
+  onChainId?: string;
+  sourceType: ImportSourceType;
+  sourceSystem: ISourceSystem;
+  importBatch?: Partial<IImportBatch>;
+  transformations?: Partial<ITransformMetadata>[];
+  actor: IActorMetadata;
+  parentProvenanceId?: string;
+  sourcePromptId?: string;
+  metadata?: Record<string, any>;
+}): string {
+  return createHash("sha256")
+    .update(canonicalJson(input))
+    .digest("hex");
+}
+
 class ProvenanceService {
   /**
    * Create a new provenance record for a prompt.
@@ -111,6 +131,18 @@ class ProvenanceService {
         parentProvenanceId: parentProvenanceId || null,
         sourcePromptId: sourcePromptId || null,
         metadata: metadata || {},
+        provenanceHash: computeProvenanceHash({
+          promptId,
+          onChainId,
+          sourceType,
+          sourceSystem,
+          importBatch,
+          transformations,
+          actor,
+          parentProvenanceId,
+          sourcePromptId,
+          metadata,
+        }),
         verificationStatus: "unverified",
       };
 
