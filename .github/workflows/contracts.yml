@@ -61,6 +61,12 @@ jobs:
           # the same flag that CLI sets internally.
           SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
 
+      - name: Write reproducible artifact manifest
+        run: node scripts/release-artifacts.mjs --dir target/wasm32v1-none/release --write release-artifacts.manifest.json
+
+      - name: Verify reproducible artifact manifest
+        run: node scripts/release-artifacts.mjs --dir target/wasm32v1-none/release --verify release-artifacts.manifest.json
+
       - name: Upgrade preflight self-check (#435)
         run: python3 scripts/preflight_upgrade.py check --self-check
 
