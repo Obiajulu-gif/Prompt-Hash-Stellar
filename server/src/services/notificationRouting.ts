@@ -30,6 +30,8 @@ import {
   type EffectivePreferences,
 } from "./notificationPreferences";
 import type { ChannelPreference } from "../models/NotificationPreference";
+import { classifyNotificationCollision } from "./deduplication";
+import { logger } from "./structuredLogger";
 
 export interface DeliveryPlan {
   type: NotificationType;
@@ -58,7 +60,7 @@ export interface DeliveryReceipt {
   mandatory: boolean;
   channels: ChannelPreference;
   notificationId?: string;
-  suppressionReason?: "preference_disabled";
+  suppressionReason?: "preference_disabled" | "dedupe_conflict";
 }
 
 /**
@@ -123,6 +125,7 @@ export async function deliverNotification(
 
   let notificationId: string | undefined;
   let alreadyDelivered = false;
+  let dedupeConflict = false;
 
   try {
     const created = await Notification.create({
@@ -146,9 +149,38 @@ export async function deliverNotification(
       recipientWallet: wallet, type: input.type, dedupeKey: input.dedupeKey,
     }).lean();
     if (!existing) throw err;
-    notificationId = existing
-      ? String((existing as { _id?: unknown })._id ?? "")
-      : undefined;
+
+    // Deduplication (#1223): a repeated key with different content is a
+    // producer bug or a replay, not a harmless retry. Suppress it and make the
+    // conflict visible instead of silently losing the second notification.
+    const collision = classifyNotificationCollision({
+      incoming: {
+        recipientWallet: wallet,
+        type: input.type,
+        message: input.message,
+        promptId: input.promptId,
+        promptTitle: input.promptTitle,
+        versionIndex: input.versionIndex,
+      },
+      existing: existing as {
+        message?: string | null;
+        promptId?: string | null;
+        promptTitle?: string | null;
+        versionIndex?: number | null;
+      },
+    });
+    dedupeConflict = collision.conflict;
+    if (dedupeConflict) {
+      logger.warn("Notification dedupe conflict", {
+        action: "notificationDedupeConflict",
+        recipientWallet: wallet,
+        type: input.type,
+        dedupeKey: input.dedupeKey,
+        reason: collision.reason,
+      });
+    }
+
+    notificationId = String((existing as { _id?: unknown })._id ?? "");
   }
 
   if (plan.mandatory) {
@@ -160,7 +192,7 @@ export async function deliverNotification(
       requestId: input.requestId ?? null,
       reason: `type=${input.type}${input.dedupeKey ? ` dedupeKey=${input.dedupeKey}` : ""}${
         alreadyDelivered ? " duplicate=true" : ""
-      }`,
+      }${dedupeConflict ? " conflict=true" : ""}`,
     });
   }
 
@@ -170,5 +202,6 @@ export async function deliverNotification(
     mandatory: plan.mandatory,
     channels: plan.channels,
     notificationId,
+    ...(dedupeConflict ? { suppressionReason: "dedupe_conflict" as const } : {}),
   };
 }

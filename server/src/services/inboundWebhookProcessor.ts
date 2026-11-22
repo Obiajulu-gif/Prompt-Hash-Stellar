@@ -47,6 +47,11 @@ import InboundWebhookEvent, {
   IInboundWebhookEvent,
 } from "../models/InboundWebhookEvent";
 import { logger } from "./structuredLogger";
+import {
+  classifyDeduplication,
+  fingerprintInboundWebhook,
+  type DeduplicationStatus,
+} from "./deduplication";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -64,10 +69,16 @@ export interface InboundEventInput {
 }
 
 export interface ProcessResult {
-  status: "processed" | "skipped" | "failed" | "verification_failed";
+  status: "processed" | "skipped" | "failed" | "verification_failed" | "conflict";
   eventId: string;
   alreadyProcessed: boolean;
   errorMessage?: string;
+  /** Present when a duplicate key was observed (#1223). */
+  dedupe?: {
+    status: DeduplicationStatus;
+    reason: string;
+    retryable: boolean;
+  };
 }
 
 /** Replay window: reject signatures more than 5 minutes old. */
@@ -230,10 +241,59 @@ export async function verifyAndProcess(
       event.processingStatus === "processed" ||
       event.processingStatus === "skipped";
 
+    // Deduplication (#1223): compare the content of the first delivery with
+    // this one. Reusing an idempotency key for different bytes is a conflict,
+    // never a benign replay; return it so the controller can answer 409.
+    const incomingFingerprint = fingerprintInboundWebhook({
+      eventType: input.eventType,
+      source: input.source,
+      rawBody: input.rawBody,
+    });
+    const storedRawBody = typeof event.rawBody === "string" ? event.rawBody : "";
+    const existingFingerprint = storedRawBody
+      ? fingerprintInboundWebhook({
+          eventType: event.eventType ?? input.eventType,
+          source: event.source ?? input.source,
+          rawBody: storedRawBody,
+        })
+      : null;
+    const verdict = classifyDeduplication(
+      {
+        fingerprint: existingFingerprint,
+        status: event.processingStatus,
+        attempts: event.attemptCount,
+        lastAttemptAt: event.lastAttemptAt,
+      },
+      { fingerprint: incomingFingerprint },
+    );
+    const dedupe = {
+      status: verdict.status,
+      reason: verdict.reason,
+      retryable: verdict.retryable,
+    };
+
+    if (verdict.status === "conflict") {
+      logger.error("Inbound webhook idempotency conflict", {
+        action: "inboundWebhookProcessor",
+        idempotencyKey: input.idempotencyKey,
+        source: input.source,
+        eventId,
+      });
+      return {
+        status: "conflict",
+        eventId,
+        alreadyProcessed: true,
+        errorMessage:
+          "This idempotency key was already used with a different payload.",
+        dedupe,
+      };
+    }
+
     logger.debug("Inbound webhook duplicate — skipping reprocessing", {
       action: "inboundWebhookProcessor",
       idempotencyKey: input.idempotencyKey,
       processingStatus: event.processingStatus,
+      dedupeStatus: verdict.status,
     });
 
     return {
@@ -242,6 +302,7 @@ export async function verifyAndProcess(
         : (event.processingStatus as ProcessResult["status"]),
       eventId,
       alreadyProcessed: true,
+      dedupe,
     };
   }
 
