@@ -183,6 +183,20 @@ export const ReceiveInboundWebhook = async (
     return res.status(401).json({ error: result.errorMessage });
   }
 
+  if (result.status === "conflict") {
+    logger.error("Inbound webhook idempotency conflict", {
+      ...logContext,
+      outcome: "idempotency_conflict",
+      eventId: result.eventId,
+    });
+    return res.status(409).json({
+      error: result.errorMessage,
+      code: "WEBHOOK_IDEMPOTENCY_CONFLICT",
+      eventId: result.eventId,
+      dedupe: result.dedupe,
+    });
+  }
+
   if (result.alreadyProcessed) {
     logger.info("Inbound webhook replay detected", {
       ...logContext,
