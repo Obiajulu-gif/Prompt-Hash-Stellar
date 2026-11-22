@@ -184,6 +184,10 @@ describe("export cancellation and deletion", () => {
         updatedAt: prompt.updatedAt,
         lifecycleState: prompt.lifecycleState,
       };
+      expect(publicRecord.ownerWalletHash).toBe(`hash-${owner}`);
+      expect(publicRecord).not.toHaveProperty("owner");
+      expect(publicRecord).not.toHaveProperty("encryptedPrompt");
+      expect(publicRecord).not.toHaveProperty("description");
       const self = await runUserExport(owner, undefined, scope);
       expect(
         verifyExportChecksum(
