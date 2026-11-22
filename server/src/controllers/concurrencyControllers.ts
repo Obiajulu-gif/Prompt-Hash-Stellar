@@ -24,6 +24,8 @@
  * - No writes are performed on rejected requests, so there is nothing to roll
  * back. The conditional update in updateWithVersionCheck is atomic, which
  * prevents two concurrent duplicate submissions from both succeeding.
+ * - Concurrency coverage for the duplicate-submission race is exercised by the
+ * controller test suite (normal, failure, retry, and authorization paths).
  */
 
 import { Request, Response } from "express";

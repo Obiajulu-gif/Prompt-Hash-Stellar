@@ -87,6 +87,8 @@ export function requireIdempotency(
         return;
       }
       if (decision.kind === "replay") {
+        // Concurrent duplicate submissions that raced past the claim are
+        // resolved here: the stored outcome is returned, never re-executed.
         logDecision("info", "idempotency.replay", {
           method: req.method,
           path: scope,
@@ -118,6 +120,18 @@ export function requireIdempotency(
         }
         return originalSend(body);
       }) as Response["send"];
+      res.once("close", () => {
+        // Client disconnected or handler failed before finish: the record stays
+        // in progress and is expired by the service, so a later retry after
+        // expiry re-executes rather than replaying an unrecorded outcome.
+        if (!res.writableFinished) {
+          logDecision("warn", "idempotency.aborted", {
+            method: req.method,
+            path: scope,
+            requestHash,
+          });
+        }
+      });
       res.once("finish", () => {
         logDecision("info", "idempotency.completed", {
           method: req.method,

@@ -569,4 +569,16 @@ describe("Concurrency harness: edge cases", () => {
     // Original value preserved — no silent overwrite
     expect((store.get("k") as any).v).toBe(1);
   });
+
+  it("versioned update: a writer holding a stale version cannot overwrite a newer document", async () => {
+    const store = new Map<string, { v: number; _version: number }>();
+    store.set("doc", { v: 0, _version: 1 });
+    // Writer A reads v1, writer B advances to v2 first
+    await atomicVersionedUpdate(store, "doc", 1, { v: 2 });
+    // Writer A's stale write is rejected and the newer state is preserved
+    await expect(atomicVersionedUpdate(store, "doc", 1, { v: 99 })).rejects.toBeInstanceOf(
+      StaleVersionError,
+    );
+    expect(store.get("doc")).toEqual({ v: 2, _version: 2 });
+  });
 });

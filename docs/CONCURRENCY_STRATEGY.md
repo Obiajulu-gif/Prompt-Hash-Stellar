@@ -101,6 +101,35 @@ Operational notes:
   correctly, so reverting the commit is safe at any time.
 - No schema change: `IdempotencyRecord.responseBody` remains `Mixed`.
 
+### Duplicate-submission concurrency coverage (this change)
+
+The `/api/versions/*` mutating routes and the generic versioned-update
+endpoint are covered for the four required paths:
+
+- **Normal**: matching `expectedVersion` applies once; first keyed request
+  executes, later identical requests replay.
+- **Failure**: missing/invalid fields, non-integer or negative
+  `expectedVersion`, disallowed collections, and invalid ObjectIds are rejected
+  before any write. Handler failures are recorded as `failed` and replayed
+  without re-running the side effect.
+- **Retry**: a stale `expectedVersion` returns HTTP 409 with `currentVersion`;
+  the same idempotency key on retry replays the recorded outcome rather than
+  re-applying the mutation.
+- **Authorization**: the actor is folded into the idempotency store scope, so
+  identical keys from different actors never collide or leak replays; captured
+  authorization denials (e.g. 403) replay deterministically.
+
+Edge cases and recovery:
+
+- A record stuck in `processing` after a worker crash stays `in_progress`
+  until its TTL lapses, then reports `expired`. Do not retry the side effect
+  under the same key while `in_progress`.
+- A concurrent duplicate that arrives while the first request is still running
+  receives `IDEMPOTENCY_REQUEST_IN_PROGRESS` (409) and must back off and retry.
+- The conditional update in `updateWithVersionCheck` is atomic, so two
+  concurrent writers with the same `expectedVersion` cannot both succeed.
+- Rejected requests perform no writes; there is nothing to roll back for them.
+
 ## Retry storm handling
 
 - Clients must use exponential back-off with jitter after a 409.

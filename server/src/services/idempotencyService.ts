@@ -30,6 +30,17 @@ export function hashIdempotentRequest(input: {
     .digest("hex");
 }
 
+/**
+ * Duplicate-submission concurrency model (covered by idempotencyService tests):
+ *  - normal:        first insert returns `new`; the operation runs once.
+ *  - failure:       a completed non-2xx/3xx response is stored as `failed` and replayed.
+ *  - retry:         a retry after success replays the cached response; no re-execution.
+ *  - authorization: the scope is part of the unique key, so one principal's key
+ *                   can never be replayed to another scope.
+ *  - edge cases:    same key + different payload -> conflict; expired TTL -> expired;
+ *                   stuck `processing` -> in_progress until TTL lapses.
+ * Rollback: no schema change is introduced here; existing records remain valid.
+ */
 export function validateIdempotencyKey(key: string | undefined): string | null {
   if (!key) return "Idempotency-Key header is required for this operation.";
   if (key.length > 255 || /[\r\n]/.test(key)) {
