@@ -391,36 +391,44 @@ export class OperationRecoveryService {
     }
 
     const priorState = checkpoint.overallState;
-    const targetStateMap: Record<string, OperationStepState> = {
-      RESOLVE: "RESOLVED",
-      FAIL: "FAILED",
-      RETRY: "RETRYABLE",
-      MANUAL_REVIEW: "MANUALLY_REVIEWED",
-    };
 
-    const newState = targetStateMap[action];
-    checkpoint.overallState = newState;
-    checkpoint.nextRecoveryAction = `MAINTAINER_${action}`;
+    const nextState: OperationStepState =
+      action === "RESOLVE"
+        ? "RESOLVED"
+        : action === "FAIL"
+          ? "FAILED"
+          : action === "RETRY"
+            ? "RETRYABLE"
+            : "MANUALLY_REVIEWED";
+
+    checkpoint.overallState = nextState;
+    checkpoint.nextRecoveryAction =
+      action === "RESOLVE"
+        ? "COMPLETED"
+        : action === "FAIL"
+          ? "TERMINATED"
+          : action === "RETRY"
+            ? `RETRY_${checkpoint.currentStep.toUpperCase()}`
+            : "AWAITING_MAINTAINER_REVIEW";
 
     checkpoint.steps.push({
-      stepName: `MAINTAINER_ACTION_${action}`,
-      state: newState,
+      stepName: `MAINTAINER_${action}`,
+      state: nextState,
       timestamp: new Date(),
-      data: { maintainerId, reason, priorStep: checkpoint.currentStep },
+      data: { maintainerId, reason, priorState },
     });
 
     await checkpoint.save();
 
-    // Audit maintainer recovery action
     try {
       await recordAccessOrOwnershipChange({
         action: "operation_recovery",
         result: "success",
-        actor: maintainerId,
+        actor: maintainerId.toLowerCase(),
         target: operationId,
         targetType: "system",
-        beforeState: { priorState, action },
-        afterState: { newState, maintainerId },
+        beforeState: { priorState },
+        afterState: { newState: nextState, action },
         reason,
       });
     } catch (err) {
@@ -428,74 +436,5 @@ export class OperationRecoveryService {
     }
 
     return checkpoint;
-  }
-
-  /**
-   * Expose diagnostics for stuck pending operations exceeding a configured threshold.
-   */
-  static async getStuckOperationsDiagnostics(
-    thresholdMinutes: number = DEFAULT_STUCK_THRESHOLD_MINUTES
-  ): Promise<{
-    thresholdMinutes: number;
-    totalStuck: number;
-    diagnostics: StuckOperationDiagnostic[];
-  }> {
-    const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
-    const stuckList = await OperationCheckpoint.find({
-      overallState: {
-        $in: [
-          "PENDING",
-          "INITIALIZED",
-          "PREVALIDATED",
-          "ONCHAIN_SUBMITTED",
-          "RETRYABLE",
-          "RECOVERABLE",
-          "MANUALLY_REVIEWED",
-        ],
-      },
-      updatedAt: { $lt: cutoff },
-    }).sort({ updatedAt: 1 });
-
-    const now = Date.now();
-    const diagnostics: StuckOperationDiagnostic[] = stuckList.map((doc: any) => {
-      const minutesStale = Math.round((now - new Date(doc.updatedAt).getTime()) / (60 * 1000));
-      const hasOnchainBroadcast = doc.steps.some(
-        (s: ICheckpointStep) => s.state === "ONCHAIN_SUBMITTED" || !!s.txHash
-      );
-      const onchainStep = doc.steps.find((s: ICheckpointStep) => !!s.txHash);
-
-      const canonicalState = this.normalizeState(doc.overallState);
-
-      let recommendedAction: "RETRY" | "ROLLBACK" | "MANUAL_REVIEW" = "RETRY";
-      if (doc.retryCount >= doc.maxRetries || canonicalState === "MANUALLY_REVIEWED") {
-        recommendedAction = "MANUAL_REVIEW";
-      } else if (canonicalState === "FAILED") {
-        recommendedAction = "ROLLBACK";
-      }
-
-      return {
-        operationId: doc.operationId,
-        operationType: doc.operationType,
-        userId: doc.userId,
-        currentStep: doc.currentStep,
-        overallState: doc.overallState,
-        canonicalState,
-        minutesStale,
-        retryCount: doc.retryCount,
-        maxRetries: doc.maxRetries,
-        lastError: doc.lastError,
-        recommendedAction,
-        hasOnchainBroadcast,
-        onchainTxHash: onchainStep?.txHash,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-      };
-    });
-
-    return {
-      thresholdMinutes,
-      totalStuck: diagnostics.length,
-      diagnostics,
-    };
   }
 }
