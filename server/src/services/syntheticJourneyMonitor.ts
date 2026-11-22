@@ -1,7 +1,8 @@
 /**
  * Non-mutating synthetic monitor for the critical browse -> challenge -> unlock
- * journey (#1039). The wallet/prompt pair must be a dedicated, pre-entitled
- * fixture; this monitor never submits a purchase or writes marketplace data.
+ * journey (#1039, #1154). The wallet/prompt pair must be a dedicated,
+ * pre-entitled fixture; this monitor never submits a purchase or writes
+ * marketplace data.
  */
 export type SyntheticMode = "authorized" | "authorization-probe";
 
@@ -44,20 +45,74 @@ export interface SyntheticMonitorDependencies {
   now?: () => number;
 }
 
+/**
+ * Structured alert emitted once a journey crosses the consecutive-failure
+ * threshold, and again when it recovers. Contains only stable codes and
+ * timings: never tokens, signatures, wallet secrets, or response bodies.
+ */
+export interface SyntheticAlertEvent {
+  event: "synthetic_journey_alert" | "synthetic_journey_recovered";
+  correlationId: string;
+  consecutiveFailures: number;
+  mode: SyntheticMode;
+  failedStep?: SyntheticStep["name"];
+  status?: number;
+  code?: string;
+  timestamp: string;
+}
+
+export interface JourneyHealthDecision {
+  consecutiveFailures: number;
+  alerting: boolean;
+  /** Present exactly once per incident, when the failure threshold is crossed. */
+  alert?: SyntheticAlertEvent;
+  /** Present exactly once per incident, on the first success after alerting. */
+  recovered?: SyntheticAlertEvent;
+}
+
+export interface JourneyHealthTracker {
+  record(result: SyntheticJourneyResult): JourneyHealthDecision;
+  snapshot(): { consecutiveFailures: number; alerting: boolean };
+}
+
+export interface SyntheticMonitorOptions {
+  intervalMs?: number;
+  /** Consecutive failed runs before an alert is emitted. Defaults to 2. */
+  failureThreshold?: number;
+  runImmediately?: boolean;
+  /** Keep the event loop alive (set false for long-running watch mode). */
+  unref?: boolean;
+  /** Override structured logging (receives a single JSON line). */
+  log?: (level: "info" | "error", line: string) => void;
+  /** Override alert delivery, e.g. to forward to an alerting webhook. */
+  onAlert?: (event: SyntheticAlertEvent) => void;
+  onResult?: (result: SyntheticJourneyResult) => void;
+}
+
+export interface SyntheticMonitorHandle {
+  timer: ReturnType<typeof setInterval>;
+  /** Resolves to null when a run is already in flight (overlap is skipped). */
+  runNow: () => Promise<SyntheticJourneyResult | null>;
+  stop: () => void;
+}
+
 type JsonResponse = { status: number; ok: boolean; body: unknown };
 
 class JourneyFailure extends Error {
   public readonly status?: number;
   public readonly code?: string;
+  public readonly retryable: boolean;
 
   constructor(
     message: string,
     status?: number,
     code?: string,
+    retryable = isRetryableStatus(status),
   ) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryable = retryable;
   }
 }
 
@@ -72,13 +127,22 @@ function safeCode(body: unknown): string | undefined {
     : undefined;
 }
 
-function isRetryable(status: number | undefined): boolean {
+function isRetryableStatus(status: number | undefined): boolean {
   return (
     status === undefined ||
     status === 408 ||
     status === 425 ||
     status === 429 ||
     status >= 500
+  );
+}
+
+function failureFromError(error: unknown): JourneyFailure {
+  if (error instanceof JourneyFailure) return error;
+  return new JourneyFailure(
+    error instanceof Error && error.name === "AbortError"
+      ? "request_timeout"
+      : "network_error",
   );
 }
 
@@ -95,6 +159,8 @@ async function requestJson(
       ...init,
       signal: controller.signal,
     });
+    // A non-JSON response (proxy error page, maintenance HTML) is treated as a
+    // malformed body. The caller decides whether that is retryable.
     const body = await response.json().catch(() => null);
     return { status: response.status, ok: response.ok, body };
   } finally {
@@ -126,15 +192,8 @@ async function runStep(
         ...(result.code ? { code: result.code } : {}),
       };
     } catch (error) {
-      const failure =
-        error instanceof JourneyFailure
-          ? error
-          : new JourneyFailure(
-              error instanceof Error && error.name === "AbortError"
-                ? "request_timeout"
-                : "network_error",
-            );
-      if (attempt === options.maxAttempts || !isRetryable(failure.status)) {
+      const failure = failureFromError(error);
+      if (attempt === options.maxAttempts || !failure.retryable) {
         return {
           name,
           success: false,
@@ -149,6 +208,78 @@ async function runStep(
     }
   }
   throw new Error("unreachable");
+}
+
+function alertFromResult(
+  event: SyntheticAlertEvent["event"],
+  result: SyntheticJourneyResult,
+  consecutiveFailures: number,
+): SyntheticAlertEvent {
+  const failed = result.steps.find((step) => !step.success);
+  return {
+    event,
+    correlationId: result.correlationId,
+    consecutiveFailures,
+    mode: result.mode,
+    timestamp: result.timestamp,
+    ...(failed
+      ? {
+          failedStep: failed.name,
+          ...(failed.status ? { status: failed.status } : {}),
+          ...(failed.code ? { code: failed.code } : {}),
+        }
+      : {}),
+  };
+}
+
+/**
+ * Tracks consecutive failed runs so a single transient response does not page,
+ * while a sustained outage alerts exactly once and recovery is announced.
+ */
+export function createJourneyHealthTracker(
+  failureThreshold = 2,
+): JourneyHealthTracker {
+  const threshold = Math.max(1, Math.floor(failureThreshold));
+  let consecutiveFailures = 0;
+  let alerting = false;
+
+  return {
+    record(result) {
+      const decision: JourneyHealthDecision = {
+        consecutiveFailures,
+        alerting,
+      };
+
+      if (result.success) {
+        if (alerting) {
+          decision.recovered = alertFromResult(
+            "synthetic_journey_recovered",
+            result,
+            consecutiveFailures,
+          );
+        }
+        consecutiveFailures = 0;
+        alerting = false;
+      } else {
+        consecutiveFailures += 1;
+        if (!alerting && consecutiveFailures >= threshold) {
+          alerting = true;
+          decision.alert = alertFromResult(
+            "synthetic_journey_alert",
+            result,
+            consecutiveFailures,
+          );
+        }
+      }
+
+      decision.consecutiveFailures = consecutiveFailures;
+      decision.alerting = alerting;
+      return decision;
+    },
+    snapshot() {
+      return { consecutiveFailures, alerting };
+    },
+  };
 }
 
 /** Run one journey. Stops after the first failed step to avoid misleading cascades. */
@@ -243,10 +374,33 @@ export async function runSyntheticJourney(
         if (config.mode === "authorized" && !dependencies.signChallenge) {
           throw new JourneyFailure("authorized_signer_missing", 400);
         }
-        const signedMessage =
-          config.mode === "authorized"
-            ? await dependencies.signChallenge!(challengeBody!.challenge)
-            : "invalid-synthetic-signature";
+        let signedMessage: string;
+        if (config.mode === "authorized") {
+          try {
+            signedMessage = await dependencies.signChallenge!(
+              challengeBody!.challenge,
+            );
+          } catch {
+            // A local signing failure is deterministic; retrying the request
+            // would only repeat it.
+            throw new JourneyFailure(
+              "challenge_signing_failed",
+              undefined,
+              undefined,
+              false,
+            );
+          }
+          if (!signedMessage) {
+            throw new JourneyFailure(
+              "challenge_signing_failed",
+              undefined,
+              undefined,
+              false,
+            );
+          }
+        } else {
+          signedMessage = "invalid-synthetic-signature";
+        }
         const response = await requestJson(
           dependencies.fetch,
           `${baseUrl}/api/prompts/unlock`,
@@ -261,7 +415,7 @@ export async function runSyntheticJourney(
               promptId: config.promptId,
               token: challengeBody!.token,
               signedMessage,
-            idempotencyKey,
+              idempotencyKey,
             }),
           },
           timeoutMs,
@@ -298,27 +452,103 @@ export async function runSyntheticJourney(
   };
 }
 
+/**
+ * Runs the journey on an interval with:
+ *  - an immediate first run (configurable),
+ *  - overlap protection (a slow run is never stacked),
+ *  - consecutive-failure alerting and a one-time recovery event.
+ *
+ * `stop()` is safe to call during an in-flight run; that run finishes and no
+ * further runs are scheduled.
+ */
+export function startSyntheticMonitoring(
+  config: SyntheticMonitorConfig,
+  dependencies: SyntheticMonitorDependencies = { fetch: globalThis.fetch },
+  options: SyntheticMonitorOptions = {},
+): SyntheticMonitorHandle {
+  const intervalMs = Math.max(1, options.intervalMs ?? 60_000);
+  const tracker = createJourneyHealthTracker(options.failureThreshold ?? 2);
+  const log =
+    options.log ??
+    ((level, line) => {
+      if (level === "error") console.error(line);
+      else console.info(line);
+    });
+  const emitAlert =
+    options.onAlert ?? ((event) => log("error", JSON.stringify(event)));
+  let inFlight = false;
+
+  const runNow = async (): Promise<SyntheticJourneyResult | null> => {
+    if (inFlight) {
+      log(
+        "info",
+        JSON.stringify({
+          event: "synthetic_journey_skipped",
+          reason: "overlap",
+        }),
+      );
+      return null;
+    }
+
+    inFlight = true;
+    try {
+      const result = await runSyntheticJourney(config, dependencies);
+      const decision = tracker.record(result);
+      options.onResult?.(result);
+      log(
+        result.success ? "info" : "error",
+        JSON.stringify({ event: "synthetic_journey", ...result }),
+      );
+      if (decision.alert) emitAlert(decision.alert);
+      if (decision.recovered) emitAlert(decision.recovered);
+      return result;
+    } catch {
+      log(
+        "error",
+        JSON.stringify({
+          event: "synthetic_journey",
+          success: false,
+          error: "monitor_crashed",
+        }),
+      );
+      return null;
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const timer = setInterval(() => {
+    void runNow();
+  }, intervalMs);
+  // By default the scheduler must not keep a short-lived process (or test
+  // runner) alive. Watch mode opts out so the CLI stays running.
+  if (options.unref ?? true) {
+    (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  if (options.runImmediately ?? true) {
+    void runNow();
+  }
+
+  return {
+    timer,
+    runNow,
+    stop() {
+      clearInterval(timer);
+    },
+  };
+}
+
+/**
+ * Backwards-compatible interval helper. Prefer `startSyntheticMonitoring`
+ * when alerting or overlap protection is needed.
+ */
 export function startPeriodicMonitoring(
   config: SyntheticMonitorConfig,
   dependencies?: SyntheticMonitorDependencies,
   intervalMs = 60_000,
 ): ReturnType<typeof setInterval> {
-  return setInterval(() => {
-    void runSyntheticJourney(config, dependencies)
-      .then((result) => {
-        const log = result.success ? console.info : console.error;
-        log(JSON.stringify({ event: "synthetic_journey", ...result }));
-      })
-      .catch(() =>
-        console.error(
-          JSON.stringify({
-            event: "synthetic_journey",
-            success: false,
-            error: "monitor_crashed",
-          }),
-        ),
-      );
-  }, intervalMs);
+  return startSyntheticMonitoring(config, dependencies, { intervalMs }).timer;
 }
 
 export const journeyMonitor = { runSyntheticJourney, startPeriodicMonitoring };
