@@ -159,6 +159,28 @@ describe("durable transfer execution", () => {
       TransferCancelledError,
     );
   });
+  it("does not reopen a run when cancellation races with a failed effect", async () => {
+    const execution = await beginTransfer("alice", "import", {
+      batch: "race",
+    });
+    const effect = vi.fn(async () => {
+      await cancelTransfer(execution.id, "alice");
+      throw new Error("downstream unavailable");
+    });
+
+    await expect(
+      execution.step("row_0", "race-reference", effect),
+    ).rejects.toThrow("downstream unavailable");
+    await execution.finish("failed");
+
+    const run = await getTransfer(execution.id, "alice");
+    expect(run.status).toBe("failed");
+    expect(run.cancelRequested).toBe(true);
+    await expect(
+      beginTransfer("alice", "import", { batch: "race" }, execution.id),
+    ).rejects.toBeInstanceOf(TransferCancelledError);
+    expect(effect).toHaveBeenCalledOnce();
+  });
   it("requires signed scoped authorization and isolates owners over HTTP", async () => {
     expect(
       (
