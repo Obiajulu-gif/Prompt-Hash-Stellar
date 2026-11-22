@@ -89,6 +89,7 @@ vi.mock("../models/PriceChange", () => ({
 vi.mock("../models/Purchase", () => ({
   default: {
     findOneAndUpdate: vi.fn(),
+    findOne: vi.fn(() => ({ lean: async () => null })),
     find: vi.fn().mockResolvedValue([]),
   },
 }));
@@ -103,6 +104,10 @@ vi.mock("../models/Notification", () => ({
   default: {
     create: vi.fn().mockResolvedValue({}),
   },
+  NOTIFICATION_TYPES: ["prompt_update", "purchase_receipt", "system"],
+  MANDATORY_NOTIFICATION_TYPES: ["system"],
+  OPTIONAL_NOTIFICATION_TYPES: ["prompt_update", "purchase_receipt"],
+  isMandatoryNotificationType: (type: string) => type === "system",
 }));
 
 vi.mock("../services/webhookOutbox", () => ({
@@ -299,6 +304,9 @@ describe("Metadata Indexing Service & PromptUpdated Invalidation (#114)", () => 
     } as Partial<Response>;
 
     (User.findOne as any).mockResolvedValueOnce({ _id: "user-creator-1" });
+    (Prompt.findById as any).mockReturnValueOnce({
+      select: () => ({ lean: async () => ({ owner: "user-creator-1" }) }),
+    });
     (Prompt.findOne as any).mockResolvedValueOnce({
       _id: "prompt-999",
       onChainId: "999",

@@ -41,6 +41,12 @@ vi.mock("../services/structuredLogger.js", () => ({
 }));
 
 import Prompt from "../models/Prompt.js";
+
+/**
+ * `resolvePermalink` populates the owner through a Mongoose query, so the
+ * mock has to expose that chain instead of resolving the document directly.
+ */
+const populatedQuery = (doc: unknown) => ({ populate: async () => doc });
 import { recordAuditEvent } from "../services/auditTrail.js";
 import {
   renameRecord,
@@ -126,7 +132,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(renamedPrompt);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(renamedPrompt) as any);
 
       // Caller requests via the OLD slug
       const resolution = await resolvePermalink("old-prompt-title");
@@ -154,7 +160,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(activePrompt);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(activePrompt) as any);
 
       const resolution = await resolvePermalink("new-amazing-prompt-title");
 
@@ -219,7 +225,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(archivedPrompt);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(archivedPrompt) as any);
 
       const resolution = await resolvePermalink("50");
 
@@ -252,7 +258,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(renamedArchivedPrompt);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(renamedArchivedPrompt) as any);
 
       const resolution = await resolvePermalink("old-unarchived-slug");
 
@@ -277,7 +283,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         save: vi.fn().mockResolvedValue(true),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(archivedPrompt);
+      (Prompt.findOne as any).mockResolvedValue(archivedPrompt);
 
       const restored = await restoreRecord({
         promptId: "60",
@@ -313,7 +319,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         save: vi.fn().mockResolvedValue(true),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(activePrompt);
+      (Prompt.findOne as any).mockResolvedValue(activePrompt);
 
       const deleted = await deleteRecord({
         promptId: "70",
@@ -331,7 +337,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         canonicalUrl: "/prompts/70",
         populate: vi.fn().mockReturnThis(),
       };
-      vi.mocked(Prompt.findOne).mockResolvedValue(deletedDoc);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(deletedDoc) as any);
 
       const resolution = await resolvePermalink("70");
       expect(resolution.status).toBe("deleted");
@@ -394,7 +400,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(restrictedPrompt);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(restrictedPrompt) as any);
 
       // Public unauthorized viewer requests canonical URL
       const resolution = await resolvePermalink("80", {
@@ -426,7 +432,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(restrictedPromptWithHistory);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(restrictedPromptWithHistory) as any);
 
       // Attacker or user visits the OLD link hoping to bypass restriction or see private cache
       const resolution = await resolvePermalink(
@@ -458,7 +464,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
         populate: vi.fn().mockReturnThis(),
       };
 
-      vi.mocked(Prompt.findOne).mockResolvedValue(restrictedPrompt);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(restrictedPrompt) as any);
 
       // Creator visits their own restricted listing
       const resolution = await resolvePermalink("80", {
@@ -479,7 +485,7 @@ describe("Safe Public Permalinks Service — Issue #936", () => {
 
   describe("6. Not Found Records", () => {
     it("returns 404 not_found when no record matches identifier", async () => {
-      vi.mocked(Prompt.findOne).mockResolvedValue(null);
+      (Prompt.findOne as any).mockReturnValue(populatedQuery(null) as any);
 
       const resolution = await resolvePermalink("non-existent-prompt-id-9999");
       expect(resolution.status).toBe("not_found");

@@ -62,6 +62,27 @@ vi.mock("../services/eventJournal", () => ({
   journalIndexedEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../models/MarketplaceIndex", () => ({
+  MarketplaceIndex: {
+    findOneAndUpdate: vi.fn().mockResolvedValue({}),
+  },
+}));
+
+// Fire-and-forget follow-ups from the indexer must not reach a real database.
+vi.mock("../services/similarityDetection", () => ({
+  scanForSimilarity: vi.fn().mockResolvedValue([]),
+}));
+vi.mock("../services/safetyScannerHook", () => ({
+  applySafetyScan: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../middleware/provenanceMiddleware", () => ({
+  trackBlockchainIndexing: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../services/notificationService", () => ({
+  createNotification: vi.fn().mockResolvedValue(undefined),
+  fanOutNotification: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../services/webhookOutbox", () => ({
   enqueue: vi.fn().mockResolvedValue(undefined),
 }));

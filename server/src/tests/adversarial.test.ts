@@ -23,6 +23,13 @@ vi.mock("../../../src/lib/stellar/promptHashClient", () => ({
   hasAccess: (...args: unknown[]) => hasAccessMock(...args),
   verifyEntitlement: (...args: unknown[]) => verifyEntitlementMock(...args),
   getPrompt: (...args: unknown[]) => getPromptMock(...args),
+  // Mirrors the real helper: divergence downgrades the status to unverifiable.
+  getCurrentEntitlementStatus: (entitlement: { divergenceReason?: string; hasAccess?: boolean }) =>
+    entitlement.divergenceReason
+      ? "unverifiable"
+      : entitlement.hasAccess
+        ? "verified"
+        : "not_entitled",
   DEFAULT_MAX_LEDGER_AGE: 5,
 }));
 
@@ -30,6 +37,18 @@ vi.mock("../../../src/lib/crypto/promptCrypto", () => ({
   unwrapPromptKey: (...args: unknown[]) => unwrapPromptKeyMock(...args),
   decryptPromptCiphertext: (...args: unknown[]) => decryptPromptCiphertextMock(...args),
   hashPromptPlaintext: (...args: unknown[]) => hashPromptPlaintextMock(...args),
+  // Integrity check compares the recomputed plaintext hash with the on-chain one.
+  verifyPromptPlaintextHash: async (plaintext: string, expectedHash: string) => {
+    const computedHash = await hashPromptPlaintextMock(plaintext);
+    const normalizedExpectedHash = String(expectedHash).toLowerCase();
+    return {
+      valid: computedHash === normalizedExpectedHash,
+      algorithm: "SHA-256",
+      version: 1,
+      expectedHash: normalizedExpectedHash,
+      computedHash,
+    };
+  },
   normalizeContentHash: (hash: string) => hash.toLowerCase(),
 }));
 

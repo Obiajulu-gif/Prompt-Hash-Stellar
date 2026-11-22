@@ -51,6 +51,14 @@ describe("Route architecture — read-projection boundary (#543)", () => {
       "/transfers/request", // #708 off-chain two-phase handoff
       "/transfers/:transferId/respond",
       "/transfers/:transferId/cancel",
+      "/transfers/:transferId/disputes", // #907 off-chain dispute record
+      "/transfers/disputes/:disputeId/evidence",
+      "/transfers/disputes/:disputeId/withdraw",
+      "/:promptId/rename", // #936 slug/permalink metadata; canonical state untouched
+      "/:promptId/archive-permalink",
+      "/:promptId/restore-permalink",
+      "/:promptId/restrict-permalink",
+      "/duplicate/check", // advisory duplicate scan
     ];
 
     for (const route of postRoutes) {

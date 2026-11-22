@@ -5,6 +5,7 @@ vi.mock("../services/auditTrail", () => ({ recordAuditEvent: vi.fn() }));
 
 import { abuseRiskGuard } from "../middleware/abuseRiskGuard.js";
 import { abuseActivityLedger, abuseReviewQueue } from "../services/abuseRiskScoring.js";
+import { stepUpVerificationStore } from "../services/stepUpVerification.js";
 
 const WALLET = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
@@ -44,6 +45,7 @@ describe("abuseRiskGuard middleware", () => {
   beforeEach(() => {
     abuseActivityLedger.reset();
     abuseReviewQueue.clear();
+    stepUpVerificationStore.reset();
   });
 
   it("passes ordinary requests straight through", () => {
@@ -121,6 +123,7 @@ describe("abuseRiskGuard explainable responses", () => {
   beforeEach(() => {
     abuseActivityLedger.reset();
     abuseReviewQueue.clear();
+    stepUpVerificationStore.reset();
   });
 
   const makeSelfDeal = (mode: "shadow" | "enforce", stepUp = false) =>

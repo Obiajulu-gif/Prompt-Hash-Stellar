@@ -39,12 +39,16 @@ vi.mock("../models/Approval", () => {
   const m: any = {
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
+    updateOne: vi.fn(),
     create: vi.fn(),
   };
-  return m;
+  // The service imports the named `Approval` export; the suite drives the
+  // default import, so both must point at the same mock.
+  return { default: m, Approval: m, ...m };
 });
 
 import { ApprovalService } from "../services/approvalService";
+import Approval from "../models/Approval";
 import { Request, Response } from "express";
 
 describe("Approval Service", () => {
@@ -85,8 +89,8 @@ describe("Approval Service", () => {
 
   describe("ApprovalService.evaluateApproval", () => {
     beforeEach(() => {
-      // Mock Approval.findOne
-      (Approval.findOne as any).mockResolvedValueOnce({
+      // Mock Approval.findOne (default; individual tests override the first call)
+      (Approval.findOne as any).mockResolvedValue({
         _id: "approval-1",
         actionId: "transfer-1",
         actionType: "ownershipTransfer",
@@ -196,6 +200,18 @@ describe("Approval Service", () => {
           approvedAt: new Date(Date.now() - 30 * 1000),
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           status: "approved",
+        })
+        // third lookup: evaluateApproval resolves the granted record
+        .mockResolvedValueOnce({
+          _id: "approval-2",
+          actionId: "transfer-2",
+          actionType: "ownershipTransfer",
+          scope: "TRANSFER",
+          reason: "Approved earlier",
+          actor: "maintainer-1",
+          approvedAt: new Date(Date.now() - 30 * 1000),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          status: "approved",
         });
     });
 
@@ -217,6 +233,7 @@ describe("Approval Service", () => {
 
     it("should reject when no valid approval exists at all", async () => {
       // Mock: no pending AND no approved
+      (Approval.findOne as any).mockReset();
       (Approval.findOne as any)
         .mockResolvedValueOnce(null) // no pending
         .mockResolvedValueOnce(null); // no approved either
@@ -237,8 +254,10 @@ describe("Approval Service", () => {
     });
 
     it("should reject when approval is expired", async () => {
-      // Mock: pending approval that's expired
-      (Approval.findOne as any).mockResolvedValueOnce({
+      // Mock: pending approval that's expired. The evaluation lookup
+      // re-reads the same record.
+      (Approval.findOne as any).mockReset();
+      const expiredApproval = {
         _id: "approval-3",
         actionId: "transfer-3",
         actionType: "ownershipTransfer",
@@ -248,7 +267,10 @@ describe("Approval Service", () => {
         approvedAt: new Date(),
         expiresAt: new Date(Date.now() - 60 * 60 * 1000), // expired
         status: "pending",
-      });
+      };
+      (Approval.findOne as any)
+        .mockResolvedValueOnce(expiredApproval)
+        .mockResolvedValueOnce(expiredApproval);
 
       const result = await ApprovalService.checkProtectedActionApproval({
         actionId: "transfer-3",

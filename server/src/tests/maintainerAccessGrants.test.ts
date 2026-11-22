@@ -268,7 +268,7 @@ describe("revokeMaintainerGrant", () => {
 });
 
 describe("requireMaintainerGrant middleware", () => {
-  const guard = requireMaintainerGrant("payouts:write");
+  const guard = requireMaintainerGrant("payouts:write", { now: () => NOW });
 
   function makeReq(headers: Record<string, string> = { "x-maintainer-grant-id": "mag_test-1" }, sub: string | null = "maint-bob") {
     return {

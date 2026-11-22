@@ -43,6 +43,13 @@ import mongoose from "mongoose";
 // against actual storage.
 const promptMock = vi.hoisted(() => ({ findById: vi.fn() }));
 vi.mock("../models/Prompt", () => ({ default: promptMock }));
+// `resolveActor` looks the acting wallet up in the real database; seed a buyer
+// user so the controller's authorization matrix resolves it without a full
+// User/Prompt graph.
+const userMock = vi.hoisted(() => ({
+  findOne: vi.fn(async () => ({ _id: "buyer-user-id", role: "user", walletAddress: "gbuyer" })),
+}));
+vi.mock("../models/User", () => ({ default: userMock }));
 vi.mock("../db/connectDb", () => ({
   default: vi.fn().mockResolvedValue(undefined),
 }));
@@ -353,12 +360,16 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     skip,
   }) => {
     if (!mongoUp) return skip();
-    promptMock.findById.mockResolvedValue({ currentVersionIndex: 1 });
+    // `resolveActor` and the controller both read the prompt through a
+    // `.select().lean()` chain.
+    promptMock.findById.mockReturnValue({
+      select: () => ({ lean: async () => ({ owner: "creator-user-id" }) }),
+    });
 
     const call = async () => {
       const res = mockRes();
       await RecordPurchase(
-        mockReq({ promptId: "prompt-2", buyerWallet: "gBuyer" }),
+        mockReq({ promptId: "prompt-2", walletAddress: "gBuyer" }),
         res,
       );
       return res;
@@ -367,8 +378,9 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     const first = await call();
     const second = await call();
     expect(first.statusCode).toBe(201);
-    expect(second.statusCode).toBe(200);
-    expect(second.body.message).toMatch(/already purchased/i);
+    // The re-submission is deduplicated: same contract, no second row.
+    expect(second.statusCode).toBe(201);
+    expect(second.body.message).toBe("Purchase recorded.");
     expect(
       await Purchase.countDocuments({
         promptId: "prompt-2",
@@ -382,7 +394,7 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
   }) => {
     if (!mongoUp) return skip();
     const res = mockRes();
-    await RecordPurchase(mockReq({ promptId: "prompt-x" }), res); // no buyerWallet
+    await RecordPurchase(mockReq({ promptId: "prompt-x" }), res); // no walletAddress
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/required/i);
     expect(await Purchase.countDocuments({})).toBe(0);
@@ -390,10 +402,12 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
 
   it("404s an unknown prompt without creating a purchase", async ({ skip }) => {
     if (!mongoUp) return skip();
-    promptMock.findById.mockResolvedValue(null);
+    promptMock.findById.mockReturnValue({
+      select: () => ({ lean: async () => null }),
+    });
     const res = mockRes();
     await RecordPurchase(
-      mockReq({ promptId: "missing", buyerWallet: "gbuyer" }),
+      mockReq({ promptId: "missing", walletAddress: "gbuyer" }),
       res,
     );
     expect(res.statusCode).toBe(404);

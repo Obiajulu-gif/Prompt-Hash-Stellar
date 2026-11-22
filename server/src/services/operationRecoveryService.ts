@@ -191,13 +191,18 @@ export class OperationRecoveryService {
     }
 
     if (canonicalState === "FAILED") {
+      // State whether a rollback is safe: an interruption before broadcast
+      // leaves no on-chain side effects to unwind.
+      const sideEffectStatus = hasOnchainSubmission
+        ? "An on-chain transaction was broadcasted; verify its status before rolling back."
+        : "Rollback is safe: no external on-chain side effects were recorded.";
       return {
         operationId,
         canResume: false,
         resumeStep: checkpoint.currentStep,
         canonicalState,
         recommendedAction: "MANUAL_REVIEW",
-        instructions: `Operation marked as failed: ${checkpoint.lastError || "Unknown error"}. Manual review required.`,
+        instructions: `Operation marked as failed: ${checkpoint.lastError || "Unknown error"}. ${sideEffectStatus} Manual review required.`,
       };
     }
 

@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { MaintainerImpersonationService } from "../services/maintainerImpersonationService";
 import { ImpersonationSession } from "../models/ImpersonationSession";
+import { setupRealMongo, teardownRealMongo } from "./helpers/realMongo";
 
 describe("MaintainerImpersonationService (Issue #834)", () => {
+  beforeAll(async () => {
+    await setupRealMongo();
+  });
+
+  afterAll(async () => {
+    await teardownRealMongo();
+  });
+
   beforeEach(async () => {
     await ImpersonationSession.deleteMany({});
   });

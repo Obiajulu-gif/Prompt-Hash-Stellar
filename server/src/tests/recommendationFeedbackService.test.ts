@@ -1,9 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { recommendationFeedbackService } from "../services/recommendationFeedbackService.js";
 import RecommendationFeedback from "../models/RecommendationFeedback.js";
 import UserPreferences from "../models/UserPreferences.js";
+import { setupRealMongo, teardownRealMongo } from "./helpers/realMongo";
 
 describe("RecommendationFeedbackService", () => {
+  beforeAll(async () => {
+    await setupRealMongo();
+  });
+
+  afterAll(async () => {
+    await teardownRealMongo();
+  });
+
   beforeEach(async () => {
     await RecommendationFeedback.deleteMany({});
     await UserPreferences.deleteMany({});

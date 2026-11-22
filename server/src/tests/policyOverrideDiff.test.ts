@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../services/auditTrail", () => ({
+vi.mock("../services/auditTrail", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../services/auditTrail")>()),
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -43,7 +44,11 @@ async function call(
     headers: authorization ? { authorization } : {},
     socket: { remoteAddress: "127.0.0.1" },
   };
-  const res: any = { statusCode: 200, payload: undefined };
+  const res: any = { statusCode: 200, payload: undefined, headers: {} as Record<string, string> };
+  res.setHeader = vi.fn((name: string, value: string) => {
+    res.headers[name] = value;
+    return res;
+  });
   res.status = vi.fn((code: number) => ((res.statusCode = code), res));
   res.json = vi.fn((payload: unknown) => ((res.payload = payload), res));
 

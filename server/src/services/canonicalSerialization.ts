@@ -32,7 +32,10 @@ export function canonicalize(
   options: CanonicalOptions = {}
 ): string {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  return JSON.stringify(canonicalizeValue(value, opts));
+  // A top-level `undefined` has no JSON representation; treat it as null so
+  // callers always get a JSON document back.
+  const normalized = value === undefined ? null : canonicalizeValue(value, opts);
+  return JSON.stringify(normalized);
 }
 
 function canonicalizeValue(value: unknown, opts: CanonicalOptions): unknown {

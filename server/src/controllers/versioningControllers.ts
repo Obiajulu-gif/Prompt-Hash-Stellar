@@ -5,6 +5,7 @@ import PromptVersion from "../models/PromptVersion";
 import Purchase from "../models/Purchase";
 import User from "../models/User";
 import { deliverNotification } from "../services/notificationRouting";
+import { invalidatePromptCaches } from "../services/cacheService";
 
 /**
  * Authorization matrix for prompt lifecycle operations.
@@ -321,8 +322,11 @@ export const GetBuyerVersion = async (req: Request, res: Response): Promise<Resp
     if (!promptId) {
       return res.status(400).json({ error: "promptId is required." });
     }
+    if (typeof walletAddress !== "string" || !walletAddress) {
+      return res.status(400).json({ error: "promptId and walletAddress are required." });
+    }
 
-    const { actor } = await resolveActor(typeof walletAddress === "string" ? walletAddress : null, {
+    const { actor } = await resolveActor(walletAddress, {
       promptId: String(promptId),
       requiredOperation: "getBuyerVersion",
     });
@@ -366,7 +370,7 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
       return denyResponse(res, "recordPurchase", "anonymous");
     }
 
-    const prompt = await Prompt.findById(promptId).select("owner").lean();
+    const prompt = await Prompt.findById(promptId).select("owner currentVersionIndex").lean();
     if (!prompt) {
       return res.status(404).json({ error: "Prompt not found." });
     }
@@ -380,7 +384,9 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
       await Purchase.create({
         promptId: String(promptId),
         buyerWallet: normalized,
-        txHash: txHash ?? null,
+        // The licence covers the prompt version that was live at purchase time.
+        versionIndex: Number((prompt as any).currentVersionIndex ?? 1),
+        txHash: txHash ?? "",
       });
     }
 
@@ -476,10 +482,4 @@ export const AdministrativeAction = async (req: Request, res: Response): Promise
 
 function currentPromptSchemaVersion(): number {
   return 2;
-}
-
-async function invalidatePromptCaches(_key: string): Promise<void> {
-  // Cache invalidation is handled by the cache layer; this hook exists so
-  // controllers can remain agnostic of the cache backend.
-  return;
 }

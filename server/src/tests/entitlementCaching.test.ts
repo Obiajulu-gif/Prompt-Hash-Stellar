@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 
 const mockEntitlements: any[] = [];
 const mockPurchases: any[] = [];
-const mockAudit = vi.fn();
+const mockAudit = vi.hoisted(() => vi.fn());
 
 vi.mock("../models/Entitlement", () => {
   const MockEntitlementClass: any = function (data: any) {

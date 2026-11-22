@@ -93,7 +93,12 @@ export async function createNotification(
         idempotencyKey: params.idempotencyKey,
         wallet,
       });
-      return null;
+      // Concurrent/retried deliveries must converge on the existing document.
+      const existing = await Notification.findOne({
+        recipientWallet: wallet,
+        idempotencyKey: params.idempotencyKey,
+      });
+      return existing ?? null;
     }
     throw err;
   }
@@ -172,3 +177,13 @@ export async function pruneOldNotifications(
 
   return totalDeleted;
 }
+
+/**
+ * Namespaced view of the notification service helpers, kept for callers that
+ * bind the service as a single object.
+ */
+export const NotificationService = {
+  createNotification,
+  fanOutNotification,
+  pruneOldNotifications,
+};

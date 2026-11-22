@@ -70,7 +70,15 @@ async function deny(
   res.status(status).json({ error: "Maintainer access denied.", code });
 }
 
-export function requireMaintainerGrant(requiredScope: string) {
+export interface MaintainerGrantGuardOptions {
+  /** Clock override so the guard can be evaluated deterministically in tests. */
+  now?: () => Date;
+}
+
+export function requireMaintainerGrant(
+  requiredScope: string,
+  options: MaintainerGrantGuardOptions = {},
+) {
   return async function maintainerGrantMiddleware(
     req: MaintainerGrantRequest,
     res: Response,
@@ -99,7 +107,7 @@ export function requireMaintainerGrant(requiredScope: string) {
       return;
     }
 
-    const now = new Date();
+    const now = options.now ? options.now() : new Date();
     const decision = evaluateMaintainerGrant(grant, {
       grantee: admin.sub,
       scope: requiredScope,

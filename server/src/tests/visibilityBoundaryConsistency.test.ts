@@ -90,9 +90,9 @@ describe('Issue #913 — Search and Discovery', () => {
   it('buildPublicVisibilityFilter: comprehensive exclusions', () => {
     const f = buildPublicVisibilityFilter();
     expect(f.isActive).toBe(true); expect(f.listingStatus).toBe('published');
-    for (const s of ['draft','review','hidden','suspended','archived','retired']) expect(f.lifecycleState['\']).toContain(s);
-    for (const s of ['restricted','hidden','flagged','rejected']) expect(f.moderationStatus['\']).toContain(s);
-    for (const s of ['corrupted','missing']) expect(f.integrityStatus['\']).toContain(s);
+    for (const s of ['draft','review','hidden','suspended','archived','retired']) expect(f.lifecycleState.$nin).toContain(s);
+    for (const s of ['restricted','hidden','flagged','rejected']) expect(f.moderationStatus.$nin).toContain(s);
+    for (const s of ['corrupted','missing']) expect(f.integrityStatus.$nin).toContain(s);
   });
   it('filterVisiblePrompts: only public record passes from mixed set', () => {
     const visible = filterVisiblePrompts([pub,priv,draft,restr,del,arch]);

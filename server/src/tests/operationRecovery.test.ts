@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { OperationRecoveryService } from "../services/operationRecoveryService";
 import { OperationCheckpoint } from "../models/OperationCheckpoint";
+import { setupRealMongo, teardownRealMongo } from "./helpers/realMongo";
 
 describe("OperationRecoveryService (Issue #831)", () => {
+  beforeAll(async () => {
+    await setupRealMongo();
+  });
+
+  afterAll(async () => {
+    await teardownRealMongo();
+  });
+
   beforeEach(async () => {
     await OperationCheckpoint.deleteMany({});
   });
@@ -22,7 +31,7 @@ describe("OperationRecoveryService (Issue #831)", () => {
     });
 
     expect(res1.isNew).toBe(true);
-    expect(res1.checkpoint.overallState).toBe("INITIALIZED");
+    expect(res1.checkpoint.overallState).toBe("PENDING");
     expect(res1.checkpoint.currentStep).toBe("VALIDATE_BALANCE");
 
     // Second call with same idempotency key returns existing
@@ -87,9 +96,12 @@ describe("OperationRecoveryService (Issue #831)", () => {
       initialStep: "IPFS_UPLOAD",
     });
 
-    const resumed = await OperationRecoveryService.resumeOperation(checkpoint.operationId);
+    const resumed = await OperationRecoveryService.userRetry(
+      checkpoint.operationId,
+      "user_creator_1"
+    );
     expect(resumed.retryCount).toBe(1);
-    expect(resumed.overallState).toBe("RECOVERABLE");
+    expect(resumed.overallState).toBe("RETRYABLE");
   });
 
   it("finds stuck operations older than threshold and supports maintainer override", async () => {
@@ -100,10 +112,11 @@ describe("OperationRecoveryService (Issue #831)", () => {
       initialStep: "ESCROW_LOCK",
     });
 
-    // Artificially age the record
-    await OperationCheckpoint.updateOne(
+    // Artificially age the record. Bypass Mongoose so the `updatedAt`
+    // timestamp is not overwritten by the schema timestamps plugin.
+    await OperationCheckpoint.collection.updateOne(
       { operationId: checkpoint.operationId },
-      { updatedAt: new Date(Date.now() - 40 * 60 * 1000) }
+      { $set: { updatedAt: new Date(Date.now() - 40 * 60 * 1000) } }
     );
 
     const stuck = await OperationRecoveryService.findStuckOperations(30);
@@ -116,6 +129,6 @@ describe("OperationRecoveryService (Issue #831)", () => {
       "Verified on-chain manually via explorer"
     );
 
-    expect(resolved.overallState).toBe("CONFIRMED");
+    expect(resolved.overallState).toBe("RESOLVED");
   });
 });
