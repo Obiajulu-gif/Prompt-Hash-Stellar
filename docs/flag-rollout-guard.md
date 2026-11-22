@@ -5,6 +5,17 @@ Issue: #988. Policy: `server/src/services/flagRolloutGuard.ts`
 per-user hashing stay in `server/src/services/featureFlagService.ts` —
 the guard adds no storage schema changes.
 
+## CI note (Playwright workflow)
+
+The `Install dependencies` step in `.github/workflows/playwright.yml` failed
+with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. The
+Yarn `resolutions` entry pins `typescript` to a range that resolves to a
+major version (6.x) outside the project's supported range. Fix: align the
+`resolutions` override with the TypeScript major the workspace actually uses
+(`^5.x`), or remove the override, then regenerate `yarn.lock`. Do not bypass
+the resolution check in CI. The upload-artifact step only reports the failed
+install; it is not the root cause.
+
 ## Rollout
 
 1. Declare scope (`marketplace|settlement|payouts|auth|indexer|global`),
@@ -18,7 +29,7 @@ the guard adds no storage schema changes.
 API enforcement: a `PATCH /api/flags/:name` that ramps a flag (non-disabled
 status with `rolloutPercentage`) must include `rolloutHealth`
 (`errorRate`, `p1Incident`, `invariantViolations`). Missing health is refused
- with 400; a blocked rollout returns HTTP 409 with the guard reasons. The guard
+with 400; a blocked rollout returns HTTP 409 with the guard reasons. The guard
 runs before any write.
 
 Guards: error-rate ceiling 5%; `settlement|payouts|global` capped at 10% in

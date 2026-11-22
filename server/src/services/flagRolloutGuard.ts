@@ -139,6 +139,9 @@ export interface EmergencyDisableDecision {
  */
 export function evaluateEmergencyDisable(req: EmergencyDisableRequest): EmergencyDisableDecision {
   const reasons: string[] = [];
+  if (req === null || typeof req !== "object") {
+    return { disable: false, audited: false, reasons: ["request is required"] };
+  }
   if (typeof req.flag !== "string" || req.flag.trim().length === 0) {
     reasons.push("flag is required");
   }

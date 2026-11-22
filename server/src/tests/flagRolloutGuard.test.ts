@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-// Note: tests exercise ../services/flagRolloutGuard.js; the module must export evaluateRolloutGuard and verifyRollback.
 import {
+  evaluateEmergencyDisable,
   evaluateRolloutGuard,
   verifyRollback,
 } from "../services/flagRolloutGuard.js";
@@ -73,5 +73,34 @@ describe("flagRolloutGuard (issue #988)", () => {
     const v = verifyRollback({ flagDisabledEverywhere: false, noPartialWrites: true, invariantsPass: false, noLedgerDrift: true });
     expect(v.verified).toBe(false);
     expect(v.failures.join(" ")).toMatch(/still enabled|invariants/);
+  });
+
+  it("emergency disable succeeds for an authorized operator with a reason", () => {
+    const d = evaluateEmergencyDisable({
+      flag: "stellar_atomic_settlement",
+      operatorId: "ops-1",
+      operatorAuthorized: true,
+      reason: "settlement exploit suspected",
+    });
+    expect(d.disable).toBe(true);
+    expect(d.audited).toBe(true);
+  });
+
+  it("emergency disable is refused for unauthorized operators, missing reason, or missing operator", () => {
+    const unauthorized = evaluateEmergencyDisable({
+      flag: "x", operatorId: "ops-1", operatorAuthorized: false, reason: "incident",
+    });
+    expect(unauthorized.disable).toBe(false);
+    expect(unauthorized.reasons.join(" ")).toMatch(/not authorized/);
+
+    const noReason = evaluateEmergencyDisable({
+      flag: "x", operatorId: "ops-1", operatorAuthorized: true, reason: "  ",
+    });
+    expect(noReason.disable).toBe(false);
+
+    const noOperator = evaluateEmergencyDisable({
+      flag: "x", operatorId: "", operatorAuthorized: true, reason: "incident",
+    });
+    expect(noOperator.disable).toBe(false);
   });
 });

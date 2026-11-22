@@ -231,7 +231,7 @@ featureFlagRouter.post(
 
       const verification = verifyRollback({
         flagDisabledEverywhere: flag?.status === "disabled" &&
-          ((["development", "staging", "production"] as const)).every((env) => flag.environments?.[env] === false),
+          (((["development", "staging", "production"] as const))).every((env) => flag.environments?.[env] === false),
         noPartialWrites: noPartialWrites === true,
         invariantsPass: invariantsPass === true,
         noLedgerDrift: noLedgerDrift === true,

@@ -72,8 +72,7 @@ export const KNOWN_FEATURE_FLAGS: Record<string, FeatureFlagDefinition> = {
 };
 
 /**
- * Flags that can never be left enabled by a rollout guard.
- * Emergency disablement is always permitted for these.
+ * Roles permitted to raise rollout, emergency-disable, or clear emergency disablement.
  */
 export const EMERGENCY_DISABLE_ALLOWED_ROLES = ["admin", "maintainer"] as const;
 
@@ -353,85 +352,24 @@ class FeatureFlagService {
         };
       }
 
-      // Check rollout percentage for experimental flags
-      if (flag.status === "experimental" && userId) {
-        const isEligible = this.shouldEnableForUser(
-          normalized,
-          userId,
-          flag.rolloutPercentage
-        );
-        return {
-          name: normalized,
-          enabled: isEligible,
-          reason: `Experimental rollout (${flag.rolloutPercentage}%) evaluation for user ${userId}`,
-          source: "database",
-        };
-      }
-
-      if (flag.status === "experimental" && !userId) {
-        // Without a userId for experimental rollout, fall back to safe default
-        return {
-          name: normalized,
-          enabled: false,
-          reason: "Experimental flag requested without userId context; defaulted to disabled",
-          source: "database",
-        };
-      }
-
       return {
         name: normalized,
         enabled: true,
-        reason: "Flag is enabled for environment",
+        reason: "Flag is enabled for this environment",
         source: "database",
       };
-    } catch (err) {
+    } catch (error) {
       const safeFallback = this.getSafeFallback(normalized);
-      logger.error(
-        `Error checking feature flag ${flagName}: ${err}. Using safe fallback (${safeFallback})`
-      );
+      logger.error(`Feature flag evaluation failed for ${flagName}; using safe fallback (${safeFallback})`, error);
       return {
         name: normalized,
         enabled: safeFallback,
-        reason: `Database error encountered: ${err}`,
+        reason: "Evaluation failed; fell back to safe default",
         source: "safe_fallback",
       };
     }
   }
-
-  async getFlag(name: string): Promise<any> {
-    return FeatureFlag.findOne({ name: name.toLowerCase() });
-  }
-
-  async getAllFlags(): Promise<any[]> {
-    return FeatureFlag.find({});
-  }
-
-  async getFlagsForEnvironment(environment: FeatureFlagEnvironment): Promise<any[]> {
-    return FeatureFlag.find({
-      [`environments.${environment}`]: true,
-      status: { $ne: "disabled" },
-    });
-  }
-
-  private shouldEnableForUser(
-    flagName: string,
-    userId: string,
-    rolloutPercentage: number
-  ): boolean {
-    if (rolloutPercentage === 0) return false;
-    if (rolloutPercentage === 100) return true;
-
-    // Consistent hashing: same user always gets same result
-    const combined = `${flagName}:${userId}`;
-    let hash = 0;
-    for (let i = 0; i < combined.length; i++) {
-      hash = (hash << 5) - hash + combined.charCodeAt(i);
-      hash = hash & hash;
-    }
-
-    const percentage = Math.abs(hash) % 100;
-    return percentage < rolloutPercentage;
-  }
 }
 
 export const featureFlagService = new FeatureFlagService();
+export default featureFlagService;
