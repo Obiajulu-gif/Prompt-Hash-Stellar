@@ -118,4 +118,60 @@ describe("OperationRecoveryService (Issue #831)", () => {
 
     expect(resolved.overallState).toBe("CONFIRMED");
   });
+
+  it("checkpoints an external effect before and after the normal path", async () => {
+    const recordStep = vi
+      .spyOn(OperationRecoveryService, "recordStep")
+      .mockResolvedValue({} as any);
+
+    const result = await OperationRecoveryService.executeExternalStep(
+      "op-normal",
+      "BROADCAST_PAYMENT",
+      async () => "tx-result",
+      { externalReference: "payment-idem-1", txHash: "tx-hash-1" },
+    );
+
+    expect(result).toBe("tx-result");
+    expect(recordStep).toHaveBeenNthCalledWith(
+      1,
+      "op-normal",
+      "BROADCAST_PAYMENT",
+      "PREVALIDATED",
+      { data: { externalReference: "payment-idem-1" } },
+    );
+    expect(recordStep).toHaveBeenNthCalledWith(
+      2,
+      "op-normal",
+      "BROADCAST_PAYMENT",
+      "ONCHAIN_SUBMITTED",
+      { txHash: "tx-hash-1", data: { externalReference: "payment-idem-1" } },
+    );
+  });
+
+  it("records a retryable checkpoint when an external effect fails", async () => {
+    const recordStep = vi
+      .spyOn(OperationRecoveryService, "recordStep")
+      .mockResolvedValue({} as any);
+
+    await expect(
+      OperationRecoveryService.executeExternalStep(
+        "op-retry",
+        "CALL_PROVIDER",
+        async () => {
+          throw new Error("provider timeout");
+        },
+        { externalReference: "provider-idem-1" },
+      ),
+    ).rejects.toThrow("provider timeout");
+
+    expect(recordStep).toHaveBeenLastCalledWith(
+      "op-retry",
+      "CALL_PROVIDER",
+      "RETRYABLE",
+      {
+        error: "provider timeout",
+        data: { externalReference: "provider-idem-1" },
+      },
+    );
+  });
 });
