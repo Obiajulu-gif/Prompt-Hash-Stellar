@@ -11,6 +11,30 @@ describe("OperationRecoveryService (Issue #831)", () => {
     await OperationCheckpoint.deleteMany({});
   });
 
+  it("rejects resume for an unknown operation id", async () => {
+    await expect(
+      OperationRecoveryService.resumeOperation("op_does_not_exist")
+    ).rejects.toThrow();
+  });
+
+  it("does not allow non-maintainers to force-resolve an operation", async () => {
+    const { checkpoint } = await OperationRecoveryService.initiateOperation({
+      operationType: "ESCROW_RELEASE",
+      userId: "user_seller_2",
+      idempotencyKey: "idem_authz_test",
+      initialStep: "ESCROW_LOCK",
+    });
+
+    await expect(
+      OperationRecoveryService.forceResolveOperation(
+        checkpoint.operationId,
+        "MARK_CONFIRMED",
+        "random_user_77",
+        "attempted override"
+      )
+    ).rejects.toThrow();
+  });
+
   it("initiates a new operation checkpoint with idempotency guarantee", async () => {
     const key = "idem_tx_12345";
     const res1 = await OperationRecoveryService.initiateOperation({
