@@ -57,7 +57,7 @@ maintainerNoteRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const notes = await listVisibleMaintainerNotes(req.params.subjectId, viewerOf(req), {
+      const notes = await listVisibleMaintainerNotes(String(req.params.subjectId), viewerOf(req), {
         includeArchived: req.query.includeArchived === "true",
         requestId: req.correlationId ?? null,
       });
@@ -77,7 +77,7 @@ maintainerNoteRouter.post(
       const viewer = viewerOf(req);
       const { type, text, visibility } = req.body ?? {};
       const note = await createMaintainerNote({
-        subjectId: req.params.subjectId,
+        subjectId: String(req.params.subjectId),
         type,
         text,
         visibility,
@@ -105,7 +105,7 @@ maintainerNoteRouter.patch(
         return res.status(400).json({ error: "Provide text or visibility to edit." });
       }
       const note = await editMaintainerNote(
-        req.params.noteId,
+        String(req.params.noteId),
         { text, visibility, expectedVersion },
         viewerOf(req),
         req.correlationId ?? null,
@@ -124,7 +124,7 @@ maintainerNoteRouter.post(
     try {
       await connectDb();
       const note = await archiveMaintainerNote(
-        req.params.noteId,
+        String(req.params.noteId),
         viewerOf(req),
         req.correlationId ?? null,
       );
@@ -142,7 +142,7 @@ maintainerNoteRouter.post(
     try {
       await connectDb();
       const note = await redactMaintainerNote(
-        req.params.noteId,
+        String(req.params.noteId),
         { reason: req.body?.reason },
         viewerOf(req),
         req.correlationId ?? null,

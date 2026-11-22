@@ -20,7 +20,7 @@ import {
   invalidatePromptCaches,
   DEFAULT_TTL_SECONDS,
 } from "../services/cacheService.js";
-import MaintenanceBanner from "../models/MaintenanceBanner.js";
+import { MaintenanceBanner } from "../models/MaintenanceBanner.js";
 import { sendConditionalJson, markPrivate } from "../middleware/etag.js";
 import { notifyPromptReported } from "../services/emailNotifications.js";
 import { announceNewPrompt } from "../services/discordNotifications.js";
@@ -213,7 +213,7 @@ export const GetOwnedPrompts = async (
   try {
     await connectDb();
 
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as { walletAddress: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
@@ -632,7 +632,7 @@ export const GetSavedPrompts = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as { walletAddress: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
@@ -745,7 +745,7 @@ export const GetDraftPrompts = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as { walletAddress: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
@@ -781,7 +781,7 @@ export const GetPriceHistory = async (
   try {
     await connectDb();
 
-    const { onChainId } = req.params;
+    const { onChainId } = req.params as { onChainId: string };
     let limit = 20;
     let cursor: string | undefined;
 
@@ -859,7 +859,7 @@ export const GetPromptsByContentHash = async (
 ): Promise<Response<any>> => {
   try {
     await connectDb();
-    const { contentHash } = req.params;
+    const { contentHash } = req.params as { contentHash: string };
 
     if (!contentHash) {
       return res.status(400).json({ error: "contentHash is required." });

@@ -9,7 +9,7 @@ qualityCheckRouter.post(
   "/:promptId/check",
   async (req, res) => {
     try {
-      const result = await qualityCheckService.runChecks(req.params.promptId);
+      const result = await qualityCheckService.runChecks(String(req.params.promptId));
       res.json(result);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -22,7 +22,7 @@ qualityCheckRouter.get(
   "/:promptId",
   async (req, res) => {
     try {
-      const result = await qualityCheckService.getCheckResult(req.params.promptId);
+      const result = await qualityCheckService.getCheckResult(String(req.params.promptId));
       if (!result) {
         return res.status(404).json({ error: "No checks found for this prompt" });
       }
@@ -38,7 +38,7 @@ qualityCheckRouter.get(
   "/:promptId/can-publish-paid",
   async (req, res) => {
     try {
-      const result = await qualityCheckService.canPublishPaid(req.params.promptId);
+      const result = await qualityCheckService.canPublishPaid(String(req.params.promptId));
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -51,7 +51,7 @@ qualityCheckRouter.get(
   "/:promptId/history",
   async (req, res) => {
     try {
-      const history = await qualityCheckService.getCheckHistory(req.params.promptId);
+      const history = await qualityCheckService.getCheckHistory(String(req.params.promptId));
       res.json(history);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -67,7 +67,7 @@ qualityCheckRouter.post(
     try {
       const { overriddenBy, reason } = req.body;
       const result = await qualityCheckService.overrideChecks(
-        req.params.promptId,
+        String(req.params.promptId),
         overriddenBy,
         reason
       );

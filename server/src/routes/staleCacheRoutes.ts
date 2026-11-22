@@ -14,8 +14,8 @@ staleCacheRouter.get(
   requireAdminScope("health:read"),
   async (req, res) => {
     try {
-      const keys = req.query.key;
-      const versions = req.query.version;
+      const keys = req.query.key as string | string[] | undefined;
+      const versions = req.query.version as string | string[] | undefined;
 
       const keyList = Array.isArray(keys) ? keys : keys ? [String(keys)] : [];
       const versionList = Array.isArray(versions) ? versions : versions ? [String(versions)] : [];
@@ -42,8 +42,8 @@ staleCacheRouter.get(
   requireAdminScope("health:read"),
   async (req, res) => {
     try {
-      const { promptId } = req.params;
-      const version = req.query.version ?? "1";
+      const { promptId } = req.params as { promptId: string };
+      const version = String(req.query.version ?? "1");
       const sourceVersions = buildPromptSourceVersions(promptId, version);
       const report = await detectStaleCache(sourceVersions);
       res.json({ success: true, promptId, report });

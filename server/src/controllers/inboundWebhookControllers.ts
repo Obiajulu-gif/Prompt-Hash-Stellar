@@ -221,7 +221,12 @@ export const ListFailedInboundEvents = async (
 ): Promise<Response> => {
   try {
     await connectDb();
-    const { source, eventType, limit, skip } = req.query;
+    const { source, eventType, limit, skip } = req.query as {
+      source?: string;
+      eventType?: string;
+      limit?: string;
+      skip?: string;
+    };
     const result = await listFailedEvents({
       source: source ? String(source) : undefined,
       eventType: eventType ? String(eventType) : undefined,
@@ -249,7 +254,7 @@ export const RetryFailedInboundEvent = async (
 ): Promise<Response> => {
   try {
     await connectDb();
-    const reset = await retryFailedEvent(req.params.id);
+    const reset = await retryFailedEvent(String(req.params.id));
     if (!reset) {
       logger.warn("Inbound webhook retry target not found", {
         action: "inboundWebhookRetry",

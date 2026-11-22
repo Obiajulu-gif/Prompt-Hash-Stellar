@@ -25,6 +25,23 @@ import { logger } from "./structuredLogger";
 import { applyDisputeTransition } from "./purchaseDisputes";
 import { trackBlockchainIndexing } from "../middleware/provenanceMiddleware";
 import { journalIndexedEvent } from "./eventJournal";
+import { applySafetyScan } from "./safetyScannerHook";
+import { snapshotLicenseForPurchase } from "./licensingService";
+import {
+  createNotification,
+  fanOutNotification,
+} from "./notificationService";
+
+/** Enqueue a webhook outbox delivery for a wallet, if one is present. */
+async function notify(
+  walletAddress: string | undefined,
+  event: string,
+  data: Record<string, unknown>,
+  dedupeKey: string,
+): Promise<void> {
+  if (!walletAddress) return;
+  await enqueueWebhookEvent(walletAddress, event, data, dedupeKey);
+}
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -98,9 +115,15 @@ export async function startIndexer() {
 
   const state = await IndexerState.findOneAndUpdate(
     { key: "prompt_hash_contract" },
-    { $setOnInsert: { lastIndexedLedger: 0 } },
+    {
+      $setOnInsert: { lastIndexedLedger: 0 },
+      $inc: { fencingToken: 1 },
+    },
     { upsert: true, new: true },
   );
+  // Fencing token for this replica's lease. A stale replica that wakes up
+  // after another replica claimed the lease is rejected at checkpoint time.
+  const myToken = state.fencingToken;
 
   logger.info("Soroban event indexer started", {
     action: "startIndexer",
@@ -126,7 +149,7 @@ export async function startIndexer() {
 
       const response = await server.getEvents({
         startLedger,
-        filters: [{ type: "contract", contractIds: [contractId] }],
+        filters: [{ type: "contract", contractIds: [CONTRACT_ID!] }],
       });
 
       let lastFinalizedLedger = state.lastFinalizedLedger || 0;
@@ -173,7 +196,7 @@ export async function startIndexer() {
  * Emits alerts and updates indexer quarantine state without advancing a lossy checkpoint.
  */
 export async function quarantineEvent(
-  event: StellarRpc.Api.EventResponse,
+  event: rpc.Api.EventResponse,
   reason:
     | "unknown_type"
     | "unsupported_version"
@@ -228,7 +251,7 @@ export async function quarantineEvent(
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
+export async function processEvent(event: rpc.Api.EventResponse): Promise<void> {
   let rawTopic: unknown;
   let rawData: unknown;
 
@@ -368,6 +391,9 @@ export async function routeDecodedEvent(
         { upsert: true, new: true },
       );
 
+      // Re-read the indexed document so similarity/safety scans see content.
+      const upserted = await Prompt.findById(prompt._id).lean();
+
       // Mirror into the search index
       await MarketplaceIndex.findOneAndUpdate(
         { onChainId: prompt_id.toString() },
@@ -421,16 +447,14 @@ export async function routeDecodedEvent(
       // Track blockchain provenance for on-chain prompts (#929) — creates
       // a provenance record with blockchain source metadata. This runs
       // asynchronously and must never block the indexer loop.
-      trackBlockchainIndexing(
-        String(prompt._id),
-        {
-          transactionHash: txHash,
-          ledgerNumber: ledger,
-          onChainId: promptId,
-          contractId: CONTRACT_ID,
-        },
-        creator,
-      ).catch((err) =>
+      trackBlockchainIndexing({
+        promptId: String(prompt._id),
+        onChainId: promptId,
+        creatorWallet: String(creator),
+        ledgerSequence: ledger ?? 0,
+        transactionHash: txHash ?? "",
+        eventType: "PromptCreated",
+      }).catch((err: unknown) =>
         logger.error("Provenance tracking error", {
           action: "blockchainProvenance",
           promptId,

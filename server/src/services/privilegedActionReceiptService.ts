@@ -20,6 +20,7 @@ import {
 } from "../models/SignedReceipt";
 import { SignedReceiptService, ReceiptVerificationResult } from "./signedReceiptService";
 import { recordAuditEvent } from "./auditTrail";
+import type { AuditAction } from "../models/AuditLog";
 import { logger } from "./structuredLogger";
 
 export interface PrivilegedActionParams {
@@ -113,7 +114,10 @@ export class PrivilegedActionReceiptService {
     // Mirror to audit trail for cross-system queryability
     try {
       await recordAuditEvent({
-        action: `privileged_${params.action.replace(/[^a-zA-Z0-9_]/g, "_")}`,
+        action: `privileged_${params.action.replace(
+          /[^a-zA-Z0-9_]/g,
+          "_",
+        )}` as AuditAction,
         result: params.status === "SUCCESS" ? "success" : params.status === "FAILED" ? "failure" : "pending",
         actor,
         target: params.target || receipt.receiptId,

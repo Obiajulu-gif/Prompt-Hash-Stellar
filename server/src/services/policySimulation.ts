@@ -336,8 +336,13 @@ async function simulateBulkRefund(
   `, [promptId]);
   
   const purchaseCount = purchases.rows.length;
-  const totalRefund = purchases.rows.reduce((sum, p) => sum + parseFloat(p.amount_xlm), 0);
-  const uniqueBuyers = new Set(purchases.rows.map(p => p.buyer_address)).size;
+  const totalRefund = purchases.rows.reduce(
+    (sum: number, p: { amount_xlm: string }) => sum + parseFloat(p.amount_xlm),
+    0,
+  );
+  const uniqueBuyers = new Set(
+    purchases.rows.map((p: { buyer_address: string }) => p.buyer_address),
+  ).size;
   
   const result: SimulationResult = {
     policyChange: {

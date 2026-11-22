@@ -102,11 +102,17 @@ class QualityCheckService {
     }
 
     const failures = result.checks
-      .filter((c) => !c.passed)
-      .map((c) => c.message || `Failed: ${c.name}`);
+      .filter((c: { passed: boolean }) => !c.passed)
+      .map(
+        (c: { message?: string; name: string }) =>
+          c.message || `Failed: ${c.name}`,
+      );
 
     const isOverridden = result.overriddenAt && !result.blockedAt;
-    const blockingFailures = result.checks.filter((c) => c.severity === "blocking" && !c.passed);
+    const blockingFailures = result.checks.filter(
+      (c: { severity?: string; passed: boolean }) =>
+        c.severity === "blocking" && !c.passed,
+    );
 
     return {
       canPublish: isOverridden || blockingFailures.length === 0,

@@ -11,8 +11,13 @@ export const GetTimeline = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { walletAddress } = req.params;
-    const { limit, cursor, includeMaintainer, eventTypes } = req.query;
+    const { walletAddress } = req.params as { walletAddress: string };
+    const { limit, cursor, includeMaintainer, eventTypes } = req.query as {
+      limit?: string;
+      cursor?: string;
+      includeMaintainer?: string;
+      eventTypes?: string;
+    };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required" });
@@ -42,8 +47,11 @@ export const GetResourceTimeline = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { resourceType, resourceId } = req.params;
-    const { limit, cursor } = req.query;
+    const { resourceType, resourceId } = req.params as {
+      resourceType: string;
+      resourceId: string;
+    };
+    const { limit, cursor } = req.query as { limit?: string; cursor?: string };
 
     if (!resourceType || !resourceId) {
       return res

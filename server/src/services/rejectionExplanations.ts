@@ -60,7 +60,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "stale_state",
     message: "The record is out of date or no longer applicable",
     hint: "Refresh the page or re-request the operation with current data.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 409,
   },
 
@@ -69,7 +69,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "external_service_unavailable",
     message: "External service is temporarily unavailable",
     hint: "This is a temporary issue. Please try again in a moment.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 502,
   },
 
@@ -87,7 +87,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "resource_conflict",
     message: "There is a conflict with the current state of the resource",
     hint: "Another operation may be in progress. Wait and try again.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 409,
   },
 
@@ -96,7 +96,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "rate_limit_exceeded",
     message: "Too many requests. Please slow down.",
     hint: "Wait before making another request, or reduce the request frequency.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 429,
   },
 };

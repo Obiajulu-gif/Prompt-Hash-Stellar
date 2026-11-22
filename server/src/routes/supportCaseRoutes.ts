@@ -19,7 +19,7 @@ supportCaseRouter.get(
   async (req: AdminRequest, res) => {
     markPrivate(res);
     try {
-      const bundle = await exportSupportEvidenceBundle(String(req.params.caseId), {
+      const bundle = await exportSupportEvidenceBundle(String(String(req.params.caseId)), {
         actor: req.admin?.sub ?? null,
         requestId: req.correlationId ?? null,
       });
@@ -88,7 +88,7 @@ supportCaseRouter.get(
   "/:caseId/timeline",
   async (req, res) => {
     try {
-      const timeline = await supportCaseService.getTimeline(req.params.caseId, false);
+      const timeline = await supportCaseService.getTimeline(String(req.params.caseId), false);
       res.json({ data: timeline });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -100,7 +100,7 @@ supportCaseRouter.get(
   "/:caseId",
   async (req, res) => {
     try {
-      const caseDoc = await supportCaseService.getPublicCaseById(req.params.caseId);
+      const caseDoc = await supportCaseService.getPublicCaseById(String(req.params.caseId));
       if (!caseDoc) {
         return res.status(404).json({ error: "Case not found" });
       }
@@ -131,7 +131,7 @@ supportCaseRouter.patch(
   async (req, res) => {
     try {
       const { status, assignedTo, resolution, resolutionNote } = req.body;
-      const caseDoc = await supportCaseService.updateCase(req.params.caseId, {
+      const caseDoc = await supportCaseService.updateCase(String(req.params.caseId), {
         status,
         assignedTo,
         resolution,
@@ -150,12 +150,12 @@ supportCaseRouter.post(
   async (req, res) => {
     try {
       const { author, text, isPrivate } = req.body;
-      const caseDoc = await supportCaseService.addNote(req.params.caseId, {
+      const caseDoc = await supportCaseService.addNote(String(req.params.caseId), {
         author,
         text,
         isPrivate,
       });
-      const safeCase = await supportCaseService.getPublicCaseById(req.params.caseId);
+      const safeCase = await supportCaseService.getPublicCaseById(String(req.params.caseId));
       res.json(safeCase);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -168,7 +168,7 @@ supportCaseRouter.get(
   "/:caseId/notes/public",
   async (req, res) => {
     try {
-      const notes = await supportCaseService.getPublicNotes(req.params.caseId);
+      const notes = await supportCaseService.getPublicNotes(String(req.params.caseId));
       res.json(notes);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -184,7 +184,7 @@ supportCaseRouter.post(
     try {
       const { resolution, resolutionNote } = req.body;
       const caseDoc = await supportCaseService.resolveCase(
-        req.params.caseId,
+        String(req.params.caseId),
         resolution,
         resolutionNote
       );

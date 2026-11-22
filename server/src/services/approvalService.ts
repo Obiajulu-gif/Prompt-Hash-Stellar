@@ -1,5 +1,5 @@
 import connectDb from "../db/connectDb";
-import Approval from "../models/Approval";
+import { Approval, type IApproval } from "../models/Approval";
 import { SignedReceiptService } from "./signedReceiptService";
 
 export interface ApprovalRecord {

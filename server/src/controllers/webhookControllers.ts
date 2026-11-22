@@ -59,7 +59,7 @@ export const RegisterWebhook = async (req: Request, res: Response): Promise<Resp
 export const GetWebhook = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const { walletAddress } = req.query;
+    const { walletAddress } = req.query as { walletAddress?: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress query param is required." });
@@ -100,7 +100,10 @@ export const DeleteWebhook = async (req: Request, res: Response): Promise<Respon
 export const ListWebhookDeadLetters = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const { subscriptionId, limit } = req.query;
+    const { subscriptionId, limit } = req.query as {
+      subscriptionId?: string;
+      limit?: string;
+    };
     const rows = await listDeadLetters({
       subscriptionId: subscriptionId ? String(subscriptionId) : undefined,
       limit: limit ? Number(limit) : undefined,
@@ -118,7 +121,7 @@ export const ListWebhookDeadLetters = async (req: Request, res: Response): Promi
 export const ReplayWebhookDeadLetter = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const replayed = await replayDeadLetter(req.params.id);
+    const replayed = await replayDeadLetter(String(req.params.id));
     if (!replayed) {
       return res.status(404).json({ error: "No dead-lettered event found with that id." });
     }
@@ -135,7 +138,7 @@ export const ReplayWebhookDeadLetter = async (req: Request, res: Response): Prom
 export const RotateWebhookSecret = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const newSecret = await rotateSigningKey(req.params.id);
+    const newSecret = await rotateSigningKey(String(req.params.id));
     if (!newSecret) {
       return res.status(404).json({ error: "No webhook subscription found with that id." });
     }

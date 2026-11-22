@@ -10,7 +10,12 @@ import {
   MAINTENANCE_SEVERITIES,
   type MaintenanceScope,
 } from "../models/MaintenanceBanner.js";
-import { requireAdmin } from "../middleware/requireAdmin.js";
+import {
+  requireAdminScope,
+  type AdminRequest,
+} from "../middleware/adminAuth.js";
+
+const requireMaintenanceAdmin = requireAdminScope("maintenance:write");
 
 export const maintenanceBannerRouter = Router();
 
@@ -61,7 +66,7 @@ maintenanceBannerRouter.get("/metadata", (_req, res) => {
  */
 maintenanceBannerRouter.get(
   "/",
-  requireAdmin,
+  requireMaintenanceAdmin,
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const banners = await maintenanceBannerService.listAll();
@@ -77,10 +82,10 @@ maintenanceBannerRouter.get(
  */
 maintenanceBannerRouter.get(
   "/:id",
-  requireAdmin,
+  requireMaintenanceAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const banner = await maintenanceBannerService.getById(req.params.id);
+      const banner = await maintenanceBannerService.getById(String(req.params.id));
       if (!banner) {
         res.status(404).json({ error: "not_found", message: "Maintenance banner not found." });
         return;
@@ -97,10 +102,11 @@ maintenanceBannerRouter.get(
  */
 maintenanceBannerRouter.post(
   "/",
-  requireAdmin,
+  requireMaintenanceAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const actor = req.adminWallet ?? (req.body?.createdBy as string);
+      const actor =
+        (req as AdminRequest).admin?.sub ?? (req.body?.createdBy as string);
       if (!actor) {
         res.status(401).json({ error: "unauthorized", message: "Admin identity required." });
         return;
@@ -119,16 +125,17 @@ maintenanceBannerRouter.post(
  */
 maintenanceBannerRouter.patch(
   "/:id",
-  requireAdmin,
+  requireMaintenanceAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const actor = req.adminWallet ?? (req.body?.updatedBy as string);
+      const actor =
+        (req as AdminRequest).admin?.sub ?? (req.body?.updatedBy as string);
       if (!actor) {
         res.status(401).json({ error: "unauthorized", message: "Admin identity required." });
         return;
       }
       const input = req.body as UpdateMaintenanceBannerInput;
-      const banner = await maintenanceBannerService.update(req.params.id, input, actor);
+      const banner = await maintenanceBannerService.update(String(req.params.id), input, actor);
       res.json({ banner });
     } catch (err) {
       handleError(err, res, next);
@@ -141,16 +148,21 @@ maintenanceBannerRouter.patch(
  */
 maintenanceBannerRouter.post(
   "/:id/enabled",
-  requireAdmin,
+  requireMaintenanceAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const actor = req.adminWallet ?? (req.body?.updatedBy as string);
+      const actor =
+        (req as AdminRequest).admin?.sub ?? (req.body?.updatedBy as string);
       if (!actor) {
         res.status(401).json({ error: "unauthorized", message: "Admin identity required." });
         return;
       }
       const enabled = Boolean(req.body?.enabled);
-      const banner = await maintenanceBannerService.setEnabled(req.params.id, enabled, actor);
+      const banner = await maintenanceBannerService.setEnabled(
+        String(req.params.id),
+        enabled,
+        actor,
+      );
       res.json({ banner });
     } catch (err) {
       handleError(err, res, next);
@@ -163,15 +175,16 @@ maintenanceBannerRouter.post(
  */
 maintenanceBannerRouter.delete(
   "/:id",
-  requireAdmin,
+  requireMaintenanceAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const actor = req.adminWallet ?? (req.body?.updatedBy as string);
+      const actor =
+        (req as AdminRequest).admin?.sub ?? (req.body?.updatedBy as string);
       if (!actor) {
         res.status(401).json({ error: "unauthorized", message: "Admin identity required." });
         return;
       }
-      await maintenanceBannerService.remove(req.params.id, actor);
+      await maintenanceBannerService.remove(String(req.params.id), actor);
       res.status(204).send();
     } catch (err) {
       handleError(err, res, next);

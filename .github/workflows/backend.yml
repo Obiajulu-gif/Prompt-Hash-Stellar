@@ -45,6 +45,9 @@ jobs:
       - name: Build schema package
         run: npm --prefix ../packages/schema install && npm --prefix ../packages/schema run build
 
+      - name: Build SDK package
+        run: npm --prefix ../packages/sdk install && npm --prefix ../packages/sdk run build
+
       - name: Run lint
         run: npm run lint
 
