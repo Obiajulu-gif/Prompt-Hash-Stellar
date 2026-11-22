@@ -64,3 +64,21 @@ If the diagnostics themselves misbehave (for example a new required variable not
 `src/test/contributorDiagnostics.test.ts` covers each check group with injected `fetch`, command runner, and TCP probe, so it runs offline in `yarn test`.
 
 Run `yarn diagnose --help` for accepted flags. Invalid options exit with code 2 before any checks or writes. If another process creates `.env` while `--fix` is running, diagnostics leave that file intact and continue.
+
+### Authorization and retry paths
+
+- **Normal path**: all checks pass, exit `0`, `--json` emits a report with `status: "pass"` for each check.
+- **Failure path**: any failed check yields exit `1`; warnings only fail under `--strict` (CI).
+- **Retry path**: network probes are idempotent read-only calls. A timed-out probe (5s) is reported as `timeout` and can be rerun by invoking `yarn diagnose` again; no state is persisted between runs, so retries are safe.
+- **Authorization path**: the command never reads or prints secret values and never sends secret material over the network. Secret-bearing keys (for example `UNLOCK_PUBLIC_KEY` material and any `*_SECRET*` variables) are reported by name and reason only. Placeholder or example-default secrets on the `PUBLIC` network are a failure, so an unauthorized (example) credential cannot pass the gate.
+
+### Edge-case and recovery summary
+
+- `--offline` marks every network probe `skip`, which never fails the run.
+- Invalid flags exit `2` before any filesystem or network activity.
+- `--fix` only creates `.env` from `.env.example` when `.env` is absent; it never overwrites, and a race with another writer leaves the other writer's file intact.
+- Rollback: delete the generated `.env`, or revert `scripts/contributor-diagnostics.mjs`; `yarn check:setup` remains the fallback gate.
+
+### Verification
+
+Automated coverage for normal, failure, retry, offline, and authorization paths lives in `src/test/contributorDiagnostics.test.ts` and runs under `yarn test` with injected `fetch`, command runner, and TCP probe.

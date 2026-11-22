@@ -399,6 +399,7 @@ checkVar("CHALLENGE_TOKEN_GRACE_PERIOD_MS", false);
 section("9. Contributor diagnostics");
 
 function checkPathExists(path, label, hint) {
+  // Failure path: missing required fixture/script reports a recoverable hint.
   if (existsSync(path)) {
     ok(label);
   } else {

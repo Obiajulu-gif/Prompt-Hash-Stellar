@@ -533,7 +533,12 @@ export function applySafeFixes(root, { exists = existsSync, copy = copyFileSync 
     try {
       copy(resolve(root, ".env.example"), resolve(root, ".env"), constants.COPYFILE_EXCL);
     } catch (error) {
-      if (error.code === "EEXIST") return applied;
+      // Another process created .env between the existence check and the copy.
+      // Treat as a benign no-op (retry-safe) and report it so the operator knows.
+      if (error.code === "EEXIST") {
+        applied.push("skipped: .env was created concurrently; no changes made");
+        return applied;
+      }
       throw error;
     }
     applied.push("created .env from .env.example (fill in real values before use)");
