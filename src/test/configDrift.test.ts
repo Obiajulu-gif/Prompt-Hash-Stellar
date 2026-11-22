@@ -40,7 +40,7 @@ describe("cross-environment configuration drift", () => {
 
   it("identifies required keys missing from an environment", () => {
     const configurations = profiles();
-    delete configurations.staging.PUBLIC_STELLAR_RPC_URL;
+    delete (configurations.staging as Record<string, unknown>).PUBLIC_STELLAR_RPC_URL;
 
     const report = compareConfigurations(configurations);
     expect(report.ok).toBe(false);

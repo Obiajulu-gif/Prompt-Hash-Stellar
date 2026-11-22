@@ -39,8 +39,8 @@ describe("fetchPurchaseReceipt — issue #490", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/prompts/receipt?promptId=7&buyerWallet=GBUYER",
     );
-    expect(result?.receipt.transaction.hash).toBe("tx-hash-abc123");
-    expect(result?.receipt.prompt.revision).toBe(2);
+    expect(result?.receipt?.transaction.hash).toBe("tx-hash-abc123");
+    expect(result?.receipt?.prompt.revision).toBe(2);
   });
 
   it("returns null on a 404 (purchase not indexed yet) instead of throwing", async () => {

@@ -23,7 +23,8 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@prompthash/schema": ["./packages/schema/src/index.ts"]
     }
   },
   "include": ["src"],

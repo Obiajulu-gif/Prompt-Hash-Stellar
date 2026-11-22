@@ -192,7 +192,7 @@ describe("dense form: structure and keyboard", () => {
     expect(visited[visited.length - 1]).toBe("Publish");
     let cursor = 0;
     for (const name of visited) {
-      const at = expected.indexOf(name, cursor);
+      const at = expected.indexOf(name ?? "", cursor);
       expect(at).toBeGreaterThanOrEqual(cursor);
       cursor = at;
     }

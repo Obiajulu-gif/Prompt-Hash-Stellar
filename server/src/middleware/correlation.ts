@@ -74,8 +74,8 @@ const SENSITIVE_KEY_PATTERNS: RegExp[] = [
  * Value patterns that look like secrets even when the key is innocuous.
  */
 const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
-  /\bBearer\s+[A-Za-z0-9-_.+~\/=]{8,}/,
-  /\bBasic\s+[A-Za-z0-9-_.+~\/=]{8,}/,
+  /\bBearer\s+[A-Za-z0-9-_.+~/=]{8,}/,
+  /\bBasic\s+[A-Za-z0-9-_.+~/=]{8,}/,
   /\bAKIA[A-Z0-9]{16,}/,
   /\bsk[A-Za-z0-9]{16,}/,
   /\bsk_[A-Za-z0-9]{16,}/,
@@ -83,7 +83,7 @@ const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
   /\bxox[abposr]-[A-Za-z0-9-]{10,}/i,
   /\beyJ[a-zA-Z0-9]+\.[A-Za-z0-9]+\.[a-zA-Z0-9_-]+/,
   /-----BEGIN [A-Z ]+-----[\s\S]+?-----END [A-Z ]+-----/,
-  /\b[A-Za-z0-9_\-]{20}\.[A-Za-z0-9_\-]{20}\.[a-zA-Z0-9_\-]{20}/,
+  /\b[A-Za-z0-9_-]{20}\.[A-Za-z0-9_-]{20}\.[a-zA-Z0-9_-]{20}/,
 ];
 
 function normalizeKey(key: string): string {

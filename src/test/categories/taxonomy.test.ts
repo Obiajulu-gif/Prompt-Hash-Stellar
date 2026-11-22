@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
  * - Merge and migration operations
  */
 
-import CategoryTaxonomy, { CategoryLifecycleState } from '../../server/src/models/CategoryTaxonomy';
+import CategoryTaxonomy, { CategoryLifecycleState } from '../../../server/src/models/CategoryTaxonomy';
 import {
   createCategory,
   renameCategory,
@@ -19,8 +19,8 @@ import {
   resolveCategory,
   listActiveCategories,
   updateCategoryCount,
-} from '../../server/src/services/categoryTaxonomyService';
-import Prompt from '../../server/src/models/Prompt';
+} from '../../../server/src/services/categoryTaxonomyService';
+import Prompt from '../../../server/src/models/Prompt';
 
 describe('Category Taxonomy Management', () => {
   beforeAll(async () => {

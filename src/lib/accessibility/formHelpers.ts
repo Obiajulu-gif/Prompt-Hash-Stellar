@@ -66,6 +66,34 @@ export function renderErrorMessage(
 }
 
 /**
+ * Props for the error message element.
+ */
+export function getErrorMessageProps(fieldId: string) {
+  return renderErrorMessage(fieldId, "");
+}
+
+/**
+ * Props for the optional help text element.
+ */
+export function getHelpTextProps(fieldId: string) {
+  return { id: `${fieldId}-help` };
+}
+
+/**
+ * Props for a `<label>` element.
+ */
+export function getLabelProps(fieldId: string, labelText: string) {
+  return renderLabel(fieldId, labelText);
+}
+
+/**
+ * Visible required-field marker.
+ */
+export function getRequiredIndicator() {
+  return " *";
+}
+
+/**
  * Returns the props for a `<label>` element.
  */
 export function renderLabel(

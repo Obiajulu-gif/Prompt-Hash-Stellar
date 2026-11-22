@@ -18,6 +18,7 @@
  */
 
 import { Request, Response } from "express";
+import { createHash } from "crypto";
 import connectDb from "../db/connectDb";
 import InboundWebhookEvent from "../models/InboundWebhookEvent";
 import {
@@ -72,9 +73,6 @@ function extractSafeHeaders(headers: Record<string, string | string[] | undefine
  */
 const fingerprint = (value: string | undefined | null): string | undefined => {
   if (!value) return undefined;
-  // Lazy import to avoid a cycle and keep the hash implementation centralised.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createHash } = require("crypto") as typeof import("crypto");
   return createHash("sha256").update(value).digest("hex").slice(-8);
 };
 
