@@ -406,4 +406,29 @@ describe("createCachedStateSource", () => {
     t = 50;
     expect(await source()).toBe(known);
   });
+
+  it("reports stale-cache age and repair guidance after a failed refresh", async () => {
+    let t = 0;
+    const known = withFailure("redis", "timeout");
+    const onStale = vi.fn();
+    const probe = vi
+      .fn()
+      .mockResolvedValueOnce(known)
+      .mockRejectedValueOnce(new Error("probe crashed"));
+    const source = createCachedStateSource(probe, {
+      ttlMs: 10,
+      now: () => t,
+      onStale,
+    });
+
+    await source();
+    t = 50;
+    expect(await source()).toBe(known);
+    expect(onStale).toHaveBeenCalledWith({
+      stale: true,
+      ageMs: 50,
+      error: "probe crashed",
+      recommendation: expect.stringContaining("Retry the dependency probe"),
+    });
+  });
 });

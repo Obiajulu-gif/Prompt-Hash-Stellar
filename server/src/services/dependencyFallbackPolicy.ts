@@ -329,6 +329,20 @@ export interface DependencyStateSource {
   (): Promise<ReadonlyArray<DependencyState | ProbeResult>>;
 }
 
+export interface StaleCacheDiagnostic {
+  stale: true;
+  ageMs: number;
+  error: string;
+  recommendation: string;
+}
+
+export interface CachedStateSourceOptions {
+  ttlMs: number;
+  now?: () => number;
+  /** Observe stale snapshots without changing the source's return contract. */
+  onStale?: (diagnostic: StaleCacheDiagnostic) => void;
+}
+
 /**
  * Cache dependency states so per-request decisions do not trigger network
  * probes. Concurrent callers share one in-flight refresh. If a refresh fails
@@ -338,7 +352,7 @@ export interface DependencyStateSource {
  */
 export function createCachedStateSource(
   probe: DependencyStateSource,
-  options: { ttlMs: number; now?: () => number },
+  options: CachedStateSourceOptions,
 ): DependencyStateSource {
   const now = options.now ?? Date.now;
   let snapshot: ReadonlyArray<DependencyState | ProbeResult> = [];
@@ -354,7 +368,18 @@ export function createCachedStateSource(
           fetchedAt = now();
           return states;
         })
-        .catch(() => snapshot)
+        .catch((error: unknown) => {
+          if (snapshot.length > 0) {
+            options.onStale?.({
+              stale: true,
+              ageMs: Math.max(0, now() - fetchedAt),
+              error: error instanceof Error ? error.message : String(error),
+              recommendation:
+                "Retry the dependency probe; if it remains unavailable, invalidate the cached snapshot and inspect the dependency before restoring traffic.",
+            });
+          }
+          return snapshot;
+        })
         .finally(() => {
           inFlight = null;
         });
