@@ -79,7 +79,7 @@ A replay reads the journal in `(ledger, eventId)` order, a page at a time (`batc
 
 ## Malformed rows, missing checkpoints and apply failures (#905)
 
-Every row is checked before a reducer sees it (`parseReplayEvent`). A row with an unusable identity (`eventId`, `ledger`) cannot be checkpointed past, so it stops every mode. Other malformed rows (empty `eventType`, `eventVersion` below 1, non-object `payload`) stop strict runs and are skipped and sampled in lenient runs. A run that skipped any malformed row cannot be activated.
+Every row is checked before a reducer sees it (`parseReplayEvent`). A row with an unusable identity (`eventId`, `ledger`) cannot be checkpointed past, so it stops every mode. Other malformed rows (empty `eventType`, `eventVersion` below 1, non-object `payload`) stop strict runs and are skipped and sampled in lelient runs. A run that skipped any malformed row cannot be activated.
 
 Each failure is recorded on the run with the event that caused it:
 

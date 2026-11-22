@@ -55,6 +55,8 @@ const projectionRunSchema = new mongoose.Schema(
     documents: { type: Number, default: 0 },
     attempts: { type: Number, default: 0 },
     leaseExpiresAt: { type: Date, default: null },
+    nextAttemptAt: { type: Date, default: null },
+    lastErrorCode: { type: String, default: null },
     error: { type: String, default: null },
     completedAt: { type: Date, default: null },
     activatedAt: { type: Date, default: null },
@@ -65,6 +67,7 @@ const projectionRunSchema = new mongoose.Schema(
 
 projectionRunSchema.index({ projection: 1, projectionVersion: 1, status: 1 });
 projectionRunSchema.index({ status: 1, leaseExpiresAt: 1 });
+projectionRunSchema.index({ status: 1, nextAttemptAt: 1 });
 
 const projectionDocumentSchema = new mongoose.Schema(
   {
@@ -77,6 +80,7 @@ const projectionDocumentSchema = new mongoose.Schema(
 );
 projectionDocumentSchema.index({ runId: 1, key: 1 }, { unique: true });
 projectionDocumentSchema.index({ runId: 1, projection: 1 });
+projectionDocumentSchema.index({ runId: 1, projection: 1, key: 1 });
 
 const projectionPointerSchema = new mongoose.Schema(
   {
@@ -91,6 +95,8 @@ const projectionPointerSchema = new mongoose.Schema(
     rollbackVersion: { type: Number, default: null },
     rolledBackBy: { type: String, default: null },
     rolledBackAt: { type: Date, default: null },
+    activeChecksum: { type: String, default: null },
+    previousChecksum: { type: String, default: null },
   },
   { timestamps: true },
 );
@@ -101,3 +107,7 @@ export const ProjectionDocument =
   mongoose.models.ProjectionDocument || mongoose.model("ProjectionDocument", projectionDocumentSchema);
 export const ProjectionPointer =
   mongoose.models.ProjectionPointer || mongoose.model("ProjectionPointer", projectionPointerSchema);
+
+export type ProjectionRunDoc = mongoose.InferSchemaType<typeof projectionRunSchema>;
+export type ProjectionDocumentDoc = mongoose.InferSchemaType<typeof projectionDocumentSchema>;
+export type ProjectionPointerDoc = mongoose.InferSchemaType<typeof projectionPointerSchema>;

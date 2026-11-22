@@ -6,13 +6,6 @@
  */
 
 /**
- * Event Version Registry
- * 
- * Maintains a registry of supported contract event versions and provides
- * utilities for version detection, validation, and conformance checking.
- */
-
-/**
  * Registry of supported event versions by event type.
  * 
  * Keys are event type names (from contract events.rs).

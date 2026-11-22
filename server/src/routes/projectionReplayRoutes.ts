@@ -1,4 +1,4 @@
-import { Router, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import { requireAdminScope, type AdminRequest } from "../middleware/adminAuth";
 import { ProjectionPointer } from "../models/ProjectionRun";
 import { ReplayRun } from "../models/ProjectionRun";
@@ -60,7 +60,7 @@ function runInBackground(runId: string, batchSize?: number) {
   void runReplay(runId, { batchSize }).catch(() => undefined);
 }
 
-projectionReplayRouter.get("/", requireAdminScope("projections:read"), async (_req, res) => {
+projectionReplayRouter.get("/", requireAdminScope("projections:read"), async (_req: Request, res: Response) => {
   try {
     const pointers = await ProjectionPointer.find({}).lean();
     // Pointer is the currently active version; null means no replay has been activated yet.
@@ -73,7 +73,7 @@ projectionReplayRouter.get("/", requireAdminScope("projections:read"), async (_r
   }
 });
 
-projectionReplayRouter.get("/runs", requireAdminScope("projections:read"), async (req, res) => {
+projectionReplayRouter.get("/runs", requireAdminScope("projections:read"), async (req: Request, res: Response) => {
   try {
     const projection = req.query.projection ? String(req.query.projection) : undefined;
     const status = req.query.status ? String(req.query.status) : undefined;
@@ -88,7 +88,7 @@ projectionReplayRouter.get("/runs", requireAdminScope("projections:read"), async
   }
 });
 
-projectionReplayRouter.get("/runs/:runId", requireAdminScope("projections:read"), async (req, res) => {
+projectionReplayRouter.get("/runs/:runId", requireAdminScope("projections:read"), async (req: Request, res: Response) => {
   try {
     res.json(await getRun(String(req.params.runId)));
   } catch (err) {
