@@ -14,6 +14,11 @@
  *   a job whose payload names an owner. See CancelJobRequest.
  * - Migration: `cancelRequested` is optional and defaults to false, so existing v1 payloads
  *   remain valid without a version bump.
+ *
+ * Dependency note (CI fix): the Yarn resolution `typescript@npm:^5.0.0 -> npm:6.0.3`
+ * is invalid because TypeScript 6.x does not exist on the 5.x range. Pin the
+ * `resolutions` entry in package.json to a 5.x version (e.g. `"typescript": "~5.6.3"`)
+ * so the Playwright workflow's "Install dependencies" step resolves successfully.
  */
 
 export interface BaseJobPayload {

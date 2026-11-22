@@ -12,6 +12,16 @@
  *   `cancelJobSignal(jobId)` aborts an in-flight job; the worker treats an
  *   aborted handler as a cancellation (not a retryable failure), runs cleanup
  *   hooks registered for the job, and marks it cancelled.
+ *
+ * Edge cases / recovery:
+ *   - Cancellation before the handler starts is honored without invoking it.
+ *   - A handler that resolves after cancellation is still treated as cancelled;
+ *     its completion is not recorded and cleanup hooks run.
+ *   - Cleanup hooks run in reverse registration order, each at most once per job,
+ *     and their failures are logged without changing the job outcome.
+ *   - Cancellation is authorized only for jobs owned by this worker process
+ *     (`cancelJobSignal` returns false for unknown/foreign job ids).
+ *   - Stopping the worker cancels all in-flight jobs so they can clean up.
  */
 
 import { claimNextJob, markJobCompleted, markJobFailed } from "./jobQueue";
@@ -108,11 +118,17 @@ export async function processOne(workerId = `worker-${process.pid}`): Promise<Jo
 
   const controller = new AbortController();
   const cleanupHooks: CleanupHook[] = [];
+  let cleanedUp = false;
   const ctx: JobContext = {
     signal: controller.signal,
     onCleanup: (hook) => {
       cleanupHooks.push(hook);
     },
+  };
+  const cleanupOnce = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    await runCleanup(cleanupHooks, job.id);
   };
 
   activeJobs.set(job.id, controller);
@@ -124,10 +140,10 @@ export async function processOne(workerId = `worker-${process.pid}`): Promise<Jo
     return job;
   } catch (err: any) {
     if (isCancellation(err, controller.signal)) {
-      await runCleanup(cleanupHooks, job.id);
+      await cleanupOnce();
       return markJobFailed(job.id, `cancelled: ${new JobCancelledError(job.id).message}`);
     }
-    await runCleanup(cleanupHooks, job.id);
+    await cleanupOnce();
     const message = err?.message ?? String(err);
     return markJobFailed(job.id, message);
   } finally {

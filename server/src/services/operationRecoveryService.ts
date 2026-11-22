@@ -380,7 +380,6 @@ export class OperationRecoveryService {
       resumeStep: checkpoint.currentStep,
       canonicalState: "RETRYABLE",
       recommendedAction: "RETRY",
-      instructions: "Operation is eligible for retry from the current step.",
     };
   }
 }
