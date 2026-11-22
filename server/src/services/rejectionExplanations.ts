@@ -117,7 +117,7 @@ export function getRejectionExplanation(code: RejectionCode): RejectionExplanati
 export function mapFailureToRejection(
   error: Error & { code?: string; status?: number },
 ): RejectionExplanation {
-  const { code = "validation", status = 400 } = error;
+  const { code = "validation", status } = error;
 
   // Map known error codes to rejection explanations
   const mapping: Record<string, RejectionExplanation> = {
@@ -158,10 +158,9 @@ export function mapFailureToRejection(
 
   const mapped = mapping[code] || REJECTION_EXPLANATIONS.not_found;
 
-  // Ensure status is correct
-  mapped.status = status || mapped.status;
-
-  return mapped;
+  // Return a fresh explanation so a request-specific status cannot mutate the
+  // shared taxonomy and leak into subsequent requests.
+  return status === undefined ? { ...mapped } : { ...mapped, status };
 }
 
 export default mapFailureToRejection;
