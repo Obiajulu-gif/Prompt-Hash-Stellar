@@ -4,6 +4,7 @@ import {
   isRetentionEligible,
   RETENTION_POLICIES,
 } from "../jobs/retentionPolicy";
+import { describe as describeRetentionEnforcement } from "vitest";
 
 const NOW = new Date("2026-09-26T00:00:00.000Z");
 const daysAgo = (days: number) =>
@@ -162,5 +163,95 @@ describe("retention policy selection", () => {
     expect(isRetentionEligible("exports", { status: "completed" }, NOW)).toBe(
       false,
     );
+  });
+});
+
+describeRetentionEnforcement("retention enforcement and deletion verification", () => {
+  it("enforces retention by deleting only eligible records and verifying deletion", async () => {
+    const records = [
+      { id: "eligible", processingStatus: "processed", createdAt: daysAgo(31) },
+      { id: "recent", processingStatus: "processed", createdAt: daysAgo(10) },
+      { id: "held", processingStatus: "processed", createdAt: daysAgo(60), retentionHold: true },
+    ];
+    const deleted: string[] = [];
+    const store = {
+      list: async () => records,
+      delete: async (id: string) => {
+        deleted.push(id);
+      },
+      exists: async (id: string) => !deleted.includes(id),
+    };
+
+    const { enforceRetention } = await import("../jobs/retentionPolicy");
+    const result = await enforceRetention("promptEvents", store, NOW);
+
+    expect(result.deletedIds).toEqual(["eligible"]);
+    expect(result.verified).toBe(true);
+    expect(deleted).toEqual(["eligible"]);
+    expect(await store.exists("eligible")).toBe(false);
+    expect(await store.exists("recent")).toBe(true);
+    expect(await store.exists("held")).toBe(true);
+  });
+
+  it("retries transient deletion failures and reports unverified deletions", async () => {
+    const records = [
+      { id: "flaky", processingStatus: "processed", createdAt: daysAgo(31) },
+    ];
+    let attempts = 0;
+    const store = {
+      list: async () => records,
+      delete: async () => {
+        attempts += 1;
+        if (attempts < 2) throw new Error("transient");
+      },
+      exists: async () => attempts < 2,
+    };
+
+    const { enforceRetention } = await import("../jobs/retentionPolicy");
+    const result = await enforceRetention("promptEvents", store, NOW, {
+      maxAttempts: 3,
+    });
+
+    expect(attempts).toBe(2);
+    expect(result.deletedIds).toEqual(["flaky"]);
+    expect(result.verified).toBe(true);
+  });
+
+  it("does not delete when authorization is missing", async () => {
+    const records = [
+      { id: "eligible", processingStatus: "processed", createdAt: daysAgo(31) },
+    ];
+    let deleted = false;
+    const store = {
+      list: async () => records,
+      delete: async () => {
+        deleted = true;
+      },
+      exists: async () => true,
+    };
+
+    const { enforceRetention } = await import("../jobs/retentionPolicy");
+    await expect(
+      enforceRetention("promptEvents", store, NOW, { authorized: false }),
+    ).rejects.toThrow(/authoriz/i);
+    expect(deleted).toBe(false);
+  });
+
+  it("preserves protected classes and reports no deletions", async () => {
+    const store = {
+      list: async () => [
+        { id: "audit", status: "failure", createdAt: daysAgo(10000) },
+      ],
+      delete: async () => {
+        throw new Error("should not delete");
+      },
+      exists: async () => true,
+    };
+
+    const { enforceRetention } = await import("../jobs/retentionPolicy");
+    const result = await enforceRetention("auditLogs", store, NOW);
+
+    expect(result.deletedIds).toEqual([]);
+    expect(result.verified).toBe(true);
   });
 });
