@@ -142,7 +142,7 @@ async function classifyPrompts(action: ModerationAction, promptIds: string[]) {
     eligibleStatuses.includes(p.moderationStatus as ModerationStatus),
   );
   const eligibleIds = new Set(eligible.map((p) => String(p._id)));
-  const skipped = promptIds.filter((id) => !eligibleIds.has(id));
+  const skipped = promptIds.filter((id) => !eligibleIds.has(id) && foundById.has(id));
   const missing = promptIds.filter((id) => !foundById.has(id));
 
   return { eligible, skipped, missing };
@@ -332,63 +332,46 @@ export const BulkModerationAction = async (
         // 1. Update moderationStatus on the Prompt document, guarded by the
         //    expected previous status so a concurrent change causes a no-op
         //    rather than a silent overwrite.
-        const updated = await Prompt.findOneAndUpdate(
-          {
-            _id: prompt._id,
-            moderationStatus: previousStatus,
-          },
-          {
-            $set: {
-              moderationStatus: newStatus,
-              lastModeratedAt: new Date(),
-            },
-          },
+        const updated = await Prompt.updateOne(
+          { _id: prompt._id, moderationStatus: previousStatus },
+          { $set: { moderationStatus: newStatus } },
         );
-        if (!updated) {
-          // Status changed between classification and apply: count as skipped.
-          return;
-        }
+        if (updated.modifiedCount === 0) return;
 
-        // 2. Create audit evidence record.
+        // 2. Record the decision so it can be listed and rolled back later.
         const decision = await ModerationDecision.create({
-          promptId: promptIdStr,
+          prompt: prompt._id,
           action,
-          actorWallet,
+          previousStatus,
+          resultingStatus: newStatus,
           reason,
           evidenceNote,
-          previousStatus,
-          newStatus,
+          actorWallet,
+          rolledBack: false,
         });
         decisionIds.push(String(decision._id));
 
-        // 3. Immutable AuditLog entry.
+        // 3. Immutable audit log entry.
         await recordAuditEvent({
           action: auditAction,
-          result: "success",
-          promptId: promptIdStr,
-          walletAddress: req.admin?.sub ?? null,
-          reason: `action=${action} promptId=${promptIdStr} decision=${String(decision._id)}`,
+          actorWallet,
+          targetId: promptIdStr,
+          metadata: {
+            decisionId: String(decision._id),
+            previousStatus,
+            resultingStatus: newStatus,
+          },
         });
 
-        // 4. In-app notification to prompt owner on hide/restore.
+        // 4. Notify owner on hide/restore.
         if (action === "hide" || action === "restore") {
-          const ownerWallet = (prompt.owner as { walletAddress?: string } | null)
-            ?.walletAddress;
-          if (ownerWallet) {
-            const title = (prompt as { title?: string }).title ?? promptIdStr;
+          const ownerId = (prompt.owner as { _id?: unknown } | null)?._id ?? prompt.owner;
+          if (ownerId) {
             await createNotification({
-              recipientWallet: ownerWallet,
+              recipient: ownerId as never,
               type: "moderation_action",
-              message:
-                action === "hide"
-                  ? `Your prompt "${title}" was hidden by a moderator.`
-                  : `Your prompt "${title}" has been restored by a moderator.`,
-              deepLink: `/prompts/${prompt.onChainId ?? promptIdStr}`,
-              promptId: promptIdStr,
-              promptTitle: title,
-              idempotencyKey: `moderation:${String(decision._id)}`,
-            }).catch(() => {
-              // Notification failure must not block the moderation action.
+              message: `Your prompt was ${newStatus} by moderation.`,
+              metadata: { promptId: promptIdStr, action },
             });
           }
         }
@@ -398,117 +381,10 @@ export const BulkModerationAction = async (
     return res.json({
       action,
       requested: rawIds.length,
+      uniqueRequested: promptIds.length,
       applied: decisionIds.length,
-      skipped: skipped + (candidates.length - decisionIds.length),
+      skipped,
       decisionIds,
-    });
-  } catch (err) {
-    return res.status(500).json({ error: (err as Error).message });
-  }
-};
-
-// ── Decision list ─────────────────────────────────────────────────────────────
-
-/**
- * GET /api/moderation/decisions
- * Paginated list of moderation decisions for audit review.
- */
-export const ListModerationDecisions = async (
-  req: Request,
-  res: Response,
-): Promise<Response> => {
-  try {
-    await connectDb();
-
-    const { promptId, actorWallet, action, since, limit = "50" } =
-      req.query as Record<string, string | undefined>;
-
-    const filter: Record<string, unknown> = {};
-    if (promptId) filter.promptId = promptId;
-    if (actorWallet) filter.actorWallet = hashWallet(actorWallet);
-    if (action) filter.action = action;
-    if (since) filter.createdAt = { $gte: new Date(since) };
-
-    const decisions = await ModerationDecision.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(Math.min(200, Math.max(1, parseInt(limit, 10))))
-      .lean();
-
-    return res.json(decisions);
-  } catch (err) {
-    return res.status(500).json({ error: (err as Error).message });
-  }
-};
-
-// ── Rollback ──────────────────────────────────────────────────────────────────
-
-/**
- * POST /api/moderation/decisions/:id/rollback
- * Reverses a previous decision by restoring `previousStatus` to the Prompt and
- * marking the ModerationDecision as rolled back.
- *
- * The original decision document is never deleted — the rollback is recorded
- * as metadata on it. A new AuditLog entry is created for the rollback itself.
- */
-export const RollbackModerationDecision = async (
-  req: AdminRequest,
-  res: Response,
-): Promise<Response> => {
-  try {
-    await connectDb();
-
-    const body = req.body as { reason?: unknown };
-    if (!body.reason || typeof body.reason !== "string" || !body.reason.trim()) {
-      return res.status(400).json({ error: "reason is required for rollback." });
-    }
-
-    const decision = await ModerationDecision.findById(req.params.id);
-    if (!decision) {
-      return res.status(404).json({ error: "Decision not found." });
-    }
-    if ((decision as { rolledBackAt?: Date | null }).rolledBackAt) {
-      return res.status(409).json({ error: "Decision has already been rolled back." });
-    }
-
-    const promptId = decision.promptId;
-    const restoredStatus = decision.previousStatus as ModerationStatus;
-
-    const updated = await Prompt.findOneAndUpdate(
-      { _id: promptId, moderationStatus: decision.newStatus },
-      {
-        $set: {
-          moderationStatus: restoredStatus,
-          lastModeratedAt: new Date(),
-        },
-      },
-    );
-    if (!updated) {
-      return res.status(409).json({
-        error: "Prompt status has changed since this decision; rollback aborted.",
-      });
-    }
-
-    const rollbackReason = body.reason.trim();
-    (decision as unknown as Record<string, unknown>).rolledBackAt = new Date();
-    (decision as unknown as Record<string, unknown>).rollbackReason = rollbackReason;
-    (decision as unknown as Record<string, unknown>).rollbackActorWallet = hashWallet(
-      req.admin?.sub ?? "unknown",
-    );
-    await decision.save();
-
-    await recordAuditEvent({
-      action: "moderation_rollback",
-      result: "success",
-      promptId: String(promptId),
-      walletAddress: req.admin?.sub ?? null,
-      reason: `rollback decision=${String(decision._id)} restored=${restoredStatus} reason=${rollbackReason}`,
-    });
-
-    return res.json({
-      decisionId: String(decision._id),
-      promptId: String(promptId),
-      restoredStatus,
-      rolledBackAt: (decision as unknown as Record<string, Date>).rolledBackAt,
     });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });

@@ -86,6 +86,11 @@ function rejectUnreviewed(
  * Also returns an `affectedRecords` preview: the wallets/keys/IPs whose
  * effective limit for the operation would change if the change were applied.
  * The preview is read-only and never mutates state.
+ *
+ * Edge cases:
+ * - 400: unknown action or invalid create payload.
+ * - 404: revoke target missing or already revoked.
+ * - Authorization: requires `ratelimit:read`; the preview never writes.
  */
 policyLimitRouter.post(
   "/overrides/diff",
