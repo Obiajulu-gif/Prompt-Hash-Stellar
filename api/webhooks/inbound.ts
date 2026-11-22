@@ -7,22 +7,13 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifyWebhookRequest, parseWebhookPayload } from '../../src/lib/webhooks/signatureVerification';
-import { replayProtectionManager, DatabaseReplayProtectionStore } from '../../src/lib/webhooks/replayProtection';
 import { apiError, ErrorCode } from '../../src/lib/api/errorCodes';
 import connectDb from '../../server/src/db/connectDb';
-import ProcessedWebhookEvent from '../../server/src/models/ProcessedWebhookEvent';
-
-// Configure replay protection with database backend
-let dbStoreConfigured = false;
-
-async function ensureReplayProtectionStore() {
-  if (dbStoreConfigured) return;
-  
-  await connectDb();
-  const dbStore = new DatabaseReplayProtectionStore(ProcessedWebhookEvent);
-  replayProtectionManager.setStore(dbStore);
-  dbStoreConfigured = true;
-}
+import {
+  reserveWebhookDelivery,
+  completeWebhookDelivery,
+  failWebhookDelivery,
+} from '../../server/src/services/deduplication';
 
 /**
  * Extract signature from request headers
@@ -178,22 +169,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
   }
   
-  // Configure replay protection
-  await ensureReplayProtectionStore();
-  
-  // Check for replay attack
-  const isNewEvent = await replayProtectionManager.checkAndMarkProcessed(
-    payload.eventId,
-    86400000 // 24 hour TTL
-  );
-  
-  if (!isNewEvent) {
-    console.warn(`Replay attack detected: event ${payload.eventId} already processed`);
+  // Authentication/signature verification is complete, so it is now safe to
+  // touch dedupe state. Reserving before business logic is what makes the
+  // handler idempotent under concurrent provider retries; the reservation is
+  // scoped by source so two providers may reuse the same event id (#1180).
+  await connectDb();
+
+  const reservation = await reserveWebhookDelivery({
+    source,
+    eventId: payload.eventId,
+    eventType: payload.eventType,
+  });
+
+  const dedupeRecordId = reservation.recordId;
+
+  if (reservation.state !== 'acquired' || !dedupeRecordId) {
+    console.warn(
+      `Webhook deduplication suppressed event ${payload.eventId} (${reservation.state})`
+    );
     return res.status(409).json(
-      apiError(ErrorCode.DUPLICATE_EVENT, 'Event has already been processed')
+      apiError(
+        ErrorCode.DUPLICATE_EVENT,
+        reservation.state === 'in_flight'
+          ? 'Event is already being processed'
+          : 'Event has already been processed'
+      )
     );
   }
-  
+
   // Process the webhook event
   try {
     await processWebhookEvent(
@@ -202,16 +205,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       payload.data,
       source
     );
-    
+
+    await completeWebhookDelivery(dedupeRecordId, {
+      expectedAttempts: reservation.attempts,
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Webhook processed successfully',
       eventId: payload.eventId,
     });
   } catch (error: any) {
+    // Mark the reservation failed rather than "already processed" so the
+    // provider's retry re-runs the business logic. Deleting it would lose the
+    // operator-visible failure reason; leaving it in flight would suppress
+    // retries until the lease expired.
+    await failWebhookDelivery(dedupeRecordId, error, {
+      expectedAttempts: reservation.attempts,
+    });
     console.error('Webhook processing error:', error);
-    
-    // Don't retry the event - it's marked as processed
+
     return res.status(500).json(
       apiError(ErrorCode.INTERNAL_ERROR, 'Webhook processing failed')
     );

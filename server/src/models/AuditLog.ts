@@ -101,6 +101,8 @@ export const AUDIT_ACTIONS = [
   "maintainer_grant_revoked",
   "maintainer_grant_used",
   "maintainer_grant_denied",
+  // webhook/notification deduplication recovery (#1180)
+  "webhook_dedupe_released",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

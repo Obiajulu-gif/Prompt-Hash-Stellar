@@ -33,7 +33,9 @@ The current protected mutation surfaces are:
   and asynchronous export initiation
 
 Inbound webhooks have a separate event-id based implementation and are not
-changed by this workflow.
+changed by this workflow. Inbound webhook and notification deduplication are
+documented in
+[`docs/operations/notification-and-webhook-deduplication.md`](operations/notification-and-webhook-deduplication.md).
 
 ## Behavior
 

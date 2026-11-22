@@ -1,4 +1,5 @@
 import Notification from "../models/Notification";
+import { deliverNotificationOnce } from "./deduplication";
 
 const DUPLICATE_KEY_CODE = 11000;
 
@@ -128,10 +129,25 @@ export async function deliverWithChannelDedup(
     versionOrSeq: input.versionIndex,
   });
 
-  // Check if any channel already delivered this event.
-  const existing = await Notification.findOne({ dedupeKey }).lean().catch(() => null);
+  // Insert first and let the unique index collapse concurrent duplicate
+  // projections of the same event (#1180). The previous check-then-create
+  // sequence let two racing deliveries both observe "not seen" and attempt
+  // the write; the loser's duplicate-key error is now the normal suppress path.
+  const result = await deliverNotificationOnce({
+    recipientWallet,
+    type: "prompt_update",
+    message: `"${input.promptTitle}" has been updated by the creator.`,
+    versionIndex: input.versionIndex,
+    changeNote: input.changeNote ?? "",
+    sourceEventId: input.sourceEventId,
+    dedupeKey,
+    deliveryStatus: "delivered",
+    attempts: 1,
+    lastError: "",
+    deliveredAt: new Date(),
+  });
 
-  if (existing) {
+  if (!result.created) {
     for (const channel of input.channels) {
       recordSuppression({
         dedupeKey,
@@ -149,51 +165,13 @@ export async function deliverWithChannelDedup(
     };
   }
 
-  // First delivery: create the in-app record and mark other channels as attempted.
-  try {
-    await Notification.create({
-      recipientWallet,
-      promptId: input.promptId,
-      promptTitle: input.promptTitle,
-      type: "prompt_update",
-      message: `"${input.promptTitle}" has been updated by the creator.`,
-      versionIndex: input.versionIndex,
-      changeNote: input.changeNote ?? "",
-      sourceEventId: input.sourceEventId,
-      dedupeKey,
-      deliveryStatus: "delivered",
-      attempts: 1,
-      lastError: "",
-      deliveredAt: new Date(),
-      read: false,
-    });
-    return {
-      recipientWallet,
-      dedupeKey,
-      created: true,
-      channels: input.channels,
-      suppressed: false,
-    };
-  } catch (error) {
-    if (isDuplicateKeyError(error)) {
-      for (const channel of input.channels) {
-        recordSuppression({
-          dedupeKey,
-          channel,
-          suppressedAt: new Date(),
-          reason: "duplicate",
-        });
-      }
-      return {
-        recipientWallet,
-        dedupeKey,
-        created: false,
-        channels: input.channels,
-        suppressed: true,
-      };
-    }
-    throw error;
-  }
+  return {
+    recipientWallet,
+    dedupeKey,
+    created: true,
+    channels: input.channels,
+    suppressed: false,
+  };
 }
 
 export async function createNotificationOnce(
