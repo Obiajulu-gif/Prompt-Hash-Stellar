@@ -139,6 +139,30 @@ describe("verifyInboundSignature", () => {
     ).toBe(false);
   });
 
+  it("returns false when a valid signature is dated too far in the future", () => {
+    const futureTimestamp = new Date(now + 6 * 60 * 1000).toISOString();
+    const sig = makeSignature(
+      secret,
+      body,
+      futureTimestamp,
+      eventId,
+      deliveryId,
+    );
+    expect(
+      verifyInboundSignature(
+        secret,
+        {
+          rawBody: body,
+          timestamp: futureTimestamp,
+          eventId,
+          deliveryId,
+          now,
+        },
+        sig,
+      ),
+    ).toBe(false);
+  });
+
   it("returns false for a non-parseable timestamp", () => {
     expect(
       verifyInboundSignature(
