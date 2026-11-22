@@ -22,6 +22,10 @@ The Rare Failure Fixture Generator framework (`server/src/services/rareFailureFi
 - **Partial failure:** bulk operations report itemized failures; successful items are committed and not rolled back.
 - **Forensics:** quarantine events are journaled before any plaintext is withheld, preserving an audit trail.
 - **Gap closure:** the indexer cursor advances only after the backfill covers the full gap range.
+- **Authorization path:** a security revocation mid-flight must fail closed; no fixture may proceed past the authorization check after revocation is observed.
+
+### CI dependency failure (YN0078)
+The CI check runs (`Lint, Test, Typecheck, Build`, `test`, `Frontend (TypeScript / Vite)`) fail during Yarn resolution with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. The resolution override pins `typescript` to a version that does not satisfy the declared `^5.0.0` range, so installation aborts before any lint, test, typecheck, or build step runs. Recovery: align the `resolutions` entry in the root `package.json` with the `^5.0.0` range (or bump the declared range deliberately and update all workspaces together), regenerate `yarn.lock`, and re-run CI. Until fixed, the `dependency-license-inventory.json` artifact is not produced, which is expected and not a separate fault.
 
 ---
 

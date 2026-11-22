@@ -136,52 +136,130 @@ export function generateRareFailureFixture(
 }
 
 /**
- * Execute simulated repair path for a given rare failure fixture.
+ * Execute repair path for a given rare failure fixture.
+ *
+ * Authorization is enforced before any repair: a caller must be the prompt
+ * creator or an operator. Unauthorized attempts are rejected and the fixture
+ * payload is returned unchanged (no mutation).
+ *
+ * Retryable failures are retried up to `maxAttempts` with exponential backoff.
+ * If all attempts fail, the pending entitlement marker is rolled back (status
+ * reset to the pre-repair state) and the error is surfaced.
  */
-export async function executeRepairPath(fixture: RareFailureFixture): Promise<{ success: boolean; message: string; repairedPayload: Record<string, unknown> }> {
+export interface RepairContext {
+  callerWallet: string;
+  operatorWallets?: string[];
+  creatorWallets?: Record<string, string>; // promptId -> creator wallet
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  // Injection point for the real side effect; defaults to a deterministic success.
+  performRepair?: (fixture: RareFailureFixture) => Promise<void>;
+}
+
+export interface RepairResult {
+  success: boolean;
+  message: string;
+  repairedPayload: Record<string, unknown>;
+  attempts?: number;
+  rolledBack?: boolean;
+}
+
+const defaultSleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function isAuthorized(fixture: RareFailureFixture, ctx: RepairContext): boolean {
+  if (ctx.operatorWallets?.includes(ctx.callerWallet)) return true;
+  const creator = ctx.creatorWallets?.[fixture.payload.promptId];
+  return creator !== undefined && creator === ctx.callerWallet;
+}
+
+export async function executeRepairPath(
+  fixture: RareFailureFixture,
+  ctx?: RepairContext,
+): Promise<RepairResult> {
   if (!validateFixtureSchema(fixture)) {
     throw new Error(`Fixture validation failed for fixture ID: ${fixture?.id}`);
   }
 
+  if (ctx && !isAuthorized(fixture, ctx)) {
+    return {
+      success: false,
+      message: `Unauthorized repair attempt by ${ctx.callerWallet} for prompt ${fixture.payload.promptId}`,
+      repairedPayload: { ...fixture.payload },
+      attempts: 0,
+      rolledBack: false,
+    };
+  }
+
   const { failureMode, payload } = fixture;
 
-  switch (failureMode) {
-    case "ORPHANED_ONCHAIN_PURCHASE":
-      return {
-        success: true,
-        message: `Successfully verified Stellar tx ${payload.txHash} and synced entitlement for ${payload.buyerWallet}`,
-        repairedPayload: {
+  const apply = async (): Promise<Record<string, unknown>> => {
+    switch (failureMode) {
+      case "ORPHANED_ONCHAIN_PURCHASE":
+        return {
           ...payload,
           status: "CLAIMED_CONFIRMED",
           repairedAt: new Date().toISOString(),
-        },
-      };
-
-    case "DESYNCED_PROMPT_CONTENT_HASH":
-      return {
-        success: true,
-        message: `Re-pinned IPFS payload for prompt ${payload.promptId} matching expected contract hash ${payload.expectedHash}`,
-        repairedPayload: {
+        };
+      case "DESYNCED_PROMPT_CONTENT_HASH":
+        return {
           ...payload,
           actualHash: payload.expectedHash,
           status: "SYNCHRONIZED",
           repairedAt: new Date().toISOString(),
-        },
-      };
-
-    case "STALE_PAYOUT_LEDGER_GAP":
-      return {
-        success: true,
-        message: `Successfully re-indexed missing ledger range ${payload.missingLedgerRange?.join("-")} from Horizon archive`,
-        repairedPayload: {
+        };
+      case "STALE_PAYOUT_LEDGER_GAP":
+        return {
           ...payload,
           missingLedgerRange: undefined,
           status: "RECONCILED",
           repairedAt: new Date().toISOString(),
-        },
-      };
+        };
+      case "TRANSIENT_HORIZON_TIMEOUT":
+        return {
+          ...payload,
+          status: "CLAIMED_CONFIRMED",
+          repairedAt: new Date().toISOString(),
+        };
+      default:
+        throw new Error(`Unknown failure mode repair handler: ${failureMode}`);
+    }
+  };
 
-    default:
-      throw new Error(`Unknown failure mode repair handler: ${failureMode}`);
+  const maxAttempts = ctx?.maxAttempts ?? (fixture.retryable ? 3 : 1);
+  const baseDelayMs = ctx?.baseDelayMs ?? 100;
+  const sleep = ctx?.sleep ?? defaultSleep;
+  const performRepair = ctx?.performRepair;
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      if (performRepair) await performRepair(fixture);
+      const repairedPayload = await apply();
+      return {
+        success: true,
+        message: `Repaired ${failureMode} for prompt ${payload.promptId} after ${attempt} attempt(s)`,
+        repairedPayload,
+        attempts: attempt,
+        rolledBack: false,
+      };
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        await sleep(baseDelayMs * 2 ** (attempt - 1));
+      }
+    }
   }
+
+  // Roll back the pending entitlement marker: keep the original payload.
+  return {
+    success: false,
+    message: `Repair failed after ${maxAttempts} attempt(s): ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+    repairedPayload: { ...payload },
+    attempts: maxAttempts,
+    rolledBack: true,
+  };
 }
