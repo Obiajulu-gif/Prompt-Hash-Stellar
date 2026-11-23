@@ -105,6 +105,7 @@ promptRouter.post(
 );
 
 // Content hash lookup for duplicate detection (#333, #1093)
+// Protected by hashLookupLimiter (multi-dimensional IP/identity rate limiter with burst & cooldown controls)
 promptRouter.get("/hash/:contentHash", hashLookupLimiter, GetPromptsByContentHash);
 
 // Semantic similarity check for anti-plagiarism
