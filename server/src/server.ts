@@ -42,6 +42,7 @@ import { maintainerAccessRouter } from "./routes/maintainerAccessRoutes"; // #91
 import { deduplicationRouter } from "./routes/deduplicationRoutes"; // #1223
 import { editConflictRouter } from "./routes/editConflictRoutes"; // #1170
 import { capabilityGrantRouter } from "./routes/capabilityGrantRoutes"; // #1171
+import { policySimulationRouter } from "./routes/policySimulationRoutes"; // #1182
 import { recordMergeRouter } from "./routes/recordMergeRoutes"; // #902
 import { maintainerNoteRouter } from "./routes/maintainerNoteRoutes"; // #903
 import { failureEscalationRouter } from "./routes/failureEscalationRoutes"; // #904
@@ -126,6 +127,8 @@ app.use("/api/admin/maintainer-grants", maintainerAccessRouter); // #912
 app.use("/api/admin/deduplication", deduplicationRouter); // #1223
 app.use("/api/concurrency/conflicts", editConflictRouter); // #1170
 app.use("/api/capabilities", capabilityGrantRouter); // #1171
+app.use("/api/admin/policy-simulation", policySimulationRouter); // #1182
+app.use("/api/policy-simulation", policySimulationRouter); // #1182
 app.use("/api/admin/record-merges", recordMergeRouter); // #902
 app.use("/api/admin/maintainer-notes", maintainerNoteRouter); // #903
 app.use("/api/admin/escalations", failureEscalationRouter); // #904
