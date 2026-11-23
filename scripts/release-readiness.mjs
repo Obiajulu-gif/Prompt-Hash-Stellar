@@ -46,6 +46,48 @@ export function checkRollbackPlan(plan) {
   return { pass: failures.length === 0, failures };
 }
 
+/**
+ * Verify captured evidence from a deployment rollback rehearsal.
+ *
+ * This is intentionally a pure check: it never calls deployment tooling or
+ * mutates infrastructure, so it is safe to run in CI and against staging
+ * evidence collected by an authorized operator.
+ */
+export function checkDeploymentRollback(evidence) {
+  const failures = [];
+  const deployment = evidence?.deployment;
+  const rollback = evidence?.rollback;
+  const authorization = evidence?.authorization;
+
+  if (!deployment?.previousVersion) failures.push("deployment: missing previous version");
+  if (!deployment?.targetVersion) failures.push("deployment: missing target version");
+  if (!deployment?.outcome || !["succeeded", "failed"].includes(deployment.outcome)) {
+    failures.push("deployment: outcome must be succeeded or failed");
+  }
+  if (!deployment?.activeVersion) failures.push("deployment: missing observed active version");
+
+  const attempts = rollback?.attempts;
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    failures.push("rollback: at least one attempt is required");
+  } else if (attempts > 3) {
+    failures.push("rollback: retry limit exceeded (maximum 3 attempts)");
+  }
+  if (rollback?.status !== "verified") failures.push("rollback: status is not verified");
+  if (rollback?.health !== "pass") failures.push("rollback: post-rollback health check did not pass");
+
+  if (!authorization?.adminScope) failures.push("authorization: missing admin scope");
+  if (!authorization?.reason) failures.push("authorization: missing rollback reason");
+
+  if (deployment?.outcome === "failed" && deployment.activeVersion !== deployment.previousVersion) {
+    failures.push("deployment: failed release still appears active");
+  }
+  if (rollback?.status === "verified" && rollback.targetVersion !== deployment?.previousVersion) {
+    failures.push("rollback: target is not the previous version");
+  }
+
+  return { pass: failures.length === 0, failures };
+}
+
 export function evaluateReleaseReadiness({ migrations, smoke, rollback, authorized }) {
   const failures = [];
   if (!authorized?.adminScope) failures.push("authorization: missing admin scope for rollback/resolve");
