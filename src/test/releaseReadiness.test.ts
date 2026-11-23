@@ -4,6 +4,7 @@ import {
   checkSmokeResults,
   checkRollbackPlan,
   evaluateReleaseReadiness,
+  runSelfTest,
 } from "../../scripts/release-readiness.mjs";
 
 const ready = {
@@ -38,5 +39,11 @@ describe("release readiness (issue #1047)", () => {
     const r = evaluateReleaseReadiness({ ...ready, authorized: { adminScope: false, reason: "" } });
     expect(r.ready).toBe(false);
     expect(r.failures.join(" ")).toMatch(/authorization/);
+  });
+
+  it("keeps the executable golden rollback checks in sync", () => {
+    const result = runSelfTest();
+    expect(result.success).toBe(true);
+    expect(result.results).toHaveLength(5);
   });
 });
