@@ -31,6 +31,7 @@ import { createHash } from "crypto";
 
 export type HighImpactOperation =
   | "unlock"
+  | "hash_lookup"
   | "purchase"
   | "bulk_purchase"
   | "price_change"
@@ -144,6 +145,7 @@ export const DEFAULT_RISK_THRESHOLDS: RiskThresholds = {
  */
 export const OPERATION_IMPACT_WEIGHT: Record<HighImpactOperation, number> = {
   unlock: 0.6,
+  hash_lookup: 0.5,
   purchase: 0.9,
   bulk_purchase: 1.0,
   price_change: 0.8,

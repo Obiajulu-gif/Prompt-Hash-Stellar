@@ -57,6 +57,15 @@ const challengeLatency = new LatencyTracker();
 let unlockSuccessCount = 0;
 let unlockFailureCount = 0;
 
+function pseudonymize(id: string): string {
+  if (!id) return "unknown";
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (Math.imul(31, hash) + id.charCodeAt(i)) | 0;
+  }
+  return "p_" + Math.abs(hash).toString(16);
+}
+
 export const metrics = {
   emit(name: string, value: number = 1, labels: Record<string, string | number> = {}) {
     // In a real production app, this might go to Prometheus or CloudWatch
@@ -80,7 +89,24 @@ export const metrics = {
   },
 
   trackRateLimitHit(type: string, identifier: string) {
-    this.emit("rate_limit_hit_total", 1, { type, identifier });
+    // Privacy-safe: never emit raw IP or wallet address in plaintext metric labels (#1093)
+    const safeId = identifier.length > 8 ? pseudonymize(identifier) : identifier;
+    this.emit("rate_limit_hit_total", 1, { type, identifier: safeId });
+  },
+
+  /** Emit privacy-safe rate limit metrics for rejected and throttled requests (#1093) */
+  trackRateLimitEvent(params: {
+    operation: string;
+    limitType: "ip" | "identity" | "burst" | "cooldown" | "composite";
+    status: "rejected" | "throttled";
+    reason?: string;
+  }) {
+    this.emit("rate_limit_events_total", 1, {
+      operation: params.operation,
+      limit_type: params.limitType,
+      status: params.status,
+      reason: params.reason || "rate_limit_exceeded",
+    });
   },
 
   // ── Latency tracking ─────────────────────────────────────────────────────

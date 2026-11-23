@@ -42,6 +42,7 @@ import {
   recordUnlockFailure,
   recordUnlockSuccess,
 } from "../../server/src/services/purchaseDisputes";
+import { isTrustedInternalCall, UNLOCK_LIMITS } from "../../server/src/middleware/rateLimiter";
 import { logSensitiveFieldAccess } from "../../server/src/services/sensitiveFieldAudit";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import {
@@ -220,49 +221,26 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   // Authenticated bucket: wallet address is present.
   const isAuthenticated = Boolean(address);
 
-  // Rate limit by IP (unauthenticated bucket — strictest guard).
-  const ipRateLimit = await checkRateLimit("unlock", clientIp, false);
-  if (!ipRateLimit.success) {
-    req.logger.warn({ clientIp }, "Rate limit exceeded for unlock (IP)");
-    metrics.trackRateLimitHit("unlock_ip", clientIp);
-    purchaseFunnelTracker.recordStageFailure(
-      PurchaseFunnelStage.UNLOCK_ATTEMPT,
-      PurchaseFailureReason.UNLOCK_RATE_LIMITED,
-    );
-    void recordAuditEvent({
-      action: "unlock_rate_limited",
-      result: "blocked",
-      promptId: promptId ? String(promptId) : null,
-      walletAddress: address ? String(address) : null,
-      requestId: req.requestId ?? null,
-      clientIp,
-      reason: "ip_rate_limit_exceeded",
+  // ── Trusted internal calls bypass (#1093) ─────────────────────────────
+  const isTrusted = isTrustedInternalCall(req as any);
+  if (isTrusted) {
+    req.logger.info({ promptId, address }, "Trusted internal call bypassing rate limits");
+  } else {
+    // Rate limit by IP (unauthenticated bucket — strictest guard).
+    const ipRateLimit = await checkRateLimit("unlock", clientIp, false, {
+      burstMax: UNLOCK_LIMITS.burstMax,
+      burstWindowMs: UNLOCK_LIMITS.burstWindowMs,
+      cooldownMs: UNLOCK_LIMITS.cooldownMs,
     });
-    res.setHeader("X-RateLimit-Limit", ipRateLimit.limit);
-    res.setHeader("X-RateLimit-Remaining", 0);
-    res.setHeader("X-RateLimit-Reset", ipRateLimit.reset);
-    res.status(429).json(
-      apiError(
-        ErrorCode.RATE_LIMIT_IP,
-        "Too many requests. Please try again later.",
-        {
-          reset: ipRateLimit.reset,
-        },
-      ),
-    );
-    return;
-  }
-
-  // Rate limit by wallet address (authenticated bucket — per-wallet brute-force guard).
-  if (address) {
-    const walletRateLimit = await checkRateLimit(
-      "unlock",
-      String(address),
-      isAuthenticated,
-    );
-    if (!walletRateLimit.success) {
-      req.logger.warn({ address }, "Rate limit exceeded for unlock (Wallet)");
-      metrics.trackRateLimitHit("unlock_wallet", String(address));
+    if (!ipRateLimit.success) {
+      req.logger.warn({ clientIp }, "Rate limit exceeded for unlock (IP)");
+      metrics.trackRateLimitHit("unlock_ip", clientIp);
+      metrics.trackRateLimitEvent({
+        operation: "unlock",
+        limitType: "ip",
+        status: ipRateLimit.cooldownActive ? "rejected" : "throttled",
+        reason: ipRateLimit.reason || "ip_rate_limit_exceeded",
+      });
       purchaseFunnelTracker.recordStageFailure(
         PurchaseFunnelStage.UNLOCK_ATTEMPT,
         PurchaseFailureReason.UNLOCK_RATE_LIMITED,
@@ -271,24 +249,84 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
         action: "unlock_rate_limited",
         result: "blocked",
         promptId: promptId ? String(promptId) : null,
-        walletAddress: String(address),
+        walletAddress: address ? String(address) : null,
         requestId: req.requestId ?? null,
         clientIp,
-        reason: "wallet_rate_limit_exceeded",
+        reason: ipRateLimit.reason || "ip_rate_limit_exceeded",
       });
-      res.setHeader("X-RateLimit-Limit", walletRateLimit.limit);
+      const retryAfter = ipRateLimit.retryAfter ?? Math.ceil(ipRateLimit.reset / 1000);
+      res.setHeader("Retry-After", retryAfter);
+      res.setHeader("X-RateLimit-Limit", ipRateLimit.limit);
       res.setHeader("X-RateLimit-Remaining", 0);
-      res.setHeader("X-RateLimit-Reset", walletRateLimit.reset);
+      res.setHeader("X-RateLimit-Reset", ipRateLimit.reset);
       res.status(429).json(
         apiError(
-          ErrorCode.RATE_LIMIT_WALLET,
-          "Too many unlock attempts for this wallet.",
+          ErrorCode.RATE_LIMIT_IP,
+          ipRateLimit.cooldownActive
+            ? `Too many requests. Cooldown active. Please retry in ${retryAfter} seconds.`
+            : "Too many requests. Please try again later.",
           {
-            reset: walletRateLimit.reset,
+            reset: ipRateLimit.reset,
+            retryAfter,
           },
         ),
       );
       return;
+    }
+
+    // Rate limit by wallet address (authenticated bucket — per-wallet brute-force guard).
+    if (address) {
+      const walletRateLimit = await checkRateLimit(
+        "unlock",
+        String(address),
+        isAuthenticated,
+        {
+          burstMax: UNLOCK_LIMITS.burstMax,
+          burstWindowMs: UNLOCK_LIMITS.burstWindowMs,
+          cooldownMs: UNLOCK_LIMITS.cooldownMs,
+        },
+      );
+      if (!walletRateLimit.success) {
+        req.logger.warn({ address }, "Rate limit exceeded for unlock (Wallet)");
+        metrics.trackRateLimitHit("unlock_wallet", String(address));
+        metrics.trackRateLimitEvent({
+          operation: "unlock",
+          limitType: "identity",
+          status: walletRateLimit.cooldownActive ? "rejected" : "throttled",
+          reason: walletRateLimit.reason || "wallet_rate_limit_exceeded",
+        });
+        purchaseFunnelTracker.recordStageFailure(
+          PurchaseFunnelStage.UNLOCK_ATTEMPT,
+          PurchaseFailureReason.UNLOCK_RATE_LIMITED,
+        );
+        void recordAuditEvent({
+          action: "unlock_rate_limited",
+          result: "blocked",
+          promptId: promptId ? String(promptId) : null,
+          walletAddress: String(address),
+          requestId: req.requestId ?? null,
+          clientIp,
+          reason: walletRateLimit.reason || "wallet_rate_limit_exceeded",
+        });
+        const retryAfter = walletRateLimit.retryAfter ?? Math.ceil(walletRateLimit.reset / 1000);
+        res.setHeader("Retry-After", retryAfter);
+        res.setHeader("X-RateLimit-Limit", walletRateLimit.limit);
+        res.setHeader("X-RateLimit-Remaining", 0);
+        res.setHeader("X-RateLimit-Reset", walletRateLimit.reset);
+        res.status(429).json(
+          apiError(
+            ErrorCode.RATE_LIMIT_WALLET,
+            walletRateLimit.cooldownActive
+              ? `Too many unlock attempts for this wallet. Cooldown active. Please retry in ${retryAfter} seconds.`
+              : "Too many unlock attempts for this wallet.",
+            {
+              reset: walletRateLimit.reset,
+              retryAfter,
+            },
+          ),
+        );
+        return;
+      }
     }
   }
 
@@ -330,6 +368,8 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
         clientIp,
         reason: auditReason,
       });
+      const retryAfter = composite.retryAfter ?? Math.ceil(composite.reset / 1000);
+      res.setHeader("Retry-After", retryAfter);
       res.setHeader("X-RateLimit-Limit", composite.limit);
       res.setHeader("X-RateLimit-Remaining", 0);
       res.setHeader("X-RateLimit-Reset", composite.reset);
@@ -339,7 +379,7 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
           apiError(
             ErrorCode.RATE_LIMIT_ENTITLEMENT,
             "Too many unlock attempts for this prompt. Please wait a moment and try again.",
-            { reset: composite.reset },
+            { reset: composite.reset, retryAfter },
           ),
         );
       return true;
