@@ -51,7 +51,13 @@ import {
   UpdatePromptLicense,
 } from "../controllers/licensingControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
-import { reportLimiter, hashLookupLimiter } from "../middleware/rateLimiter";
+import {
+  reportLimiter,
+  hashLookupLimiter,
+  isBypassedOrTrusted,
+  HASH_LOOKUP_LIMITS,
+} from "../middleware/rateLimiter";
+import rateLimit from "express-rate-limit";
 import { enforcePolicyLimit } from "../middleware/policyLimitMiddleware";
 import { requireIdempotency } from "../middleware/idempotency";
 import { abuseRiskGuard } from "../middleware/abuseRiskGuard";
@@ -104,9 +110,23 @@ promptRouter.post(
   RestrictPromptRecord
 );
 
+// Standard rate limiter for CodeQL compliance and baseline throttling (#1093)
+const standardHashRateLimiter = rateLimit({
+  windowMs: HASH_LOOKUP_LIMITS.ipWindowMs,
+  limit: HASH_LOOKUP_LIMITS.ipMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => isBypassedOrTrusted(req),
+});
+
 // Content hash lookup for duplicate detection (#333, #1093)
-// Protected by hashLookupLimiter (multi-dimensional IP/identity rate limiter with burst & cooldown controls)
-promptRouter.get("/hash/:contentHash", hashLookupLimiter, GetPromptsByContentHash);
+// Protected by both standard rate limiting and multi-dimensional identity/burst limiter
+promptRouter.get(
+  "/hash/:contentHash",
+  standardHashRateLimiter,
+  hashLookupLimiter,
+  GetPromptsByContentHash
+);
 
 // Semantic similarity check for anti-plagiarism
 promptRouter.post(
