@@ -20,7 +20,7 @@ import {
   globalNonceLedger,
   verifyChallengeSignature,
   verifyChallengeToken,
-} from "../../../src/lib/auth/challenge";
+} from "../shared/challenge.js";
 import { globalSessionRevocationRegistry } from "../services/sessionRevocationService";
 import { redactLogFields, safeLog } from "../services/secureLogger";
 

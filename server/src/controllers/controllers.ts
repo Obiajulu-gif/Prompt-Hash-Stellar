@@ -20,20 +20,22 @@ import {
   invalidatePromptCaches,
   DEFAULT_TTL_SECONDS,
 } from "../services/cacheService.js";
-import MaintenanceBanner from "../models/MaintenanceBanner.js";
+import { MaintenanceBanner } from "../models/MaintenanceBanner.js";
 import { sendConditionalJson, markPrivate } from "../middleware/etag.js";
 import { notifyPromptReported } from "../services/emailNotifications.js";
 import { announceNewPrompt } from "../services/discordNotifications.js";
 import { logger } from "../services/structuredLogger.js";
 import { checkSimilarityForContent } from "../services/similarityDetection.js";
 import {
+  buildPublicVisibilityFilter,
+  stripSensitivePromptFields,
+} from "../services/visibilityService.js";
+import {
   parsePaginationParams,
   buildMongoCompoundQuery,
   encodeCompoundCursor,
   PaginationError,
-  buildPublicVisibilityFilter,
-  stripSensitivePromptFields,
-} from "../services/visibilityService.js";
+} from "../utils/pagination.js";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 

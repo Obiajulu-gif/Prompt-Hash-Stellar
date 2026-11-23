@@ -41,12 +41,13 @@ import { Request, Response } from "express";
 import { createHash } from "crypto";
 import connectDb from "../db/connectDb";
 import Prompt from "../models/Prompt";
+import User from "../models/User.js";
 import ModerationDecision, {
   ModerationAction,
   ModerationStatus,
 } from "../models/ModerationDecision";
 import { recordAuditEvent } from "../services/auditTrail";
-import { createNotification } from "../services/notificationService";
+import { NotificationService } from "../services/notificationService";
 import { AdminRequest } from "../middleware/adminAuth";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,7 +110,6 @@ export const GetModerationQueue = async (
 
     if (creatorWallet) {
       // Owner is a User ObjectId reference; look up the user first.
-      const User = (await import("../models/User")).default;
       const user = await User.findOne({
         walletAddress: creatorWallet.toLowerCase(),
       }).lean();
@@ -259,7 +259,7 @@ export const BulkModerationAction = async (
             ?.walletAddress;
           if (ownerWallet) {
             const title = (prompt as { title?: string }).title ?? promptIdStr;
-            await createNotification({
+            await NotificationService.createNotification({
               recipientWallet: ownerWallet,
               type: "moderation_action",
               message:

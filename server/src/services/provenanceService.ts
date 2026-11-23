@@ -531,16 +531,16 @@ export async function trackDerivedPrompt(params: {
     let transformType: TransformType;
     switch (relationKind) {
       case "fork":
-        transformType = transformationType || "FORK";
+        transformType = transformationType || "fork";
         break;
       case "remix":
-        transformType = transformationType || "REMIX";
+        transformType = transformationType || "remix";
         break;
       case "parent":
-        transformType = "VERSION_UPDATE";
+        transformType = "version_update";
         break;
       case "source":
-        transformType = "CONTENT_ENHANCEMENT";
+        transformType = "content_enhancement";
         break;
     }
 
@@ -548,7 +548,7 @@ export async function trackDerivedPrompt(params: {
     const transformations: Partial<ITransformMetadata>[] = [
       {
         transformType,
-        timestamp: new Date(),
+        transformTimestamp: new Date(),
         actor,
         details: transformDetails || `Derived from prompt ${parentOnChainId || parentPromptId} via ${relationKind}`,
       },
@@ -557,24 +557,24 @@ export async function trackDerivedPrompt(params: {
     // If parent has provenance, inherit some metadata
     const sourceSystem: ISourceSystem = parentProvenance
       ? {
-          name: parentProvenance.sourceSystem.name,
-          version: parentProvenance.sourceSystem.version,
-          identifier: `derived_from_${parentOnChainId || parentPromptId}`,
+          systemName: parentProvenance.sourceSystem.systemName,
+          systemVersion: parentProvenance.sourceSystem.systemVersion,
+          externalId: `derived_from_${parentOnChainId || parentPromptId}`,
         }
       : {
-          name: "PromptHash Platform",
-          version: "1.0",
-          identifier: `derived_from_${parentOnChainId || parentPromptId}`,
+          systemName: "PromptHash Platform",
+          systemVersion: "1.0",
+          externalId: `derived_from_${parentOnChainId || parentPromptId}`,
         };
 
-    const provenanceRecord = await createProvenanceRecord({
+    const provenanceRecord = await provenanceService.createProvenanceRecord({
       promptId,
       onChainId,
-      sourceType: "BLOCKCHAIN", // Derived prompts typically come from on-chain parents
+      sourceType: "blockchain", // Derived prompts typically come from on-chain parents
       sourceSystem,
       transformations,
       actor,
-      parentRecordId: parentProvenance ? String(parentProvenance._id) : undefined,
+      parentProvenanceId: parentProvenance ? String(parentProvenance._id) : undefined,
     });
 
     // 4. Update the prompt with provenance reference
@@ -582,7 +582,7 @@ export async function trackDerivedPrompt(params: {
       $set: {
         provenanceRecordId: provenanceRecord._id,
         provenanceSource: "BLOCKCHAIN",
-        provenanceActorId: actor.userId || actor.walletAddress,
+        provenanceActorId: actor.actorId || actor.actorWallet,
         hasProvenance: true,
       },
     });
@@ -597,7 +597,7 @@ export async function trackDerivedPrompt(params: {
         $set: {
           kind: relationKind,
           origin: "creator",
-          declaredBy: actor.walletAddress?.toLowerCase(),
+          declaredBy: actor.actorWallet?.toLowerCase(),
         },
       },
       { upsert: true, new: true },
@@ -605,9 +605,11 @@ export async function trackDerivedPrompt(params: {
 
     // 6. Record audit event
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
       action: "prompt.derived",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      actor: actor.actorWallet || actor.actorId,
+      target: promptId,
+      targetType: "prompt",
       metadata: {
         parentPromptId,
         relationKind,
@@ -751,7 +753,10 @@ export async function getDerivativesWithProvenance(
   const sanitizedDerivatives: any[] = [];
   for (const item of derivativeMap.values()) {
     const doc = promptDocMap.get(item.promptId) || (item.onChainId ? promptDocMap.get(item.onChainId) : null);
-    const visEval = evaluateVisibility(doc, viewerContext);
+    const visEval = evaluateVisibility(
+      doc,
+      viewerContext as Parameters<typeof evaluateVisibility>[1],
+    );
 
     if (visEval.isPublic) {
       sanitizedDerivatives.push({
@@ -816,14 +821,14 @@ export async function trackPromptUpdate(params: {
         promptId,
       });
 
-      provenance = await createProvenanceRecord({
+      provenance = await provenanceService.createProvenanceRecord({
         promptId,
         onChainId,
-        sourceType: "MANUAL_ENTRY",
+        sourceType: "manual",
         sourceSystem: {
-          name: "PromptHash Platform",
-          version: "1.0",
-          identifier: `prompt_${onChainId || promptId}`,
+          systemName: "PromptHash Platform",
+          systemVersion: "1.0",
+          externalId: `prompt_${onChainId || promptId}`,
         },
         actor,
       });
@@ -832,7 +837,7 @@ export async function trackPromptUpdate(params: {
     // 2. Add transformation to the provenance record
     const transformation: Partial<ITransformMetadata> = {
       transformType: updateType,
-      timestamp: new Date(),
+      transformTimestamp: new Date(),
       actor,
       details: updateDetails,
       metadata: {
@@ -851,9 +856,11 @@ export async function trackPromptUpdate(params: {
 
     // 4. Record audit event
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
       action: "prompt.updated",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      actor: actor.actorWallet || actor.actorId,
+      target: promptId,
+      targetType: "prompt",
       metadata: {
         updateType,
         changedFields,
@@ -909,8 +916,8 @@ export async function archiveProvenance(params: {
 
     // Add archival transformation
     provenance.transformations.push({
-      transformType: "VALIDATION", // Using VALIDATION to represent archival
-      timestamp: new Date(),
+      transformType: "validation", // lifecycle marker for archival
+      transformTimestamp: new Date(),
       actor,
       details: `Prompt archived: ${reason || "No reason provided"}`,
       metadata: {
@@ -922,9 +929,11 @@ export async function archiveProvenance(params: {
     await provenance.save();
 
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
       action: "prompt.archived",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      actor: actor.actorWallet || actor.actorId,
+      target: promptId,
+      targetType: "prompt",
       metadata: {
         reason,
         provenanceRecordId: String(provenance._id),
@@ -970,8 +979,8 @@ export async function restoreProvenance(params: {
 
     // Add restoration transformation
     provenance.transformations.push({
-      transformType: "VALIDATION",
-      timestamp: new Date(),
+      transformType: "validation",
+      transformTimestamp: new Date(),
       actor,
       details: "Prompt restored from archive",
       metadata: {
@@ -983,9 +992,11 @@ export async function restoreProvenance(params: {
     await provenance.save();
 
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
       action: "prompt.restored",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      actor: actor.actorWallet || actor.actorId,
+      target: promptId,
+      targetType: "prompt",
       metadata: {
         provenanceRecordId: String(provenance._id),
       },
@@ -1032,28 +1043,29 @@ export async function getUpdateHistory(promptId: string): Promise<{
   }
 
   // Filter for update-related transformations
-  const updateTransforms = [
-    "VERSION_UPDATE",
-    "CONTENT_ENHANCEMENT",
-    "NORMALIZATION",
-    "ENRICHMENT",
-    "VALIDATION",
+  const updateTransforms: string[] = [
+    "version_update",
+    "content_enhancement",
+    "validation",
   ];
 
   const updates = provenance.transformations
-    .filter((t) => updateTransforms.includes(t.transformType))
-    .map((t) => ({
-      transformType: t.transformType,
-      timestamp: t.timestamp,
+    .filter((t: Partial<ITransformMetadata>) => updateTransforms.includes(String(t.transformType)))
+    .map((t: Partial<ITransformMetadata>) => ({
+      transformType: String(t.transformType),
+      timestamp: t.transformTimestamp ?? t.timestamp ?? new Date(0),
       actor: t.actor,
-      details: t.details,
+      details: t.details ?? "",
       metadata: t.metadata,
     }));
 
   return {
     promptId,
     totalUpdates: updates.length,
-    updates: updates.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
+    updates: updates.sort(
+      (a: { timestamp: Date }, b: { timestamp: Date }) =>
+        b.timestamp.getTime() - a.timestamp.getTime(),
+    ),
   };
 }
 

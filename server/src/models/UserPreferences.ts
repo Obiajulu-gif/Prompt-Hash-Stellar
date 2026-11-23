@@ -36,7 +36,7 @@ const userPreferencesSchema = new mongoose.Schema<IUserPreferences>(
 );
 
 const UserPreferences =
-  mongoose.models.UserPreferences ||
+  (mongoose.models.UserPreferences as mongoose.Model<IUserPreferences>) ||
   mongoose.model<IUserPreferences>("UserPreferences", userPreferencesSchema);
 
 export default UserPreferences;

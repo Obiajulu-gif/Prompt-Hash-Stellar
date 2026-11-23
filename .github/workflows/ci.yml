@@ -123,10 +123,14 @@ jobs:
           cache-dependency-path: server/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --workspaces=false
 
-      - name: Build Schema
-        run: npm --prefix ../packages/schema install && npm --prefix ../packages/schema run build
+      - name: Build workspace packages
+        run: |
+          npm --prefix ../packages/schema install --workspaces=false
+          npm --prefix ../packages/schema run build
+          npm --prefix ../packages/sdk install --workspaces=false
+          npm --prefix ../packages/sdk run build
 
       - name: Run lint
         run: npm run lint

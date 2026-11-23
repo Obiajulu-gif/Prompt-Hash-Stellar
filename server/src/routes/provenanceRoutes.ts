@@ -83,8 +83,9 @@ provenanceRouter.post(
             parentOnChainId: req.body?.relatedPromptId,
             relationKind: req.body?.kind,
             actor: {
-              walletAddress: req.sessionWallet,
-              timestamp: new Date(),
+              actorType: "user",
+              actorId: String(req.sessionWallet ?? ""),
+              actorWallet: String(req.sessionWallet ?? ""),
             },
             transformationType: req.body?.transformationType,
             transformDetails: req.body?.transformDetails,

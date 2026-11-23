@@ -29,6 +29,7 @@ export const IMPORT_SOURCE_TYPES = [
   "fork",             // Forked from another prompt (complements PromptRelation)
   "template",         // Generated from a template
   "ai_generated",     // AI-generated content
+  "blockchain",       // Derived from on-chain state
   "system",           // System-generated (e.g., seed data)
 ] as const;
 export type ImportSourceType = (typeof IMPORT_SOURCE_TYPES)[number];
@@ -46,6 +47,11 @@ export const TRANSFORM_TYPES = [
   "merge",            // Merged from multiple sources
   "extraction",       // Extracted from larger content
   "customization",    // Customized for specific use case
+  "fork",             // Forked from another prompt
+  "remix",            // Remixed from another prompt
+  "version_update",   // New version of an existing prompt
+  "content_enhancement", // Content improved without a version bump
+  "validation",       // Validated/archived lifecycle marker
 ] as const;
 export type TransformType = (typeof TRANSFORM_TYPES)[number];
 
@@ -95,11 +101,19 @@ export interface ISourceSystem {
  */
 export interface ITransformMetadata {
   transformType: TransformType;       // Type of transformation
-  transformVersion: string;           // Version of transform logic
+  transformVersion?: string;          // Version of transform logic
   transformConfig?: Record<string, any>; // Transform-specific config
   transformedFields?: string[];       // Which fields were transformed
-  transformTimestamp: Date;           // When transform was applied
+  transformTimestamp?: Date;          // When transform was applied
   transformDuration?: number;         // Duration in milliseconds
+  /** Actor that performed this transformation, when it differs from the record actor. */
+  actor?: IActorMetadata;
+  /** Human-readable description of the change. */
+  details?: string;
+  /** Free-form metadata about the change. */
+  metadata?: Record<string, any>;
+  /** Legacy timestamp alias written by the derived/update flows. */
+  timestamp?: Date;
 }
 
 /**
@@ -177,11 +191,15 @@ const provenanceRecordSchema = new mongoose.Schema(
         enum: TRANSFORM_TYPES,
         required: true,
       },
-      transformVersion: { type: String, required: true },
+      transformVersion: { type: String },
       transformConfig: { type: mongoose.Schema.Types.Mixed },
       transformedFields: [{ type: String }],
-      transformTimestamp: { type: Date, required: true },
+      transformTimestamp: { type: Date },
       transformDuration: { type: Number, min: 0 },
+      actor: { type: mongoose.Schema.Types.Mixed },
+      details: { type: String },
+      metadata: { type: mongoose.Schema.Types.Mixed },
+      timestamp: { type: Date },
     }],
 
     // Actor who performed the import/transform
@@ -405,8 +423,17 @@ provenanceRecordSchema.pre("save", async function () {
   
 });
 
-const ProvenanceRecord =
-  mongoose.models.ProvenanceRecord ||
-  mongoose.model("ProvenanceRecord", provenanceRecordSchema);
+export interface ProvenanceRecordModel extends mongoose.Model<any> {
+  getImportStats(params: {
+    startDate?: Date;
+    endDate?: Date;
+    sourceType?: ImportSourceType;
+    actorId?: string;
+  }): Promise<any>;
+}
+
+const ProvenanceRecord: ProvenanceRecordModel =
+  (mongoose.models.ProvenanceRecord as ProvenanceRecordModel) ||
+  (mongoose.model("ProvenanceRecord", provenanceRecordSchema) as ProvenanceRecordModel);
 
 export default ProvenanceRecord;

@@ -1,4 +1,5 @@
-import { rpc, scValToNative } from "@stellar/stellar-sdk";
+import { createRequire } from "node:module";
+import type { Api as StellarRpcApi } from "@stellar/stellar-sdk/rpc" with { "resolution-mode": "import" };
 import connectDb from "../db/connectDb";
 import Prompt from "../models/Prompt";
 import User from "../models/User";
@@ -9,6 +10,9 @@ import { MarketplaceIndex } from "../models/MarketplaceIndex";
 import ProcessedEvent from "../models/ProcessedEvent";
 import QuarantinedEvent from "../models/QuarantinedEvent";
 import { scanForSimilarity } from "./similarityDetection";
+import { applySafetyScan } from "./safetyScannerHook";
+import { snapshotLicenseForPurchase } from "./licensingService";
+import { createNotification, fanOutNotification } from "./notificationService";
 import { enqueue as enqueueWebhookEvent } from "./webhookOutbox";
 import {
   cacheDel,
@@ -20,11 +24,17 @@ import {
   METADATA_TTL_SECONDS,
 } from "./cacheService";
 import os from "os";
-import { decodeEvent } from "@prompthash/sdk";
+import type { decodeEvent as DecodeEvent } from "@prompthash/sdk" with { "resolution-mode": "import" };
 import { logger } from "./structuredLogger";
 import { applyDisputeTransition } from "./purchaseDisputes";
 import { trackBlockchainIndexing } from "../middleware/provenanceMiddleware";
 import { journalIndexedEvent } from "./eventJournal";
+
+// The SDK's package exports map points `types` at its ESM declarations, which a
+// CommonJS build cannot `import`; the runtime `require` condition is CommonJS.
+const nodeRequire = createRequire(__filename);
+const { rpc: StellarRpc, scValToNative } = nodeRequire("@stellar/stellar-sdk") as typeof import("@stellar/stellar-sdk", { with: { "resolution-mode": "import" } });
+const { decodeEvent } = nodeRequire("@prompthash/sdk") as typeof import("@prompthash/sdk", { with: { "resolution-mode": "import" } });
 
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_TTL_MS = 30_000; // lease expires after 30 s of inactivity
@@ -32,10 +42,32 @@ const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 
 let tickInFlight = false; // single-flight guard for the current process
 
+/**
+ * Enqueues a durable webhook delivery, swallowing enqueue errors so a webhook
+ * problem never blocks indexing. `dedupeKey` is the chain event id.
+ */
+async function notify(
+  wallet: string | undefined | null,
+  event: string,
+  data: Record<string, unknown>,
+  dedupeKey: string,
+): Promise<void> {
+  if (!wallet) return;
+  try {
+    await enqueueWebhookEvent(wallet, event, data, dedupeKey);
+  } catch (err) {
+    logger.error("Webhook enqueue failed", {
+      action: "indexer",
+      event,
+      error: err,
+    });
+  }
+}
+
 // `processEvent` and `replayQuarantinedEvents` resolve the decoder through
 // this seam; it was referenced but never defined, so every event failed as a
 // decoder_error (#1024).
-async function getEventDecoder(): Promise<typeof decodeEvent> {
+async function getEventDecoder(): Promise<typeof DecodeEvent> {
   return decodeEvent;
 }
 
@@ -82,9 +114,6 @@ async function ensureUser(walletAddress: string) {
 }
 
 
-const CONTRACT_ID = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
-const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
-
 /**
  * Main entry point to start the background indexing process.
  *
@@ -95,6 +124,20 @@ const server = new rpc.Server(process.env.PUBLIC_STELLAR_RPC_URL!);
  */
 export async function startIndexer() {
   await connectDb();
+
+  const rpcUrl = process.env.PUBLIC_STELLAR_RPC_URL;
+  const contractId = process.env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
+
+  if (!rpcUrl || !contractId) {
+    logger.warn("Soroban indexer disabled - missing configuration", {
+      action: "startIndexer",
+    });
+    return;
+  }
+
+  const server = new StellarRpc.Server(rpcUrl, {
+    allowHttp: rpcUrl.startsWith("http://"),
+  });
 
   const state = await IndexerState.findOneAndUpdate(
     { key: "prompt_hash_contract" },
@@ -118,6 +161,34 @@ export async function startIndexer() {
 
     tickInFlight = true;
     try {
+      // Acquire or renew the distributed lease via a compare-and-swap write.
+      // Only one replica holds the lease at a time; others skip their tick.
+      const now = new Date();
+      const leaseExpiry = new Date(now.getTime() + LEASE_TTL_MS);
+
+      const leased = await IndexerState.findOneAndUpdate(
+        {
+          key: "prompt_hash_contract",
+          $or: [
+            { leaseHolder: REPLICA_ID }, // we already hold it
+            { leaseExpiresAt: { $lt: now } }, // it has expired
+            { leaseHolder: null }, // nobody holds it
+          ],
+        },
+        {
+          $set: { leaseHolder: REPLICA_ID, leaseExpiresAt: leaseExpiry },
+          $inc: { fencingToken: 1 },
+        },
+        { new: true },
+      );
+
+      if (!leased) {
+        // Another replica holds a valid lease — yield this tick.
+        return;
+      }
+
+      const myToken = leased.fencingToken;
+
       const latestLedger = await server.getLatestLedger();
       const startLedger = (state.lastIndexedLedger || 0) + 1;
 
@@ -173,7 +244,7 @@ export async function startIndexer() {
  * Emits alerts and updates indexer quarantine state without advancing a lossy checkpoint.
  */
 export async function quarantineEvent(
-  event: StellarRpc.Api.EventResponse,
+  event: StellarRpcApi.EventResponse,
   reason:
     | "unknown_type"
     | "unsupported_version"
@@ -228,7 +299,7 @@ export async function quarantineEvent(
  * Decodes and routes a Soroban event to the appropriate database action and
  * webhook notification.
  */
-export async function processEvent(event: StellarRpc.Api.EventResponse): Promise<void> {
+export async function processEvent(event: StellarRpcApi.EventResponse): Promise<void> {
   let rawTopic: unknown;
   let rawData: unknown;
 
@@ -390,10 +461,10 @@ export async function routeDecodedEvent(
       );
 
       // Run similarity scan asynchronously — never block the indexer loop.
-      if (upserted?.content) {
-        const combinedText = `${upserted.title ?? ""} ${upserted.content}`;
-        scanForSimilarity(promptId, combinedText, upserted.category).catch(
-          (err) =>
+      if (prompt.content) {
+        const combinedText = `${prompt.title ?? ""} ${prompt.content}`;
+        scanForSimilarity(promptId, combinedText, prompt.category).catch(
+          (err: unknown) =>
             logger.error("Similarity scan error", {
               action: "similarityScan",
               promptId,
@@ -405,15 +476,15 @@ export async function routeDecodedEvent(
       // Run the prompt safety scanner asynchronously (#758) — queued or
       // blocked prompts are hidden from the public marketplace until a
       // maintainer overrides. The encrypted payload never enters the scanner.
-      if (upserted) {
+      if (prompt) {
         applySafetyScan(promptId, {
-          title: upserted.title,
-          description: upserted.description,
-          category: upserted.category,
-          tags: upserted.tags,
-          preview: upserted.preview,
-          payload: upserted.encryptedPrompt ?? undefined,
-        }).catch((err) =>
+          title: prompt.title,
+          description: prompt.description,
+          category: prompt.category,
+          tags: prompt.tags,
+          preview: prompt.preview,
+          payload: prompt.encryptedPrompt ?? undefined,
+        }).catch((err: unknown) =>
           logger.error("Safety scan error", { action: "safetyScan", promptId, error: err }),
         );
       }
@@ -421,16 +492,14 @@ export async function routeDecodedEvent(
       // Track blockchain provenance for on-chain prompts (#929) — creates
       // a provenance record with blockchain source metadata. This runs
       // asynchronously and must never block the indexer loop.
-      trackBlockchainIndexing(
-        String(prompt._id),
-        {
-          transactionHash: txHash,
-          ledgerNumber: ledger,
-          onChainId: promptId,
-          contractId: CONTRACT_ID,
-        },
-        creator,
-      ).catch((err) =>
+      trackBlockchainIndexing({
+        promptId: String(prompt._id),
+        onChainId: promptId,
+        creatorWallet: creator,
+        ledgerSequence: ledger ?? 0,
+        transactionHash: txHash ?? "",
+        eventType: "PromptCreated",
+      }).catch((err: unknown) =>
         logger.error("Provenance tracking error", {
           action: "blockchainProvenance",
           promptId,
@@ -473,7 +542,7 @@ export async function routeDecodedEvent(
           promptId,
           buyerWallet,
           String(purchaseDoc?._id ?? ""),
-        ).catch((err) =>
+        ).catch((err: unknown) =>
           logger.error("license snapshot hook failed", {
             action: "indexer",
             promptId,
@@ -511,7 +580,7 @@ export async function routeDecodedEvent(
           promptId,
           promptTitle,
           idempotencyKey: `${eventId}:buyer:${buyerAddr.toLowerCase()}`,
-        }).catch((err) =>
+        }).catch((err: unknown) =>
           logger.error("Failed to create purchase_confirmed notification", {
             action: "indexer",
             error: err,
@@ -527,7 +596,7 @@ export async function routeDecodedEvent(
           promptId,
           promptTitle,
           idempotencyKey: `${eventId}:creator:${ownerWallet.toLowerCase()}`,
-        }).catch((err) =>
+        }).catch((err: unknown) =>
           logger.error("Failed to create sale notification for creator", {
             action: "indexer",
             error: err,
@@ -587,7 +656,7 @@ export async function routeDecodedEvent(
           promptTitle: transferTitle,
           idempotencyKey: eventId,
         },
-      ).catch((err) =>
+      ).catch((err: unknown) =>
         logger.error("Failed to create ownership_transfer notifications", {
           action: "indexer",
           error: err,

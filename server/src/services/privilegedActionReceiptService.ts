@@ -113,13 +113,14 @@ export class PrivilegedActionReceiptService {
     // Mirror to audit trail for cross-system queryability
     try {
       await recordAuditEvent({
-        action: `privileged_${params.action.replace(/[^a-zA-Z0-9_]/g, "_")}`,
+        action: "privileged_action",
         result: params.status === "SUCCESS" ? "success" : params.status === "FAILED" ? "failure" : "pending",
         actor,
         target: params.target || receipt.receiptId,
         targetType: params.targetType || "privileged_receipt",
         promptId: params.promptId || null,
         reason: params.reason || `Privileged action ${params.action} (${params.status})`,
+        metadata: { privilegedAction: params.action, status: params.status },
       });
     } catch (auditErr) {
       logger.warn("Could not record auxiliary audit event for privileged receipt", {

@@ -41,9 +41,10 @@ vi.mock("../models/Approval", () => {
     findOneAndUpdate: vi.fn(),
     create: vi.fn(),
   };
-  return m;
+  return { default: m, Approval: m };
 });
 
+import { Approval } from "../models/Approval";
 import { ApprovalService } from "../services/approvalService";
 import { Request, Response } from "express";
 

@@ -17,8 +17,8 @@ staleCacheRouter.get(
       const keys = req.query.key;
       const versions = req.query.version;
 
-      const keyList = Array.isArray(keys) ? keys : keys ? [String(keys)] : [];
-      const versionList = Array.isArray(versions) ? versions : versions ? [String(versions)] : [];
+      const keyList: string[] = (Array.isArray(keys) ? keys : keys ? [keys] : []).map(String);
+      const versionList: string[] = (Array.isArray(versions) ? versions : versions ? [versions] : []).map(String);
 
       const sourceVersions: Record<string, string | number> = {};
       for (let i = 0; i < keyList.length; i++) {
@@ -43,7 +43,8 @@ staleCacheRouter.get(
   async (req, res) => {
     try {
       const { promptId } = req.params;
-      const version = req.query.version ?? "1";
+      const version =
+        typeof req.query.version === "string" ? req.query.version : "1";
       const sourceVersions = buildPromptSourceVersions(promptId, version);
       const report = await detectStaleCache(sourceVersions);
       res.json({ success: true, promptId, report });
