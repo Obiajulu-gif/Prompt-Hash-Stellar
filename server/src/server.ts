@@ -79,6 +79,10 @@ const port = 5000;
 // Sentry error handler should be registered after routes (#332).
 app.use(express.json());
 
+// Correlation middleware must precede every route and the standardized error
+// handler so downstream services and all rejection paths receive the same ID.
+app.use(correlationMiddleware);
+
 app.use("/api/health", healthRouter); // #1027 dependency-aware public health
 app.use("/api/jobs", jobRouter); // #1009 queue observability + backpressure
 app.use("/api/improve-proxy", proxyrouter);
@@ -131,9 +135,6 @@ app.use("/api/admin/maintainer-notes", maintainerNoteRouter); // #903
 app.use("/api/admin/escalations", failureEscalationRouter); // #904
 app.use("/api/analytics/lifecycle", lifecycleCaptureRouter);
 app.use("/api/admin/lifecycle-analytics", lifecycleReportRouter);
-
-// Apply correlation ID middleware to all routes
-app.use(correlationMiddleware);
 
 // Apply standardized error handler middleware
 app.use(errorHandlerMiddleware);
