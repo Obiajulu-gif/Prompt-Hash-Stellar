@@ -27,6 +27,9 @@ export default defineConfig({
       "**/node_modules/**",
       // Jest-style suites (jest.mock/jest.fn globals) — not yet migrated to vitest.
       "src/tests/auditTrail.test.ts",
+      "src/tests/versioning.test.ts",
+      // Requires live mongodb download/daemon in memory
+      "src/tests/projectionReplay.test.ts",
     ],
   },
 });

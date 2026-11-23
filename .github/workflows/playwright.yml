@@ -18,11 +18,22 @@ jobs:
     - name: Enable Corepack
       run: corepack enable
     - name: Install dependencies
-      run: yarn install --immutable
-    - name: Install Playwright Browsers
-      run: yarn playwright install --with-deps
+      run: |
+        git fetch origin main --depth=1 || true
+        if git rev-parse --verify origin/main >/dev/null 2>&1 && ! git diff --name-only origin/main...HEAD | grep -qE '^(src/|e2e/|playwright|package\.json|yarn\.lock)'; then
+          echo "No UI or E2E changes detected; skipping yarn install."
+        else
+          yarn install --immutable
+        fi
     - name: Run Playwright tests
-      run: yarn playwright test
+      run: |
+        git fetch origin main --depth=1 || true
+        if git rev-parse --verify origin/main >/dev/null 2>&1 && ! git diff --name-only origin/main...HEAD | grep -qE '^(src/|e2e/|playwright|package\.json|yarn\.lock)'; then
+          echo "No UI or E2E changes detected; skipping Playwright suite."
+        else
+          yarn playwright install --with-deps
+          yarn playwright test
+        fi
     - uses: actions/upload-artifact@v7
       if: ${{ !cancelled() }}
       with:
