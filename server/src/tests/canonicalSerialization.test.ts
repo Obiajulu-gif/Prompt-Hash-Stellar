@@ -76,10 +76,8 @@ describe("canonicalize - numeric precision (Issue #873)", () => {
     expect(a).toBe(b);
   });
 
-  it("uses default precision of 18 decimal places", () => {
-    const a = canonicalize(1.234567890123456789);
-    const b = canonicalize(1.234567890123456700);
-    expect(a).toBe(b);
+  it("keeps representable values within the default 18-decimal precision", () => {
+    expect(canonicalize(1.23456789012345)).toBe("1.23456789012345");
   });
 
   it("allows custom numeric precision", () => {

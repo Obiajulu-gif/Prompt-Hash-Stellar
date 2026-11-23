@@ -212,6 +212,8 @@
       "STALE_REQUEST": "此请求已过期。请重试。",
       "NOT_FOUND": "找不到所请求的项目。",
       "OPERATION_NOT_ALLOWED": "目前不允许执行此操作。",
+      "PERMISSION_DIFF_REQUIRED": "请先审核权限变更，再应用这些变更。",
+      "STALE_PERMISSION_DIFF": "审核后权限已更改。请重新生成并审核预览。",
       "DUPLICATE_EVENT": "此事件已被处理。",
       "INTERNAL_ERROR": "我们这边出了点问题。请稍后重试。"
     }

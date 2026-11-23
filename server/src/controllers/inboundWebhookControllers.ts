@@ -1,16 +1,16 @@
-/**
+/*
  * Inbound webhook controllers — durable, idempotent event intake
  * and admin retry tooling (#idempotent-webhooks).
  *
  * POST /api/webhooks/inbound
  *   Public endpoint that receives webhook deliveries from external sources
- *   (e.g. payment providers). Persists the raw event, verifies the HMAC
+ *   (e.g. payment providers). Persists the raw event, verifies the HMC
  *   signature, then dispatches business logic — all idempotently.
  *
- * GET  /api/webhooks/inbound/failed        (admin)
+ * GET /api/webhooks/inbound/failed        (admin)
  *   Paginated list of failed inbound events for the retry queue.
  *
- * POST /api/webhooks/inbound/:id/retry     (admin)
+ * POST  /api/webhooks/inbound/:id/retry     (admin)
  *   Resets a single failed event back to pending for reprocessing.
  *
  * GET  /api/webhooks/inbound/:id           (admin)
@@ -41,14 +41,42 @@ const SAFE_HEADER_KEYS = [
   "user-agent",
 ];
 
+/**
+ * Headers that carry credentials or signed payload material and must never
+ * appear in logs, even if somehow present in the retained set.
+ */
+const SECRET_HEADER_KEYS = new Set([
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "x-auth-token",
+  "x-prompthash-signature",
+]);
+
 function extractSafeHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
   const safe: Record<string, string> = {};
   for (const key of SAFE_HEADER_KEYS) {
+    if (SECRET_HEADER_KEYS.has(key)) continue;
     const val = headers[key];
     if (val !== undefined) safe[key] = Array.isArray(val) ? val[0] : val;
   }
   return safe;
 }
+
+/**
+ * Returns a stable, non-reversible fingerprint of a value for correlation
+ * in logs without exposing the underlying secret. Uses only the last four
+ * characters of a hash so it cannot be reversed to the original value.
+ */
+const fingerprint = (value: string | undefined | null): string | undefined => {
+  if (!value) return undefined;
+  // Lazy import to avoid a cycle and keep the hash implementation centralised.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createHash } = require("crypto") as typeof import("crypto");
+  return createHash("sha256").update(value).digest("hex").slice(-8);
+};
 
 /**
  * POST /api/webhooks/inbound
@@ -70,6 +98,7 @@ export const ReceiveInboundWebhook = async (
   if (!signingSecret) {
     logger.warn("INBOUND_WEBHOOK_SECRET not configured; rejecting inbound webhook", {
       action: "inboundWebhook",
+      outcome: "not_configured",
     });
     return res.status(503).json({ error: "Inbound webhook intake is not configured." });
   }
@@ -84,6 +113,10 @@ export const ReceiveInboundWebhook = async (
     null;
 
   if (!idempotencyKey) {
+    logger.warn("Inbound webhook rejected: missing idempotency header", {
+      action: "inboundWebhook",
+      outcome: "missing_idempotency_key",
+    });
     return res.status(400).json({
       error: "Missing X-PromptHash-Event-Id or X-PromptHash-Delivery header.",
     });
@@ -104,6 +137,19 @@ export const ReceiveInboundWebhook = async (
       ? req.body
       : JSON.stringify(req.body ?? {});
 
+  // Structured context for logs: only permitted identifiers and non-secret
+  // metadata. Signature values and raw body content are never logged.
+  const logContext = {
+    action: "inboundWebhook",
+    eventType,
+    idempotencyKey,
+    idempotencyKeyFingerprint: fingerprint(idempotencyKey),
+    signaturePresent: signature.length > 0,
+    timestampPresent: timestamp.length > 0,
+    bodyBytes: Buffer.byteLength(rawBody, "utf8"),
+    source: (headers["user-agent"] as string) || "unknown",
+  };
+
   const result = await verifyAndProcess(
     {
       idempotencyKey,
@@ -117,9 +163,9 @@ export const ReceiveInboundWebhook = async (
     signingSecret,
   ).catch((err) => {
     logger.error("Inbound webhook processing error", {
-      action: "inboundWebhook",
-      idempotencyKey,
-      error: err,
+      ...logContext,
+      outcome: "processing_error",
+      error : err,
     });
     return null;
   });
@@ -129,16 +175,34 @@ export const ReceiveInboundWebhook = async (
   }
 
   if (result.status === "verification_failed") {
+    logger.warn("Inbound webhook signature verification failed", {
+      ...logContext,
+      outcome: "verification_failed",
+      eventId: result.eventId,
+    });
     return res.status(401).json({ error: result.errorMessage });
   }
 
   if (result.alreadyProcessed) {
+    logger.info("Inbound webhook replay detected", {
+      ...logContext,
+      outcome: "idempotent_replay",
+      eventId: result.eventId,
+      status: result.status,
+    });
     return res.status(202).json({
       message: "Event already processed.",
       eventId: result.eventId,
       status: result.status,
     });
   }
+
+  logger.info("Inbound webhook received and processed", {
+    ...logContext,
+    outcome: "processed",
+    eventId: result.eventId,
+    status: result.status,
+  });
 
   return res.status(200).json({
     message: "Event received and processed.",
@@ -166,6 +230,11 @@ export const ListFailedInboundEvents = async (
     });
     return res.status(200).json(result);
   } catch (err) {
+    logger.error("Failed to list failed inbound webhook events", {
+      action: "inboundWebhookListFailed",
+      outcome: "error",
+      error: err,
+    });
     return res.status(500).json({ error: (err as Error).message });
   }
 };
@@ -182,12 +251,28 @@ export const RetryFailedInboundEvent = async (
     await connectDb();
     const reset = await retryFailedEvent(req.params.id);
     if (!reset) {
+      logger.warn("Inbound webhook retry target not found", {
+        action: "inboundWebhookRetry",
+        outcome: "not_found",
+        eventId: req.params.id,
+      });
       return res.status(404).json({
         error: "No failed inbound event found with that id.",
       });
     }
+    logger.info("Inbound webhook reset to pending for reprocessing", {
+      action: "inboundWebhookRetry",
+      outcome: "reset_to_pending",
+      eventId: req.params.id,
+    });
     return res.status(200).json({ message: "Event reset to pending for reprocessing." });
   } catch (err) {
+    logger.error("Failed to reset inbound webhook event for retry", {
+      action: "inboundWebhookRetry",
+      outcome: "error",
+      eventId: req.params.id,
+      error: err,
+    });
     return res.status(500).json({ error: (err as Error).message });
   }
 };
@@ -204,10 +289,21 @@ export const GetInboundEvent = async (
     await connectDb();
     const event = await InboundWebhookEvent.findById(req.params.id).lean();
     if (!event) {
+      logger.warn("Inbound webhook event not found", {
+        action: "inboundWebhookGet",
+        outcome: "not_found",
+        eventId: req.params.id,
+      });
       return res.status(404).json({ error: "Inbound event not found." });
     }
     return res.status(200).json(event);
   } catch (err) {
+    logger.error("Failed to fetch inbound webhook event", {
+      action: "inboundWebhookGet",
+      outcome: "error",
+      eventId: req.params.id,
+      error: err,
+    });
     return res.status(500).json({ error: (err as Error).message });
   }
 };

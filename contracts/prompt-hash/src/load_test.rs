@@ -106,7 +106,10 @@ mod load_tests {
             }
         }
 
-        assert_eq!(total_operations, (client_count * operations_per_client) as u32);
+        assert_eq!(
+            total_operations,
+            (client_count * operations_per_client) as u32
+        );
     }
 
     #[test]

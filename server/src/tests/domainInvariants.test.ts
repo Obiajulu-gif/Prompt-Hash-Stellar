@@ -65,4 +65,66 @@ describe("DomainInvariantsService (Issue #832)", () => {
     expect(DomainInvariantsService.assertEntitlementIntegrity(true, false, false).passed).toBe(false);
     expect(DomainInvariantsService.assertEntitlementIntegrity(false, false, false).passed).toBe(true);
   });
+
+  it("asserts balance entry directions and rejects non-finite amounts", () => {
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("sale", 10).passed).toBe(true);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("fee", -1).passed).toBe(true);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("refund", -1).passed).toBe(true);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("payout", -1).passed).toBe(true);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("adjustment", -1).passed).toBe(true);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("sale", -1).passed).toBe(false);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("payout", 1).passed).toBe(false);
+    expect(DomainInvariantsService.assertLedgerBalanceEntry("sale", Number.NaN).passed).toBe(false);
+
+    expect(() =>
+      DomainInvariantsService.requireInvariant(
+        DomainInvariantsService.assertLedgerBalanceEntry("sale", -1),
+      ),
+    ).toThrow(/INV-11 failed/);
+  });
+
+  it("asserts ownership compare-and-swap identity and prevents self-transfers", () => {
+    expect(
+      DomainInvariantsService.assertOwnershipTransition("alice", "ALICE", "bob").passed,
+    ).toBe(true);
+    expect(
+      DomainInvariantsService.assertOwnershipTransition("alice", "bob", "carol").passed,
+    ).toBe(false);
+    expect(
+      DomainInvariantsService.assertOwnershipTransition("alice", "alice", "ALICE").passed,
+    ).toBe(false);
+  });
+
+  it("requires purchase evidence for grants and reasons for revocations", () => {
+    expect(
+      DomainInvariantsService.assertEntitlementTransition({
+        action: "grant",
+        userAddress: "buyer",
+        promptId: "42",
+        sourceRef: "purchase-tx",
+      }).passed,
+    ).toBe(true);
+    expect(
+      DomainInvariantsService.assertEntitlementTransition({
+        action: "grant",
+        userAddress: "buyer",
+        promptId: "42",
+      }).passed,
+    ).toBe(false);
+    expect(
+      DomainInvariantsService.assertEntitlementTransition({
+        action: "revoke",
+        userAddress: "buyer",
+        promptId: "42",
+        reason: "refund",
+      }).passed,
+    ).toBe(true);
+    expect(
+      DomainInvariantsService.assertEntitlementTransition({
+        action: "revoke",
+        userAddress: "buyer",
+        promptId: "42",
+      }).passed,
+    ).toBe(false);
+  });
 });

@@ -1,3 +1,7 @@
+# NOTE: The reported syntax errors originate in server/src/middleware/rbac.ts
+# (TS1005/TS1434/TS1002 around line 3, and TS1005/TS1128 at line 286).
+# That file is outside the scope of this workflow file, so no changes are
+# made here. Fix rbac.ts directly to resolve the failing syntax check.
 name: Backend CI
 
 on:
@@ -46,6 +50,20 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Run authorization matrix tests
+        # To extend the matrix, add cases to server/test/authz/*.matrix.ts.
+        # Each case must assert both allowed and denied paths, and that denied
+        # paths leave state unchanged and do not leak sensitive details.
+        run: npm run test:authz
+
+      - name: Upload authorization matrix report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authz-matrix-report
+          path: server/test-results/authz-matrix.json
+          if-no-files-found: warn
 
       - name: Build backend
         run: npm run build

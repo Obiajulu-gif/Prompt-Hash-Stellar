@@ -80,7 +80,7 @@ function canonicalizeValue(value: unknown, opts: CanonicalOptions): unknown {
     const sortedKeys = opts.sortKeys ? keys.sort() : keys;
 
     for (const key of sortedKeys) {
-      if (obj.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
         result[key] = canonicalizeValue(obj[key], opts);
       }
     }

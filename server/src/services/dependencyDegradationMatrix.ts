@@ -135,6 +135,22 @@ async function httpGet(
   }
 }
 
+/**
+ * Maps a failed HTTP probe to a failure mode. 401/403 means our credentials
+ * were rejected — retrying cannot help, so it is reported as auth_failure
+ * rather than folded into "unavailable" (#1126).
+ */
+export function classifyHttpFailure(
+  status: number | undefined,
+  latencyMs: number,
+  timeoutMs: number,
+): FailureMode {
+  if (status === 401 || status === 403) return "auth_failure";
+  if (status === 429) return "rate_limited";
+  if (latencyMs >= timeoutMs) return "timeout";
+  return "unavailable";
+}
+
 // ---------------------------------------------------------------------------
 // Degradation matrix definition
 // ---------------------------------------------------------------------------
@@ -193,6 +209,20 @@ export function buildDegradationMatrix(env: ProbeEnv): DependencyEntry[] {
             "Alert on-call if lag exceeds 500 sequences.",
           ],
         },
+        {
+          mode: "auth_failure",
+          severity: "critical",
+          description: "RPC provider rejects our API key or allow-listed origin (HTTP 401/403).",
+          fallbackBehavior:
+            "On-chain operations are blocked and never retried automatically — retrying with rejected credentials cannot succeed. Access checks fail closed. Read-only browsing remains available.",
+          userMessage:
+            "Prompt purchases are temporarily unavailable. You can still browse the marketplace.",
+          recoverySteps: [
+            "Verify the RPC provider API key and origin allow-list.",
+            "Rotate the credential (see docs/secret-rotation.md) and redeploy.",
+            "Re-run the degradation probes to confirm stellar_rpc is healthy.",
+          ],
+        },
       ],
       probe: async (): Promise<ProbeResult> => {
         const start = Date.now();
@@ -210,7 +240,7 @@ export function buildDegradationMatrix(env: ProbeEnv): DependencyEntry[] {
           clearTimeout(timer);
           const latencyMs = Date.now() - start;
           if (!resp.ok) {
-            return { dependency: "stellar_rpc", healthy: false, latencyMs, failureMode: "unavailable", detail: `HTTP ${resp.status}`, checkedAt };
+            return { dependency: "stellar_rpc", healthy: false, latencyMs, failureMode: classifyHttpFailure(resp.status, latencyMs, env.timeoutMs), detail: `HTTP ${resp.status}`, checkedAt };
           }
           const data = (await resp.json()) as { result?: { status?: string } };
           const healthy = data?.result?.status === "healthy";
@@ -320,6 +350,19 @@ export function buildDegradationMatrix(env: ProbeEnv): DependencyEntry[] {
             "Confirm replica-set primary election is complete.",
             "Run: yarn data:integrity:monitor to check for drift.",
             "Replay idempotency-keyed write queue: yarn jobs:run idempotency-replay.",
+          ],
+        },
+        {
+          mode: "auth_failure",
+          severity: "critical",
+          description: "MongoDB rejects the configured credentials (rotated or revoked user).",
+          fallbackBehavior:
+            "Treated like connection_refused: database-backed endpoints return HTTP 503 and are not retried automatically.",
+          userMessage:
+            "The marketplace is temporarily unavailable for new transactions. Read-only browsing may still work.",
+          recoverySteps: [
+            "Confirm the database user in MONGODB_URI still exists and has the expected roles.",
+            "Rotate the credential and restart the API.",
           ],
         },
       ],
@@ -461,6 +504,19 @@ export function buildDegradationMatrix(env: ProbeEnv): DependencyEntry[] {
             "Enable Pinata dedicated gateway if on paid plan.",
           ],
         },
+        {
+          mode: "auth_failure",
+          severity: "high",
+          description: "Pinata rejects the configured JWT (HTTP 401/403).",
+          fallbackBehavior:
+            "Publication is blocked and not retried automatically. Existing purchases are unaffected; previews are served from MongoDB.",
+          userMessage:
+            "Prompt storage is temporarily unavailable. Your existing purchases are unaffected — only new publications are paused.",
+          recoverySteps: [
+            "Verify PINATA_JWT is present and not revoked.",
+            "Rotate the key and re-queue failed uploads: yarn jobs:run ipfs-upload-retry.",
+          ],
+        },
       ],
       probe: async (): Promise<ProbeResult> => {
         const checkedAt = new Date().toISOString();
@@ -469,7 +525,7 @@ export function buildDegradationMatrix(env: ProbeEnv): DependencyEntry[] {
           dependency: "ipfs_pinata",
           healthy: ok,
           latencyMs,
-          failureMode: ok ? undefined : (latencyMs >= env.timeoutMs ? "timeout" : "unavailable"),
+          failureMode: ok ? undefined : classifyHttpFailure(status, latencyMs, env.timeoutMs),
           detail: ok ? undefined : `HTTP ${status}`,
           checkedAt,
         };
@@ -537,12 +593,15 @@ export function buildDegradationMatrix(env: ProbeEnv): DependencyEntry[] {
  * Safe to call from health endpoints or scheduled smoke tests.
  */
 export async function runDegradationMatrixProbes(
-  envOverride?: Partial<ProbeEnv>
+  envOverride?: Partial<ProbeEnv>,
+  matrixOverride?: DependencyEntry[],
 ): Promise<DegradationMatrixReport> {
   const env: ProbeEnv = { ...defaultProbeEnv(), ...envOverride };
-  const matrix = buildDegradationMatrix(env);
+  const matrix = matrixOverride ?? buildDegradationMatrix(env);
 
-  const results = await Promise.all(matrix.map((entry) => entry.probe()));
+  // A probe that throws must not take the whole report down with it; it is
+  // reported as unavailable so the other dependencies are still classified.
+  const results = await Promise.all(matrix.map((entry) => runProbeSafely(entry)));
 
   const degraded: DependencyName[] = results
     .filter((r) => !r.healthy)
@@ -563,6 +622,22 @@ export async function runDegradationMatrixProbes(
     results,
     degradedDependencies: degraded,
   };
+}
+
+async function runProbeSafely(entry: DependencyEntry): Promise<ProbeResult> {
+  const start = Date.now();
+  try {
+    return await entry.probe();
+  } catch (err: unknown) {
+    return {
+      dependency: entry.name,
+      healthy: false,
+      latencyMs: Date.now() - start,
+      failureMode: "unavailable",
+      detail: err instanceof Error ? err.message : String(err),
+      checkedAt: new Date().toISOString(),
+    };
+  }
 }
 
 /**

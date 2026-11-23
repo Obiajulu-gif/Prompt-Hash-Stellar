@@ -124,6 +124,40 @@ describe("Payout Ledger & Stellar Settlement Reconciliation (#Task2)", () => {
     });
 
     expect(mockEntries.length).toBe(5);
+    expect(mockEntries.map((entry) => entry.amount)).toEqual([
+      100, -5, -20, 10, -30,
+    ]);
+  });
+
+  it("canonicalizes debit signs and rejects invalid balance transitions before writing", async () => {
+    await recordLedgerEntry({
+      entryType: "fee",
+      creatorAddress: "GCREATOR1234567890",
+      amount: 5,
+      referenceId: "fee_positive_input",
+      description: "Legacy positive fee input",
+    });
+    expect(mockEntries[0].amount).toBe(-5);
+
+    await expect(
+      recordLedgerEntry({
+        entryType: "sale",
+        creatorAddress: "GCREATOR1234567890",
+        amount: -5,
+        referenceId: "negative_sale",
+        description: "Invalid negative sale",
+      }),
+    ).rejects.toThrow(/INV-11 failed/);
+    await expect(
+      recordLedgerEntry({
+        entryType: "sale",
+        creatorAddress: "GCREATOR1234567890",
+        amount: Number.POSITIVE_INFINITY,
+        referenceId: "non_finite_sale",
+        description: "Invalid non-finite sale",
+      }),
+    ).rejects.toThrow(/INV-11 failed/);
+    expect(mockEntries).toHaveLength(1);
   });
 
   it("recalculates creator balance strictly from immutable entries", async () => {

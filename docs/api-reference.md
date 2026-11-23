@@ -147,6 +147,17 @@ Example error response:
 
 Marks a prompt as archived and removes it from active workflow views.
 
+### Resolve a prompt permalink
+
+`GET /api/prompts/permalink/:identifier`
+Alias: `GET /api/prompts/resolve/:identifier`
+
+Resolves a prompt by its current or historical slug, on-chain ID, or record ID.
+The response includes sanitized public metadata. Historical slugs return a
+permanent redirect to the canonical permalink. Restricted and deleted records
+do not expose private prompt content; an optional `viewerWallet` query parameter
+or `x-wallet-address` header can identify an authorized viewer.
+
 ## Buyer Library Endpoints
 
 ### Get owned prompts
@@ -363,7 +374,7 @@ Issues a short-lived challenge token for wallet verification.
 
 Verifies the wallet signature and on-chain entitlement before returning decrypted content.
 
-## Purchase Receipts (#436)
+## Purchase Receipts (#436, #675)
 
 ### Get a purchase receipt
 
@@ -372,15 +383,38 @@ Verifies the wallet signature and on-chain entitlement before returning decrypte
 `txHash` is optional — when omitted, the most recent matching `Purchase`
 record is used only to look up the hash. Every other field is re-derived
 from the confirmed transaction and its contract event on Stellar RPC, never
-from the (mutable) database row. Responds with:
+from the (mutable) database row. Every response also includes a current
+on-chain entitlement verdict, checked against the configured Stellar RPC
+quorum and ledger freshness policy. A signed receipt proves the historical
+purchase event; it does not by itself prove that access is still active.
+
+When the purchase record or matching event has not been indexed yet, the
+endpoint returns HTTP 200 with `receipt: null`, `receiptStatus: "pending"`,
+and the current entitlement verdict. A ready receipt returns:
 
 ```json
 {
   "receipt": { "version": 1, "network": { ... }, "contract": { ... }, "prompt": { ... }, "buyer": "G...", "amount": { "stroops": "..." }, "transaction": { ... }, "event": { ... } },
   "signature": "base64 Ed25519 signature over the canonicalized receipt",
-  "signerPublicKey": "base64 Ed25519 public key"
+  "signerPublicKey": "base64 Ed25519 public key",
+  "receiptStatus": "ready",
+  "entitlement": {
+    "status": "verified | not_entitled | unverifiable",
+    "ledgerSequence": 123456,
+    "ledgerHash": "current-ledger-hash",
+    "networkId": "configured-network-id",
+    "contractId": "configured-prompt-contract-id",
+    "checkedAt": 1730000000,
+    "reason": "stale_ledger (present only when unverifiable)"
+  }
 }
 ```
+
+`verified` is current access confirmed by fresh ledger state;
+`not_entitled` means the latest verified state does not grant access; and
+`unverifiable` means the ledger response is stale, divergent, or unavailable.
+Clients must not present a receipt or indexed purchase as current access when
+the verdict is `not_entitled` or `unverifiable`.
 
 Verify a receipt independently — against Stellar RPC only, no PromptHash API
 or database access required — with `@prompthash/sdk`:
@@ -398,6 +432,16 @@ referenced transaction is found, succeeded, on the claimed network, and its
 decoded event matches every receipt field exactly — so a receipt with any
 tampered field, a wrong-network mismatch, or an orphaned/failed transaction
 fails verification.
+
+### Unlock entitlement evidence (#675)
+
+`POST /api/unlock/verify` includes an `entitlement` object in successful
+responses and entitlement-denial responses. Successful unlocks carry
+`status: "verified"` and the ledger sequence, hash, network ID, contract ID,
+and check time used for the access decision. Denied access returns
+`status: "not_entitled"`; a failed ledger verification returns
+`status: "unverifiable"` and a reason. Unlock remains fail-closed: no
+plaintext is returned unless current entitlement verification succeeds.
 
 ## Wallet Sessions
 

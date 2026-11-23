@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export type CriticalOperationType =
   | "MAINTAINER_ACTION"
+  | "PRIVILEGED_ACTION"
   | "PROMPT_PURCHASE"
   | "PROMPT_PUBLISH"
   | "OWNERSHIP_TRANSFER"
@@ -15,6 +16,11 @@ export interface IExternalReferences {
   ledgerSequence?: number;
   contractId?: string;
   idempotencyKey?: string;
+  grantId?: string;
+  actionId?: string;
+  scope?: string;
+  target?: string;
+  targetType?: string;
 }
 
 export interface ISignedReceipt extends Document {
@@ -41,6 +47,7 @@ const signedReceiptSchema = new Schema(
       type: String,
       enum: [
         "MAINTAINER_ACTION",
+        "PRIVILEGED_ACTION",
         "PROMPT_PURCHASE",
         "PROMPT_PUBLISH",
         "OWNERSHIP_TRANSFER",

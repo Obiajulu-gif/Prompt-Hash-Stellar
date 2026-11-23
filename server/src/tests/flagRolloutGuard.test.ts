@@ -51,6 +51,17 @@ describe("flagRolloutGuard (issue #988)", () => {
     expect(d.allow).toBe(false);
   });
 
+  it("blocks malformed health values and refuses non-boolean rollback evidence", () => {
+    const request = { flag: "x", scope: "marketplace", environment: "production", rolloutPercentage: 10 } as const;
+    expect(evaluateRolloutGuard(request, { ...healthy, errorRate: NaN }).allow).toBe(false);
+    expect(verifyRollback({
+      flagDisabledEverywhere: true,
+      noPartialWrites: "false" as unknown as boolean,
+      invariantsPass: true,
+      noLedgerDrift: true,
+    }).verified).toBe(false);
+  });
+
   it("verifies a clean rollback leaves no inconsistent state", () => {
     expect(
       verifyRollback({ flagDisabledEverywhere: true, noPartialWrites: true, invariantsPass: true, noLedgerDrift: true }).verified,

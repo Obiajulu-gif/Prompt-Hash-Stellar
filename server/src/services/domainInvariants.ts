@@ -17,13 +17,121 @@ export const DOMAIN_INVARIANTS = {
   INV_08_RATING_BOUNDS_AND_BUYER_ELIGIBILITY: "INV-08: Rating score must be between 1 and 5 and reviewer must hold purchase entitlement",
   INV_09_QUARANTINED_PROMPTS_NOT_LISTABLE: "INV-09: Quarantined or flagged prompts cannot be listed or purchased",
   INV_10_ENTITLEMENT_INTEGRITY: "INV-10: User entitlement must trace to a verified purchase or author ownership",
+  INV_11_BALANCE_ENTRY_DIRECTION: "INV-11: Balance entries must be finite and use canonical debit/credit direction",
+  INV_12_OWNERSHIP_TRANSITION: "INV-12: Ownership transitions require the expected current owner and a distinct recipient",
+  INV_13_ENTITLEMENT_TRANSITION_EVIDENCE: "INV-13: Entitlement transitions require identity and auditable evidence",
 };
 
 export class DomainInvariantsService {
+  static assertLedgerBalanceEntry(
+    entryType: "sale" | "fee" | "refund" | "adjustment" | "payout",
+    amount: number,
+  ): InvariantResult {
+    const isFiniteAmount = Number.isFinite(amount);
+    const validDirection =
+      entryType === "adjustment" ||
+      (entryType === "sale" ? amount >= 0 : amount <= 0);
+    const passed = isFiniteAmount && validDirection;
+
+    return {
+      invariantId: "INV-11",
+      name: DOMAIN_INVARIANTS.INV_11_BALANCE_ENTRY_DIRECTION,
+      passed,
+      message: passed
+        ? undefined
+        : !isFiniteAmount
+          ? `Ledger amount must be finite; received: ${amount}`
+          : `${entryType} entries must use the canonical ${entryType === "sale" ? "credit" : "debit"} direction.`,
+      context: { entryType, amount },
+    };
+  }
+
+  static assertOwnershipTransition(
+    expectedOwnerId: string,
+    currentOwnerId: string,
+    nextOwnerId: string,
+  ): InvariantResult {
+    const hasIdentities = [expectedOwnerId, currentOwnerId, nextOwnerId].every(
+      (id) => id.trim().length > 0,
+    );
+    const ownerMatches =
+      expectedOwnerId.trim().toLowerCase() ===
+      currentOwnerId.trim().toLowerCase();
+    const ownerChanges =
+      currentOwnerId.trim().toLowerCase() !== nextOwnerId.trim().toLowerCase();
+    const passed = hasIdentities && ownerMatches && ownerChanges;
+
+    return {
+      invariantId: "INV-12",
+      name: DOMAIN_INVARIANTS.INV_12_OWNERSHIP_TRANSITION,
+      passed,
+      message: passed
+        ? undefined
+        : !hasIdentities
+          ? "Ownership transitions require non-empty owner identities."
+          : !ownerMatches
+          ? "Ownership changed before this transition could be applied."
+          : "Ownership transition must move to a different owner.",
+      context: { expectedOwnerId, currentOwnerId, nextOwnerId },
+    };
+  }
+
+  static assertEntitlementTransition(
+    input: {
+      action: "grant" | "revoke";
+      userAddress: string;
+      promptId: string;
+      sourceRef?: string;
+      reason?: string;
+    },
+  ): InvariantResult {
+    const hasIdentity = Boolean(input.userAddress.trim() && input.promptId.trim());
+    const hasEvidence =
+      input.action === "grant"
+        ? Boolean(input.sourceRef?.trim())
+        : Boolean(input.reason?.trim());
+    const passed = hasIdentity && hasEvidence;
+
+    return {
+      invariantId: "INV-13",
+      name: DOMAIN_INVARIANTS.INV_13_ENTITLEMENT_TRANSITION_EVIDENCE,
+      passed,
+      message: passed
+        ? undefined
+        : !hasIdentity
+          ? "Entitlement transitions require both a user address and prompt ID."
+          : input.action === "grant"
+            ? "Entitlement grants require a purchase or repair source reference."
+            : "Entitlement revocations require a reason.",
+      context: {
+        action: input.action,
+        hasIdentity,
+        hasEvidence,
+      },
+    };
+  }
+
+  static requireInvariant(result: InvariantResult): void {
+    if (!result.passed) {
+      throw new DomainInvariantError(result);
+    }
+  }
+
   /**
    * INV-01: Price validation
    */
   static assertPriceNonNegative(priceStroops: number | bigint): InvariantResult {
+    // Stroops are indivisible; NaN, Infinity, and fractional values are invalid
+    // prices rather than a crash (BigInt() throws a RangeError on them).
+    if (typeof priceStroops === "number" && !Number.isSafeInteger(priceStroops)) {
+      return {
+        invariantId: "INV-01",
+        name: DOMAIN_INVARIANTS.INV_01_NON_NEGATIVE_PRICE,
+        passed: false,
+        message: `Price must be a whole number of stroops; received: ${priceStroops}`,
+        context: { priceStroops: String(priceStroops) },
+      };
+    }
     const price = typeof priceStroops === "bigint" ? priceStroops : BigInt(priceStroops);
     const passed = price >= 0n;
     return {
@@ -68,12 +176,20 @@ export class DomainInvariantsService {
    */
   static assertExactPayoutSplit(splitsBasisPoints: number[]): InvariantResult {
     const sum = splitsBasisPoints.reduce((acc, val) => acc + val, 0);
-    const passed = sum === 10000;
+    // A negative or fractional share can still sum to 10000 (e.g. [20000, -10000])
+    // while paying one party more than the sale. Every share must be a whole,
+    // non-negative number of basis points.
+    const sharesValid = splitsBasisPoints.every((bps) => Number.isSafeInteger(bps) && bps >= 0);
+    const passed = sharesValid && sum === 10000;
     return {
       invariantId: "INV-04",
       name: DOMAIN_INVARIANTS.INV_04_EXACT_PAYOUT_SPLIT,
       passed,
-      message: passed ? undefined : `Payout splits must total 10000 basis points; received: ${sum}`,
+      message: passed
+        ? undefined
+        : !sharesValid
+          ? `Payout splits must be non-negative whole basis points; received: [${splitsBasisPoints.join(", ")}]`
+          : `Payout splits must total 10000 basis points; received: ${sum}`,
       context: { splitsBasisPoints, sum },
     };
   }
@@ -203,5 +319,15 @@ export class DomainInvariantsService {
       message: passed ? undefined : "User holds entitlement without corresponding purchase or authorship record.",
       context: { hasActiveEntitlement, isAuthor, hasFulfilledPurchase },
     };
+  }
+}
+
+export class DomainInvariantError extends Error {
+  readonly invariant: InvariantResult;
+
+  constructor(invariant: InvariantResult) {
+    super(`${invariant.invariantId} failed: ${invariant.message}`);
+    this.name = "DomainInvariantError";
+    this.invariant = invariant;
   }
 }

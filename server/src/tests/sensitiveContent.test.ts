@@ -111,6 +111,7 @@ describe("download filename and header boundaries", () => {
       'evil".csv\r\nSet-Cookie: x=1\x00<script>/../',
     );
 
+    // eslint-disable-next-line no-control-regex
     expect(safe).not.toMatch(/[\r\n\u0000"\\/:<>]/);
     expect(safe).not.toContain("..");
     expect(safe).not.toContain("<script>");

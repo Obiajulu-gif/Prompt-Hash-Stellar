@@ -21,7 +21,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -530,7 +530,12 @@ export function summarize(checks, { strict = false } = {}) {
 export function applySafeFixes(root, { exists = existsSync, copy = copyFileSync } = {}) {
   const applied = [];
   if (!exists(resolve(root, ".env")) && exists(resolve(root, ".env.example"))) {
-    copy(resolve(root, ".env.example"), resolve(root, ".env"));
+    try {
+      copy(resolve(root, ".env.example"), resolve(root, ".env"), constants.COPYFILE_EXCL);
+    } catch (error) {
+      if (error.code === "EEXIST") return applied;
+      throw error;
+    }
     applied.push("created .env from .env.example (fill in real values before use)");
   }
   return applied;
@@ -596,6 +601,15 @@ export function formatReport({ checks, summary }, { verbose = false } = {}) {
 const isCli = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isCli) {
   const args = new Set(process.argv.slice(2));
+  const supported = new Set(["--offline", "--json", "--strict", "--fix", "--verbose", "--help"]);
+  if ([...args].some((arg) => !supported.has(arg))) {
+    console.error("Unknown option. Run yarn diagnose --help for usage.");
+    process.exit(2);
+  }
+  if (args.has("--help")) {
+    console.log("Usage: yarn diagnose [--offline] [--json] [--strict] [--fix] [--verbose]");
+    process.exit(0);
+  }
   const root = process.cwd();
   const applied = args.has("--fix") ? applySafeFixes(root) : [];
   const report = await runDiagnostics({ root, offline: args.has("--offline"), strict: args.has("--strict") });

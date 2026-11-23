@@ -36,7 +36,7 @@ describe("evaluateReleaseGate", () => {
   it("blocks an unchecked template, naming each missing piece of evidence", () => {
     const r = evaluateReleaseGate({ ...base, prBody: TEMPLATE });
     expect(r.ok).toBe(false);
-    for (const key of ["smoke", "security", "rollback-plan", "rollback-rehearsal"]) {
+    for (const key of ["smoke", "security", "rollback-plan", "rollback-rehearsal", "recovery-evidence"]) {
       expect(r.failures.some((f: string) => f.includes(`(${key})`))).toBe(true);
     }
   });
@@ -75,5 +75,24 @@ describe("evaluateReleaseGate", () => {
 
     const withTicket = body.replace(/Incident ticket: <!--.*-->/, "Incident ticket: https://example.test/INC-42");
     expect(evaluateReleaseGate({ ...base, prBody: withTicket })).toEqual({ ok: true, failures: [], waived: ["smoke"] });
+  });
+
+  it("requires recovery evidence unless an incident waiver names the item", () => {
+    const body = tickAll(TEMPLATE).replace(
+      "- [x] Recovery evidence linked",
+      "- [ ] Recovery evidence linked",
+    );
+    expect(evaluateReleaseGate({ ...base, prBody: body }).failures).toContain(
+      'Missing evidence: "Recovery evidence linked" (recovery-evidence) is not checked.',
+    );
+
+    const waived = body
+      .replace(/Incident ticket: <!--.*-->/, "Incident ticket: https://example.test/INC-43")
+      .replace(/Skipped items: <!--.*-->/, "Skipped items: recovery-evidence");
+    expect(evaluateReleaseGate({ ...base, prBody: waived })).toEqual({
+      ok: true,
+      failures: [],
+      waived: ["recovery-evidence"],
+    });
   });
 });

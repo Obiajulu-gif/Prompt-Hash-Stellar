@@ -119,6 +119,62 @@ export async function replayDeadLetter(outboxId: string): Promise<boolean> {
   return Boolean(result);
 }
 
+/** Immediately isolates an unprocessable poison message to dead-letter with audit reason. */
+export async function quarantineWebhookEvent(outboxId: string, reason: string): Promise<boolean> {
+  const result = await WebhookOutboxEvent.findByIdAndUpdate(outboxId, {
+    $set: {
+      status: "dead_letter",
+      deadLetteredAt: new Date(),
+      lastError: `Quarantined: ${reason}`,
+      leaseHolder: null,
+      leaseExpiresAt: null,
+    },
+  });
+  return Boolean(result);
+}
+
+/** Replays all dead-lettered events matching the optional subscription filter. */
+export async function replayAllDeadLetters(filter: { subscriptionId?: string } = {}): Promise<number> {
+  const query: Record<string, unknown> = { status: "dead_letter" as WebhookOutboxStatus };
+  if (filter.subscriptionId) query.subscriptionId = filter.subscriptionId;
+
+  const result = await WebhookOutboxEvent.updateMany(query, {
+    $set: {
+      status: "pending",
+      nextAttemptAt: new Date(),
+      attempts: 0,
+      lastError: null,
+      leaseHolder: null,
+      leaseExpiresAt: null,
+    },
+  });
+  return result.modifiedCount || 0;
+}
+
+export interface WebhookOperationalMetrics {
+  pendingCount: number;
+  deadLetterCount: number;
+  deliveredCount: number;
+  totalOutboxCount: number;
+}
+
+/** Queries operational health metrics for the webhook outbox. */
+export async function getWebhookOperationalMetrics(): Promise<WebhookOperationalMetrics> {
+  const [pendingCount, deadLetterCount, deliveredCount, totalOutboxCount] = await Promise.all([
+    WebhookOutboxEvent.countDocuments({ status: "pending" }),
+    WebhookOutboxEvent.countDocuments({ status: "dead_letter" }),
+    WebhookOutboxEvent.countDocuments({ status: "delivered" }),
+    WebhookOutboxEvent.countDocuments({}),
+  ]);
+
+  return {
+    pendingCount,
+    deadLetterCount,
+    deliveredCount,
+    totalOutboxCount,
+  };
+}
+
 /**
  * Rotates a subscription's signing secret. The old secret keeps verifying
  * for {@link SECRET_ROTATION_GRACE_MS} (surfaced as `previousSecret` to the

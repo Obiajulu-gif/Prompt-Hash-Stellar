@@ -82,7 +82,7 @@ export function sanitizeSensitiveData(input: unknown): any {
     // Stellar secret keys (S...), bearer tokens, passwords, hex secrets
     return input
       .replace(/S[A-Z0-9]{55}/g, "[REDACTED_SECRET_KEY]")
-      .replace(/bearer\s+[a-zA-Z0-9_\-\.]+/gi, "Bearer [REDACTED_TOKEN]")
+      .replace(/bearer\s+[a-zA-Z0-9_.-]+/gi, "Bearer [REDACTED_TOKEN]")
       .replace(/(password|secret|apiKey|authorization)["':\s]+["']?([^"'\s,]+)/gi, '$1: "[REDACTED]"');
   }
   if (Array.isArray(input)) {

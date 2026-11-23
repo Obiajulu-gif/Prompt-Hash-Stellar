@@ -134,7 +134,6 @@ export function MarkdownContent({ children, className = "", disableTruncate = fa
               return <span className="text-xs italic text-slate-500">[image removed — only https images are allowed]</span>;
             }
             return (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 {...props}
                 src={safeSrc}

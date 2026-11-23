@@ -8,6 +8,10 @@ import {
   CATEGORY_TTL_SECONDS,
 } from "../services/cacheService";
 import { resolveCategory } from "../services/categoryTaxonomyService";
+import {
+  buildPublicVisibilityFilter,
+  stripSensitivePromptFields,
+} from "../services/visibilityService.js";
 
 export interface SearchFilters {
   query?: string;
@@ -82,15 +86,10 @@ export async function searchPrompts(
     return cached;
   }
 
-  // Build the base query
+  // Build the base query with comprehensive public visibility boundaries
   const baseQuery: any = {
-    isActive: true,
-    listingStatus: "published",
+    ...buildPublicVisibilityFilter(),
     price: { $gte: minPrice, $lte: maxPrice },
-    similarityFlag: { $ne: "highly_similar" },
-    integrityStatus: { $nin: ["corrupted", "missing"] },
-    moderationStatus: { $nin: ["flagged", "hidden"] },
-    visibility: { $ne: "private" },
   };
 
   // Add category filter if specified (with redirect support)
@@ -184,8 +183,10 @@ export async function searchPrompts(
   const totalPages = Math.ceil(total / limit);
   const hasMore = safePage < totalPages;
 
+  const sanitizedPrompts = prompts.map((p: any) => stripSensitivePromptFields(p));
+
   const result: SearchResponse = {
-    prompts,
+    prompts: sanitizedPrompts,
     total,
     page: safePage,
     totalPages,
@@ -261,13 +262,14 @@ export async function getSearchSuggestions(query: string, limit: number = 5) {
   }
 
   const searchRegex = new RegExp(query.trim(), "i");
+  const publicFilter = buildPublicVisibilityFilter();
 
   const [titles, categories] = await Promise.all([
-    Prompt.find({ title: searchRegex, isActive: true })
+    Prompt.find({ title: searchRegex, ...publicFilter })
       .select("title")
       .limit(safeLimit)
       .lean(),
-    Prompt.distinct("category", { category: searchRegex, isActive: true }).then(
+    Prompt.distinct("category", { category: searchRegex, ...publicFilter }).then(
       (cats: string[]) => cats.slice(0, safeLimit),
     ),
   ]);
@@ -293,7 +295,7 @@ export async function getCategoriesWithCounts() {
   }
 
   const categories = await Prompt.aggregate([
-    { $match: { isActive: true, listingStatus: "published" } },
+    { $match: buildPublicVisibilityFilter() },
     { $group: { _id: "$category", count: { $sum: 1 } } },
     { $sort: { count: -1 } },
   ]);
@@ -320,17 +322,16 @@ export async function getFeaturedPrompts(limit: number = 6) {
     return cached;
   }
 
-  const prompts = await Prompt.find({
-    isActive: true,
-    listingStatus: "published",
-  })
+  const prompts = await Prompt.find(buildPublicVisibilityFilter())
     .sort({ salesCount: -1, rating: -1 })
     .limit(safeLimit)
     .populate("owner", "walletAddress username rating")
     .lean();
 
-  await cacheSetJson(cacheKey, prompts, DEFAULT_TTL_SECONDS);
+  const sanitizedPrompts = prompts.map((p: any) => stripSensitivePromptFields(p));
 
-  return prompts;
+  await cacheSetJson(cacheKey, sanitizedPrompts, DEFAULT_TTL_SECONDS);
+
+  return sanitizedPrompts;
 }
 

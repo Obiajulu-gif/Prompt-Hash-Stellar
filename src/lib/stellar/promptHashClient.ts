@@ -37,6 +37,18 @@ export interface LedgerVerifiedEntitlement {
   divergenceReason?: string;
 }
 
+export type CurrentEntitlementStatus =
+  | "verified"
+  | "not_entitled"
+  | "unverifiable";
+
+export function getCurrentEntitlementStatus(
+  entitlement: LedgerVerifiedEntitlement,
+): CurrentEntitlementStatus {
+  if (entitlement.divergenceReason) return "unverifiable";
+  return entitlement.hasAccess ? "verified" : "not_entitled";
+}
+
 export const DEFAULT_MAX_LEDGER_AGE = 5;
 
 export interface EntitlementProviderSample {

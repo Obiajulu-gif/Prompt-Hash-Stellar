@@ -212,6 +212,8 @@
       "STALE_REQUEST": "Cette requête est trop ancienne. Veuillez réessayer.",
       "NOT_FOUND": "L'élément demandé est introuvable.",
       "OPERATION_NOT_ALLOWED": "Cette opération n'est pas autorisée pour le moment.",
+      "PERMISSION_DIFF_REQUIRED": "Examinez les changements d’autorisations avant de les appliquer.",
+      "STALE_PERMISSION_DIFF": "Les autorisations ont changé depuis l’examen. Créez et examinez un nouvel aperçu.",
       "DUPLICATE_EVENT": "Cet événement a déjà été traité.",
       "INTERNAL_ERROR": "Un problème est survenu de notre côté. Veuillez réessayer plus tard."
     }

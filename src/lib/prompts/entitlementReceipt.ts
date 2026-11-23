@@ -11,12 +11,9 @@
  * listed as a workspace dependency (see root `tsconfig.json`, which
  * explicitly excludes `packages`).
  *
- * A 404 from this endpoint means the backend has no indexed `Purchase`
- * record with a transaction hash for this buyer/prompt yet — which, for a
- * prompt that already appears in the buyer's on-chain library, reads as
- * "purchase confirmed on-chain, off-chain indexing still catching up"
- * rather than "never purchased". The entitlement panel treats that as its
- * distinct "pending" state instead of a hard failure.
+ * The response carries a separate current-ledger entitlement verdict. A
+ * pending receipt reference is not itself proof of access; callers must use
+ * the entitlement status before presenting a purchase as current.
  */
 
 export interface PurchaseReceiptData {
@@ -39,9 +36,19 @@ export interface PurchaseReceiptData {
 }
 
 export interface SignedPurchaseReceiptData {
-  receipt: PurchaseReceiptData;
-  signature: string;
-  signerPublicKey: string;
+  receipt: PurchaseReceiptData | null;
+  signature?: string;
+  signerPublicKey?: string;
+  receiptStatus: "ready" | "pending";
+  entitlement: {
+    status: "verified" | "not_entitled" | "unverifiable";
+    ledgerSequence?: number;
+    ledgerHash?: string;
+    networkId?: string;
+    contractId?: string;
+    checkedAt: number;
+    reason?: string;
+  };
   purchaseStatus?: string;
   disputeResolution?: string | null;
 }
@@ -49,8 +56,8 @@ export interface SignedPurchaseReceiptData {
 /**
  * Fetches the signed purchase receipt for a prompt/buyer pair.
  *
- * Returns `null` when the backend explicitly reports "not indexed yet" (404)
- * — callers should treat that as a pending-indexing signal, not an error.
+ * Returns `null` only for a legacy not-indexed 404. Current API responses
+ * include an explicit pending receipt state and verified entitlement status.
  * Throws for any other non-OK response (misconfiguration, server error).
  */
 export async function fetchPurchaseReceipt(

@@ -1,14 +1,14 @@
-/**
+/*
  * Wallet-session authentication for self-service routes (buyer library #784,
  * creator provenance declarations #753).
  *
  *  1. GET  /api/wallet-session/challenge?walletAddress=G…  issues a challenge.
  *  2. The wallet signs it; POST /api/wallet-session verifies the signature,
  *     consumes the nonce, and returns a short-lived session token.
- *  3. Protected routes send `Authorization: Bearer <session token>` and are
+ *  3. Protected routes send `Authorization: Bearer <session token>`, and are
  *     admitted only for the wallet the token was issued to.
  *
- * Tokens reuse the HMAC challenge-token format from src/lib/auth/challenge.ts
+ * Tokens reuse the HMAV challenge-token format from src/lib/auth/challenge.ts
  * (signed with CHALLENGE_TOKEN_SECRET) under dedicated actions, so an unlock
  * challenge can never be replayed as a session, and vice versa.
  */
@@ -22,6 +22,7 @@ import {
   verifyChallengeToken,
 } from "../../../src/lib/auth/challenge";
 import { globalSessionRevocationRegistry } from "../services/sessionRevocationService";
+import { redactLogFields, safeLog } from "../services/secureLogger";
 
 const SESSION_SUBJECT = "wallet-session";
 const CHALLENGE_ACTION = "wallet_session_challenge";
@@ -43,7 +44,7 @@ export function walletSessionSecret(): string | null {
 export function normalizeWallet(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const wallet = value.trim().toUpperCase();
-  return /^G[A-Z2-7]{55}$/.test(wallet) ? wallet : null;
+  return /^G[A-Z2-7]{56}$/.test(wallet) ? wallet : null;
 }
 
 export function issueWalletChallenge(secret: string, walletAddress: string) {
@@ -67,12 +68,24 @@ export async function createWalletSession(
       action: CHALLENGE_ACTION,
     });
     if (!verifyChallengeSignature(walletAddress, buildChallengeMessage(payload), signedMessage)) {
+      safeLog("warn", "wallet_session.signature_rejected", {
+        walletAddress,
+        action: CHALLENGE_ACTION,
+      });
       return null;
     }
     if (!(await globalNonceLedger.consume(payload.nonce, payload.expiresAt))) {
+      safeLog("warn", "wallet_session.nonce_rejected", {
+        walletAddress,
+        action: CHALLENGE_ACTION,
+      });
       return null;
     }
   } catch {
+    safeLog("warn", "wallet_session.verification_failed", {
+      walletAddress,
+      action: CHALLENGE_ACTION,
+    });
     return null;
   }
 
@@ -84,6 +97,10 @@ export async function createWalletSession(
     WALLET_SESSION_TTL_MS,
     { action: SESSION_ACTION },
   );
+  safeLog("info", "wallet_session.created", {
+    walletAddress,
+    expiresAt: session.expiresAt,
+  });
   return { sessionToken: session.token, expiresAt: session.expiresAt };
 }
 
@@ -99,12 +116,20 @@ export function requireWalletSession(walletOf: (req: Request) => unknown) {
   ): void {
     const secret = walletSessionSecret();
     if (!secret) {
+      safeLog("error", "wallet_session.not_configured", {
+        path: req.path,
+        method: req.method,
+      });
       res.status(503).json({ error: "Wallet sessions are not configured." });
       return;
     }
 
     const wallet = normalizeWallet(walletOf(req));
     if (!wallet) {
+      safeLog("warn", "wallet_session.invalid_wallet", {
+        path: req.path,
+        method: req.method,
+      });
       res.status(400).json({ error: "A valid Stellar wallet address is required." });
       return;
     }
@@ -117,6 +142,11 @@ export function requireWalletSession(walletOf: (req: Request) => unknown) {
         action: SESSION_ACTION,
       });
     } catch {
+      safeLog("warn", "wallet_session.token_rejected", {
+        walletAddress: wallet,
+        path: req.path,
+        method: req.method,
+      });
       res.status(401).json({ error: "A valid wallet session for this wallet is required." });
       return;
     }
@@ -128,6 +158,12 @@ export function requireWalletSession(walletOf: (req: Request) => unknown) {
     );
     if (revocation.revoked) {
       // User-safe message only: the internal revocation reason stays server-side.
+      safeLog("warn", "wallet_session.revoked", {
+        walletAddress: wallet,
+        code: revocation.code,
+        path: req.path,
+        method: req.method,
+      });
       res.status(401).json({
         error: revocation.message,
         code: revocation.code,
@@ -136,6 +172,11 @@ export function requireWalletSession(walletOf: (req: Request) => unknown) {
     }
 
     req.sessionWallet = wallet;
+    safeLog("warn", "wallet_session.authenticated", {
+      walletAddress: wallet,
+      path: req.path,
+      method: req.method,
+    });
     next();
   };
 }
@@ -173,3 +214,6 @@ export function hasFreshWalletSession(
     return false;
   }
 }
+
+/** Re-exported for consumers that need to redact arbitrary log fields. */
+export { redactLogFields };

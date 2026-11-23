@@ -73,6 +73,8 @@ const REFUND_TITLE_ID = "refund-modal-title";
 const REFUND_DESC_ID = "refund-modal-desc";
 const REFUND_REASON_ERROR_ID = "refund-reason-error";
 const REFUND_SUBMIT_ERROR_ID = "refund-submit-error";
+
+interface RefundRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   promptId: string;

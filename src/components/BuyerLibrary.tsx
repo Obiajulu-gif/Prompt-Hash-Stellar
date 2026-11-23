@@ -227,13 +227,17 @@ function PromptLibraryCard({
     ? "unknown"
     : receiptQuery.data === null
       ? "pending"
-      : receiptQuery.data
+      : receiptQuery.data?.receiptStatus === "ready" &&
+          receiptQuery.data.receipt
         ? "ready"
-        : "unknown";
+        : receiptQuery.data?.receiptStatus === "pending"
+          ? "pending"
+          : "unknown";
   const entitlementDescriptor = deriveEntitlementState({
     listingActive: prompt.active,
     referenceStatus,
     unlockState,
+    verificationStatus: receiptQuery.data?.entitlement.status ?? "unknown",
   });
 
   // Disputed-purchase status (#755) and entitlement health (#784). Refunded
@@ -336,8 +340,8 @@ function PromptLibraryCard({
         {/* Licence entitlement status panel — Issue #490 */}
         <EntitlementStatusPanel
           descriptor={entitlementDescriptor}
-          transactionHash={receiptQuery.data?.receipt.transaction.hash}
-          licenceVersion={receiptQuery.data?.receipt.prompt.revision}
+          transactionHash={receiptQuery.data?.receipt?.transaction.hash}
+          licenceVersion={receiptQuery.data?.receipt?.prompt.revision}
           onRetryReference={() => receiptQuery.refetch()}
           isRetryingReference={receiptQuery.isFetching}
           onRetryVerification={onUnlock}

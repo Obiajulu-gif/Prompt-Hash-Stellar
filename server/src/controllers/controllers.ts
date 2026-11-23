@@ -26,6 +26,14 @@ import { notifyPromptReported } from "../services/emailNotifications.js";
 import { announceNewPrompt } from "../services/discordNotifications.js";
 import { logger } from "../services/structuredLogger.js";
 import { checkSimilarityForContent } from "../services/similarityDetection.js";
+import {
+  parsePaginationParams,
+  buildMongoCompoundQuery,
+  encodeCompoundCursor,
+  PaginationError,
+  buildPublicVisibilityFilter,
+  stripSensitivePromptFields,
+} from "../services/visibilityService.js";
 
 const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
 
@@ -134,7 +142,9 @@ export const GetPrompts = async (
     const cached = await cacheGetJson<{ data: any[]; metadata: any }>(cacheKey);
     if (cached) return sendConditionalJson(req, res, cached);
 
-    const query: any = { listingStatus: "published", isActive: true };
+    const query: any = {
+      ...buildPublicVisibilityFilter(),
+    };
 
     if (category) {
       query.category = category;
@@ -169,8 +179,14 @@ export const GetPrompts = async (
       nextCursor = null;
     }
 
+    const sanitizedPrompts = prompts.map((p: any) =>
+      typeof p.toObject === "function"
+        ? stripSensitivePromptFields(p.toObject())
+        : stripSensitivePromptFields(p)
+    );
+
     const responsePayload = {
-      data: prompts,
+      data: sanitizedPrompts,
       metadata: {
         hasNextPage,
         nextCursor,
@@ -766,18 +782,41 @@ export const GetPriceHistory = async (
     await connectDb();
 
     const { onChainId } = req.params;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
-    const cursor = req.query.cursor as string;
+    let limit = 20;
+    let cursor: string | undefined;
 
-    const query: any = { promptId: onChainId };
+    try {
+      const parsed = parsePaginationParams(req.query as Record<string, unknown>, {
+        defaultLimit: 20,
+        maxLimit: 50,
+      });
+      limit = parsed.limit;
+      cursor = parsed.cursor;
+    } catch (paramErr) {
+      if (paramErr instanceof PaginationError) {
+        return res.status(paramErr.status).json({
+          error: paramErr.message,
+          code: paramErr.code,
+        });
+      }
+      throw paramErr;
+    }
+
+    const query: Record<string, any> = { promptId: onChainId };
 
     if (cursor) {
-      query._id = { $lt: cursor };
+      const cursorQuery = buildMongoCompoundQuery(cursor, {
+        timestampField: "createdAt",
+        idField: "_id",
+        direction: -1,
+      });
+      Object.assign(query, cursorQuery);
     }
 
     const changes = await PriceChange.find(query)
-      .sort({ _id: -1 })
-      .limit(limit + 1);
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
 
     let hasNextPage = false;
     let nextCursor: string | null = null;
@@ -785,12 +824,21 @@ export const GetPriceHistory = async (
     if (changes.length > limit) {
       hasNextPage = true;
       changes.pop();
-      nextCursor = changes[changes.length - 1]._id;
+      const last = changes[changes.length - 1];
+      nextCursor = encodeCompoundCursor({
+        timestamp: last.createdAt,
+        id: String(last._id),
+      });
     }
 
     return sendConditionalJson(req, res, {
       data: changes,
-      metadata: { hasNextPage, nextCursor },
+      metadata: {
+        limit,
+        hasNextPage,
+        nextCursor,
+        count: changes.length,
+      },
     });
   } catch (error) {
     logger.error("Fetch price history error", { action: "getPriceHistory", error });
@@ -822,11 +870,10 @@ export const GetPromptsByContentHash = async (
       return res.status(400).json({ error: "Invalid content hash format." });
     }
 
-    // Query for prompts with matching content hash
+    // Query for prompts with matching content hash that meet public visibility rules
     const promptQuery: any = Prompt.find({
       contentHash: contentHash,
-      listingStatus: "published",
-      isActive: true,
+      ...buildPublicVisibilityFilter(),
     });
     const matches = (
       typeof promptQuery?.select === "function"

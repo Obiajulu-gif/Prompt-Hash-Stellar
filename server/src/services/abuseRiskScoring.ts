@@ -331,10 +331,17 @@ export function computeTrustCredit(
   return Math.min(thresholds.maxTrustCredit, Math.round(credit));
 }
 
-function summarize(decision: RiskDecision, signals: RiskSignal[]): string {
-  if (signals.length === 0) return "No risk signals fired.";
-  const codes = signals.map((s) => s.code).join(", ");
-  return `Decision ${decision}; signals: ${codes}.`;
+function summarize(
+  decision: RiskDecision,
+  signals: RiskSignal[],
+  score: number,
+  rawScore: number,
+  impactWeight: number,
+  trustCredit: number,
+): string {
+  if (signals.length === 0) return `Decision ${decision}; score 0/100; no risk signals fired.`;
+  const rationale = signals.map((signal) => `${signal.code}: ${signal.explanation}`).join("; ");
+  return `Decision ${decision}; score ${score}/100 = clamp(round(${rawScore} raw × ${impactWeight} impact − ${trustCredit} trust credit)); ${rationale}.`;
 }
 
 /**
@@ -361,7 +368,7 @@ export function assessRisk(
       impactWeight,
       decision: "allow",
       signals,
-      summary: summarize("allow", signals),
+      summary: summarize("allow", signals, 0, 0, impactWeight, 0),
     };
   }
 
@@ -388,7 +395,7 @@ export function assessRisk(
     impactWeight,
     decision,
     signals,
-    summary: summarize(decision, signals),
+    summary: summarize(decision, signals, score, rawScore, impactWeight, credit),
   };
 }
 

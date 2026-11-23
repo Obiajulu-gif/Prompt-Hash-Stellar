@@ -55,6 +55,15 @@ vi.mock("../services/discordNotifications", () => ({
   announceNewPrompt: vi.fn(),
 }));
 
+vi.mock("../services/cacheService", () => ({
+  cacheGetJson: vi.fn().mockResolvedValue(null),
+  cacheSetJson: vi.fn().mockResolvedValue(undefined),
+  CACHE_KEYS: {
+    allPrompts: (query: string) => `prompts:all:${query}`,
+  },
+  DEFAULT_TTL_SECONDS: 60,
+}));
+
 const mockFind = Prompt.find as any;
 const mockChain = (Prompt as any).__chain;
 

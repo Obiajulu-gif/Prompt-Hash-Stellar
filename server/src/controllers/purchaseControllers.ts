@@ -40,6 +40,13 @@ interface CreatorPromptLite extends PromptLite {
  * timestamp) with the prompt it unlocked, so the profile page can render a
  * verifiable history that links back to a Stellar block explorer.
  */
+import {
+  parsePaginationParams,
+  buildMongoCompoundQuery,
+  encodeCompoundCursor,
+  PaginationError,
+} from "../utils/pagination";
+
 export const GetPurchaseTransactions = async (
   req: Request,
   res: Response,
@@ -53,19 +60,70 @@ export const GetPurchaseTransactions = async (
       return res.status(400).json({ error: "walletAddress is required." });
     }
 
-    const purchases = await Purchase.find({
-      buyerWallet: walletAddress.toLowerCase(),
-    })
-      .sort({ createdAt: -1 })
-      .lean();
+    let limit = 20;
+    let cursor: string | undefined;
 
-    if (purchases.length === 0) {
-      return res.json({ transactions: [] });
+    try {
+      const parsed = parsePaginationParams(req.query as Record<string, unknown>, {
+        defaultLimit: 20,
+        maxLimit: 50,
+      });
+      limit = parsed.limit;
+      cursor = parsed.cursor;
+    } catch (paramErr) {
+      if (paramErr instanceof PaginationError) {
+        return res.status(paramErr.status).json({
+          error: paramErr.message,
+          code: paramErr.code,
+        });
+      }
+      throw paramErr;
     }
 
-    // Resolve the related prompts in a single query. Purchase records reference
-    // a prompt by its on-chain id, but older rows may carry the Mongo _id, so we
-    // index by both to remain backward compatible.
+    const query: Record<string, any> = {
+      buyerWallet: walletAddress.toLowerCase(),
+    };
+
+    if (cursor) {
+      const cursorQuery = buildMongoCompoundQuery(cursor, {
+        timestampField: "createdAt",
+        idField: "_id",
+        direction: -1,
+      });
+      Object.assign(query, cursorQuery);
+    }
+
+    const purchases = await Purchase.find(query)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    let hasNextPage = false;
+    let nextCursor: string | null = null;
+
+    if (purchases.length > limit) {
+      hasNextPage = true;
+      purchases.pop();
+      const last = purchases[purchases.length - 1];
+      nextCursor = encodeCompoundCursor({
+        timestamp: last.createdAt,
+        id: String(last._id),
+      });
+    }
+
+    if (purchases.length === 0) {
+      return res.json({
+        transactions: [],
+        metadata: {
+          limit,
+          hasNextPage: false,
+          nextCursor: null,
+          count: 0,
+        },
+      });
+    }
+
+    // Resolve the related prompts in a single query.
     const promptIds = [...new Set(purchases.map((p) => String(p.promptId)))];
     const prompts = (await Prompt.find({
       $or: [{ onChainId: { $in: promptIds } }, { _id: { $in: promptIds } }],
@@ -93,7 +151,15 @@ export const GetPurchaseTransactions = async (
       };
     });
 
-    return res.json({ transactions });
+    return res.json({
+      transactions,
+      metadata: {
+        limit,
+        hasNextPage,
+        nextCursor,
+        count: transactions.length,
+      },
+    });
   } catch (err) {
     console.error("Get purchase transactions error:", err);
     return res.status(500).json({

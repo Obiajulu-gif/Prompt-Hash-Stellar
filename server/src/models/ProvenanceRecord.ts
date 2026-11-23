@@ -290,13 +290,13 @@ provenanceRecordSchema.index({
  */
 provenanceRecordSchema.virtual("lineage").get(async function (this: any) {
   const lineage = [this];
-  let current = this;
+  let parentId = this.parentProvenanceId;
   
-  while (current.parentProvenanceId) {
-    const parent = await ProvenanceRecord.findById(current.parentProvenanceId);
+  while (parentId) {
+    const parent = await ProvenanceRecord.findById(parentId);
     if (!parent) break;
     lineage.unshift(parent);
-    current = parent;
+    parentId = parent.parentProvenanceId;
   }
   
   return lineage;

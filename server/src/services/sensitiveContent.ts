@@ -73,6 +73,7 @@ export function buildCsv(header: string[], rows: unknown[][]): string {
 
 // ── Download / attachment headers ────────────────────────────────────────────
 
+// eslint-disable-next-line no-control-regex
 const UNSAFE_FILENAME_CHARS = /[\u0000-\u001f\u007f"\\/:*?<>|]/g;
 
 /**

@@ -148,6 +148,16 @@ describe("Entitlement Caching & Revocation Rules (#Task3)", () => {
     expect(afterRevoke.revocationReason).toBe("Purchase refunded by buyer request");
   });
 
+  it("rejects entitlement transitions without evidence before writing", async () => {
+    await expect(grantEntitlement("buyer", "prompt", "  ")).rejects.toThrow(
+      /INV-13 failed: Entitlement grants require a purchase or repair source reference/,
+    );
+    await expect(revokeEntitlement("buyer", "prompt", "  ")).rejects.toThrow(
+      /INV-13 failed: Entitlement revocations require a reason/,
+    );
+    expect(mockEntitlements).toHaveLength(0);
+  });
+
   it("executes idempotent repair job to align entitlements with purchase records", async () => {
     // Setup state:
     // Purchase 1: Active purchase missing from entitlement cache -> repair should grant

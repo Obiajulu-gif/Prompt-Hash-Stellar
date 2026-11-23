@@ -64,6 +64,8 @@ Endpoints currently using the shared helper `sendApiError`: `POST /api/auth/chal
 | `STALE_PROMPT_TERMS` | 409 | Prompt terms changed | "This prompt changed since you opened it. Refresh the prompt and sign again." | Re-fetch the prompt, review the new price or version, and sign again. | yes |
 | `INVALID_STATE` | 409 | Invalid state for action | "This action isn't allowed from the item's current status." | Check the record's current status; perform an allowed transition instead. | no |
 | `OPERATION_NOT_ALLOWED` | 400 | Operation not allowed | "This operation is not allowed right now." | This record cannot be modified this way; see the operation's documentation. | no |
+| `PERMISSION_DIFF_REQUIRED` | 409 | Permission review required | "Review the permission changes before applying them." | Request a permission preview and submit its digest after review. | no |
+| `STALE_PERMISSION_DIFF` | 409 | Permission preview is stale | "Permissions changed after review. Create and review a fresh preview." | Request and review a fresh permission preview before retrying. | yes |
 | `IDEMPOTENCY_CONFLICT` | 409 | Idempotency key conflict | "This idempotency key was used with a different request. Please use a new key." | Use a new idempotency key for a different request body. | no |
 | `DUPLICATE_EVENT` | 409 | Duplicate event | "This event has already been processed." | No action needed; the event was already processed. | no |
 | `RATE_LIMIT_IP` | 429 | Rate limit exceeded (IP) | "Too many requests. Please wait a moment, then try again." | Wait until the reset time, then retry with backoff. | yes |
@@ -136,6 +138,14 @@ The action isn't allowed from the resource's current state (Issue #786: lifecycl
 
 The operation is understood but not permitted for this record right now.
 
+### PERMISSION_DIFF_REQUIRED
+
+A permission update must include the digest from the preview that the admin reviewed.
+
+### STALE_PERMISSION_DIFF
+
+The permission state or requested change differs from the reviewed preview; produce a new preview and obtain review again.
+
 ### IDEMPOTENCY_CONFLICT
 
 The idempotency key was reused with conflicting request data.
@@ -189,6 +199,11 @@ The `classifyUnlockError()` function groups errors into three UI categories:
 3. Add it to `UNLOCK_ERROR_META` and to `unlockErrors.codes` in `en`, `es`, `fr`, `zh`.
 4. Add it to the golden contract in `src/test/problemDetails.test.ts` and to the table and headings above (keep the row format; the tests parse it).
 5. Send it with `sendApiError(req, res, code, message, { status })` using an allowed status.
+
+Permission preview failures also expose `PermissionDiffError.apiCode` for HTTP
+adapters: `diff_required` maps to `PERMISSION_DIFF_REQUIRED`, and `stale_diff`
+maps to `STALE_PERMISSION_DIFF`. Keep the internal `.code` for service-level
+branching; serialize the stable API code at the transport boundary.
 
 The tests fail if a handler references a code that does not exist, sends a code with a status the taxonomy does not allow, or if the registry, messages, docs, or locales disagree.
 

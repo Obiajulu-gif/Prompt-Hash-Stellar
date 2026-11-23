@@ -444,6 +444,7 @@ Suite: `src/test/a11y/regression/` — run with `npm run test:a11y:regression`
 | ---- | ------ |
 | `denseForm.test.tsx` | Accessible names, fieldset/legend grouping, help-text linkage, DOM-order tab sequence with no positive `tabindex`, keyboard-only completion (no trap), error summary focus + count, per-field `aria-invalid`/`aria-describedby`/`role="alert"`, "Error:" text prefix (not colour-only), summary link → field focus, recovery as fields are fixed, focus not stolen while typing, polite success announcement, `announceStatus` live regions |
 | `tables.test.tsx` | Named table, `scope="col"` headers, `th scope="row"` row headers, cell→row/column resolution, no tab stops in static tables, keyboard-reachable named scroll region, empty-state message, uniquely named row actions, keyboard retry + status update |
+| `asyncErrorRecovery.test.tsx` | Shipped async error components (#1134): `UnlockErrorBanner` announced assertively and atomically, retry described by the error, keyboard activation, no accidental form submit, support reference in the alert, decorative icons hidden, and non-retryable authorization errors (`UNAUTHORIZED`, `ACCESS_NOT_PURCHASED`) offering support instead of a retry; `TransactionFeedbackProvider` live region persisting across pending → error; `TransactionErrorBanner` restoring focus after retry and re-announcing a repeated failure; `TransactionRetryButton` keeping focus while busy and ignoring double activation |
 | `recoveryAndMotion.test.tsx` | Modal dialog semantics and unique `aria-labelledby`, focus-in / Escape / focus-restore, Tab + Shift+Tab trap, focus kept in field across parent re-renders, assertive failure announcement + retry, busy/disabled submit, `LiveRegion` roles/clear/notify, `useReducedMotion` (mount, runtime change, unmount), `PageTransition` without wrapper, global `prefers-reduced-motion` CSS rule |
 
 ### Behaviour fixed while adding coverage
@@ -465,6 +466,39 @@ Suite: `src/test/a11y/regression/` — run with `npm run test:a11y:regression`
   focus from the user.
 - Global `@media (prefers-reduced-motion: reduce)` rule in `src/index.css`
   neutralises CSS animations/transitions (e.g. `animate-pulse` skeletons).
+
+### Async error recovery fixes (#1134)
+
+- `UnlockErrorBanner` set `aria-live="polite"` on a `role="alert"`. Some
+  screen readers honour the polite override and queue the failure behind
+  other speech. The override is gone (the alert is implicitly assertive) and
+  `aria-atomic="true"` was added, so category, message, and support reference
+  are read together. The Retry button is now `type="button"`, so it cannot
+  submit an enclosing form, and `aria-describedby` points it at the error text.
+- `TransactionErrorBanner`: Retry calls `clear()`, which unmounts the banner
+  and the focused button with it, so focus fell to `<body>`. A new optional
+  `focusAfterRetry` ref is focused after retry. It is additive: callers that
+  don't pass it behave as before.
+- `TransactionRetryButton` used `disabled` while loading. That drops keyboard
+  focus right when a retry is in flight. It now uses `aria-disabled` (styled
+  with `aria-disabled:`), ignores activation while busy, and is
+  `type="button"`.
+
+Edge cases:
+
+- **Repeated failure with an unchanged message.** Screen readers announce an
+  alert when it is inserted, not when its text is set to the same value
+  again. `TransactionErrorBanner` handles this, because retry unmounts it
+  and a new failure inserts a fresh node. `UnlockErrorBanner` stays mounted
+  while `PromptModal` retries. If a retry can fail with the identical code,
+  give the banner a `key` per attempt so the alert is re-inserted.
+- **Authorization failures** are deliberately not retryable in the UI.
+  Showing Retry for `ACCESS_NOT_PURCHASED`/`UNAUTHORIZED` would invite a loop
+  that cannot succeed. Users are pointed to support or to purchase instead.
+- **Double announcement.** `TransactionFeedbackProvider`'s polite region and
+  `TransactionErrorBanner`'s `role="alert"` both carry the error, so screen
+  readers may read it twice. Neither was removed, because the provider region
+  is the only announcement when no banner is mounted.
 
 ### Edge cases and failure modes
 

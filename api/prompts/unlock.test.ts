@@ -23,6 +23,15 @@ const verifyPromptPlaintextHashMock = vi.fn();
 vi.mock("../../src/lib/stellar/promptHashClient", () => ({
   hasAccess: (...args: unknown[]) => hasAccessMock(...args),
   verifyEntitlement: (...args: unknown[]) => verifyEntitlementMock(...args),
+  getCurrentEntitlementStatus: (entitlement: {
+    hasAccess: boolean;
+    divergenceReason?: string;
+  }) =>
+    entitlement.divergenceReason
+      ? "unverifiable"
+      : entitlement.hasAccess
+        ? "verified"
+        : "not_entitled",
   getPrompt: (...args: unknown[]) => getPromptMock(...args),
   DEFAULT_MAX_LEDGER_AGE: 5,
 }));
@@ -195,6 +204,11 @@ describe("unlock API integrity checks", () => {
     expect(responseData.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(responseData.contentHashAlgorithm).toBe("SHA-256");
     expect(responseData.contentHashVersion).toBe(1);
+    expect(responseData.entitlement).toMatchObject({
+      status: "verified",
+      ledgerSequence: 123456,
+      ledgerHash: expect.any(String),
+    });
     expect(verifyPromptPlaintextHashMock).toHaveBeenCalledWith(plaintext, CONTENT_HASH);
   });
 
@@ -562,6 +576,10 @@ describe("unlock API ledger state verification (#545)", () => {
 
     expect(statusCode).toBe(403);
     expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+    expect(responseData.entitlement).toMatchObject({
+      status: "not_entitled",
+      ledgerSequence: 123456,
+    });
   });
 
   it("rejects access when ledger verification returns lagging/stale state", async () => {
@@ -586,6 +604,10 @@ describe("unlock API ledger state verification (#545)", () => {
 
     expect(statusCode).toBe(403);
     expect(responseData.code).toBe(ErrorCode.ACCESS_NOT_PURCHASED);
+    expect(responseData.entitlement).toMatchObject({
+      status: "unverifiable",
+      ledgerSequence: 100,
+    });
   });
 
   it("rejects access on network ID mismatch (cross-network replay)", async () => {

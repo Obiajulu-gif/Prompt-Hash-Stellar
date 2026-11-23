@@ -151,6 +151,13 @@ export const IndexPrompt = async (req: Request, res: Response): Promise<Response
 
     const owner = prompt.owner as { walletAddress: string; username: string };
 
+    const { isPubliclyVisible } = await import("../services/visibilityService.js");
+    if (!isPubliclyVisible(prompt)) {
+      // If prompt has become private, restricted, or deleted, remove it from public marketplace index
+      await MarketplaceIndex.deleteOne({ promptId: prompt._id });
+      return res.status(200).json({ message: "Prompt is not public; excluded from marketplace index." });
+    }
+
     await MarketplaceIndex.findOneAndUpdate(
       { promptId: prompt._id },
       {

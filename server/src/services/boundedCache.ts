@@ -24,6 +24,7 @@ export interface BoundedCacheOptions {
  */
 export class BoundedCache<T> {
   private readonly entries = new Map<string, CacheEntry<T>>();
+  private readonly pending = new Map<string, Promise<T>>();
   private readonly now: () => number;
 
   constructor(private readonly options: BoundedCacheOptions) {
@@ -57,6 +58,7 @@ export class BoundedCache<T> {
         "cache lifetimes must be finite and ttlMs must be positive",
       );
     }
+    this.pending.delete(key);
     const writtenAt = this.now();
     this.entries.delete(key);
     this.entries.set(key, {
@@ -94,19 +96,21 @@ export class BoundedCache<T> {
   }
 
   invalidate(key: string): boolean {
-    return this.entries.delete(key);
+    const pending = this.pending.delete(key);
+    return this.entries.delete(key) || pending;
   }
 
   invalidateWhere(predicate: (key: string) => boolean): number {
     let removed = 0;
-    for (const key of this.entries.keys()) {
-      if (predicate(key) && this.entries.delete(key)) removed++;
+    for (const key of new Set([...this.entries.keys(), ...this.pending.keys()])) {
+      if (predicate(key) && this.invalidate(key)) removed++;
     }
     return removed;
   }
 
   clear(): void {
     this.entries.clear();
+    this.pending.clear();
   }
 
   async getOrLoad(
@@ -116,8 +120,18 @@ export class BoundedCache<T> {
   ): Promise<T> {
     const cached = this.get(key);
     if (cached !== undefined) return cached;
-    const value = await load();
-    this.set(key, value, ttlMs);
-    return value;
+    const existing = this.pending.get(key);
+    if (existing) return existing;
+    if (this.pending.size >= this.options.maxEntries) return load();
+
+    const pending = Promise.resolve().then(load);
+    this.pending.set(key, pending);
+    try {
+      const value = await pending;
+      if (this.pending.get(key) === pending) this.set(key, value, ttlMs);
+      return value;
+    } finally {
+      if (this.pending.get(key) === pending) this.pending.delete(key);
+    }
   }
 }
