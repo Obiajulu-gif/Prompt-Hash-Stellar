@@ -76,12 +76,12 @@ const app = express();
 
 const port = 5000;
 
+// Correlation middleware must run before body parsing and routes so parser
+// failures and downstream handlers share the same request identifier.
+app.use(correlationMiddleware);
+
 // Sentry error handler should be registered after routes (#332).
 app.use(express.json());
-
-// Correlation middleware must precede every route and the standardized error
-// handler so downstream services and all rejection paths receive the same ID.
-app.use(correlationMiddleware);
 
 app.use("/api/health", healthRouter); // #1027 dependency-aware public health
 app.use("/api/jobs", jobRouter); // #1009 queue observability + backpressure
