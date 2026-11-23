@@ -214,8 +214,7 @@ export function getClientIdentity(req: Request): string | undefined {
     req.body?.userAddress ||
     req.body?.address ||
     req.query?.walletAddress ||
-    (req as any).walletAddress ||
-    (req as any).apiKey?.keyId;
+    (req as any).walletAddress;
   return typeof wallet === "string" && wallet.trim().length > 0 ? wallet.trim().toLowerCase() : undefined;
 }
 

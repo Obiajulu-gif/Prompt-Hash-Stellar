@@ -51,7 +51,7 @@ import {
   UpdatePromptLicense,
 } from "../controllers/licensingControllers";
 import { requireAdminScope } from "../middleware/adminAuth";
-import { reportLimiter, publishLimiter, hashLookupLimiter } from "../middleware/rateLimiter";
+import { reportLimiter, hashLookupLimiter } from "../middleware/rateLimiter";
 import { enforcePolicyLimit } from "../middleware/policyLimitMiddleware";
 import { requireIdempotency } from "../middleware/idempotency";
 import { abuseRiskGuard } from "../middleware/abuseRiskGuard";
