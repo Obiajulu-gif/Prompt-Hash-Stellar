@@ -252,11 +252,13 @@ export class OperationalHealthService {
     };
 
     try {
-      if (LedgerEntry?.find) {
-        const unsettledEntries = await LedgerEntry.find({
-          entryType: { $in: ["payout", "escrow_settlement"] },
-          stellarTxRef: { $in: [null, "", undefined] },
-        }).lean();
+      if (typeof (LedgerEntry as any)?.find === "function") {
+        const unsettledEntries = await (LedgerEntry as any)
+          .find({
+            entryType: { $in: ["payout", "escrow_settlement"] },
+            stellarTxRef: { $in: [null, "", undefined] },
+          })
+          .lean();
 
         const count = unsettledEntries.length;
         const sum = unsettledEntries.reduce(

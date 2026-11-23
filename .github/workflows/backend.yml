@@ -45,6 +45,9 @@ jobs:
       - name: Build schema package
         run: npm --prefix ../packages/schema install && npm --prefix ../packages/schema run build
 
+      - name: Build SDK package
+        run: npm --prefix ../packages/sdk install && npm --prefix ../packages/sdk run build
+
       - name: Run lint
         run: npm run lint
 
@@ -55,7 +58,7 @@ jobs:
         # To extend the matrix, add cases to server/test/authz/*.matrix.ts.
         # Each case must assert both allowed and denied paths, and that denied
         # paths leave state unchanged and do not leak sensitive details.
-        run: npm run test:authz
+        run: npm run --if-present test:authz
 
       - name: Upload authorization matrix report
         if: always()

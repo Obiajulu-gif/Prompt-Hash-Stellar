@@ -32,6 +32,7 @@ const STATUS_FOR: Record<ReplayError["code"], number> = {
   run_not_claimable: 409,
   run_not_activatable: 409,
   nothing_to_roll_back: 409,
+  checkpoint_event_missing: 409,
 };
 
 function sendError(res: Response, err: unknown) {

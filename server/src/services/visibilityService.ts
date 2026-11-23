@@ -22,9 +22,20 @@ import {
 
 import { logger } from "./structuredLogger.js";
 import { recordAuditEvent } from "./auditTrail.js";
+import type { AuditAction } from "../models/AuditLog.js";
 import { cacheDel } from "./cacheService.js";
+import {
+  buildMongoCompoundQuery,
+  encodeCompoundCursor,
+  PaginationError,
+  parsePaginationParams,
+} from "../utils/pagination.js";
 
 export {
+  buildMongoCompoundQuery,
+  encodeCompoundCursor,
+  PaginationError,
+  parsePaginationParams,
   evaluateVisibility,
   isPubliclyVisible,
   buildPublicVisibilityFilter,
@@ -283,7 +294,7 @@ export async function logVisibilityViolation(params: {
 }): Promise<void> {
   try {
     await recordAuditEvent({
-      action: params.action,
+      action: params.action as AuditAction,
       result: "denied",
       promptId: params.promptId,
       walletAddress: params.attemptedBy || null,

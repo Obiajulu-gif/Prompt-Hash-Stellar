@@ -35,13 +35,13 @@ function commentedBlock(text: string, header: RegExp): Record<string, string> {
     if (!m) break;
     out.push(m[1]);
   }
-  return parseEnv(out.join("\n"));
+  return parseEnv(out.join("\n")) as Record<string, string>;
 }
 
 const exampleText = read(".env.example");
-const example = parseEnv(exampleText);
-const mainnetTemplate = parseEnv(read("env.mainnet.example"));
-const serverExample = parseEnv(read("server/.env.example"));
+const example = parseEnv(exampleText) as Record<string, string>;
+const mainnetTemplate = parseEnv(read("env.mainnet.example")) as Record<string, string>;
+const serverExample = parseEnv(read("server/.env.example")) as Record<string, string>;
 const keysIn = (text: string) => new Set([...text.matchAll(/^#?\s*([A-Z][A-Z0-9_]+)=/gm)].map((m) => m[1]));
 /** Variables .env.example documents, active or commented-out. */
 const exampleKeys = keysIn(exampleText);
@@ -61,7 +61,7 @@ const profiles = [
   { name: "env.mainnet.example", env: mainnetTemplate, network: "PUBLIC" },
 ];
 
-const nativeSac = (network: string) => Asset.native().contractId(NETWORK_PASSPHRASES[network]);
+const nativeSac = (network: string) => Asset.native().contractId(NETWORK_PASSPHRASES[network as keyof typeof NETWORK_PASSPHRASES]);
 
 // ─── 1. network settings agree everywhere ────────────────────────────────────
 
@@ -95,7 +95,7 @@ describe("network contract", () => {
     });
 
     it("pairs the network with its own passphrase", () => {
-      expect(env.PUBLIC_STELLAR_NETWORK_PASSPHRASE).toBe(NETWORK_PASSPHRASES[network]);
+      expect(env.PUBLIC_STELLAR_NETWORK_PASSPHRASE).toBe(NETWORK_PASSPHRASES[network as keyof typeof NETWORK_PASSPHRASES]);
     });
 
     it("points RPC and Horizon at the same network over https", () => {

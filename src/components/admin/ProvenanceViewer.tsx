@@ -21,6 +21,7 @@ import {
   Globe,
   GitFork,
   GitMerge,
+  Loader2,
   Package,
   Shuffle,
   Upload,
@@ -85,6 +86,9 @@ interface ProvenanceRecord {
       actorRole?: string;
       actorIp?: string;
       actorUserAgent?: string;
+      walletAddress?: string;
+      userId?: string;
+      timestamp?: string;
     };
     details: string;
   }>;
@@ -97,6 +101,9 @@ interface ProvenanceRecord {
     actorRole?: string;
     actorIp?: string;
     actorUserAgent?: string;
+    walletAddress?: string;
+    userId?: string;
+    timestamp?: string;
   };
   parentRecordId?: string;
   childRecordIds: string[];

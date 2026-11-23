@@ -14,8 +14,8 @@
     "build": "tsc",
     "dev": "nodemon --watch src --exec ts-node src/server.ts",
     "worker": "ts-node src/jobs/index.ts",
-    "worker:build": "node build/jobs/index.js",
-    "start": "node build/server.js",
+    "worker:build": "node build/server/src/jobs/index.js",
+    "start": "node build/server/src/server.js",
     "backup": "ts-node scripts/runBackup.ts",
     "backup:validate": "ts-node src/scripts/validateBackupSnapshot.ts",
     "reindex": "ts-node scripts/reIndexFromLedger.ts",
@@ -30,6 +30,7 @@
     "repair:entitlement": "ts-node scripts/repairEntitlement.ts",
     "data:integrity:monitor": "ts-node scripts/dataIntegrityMonitor.ts",
     "monitor:synthetic": "ts-node scripts/runSyntheticJourney.ts",
+    "monitor:synthetic:test": "vitest run src/tests/syntheticJourneyMonitor.test.ts",
     "webhook:replay": "ts-node scripts/replayWebhook.ts"
   },
   "files": [

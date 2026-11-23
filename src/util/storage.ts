@@ -17,6 +17,7 @@ type Schema = {
   networkPassphrase: string;
   walletAuthAddress: string;
   walletAuthExpiresAt: number;
+  offlineQueue: unknown[];
 };
 
 /**

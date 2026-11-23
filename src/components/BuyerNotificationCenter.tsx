@@ -29,6 +29,24 @@ import { NOTIFICATION_TYPE_LABELS } from "@/hooks/notificationTypes";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function buyerTypeToNotificationType(type: BuyerNotification["type"]): NotificationType {
+  switch (type) {
+    case "purchase_receipt":
+      return "purchase_confirmed";
+    case "security_alert":
+      return "moderation_action";
+    case "account_lifecycle":
+      return "ownership_transfer";
+    case "entitlement_update":
+      return "prompt_update";
+    case "support_access_notice":
+      return "system";
+    case "prompt_update":
+    default:
+      return "prompt_update";
+  }
+}
+
 function timeAgo(timestamp: string | Date): string {
   const date = new Date(timestamp);
   const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
@@ -165,6 +183,8 @@ function NotificationRow({
   onNavigate: (path: string) => void;
   onMarkRead: (id: string) => void;
 }) {
+  const displayType = buyerTypeToNotificationType(notification.type);
+
   const handleClick = () => {
     if (!notification.read) onMarkRead(notification._id);
     if (notification.deepLink) onNavigate(notification.deepLink);
@@ -179,10 +199,10 @@ function NotificationRow({
       }`}
     >
       <div
-        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconBgFor(notification.type)}`}
+        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconBgFor(displayType)}`}
         aria-hidden="true"
       >
-        <NotificationIcon type={notification.type} />
+        <NotificationIcon type={displayType} />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs leading-5 text-slate-200">
@@ -198,7 +218,7 @@ function NotificationRow({
             {timeAgo(notification.createdAt)}
           </span>
           <span className="text-[10px] text-slate-600">
-            {NOTIFICATION_TYPE_LABELS[notification.type]}
+            {NOTIFICATION_TYPE_LABELS[displayType]}
           </span>
           {!notification.read && (
             <span

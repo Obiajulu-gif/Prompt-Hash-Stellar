@@ -22,7 +22,8 @@ export const ResolvePromptPermalink = async (
   try {
     await connectDb();
 
-    const identifier = req.params.identifier || (req.query.identifier as string);
+    const identifier =
+      String(req.params.identifier ?? "") || (req.query.identifier as string);
     if (!identifier) {
       return res.status(400).json({ error: "Record identifier or slug is required." });
     }
@@ -79,7 +80,7 @@ export const RenamePromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as { promptId: string };
     const { newTitle, reason, walletAddress } = req.body;
 
     if (!promptId) {
@@ -124,7 +125,7 @@ export const ArchivePromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as { promptId: string };
     const { reason, walletAddress } = req.body;
 
     const updated = await archiveRecord({
@@ -161,7 +162,7 @@ export const RestorePromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as { promptId: string };
     const { reason, walletAddress } = req.body;
 
     const updated = await restoreRecord({
@@ -197,7 +198,7 @@ export const RestrictPromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as { promptId: string };
     const { reason, notes, moderatorWallet } = req.body;
 
     const updated = await restrictRecord({

@@ -46,7 +46,7 @@ export function calculateCreatorTrustScore(
   const moderationActions = Math.max(0, inputs.moderationActions ?? 0);
   const salesCount = Math.max(0, inputs.salesCount ?? 0);
   const totalListings = Math.max(1, inputs.totalListings ?? 1);
-  const isNewCreator = inputs.isNewCreator ?? salesCount < 3 && totalListings <= 3;
+  const isNewCreator = inputs.isNewCreator ?? (salesCount < 3 && totalListings <= 3);
 
   const baseScore = isNewCreator ? 68 : 52;
   const qualityContribution = (qualityScore / 5) * 35;

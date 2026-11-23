@@ -101,11 +101,53 @@ export const AUDIT_ACTIONS = [
   "maintainer_grant_revoked",
   "maintainer_grant_used",
   "maintainer_grant_denied",
+  // bulk import (#1094)
+  "bulk_import_completed",
+  // moderation decisions surfaced by the marketplace UI
+  "moderation_approve",
+  "moderation_reject",
+  "moderation_hide",
+  "moderation_restore",
+  "moderation_rollback",
+  // category taxonomy (#1051)
+  "category_created",
+  "category_renamed",
+  "category_merged",
+  "category_deprecated",
+  // stable permalinks
+  "prompt_permalink_renamed",
+  "prompt_permalink_archived",
+  "prompt_permalink_restored",
+  "prompt_permalink_restricted",
+  "prompt_permalink_deleted",
+  // provenance records
+  "provenance_record_created",
+  "provenance_verified",
+  "provenance_disputed",
+  "provenance_deleted",
+  // prompt lifecycle events
+  "prompt.derived",
+  "prompt.updated",
+  "prompt.archived",
+  "prompt.restored",
 ] as const;
 
-export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+export type AuditAction =
+  | (typeof AUDIT_ACTIONS)[number]
+  | "notification_preference_updated"
+  | "notification_mandatory_delivered"
+  | "support_access_granted"
+  | "support_access_revoked"
+  | "support_access_used"
+  | "support_access_denied";
 
-export type AuditResult = "success" | "failure" | "blocked";
+export type AuditResult =
+  | "success"
+  | "failure"
+  | "blocked"
+  | "denied"
+  | "partial_success"
+  | "pending";
 
 /**
  * Actions the schema historically accepted on top of `AUDIT_ACTIONS`. They are
@@ -141,7 +183,7 @@ const auditLogSchema = new mongoose.Schema(
     result: {
       type: String,
       required: true,
-      enum: ["success", "failure", "blocked"] as AuditResult[],
+      enum: ["success", "failure", "blocked", "denied", "partial_success", "pending"] as AuditResult[],
       index: true,
     },
     promptId: {

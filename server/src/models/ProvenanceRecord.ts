@@ -30,6 +30,9 @@ export const IMPORT_SOURCE_TYPES = [
   "template",         // Generated from a template
   "ai_generated",     // AI-generated content
   "system",           // System-generated (e.g., seed data)
+  // Legacy source codes still persisted by older callers.
+  "BLOCKCHAIN",
+  "MANUAL_ENTRY",
 ] as const;
 export type ImportSourceType = (typeof IMPORT_SOURCE_TYPES)[number];
 
@@ -46,6 +49,14 @@ export const TRANSFORM_TYPES = [
   "merge",            // Merged from multiple sources
   "extraction",       // Extracted from larger content
   "customization",    // Customized for specific use case
+  // Lineage/version events recorded by the provenance service.
+  "FORK",
+  "REMIX",
+  "VERSION_UPDATE",
+  "CONTENT_ENHANCEMENT",
+  "NORMALIZATION",
+  "ENRICHMENT",
+  "VALIDATION",
 ] as const;
 export type TransformType = (typeof TRANSFORM_TYPES)[number];
 
@@ -88,6 +99,10 @@ export interface ISourceSystem {
   externalUrl?: string;               // Direct URL to source item
   apiEndpoint?: string;               // API endpoint used for import
   apiVersion?: string;                // API version
+  /** Legacy aliases kept for records/callers written before the rename. */
+  name?: string;
+  version?: string;
+  identifier?: string;
 }
 
 /**
@@ -95,11 +110,16 @@ export interface ISourceSystem {
  */
 export interface ITransformMetadata {
   transformType: TransformType;       // Type of transformation
-  transformVersion: string;           // Version of transform logic
+  transformVersion?: string;          // Version of transform logic
   transformConfig?: Record<string, any>; // Transform-specific config
   transformedFields?: string[];       // Which fields were transformed
-  transformTimestamp: Date;           // When transform was applied
+  transformTimestamp?: Date;          // When transform was applied
   transformDuration?: number;         // Duration in milliseconds
+  /** Legacy metadata shape persisted by earlier provenance writers. */
+  timestamp?: Date;
+  actor?: IActorMetadata;
+  details?: string;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -114,6 +134,9 @@ export interface IActorMetadata {
   actorRole?: string;                 // Role/permission level
   actorIp?: string;                   // IP address
   actorUserAgent?: string;            // User agent string
+  /** Legacy aliases used by older services. */
+  userId?: string;
+  walletAddress?: string;
 }
 
 /**

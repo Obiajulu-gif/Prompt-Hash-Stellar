@@ -88,7 +88,7 @@ export async function handleEntitlementRepair(job: JobRecordDTO): Promise<void> 
   const limit = Math.min(Math.max(batchSize ?? 50, 1), 500);
 
   try {
-    const Entitlement = (await import("../../models/Entitlement")).default;
+    const { Entitlement } = await import("../../models/Entitlement");
 
     // Resumable: skip records already processed in this run (#1012).
     const query: Record<string, unknown> = {

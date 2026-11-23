@@ -34,7 +34,16 @@ export type NotificationType =
   | "security_alert"
   | "account_lifecycle"
   | "entitlement_update"
-  | "support_access_notice";
+  | "support_access_notice"
+  // Marketplace event notifications (indexer/controllers).
+  | "purchase_confirmed"
+  | "purchase_failure"
+  | "dispute_opened"
+  | "dispute_resolved"
+  | "payout_available"
+  | "moderation_action"
+  | "ownership_transfer"
+  | "system";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "prompt_update",
@@ -43,6 +52,14 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "account_lifecycle",
   "entitlement_update",
   "support_access_notice",
+  "purchase_confirmed",
+  "purchase_failure",
+  "dispute_opened",
+  "dispute_resolved",
+  "payout_available",
+  "moderation_action",
+  "ownership_transfer",
+  "system",
 ];
 
 /**

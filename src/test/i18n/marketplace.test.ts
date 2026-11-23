@@ -242,7 +242,7 @@ describe('Marketplace Localization (#456)', () => {
 
   describe('Development Visibility', () => {
     it('logs missing translations for development', () => {
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       
       // Access a missing key (if i18next is configured to warn)
       const missingKey = 'nonexistent.translation.key';

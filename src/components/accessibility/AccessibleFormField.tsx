@@ -30,7 +30,7 @@ export function AccessibleFormField({
     fieldId,
     hasError,
     errorMessage: error,
-    helpText,
+    helpTextId: helpText ? `${fieldId}-help` : undefined,
     isRequired,
   });
 

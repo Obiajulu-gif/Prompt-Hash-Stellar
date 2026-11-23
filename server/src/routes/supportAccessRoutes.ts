@@ -106,7 +106,7 @@ supportAccessRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const grant = await findSupportAccessGrant(req.params.grantId);
+      const grant = await findSupportAccessGrant(String(req.params.grantId));
       if (!grant) {
         return res.status(404).json({ error: "Support grant not found." });
       }
@@ -129,7 +129,7 @@ supportAccessRouter.post(
     try {
       await connectDb();
       const admin = (req as Request & { admin?: { sub: string } }).admin;
-      const result = await revokeSupportGrant(req.params.grantId, {
+      const result = await revokeSupportGrant(String(req.params.grantId), {
         actor: admin?.sub ?? "",
         requestId: req.correlationId ?? null,
       });

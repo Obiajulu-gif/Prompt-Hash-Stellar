@@ -1,5 +1,6 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import {
+  startSyntheticMonitoring,
   runSyntheticJourney,
   type SyntheticMode,
 } from "../src/services/syntheticJourneyMonitor";
@@ -30,30 +31,67 @@ if (mode === "authorized" && !keypair) {
   process.exit(2);
 }
 
-async function main(): Promise<void> {
-  const result = await runSyntheticJourney(
-    {
-      baseUrl: process.env.SYNTHETIC_BASE_URL!,
-      promptId: process.env.SYNTHETIC_PROMPT_ID!,
-      buyerAddress: buyerAddress!,
-      mode,
-    },
-    {
-      fetch: globalThis.fetch,
-      signChallenge: keypair
-        ? (challenge) =>
-            Buffer.from(keypair.sign(Buffer.from(challenge, "utf8"))).toString(
-              "base64",
-            )
-        : undefined,
-    },
-  );
-
-  console.log(JSON.stringify(result));
-  process.exitCode = result.success ? 0 : 1;
+function positiveInt(value: string | undefined): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(
+      "Synthetic monitor interval/threshold must be positive numbers.",
+    );
+    process.exit(2);
+  }
+  return Math.floor(parsed);
 }
 
-void main().catch(() => {
-  console.error("Synthetic journey runner failed.");
-  process.exitCode = 1;
-});
+const config = {
+  baseUrl: process.env.SYNTHETIC_BASE_URL!,
+  promptId: process.env.SYNTHETIC_PROMPT_ID!,
+  buyerAddress: buyerAddress!,
+  mode,
+};
+
+const dependencies = {
+  fetch: globalThis.fetch,
+  signChallenge: keypair
+    ? (challenge: string) =>
+        Buffer.from(keypair.sign(Buffer.from(challenge, "utf8"))).toString(
+          "base64",
+        )
+    : undefined,
+};
+
+const watch =
+  process.argv.includes("--watch") ||
+  process.env.SYNTHETIC_WATCH === "1" ||
+  process.env.SYNTHETIC_WATCH === "true";
+
+if (!watch) {
+  async function main(): Promise<void> {
+    const result = await runSyntheticJourney(config, dependencies);
+    console.log(JSON.stringify(result));
+    process.exitCode = result.success ? 0 : 1;
+  }
+
+  void main().catch(() => {
+    console.error("Synthetic journey runner failed.");
+    process.exitCode = 1;
+  });
+} else {
+  const intervalMs = positiveInt(process.env.SYNTHETIC_INTERVAL_MS) ?? 60_000;
+  const failureThreshold =
+    positiveInt(process.env.SYNTHETIC_FAILURE_THRESHOLD) ?? 2;
+
+  const monitor = startSyntheticMonitoring(config, dependencies, {
+    intervalMs,
+    failureThreshold,
+    runImmediately: true,
+    unref: false,
+  });
+
+  const shutdown = (): void => {
+    monitor.stop();
+    process.exit(0);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}

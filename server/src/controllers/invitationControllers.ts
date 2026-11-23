@@ -50,7 +50,7 @@ export const AcceptInvitation = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { invitationId } = req.params;
+    const { invitationId } = req.params as { invitationId: string };
     const { inviteeWallet, currentRole } = req.body;
 
     if (!inviteeWallet) {
@@ -84,7 +84,7 @@ export const RevokeInvitation = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { invitationId } = req.params;
+    const { invitationId } = req.params as { invitationId: string };
     const { revokerWallet } = req.body;
 
     if (!revokerWallet) {
@@ -117,8 +117,13 @@ export const ListInvitations = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { walletAddress } = req.params;
-    const { direction, status, limit, cursor } = req.query;
+    const { walletAddress } = req.params as { walletAddress: string };
+    const { direction, status, limit, cursor } = req.query as {
+      direction?: string;
+      status?: string;
+      limit?: string;
+      cursor?: string;
+    };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required" });

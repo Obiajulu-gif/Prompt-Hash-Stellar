@@ -43,7 +43,7 @@ const sanitizeSchema = {
     ...defaultSchema.attributes,
     // override with our allowlist — disallow style, on*, etc.
     a: [
-      ...(defaultSchema.attributes?.a ?? []),
+      ...((defaultSchema.attributes?.a ?? []) as string[]),
       // we enforce only our list; filter later
     ].filter((a: string) => ["href", "title", "rel", "target"].includes(a)),
     img: ["src", "alt", "title", "loading", "width", "height"],

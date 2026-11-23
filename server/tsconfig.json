@@ -1,11 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "Node16",
+    "module": "CommonJS",
     "allowJs": true,
-    "moduleResolution": "Node16",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
     "outDir": "./build",
-    "rootDir": "./src",
+    "rootDir": "..",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

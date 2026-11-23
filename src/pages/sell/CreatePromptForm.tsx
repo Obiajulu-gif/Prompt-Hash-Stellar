@@ -44,6 +44,7 @@ import {
   createPrompt,
   findPromptByContentHash,
   PromptHashClient,
+  type PromptRecord,
 } from "@/lib/stellar/promptHashClient";
 import {
   LISTING_LIMITS,
@@ -134,7 +135,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
     disabled: !!successMessage,
   });
 
-  const { draftRestored, lastSavedAt, discardDraft, conflict, resolveConflict, sessionGuard, canPublish } = useDraftAutoSave({
+  const { draftRestored, lastSavedAt, discardDraft, conflict, resolveConflict, sessionGuard, resolveSessionGuard, canPublish } = useDraftAutoSave({
     address,
     network,
     values: watchAllFields,
@@ -355,6 +356,7 @@ export function CreatePromptForm({ onCreated }: CreatePromptFormProps) {
       // Encrypt the prompt content
       const encryptionResult = await encryptAndWrapPromptPayload(
         data.fullPrompt,
+        unlockPublicKey,
       );
 
       // Build the contract creation payload

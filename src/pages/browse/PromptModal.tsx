@@ -3,6 +3,7 @@ import { reasonFromError, trackLifecycle } from "@/lib/analytics/lifecycleClient
 import { Link } from "react-router-dom";
 import { WalletContext } from "../../providers/WalletProvider";
 import { useAsyncTransaction } from "../../components/useAsyncTransaction";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { PromptHashClient } from "../../lib/stellar/promptHashClient";
 import { browserStellarConfig } from "../../lib/stellar/browserConfig";
 import { unlockPrompt } from "../../lib/prompts/unlock";
@@ -492,7 +493,11 @@ export const PromptModal: React.FC<PromptModalProps> = ({
 
       return await submitXlmPromptPayment({
         config: browserStellarConfig,
-        signer: { signTransaction: wallet.signTransaction },
+        signer: {
+          signTransaction: async (xdr: string, opts?: any) => ({
+            signedTxXdr: await wallet.signTransaction(xdr, opts),
+          }),
+        },
         buyerAddress: wallet.address,
         promptId: itemId,
         amountStroops: prompt.priceStroops,

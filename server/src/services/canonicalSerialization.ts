@@ -38,7 +38,7 @@ export function canonicalize(
 function canonicalizeValue(value: unknown, opts: CanonicalOptions): unknown {
   // Handle null/undefined
   if (value === null || value === undefined) {
-    return value;
+    return value === undefined ? null : value;
   }
 
   // Handle primitives

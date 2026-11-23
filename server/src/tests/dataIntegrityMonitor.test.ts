@@ -14,16 +14,18 @@ vi.mock("../models/Prompt", () => {
     countDocuments: vi.fn(),
     exists: vi.fn(),
   };
-  return m;
+  return { default: m };
 });
 
 vi.mock("../models/User", () => {
   const m: any = {
     exists: vi.fn(),
   };
-  return m;
+  return { default: m };
 });
 
+import Prompt from "../models/Prompt";
+import User from "../models/User";
 import { runDataIntegrityCheck, generateRemediationGuidance } from "../services/dataIntegrityMonitor";
 
 describe("Data Integrity Monitor", () => {

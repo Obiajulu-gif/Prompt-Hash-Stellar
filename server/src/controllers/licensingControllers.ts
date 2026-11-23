@@ -74,7 +74,7 @@ export const GetPromptLicense = async (
   res: Response,
 ): Promise<Response> => {
   try {
-    const { promptId } = req.params;
+    const { promptId } = req.params as { promptId: string };
     if (!promptId) {
       return res.status(400).json({ error: "promptId is required." });
     }
@@ -96,7 +96,10 @@ export const GetPurchaseReceipt = async (
 ): Promise<Response> => {
   try {
     markPrivate(res);
-    const { walletAddress, promptId } = req.params;
+    const { walletAddress, promptId } = req.params as {
+      walletAddress: string;
+      promptId: string;
+    };
     const result = await getPurchaseReceipt(promptId, walletAddress);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
@@ -117,7 +120,10 @@ export const GetLicenseDisputeView = async (
   res: Response,
 ): Promise<Response> => {
   try {
-    const { walletAddress, promptId } = req.params;
+    const { walletAddress, promptId } = req.params as {
+      walletAddress: string;
+      promptId: string;
+    };
     const result = await getLicenseSnapshotForDispute(promptId, walletAddress);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });

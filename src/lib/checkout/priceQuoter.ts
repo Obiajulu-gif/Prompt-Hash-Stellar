@@ -4,9 +4,9 @@
  * Provides safe multi-currency Stellar quotes with predictable expiry
  */
 import { xlmToStroops } from "../stellar/format";
-export { xlmToStroops as xlmToStroopsBigInt };
 
 export interface SupportedAssetConfig {
+  code: string;
   name: string;
   issuer: string | null;
   contractAddress?: string;

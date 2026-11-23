@@ -109,10 +109,12 @@ export function getBulkPurchaseErrorKey(errorCode: string): {
   message: string;
   suggestion: string;
 } {
-  const baseKey = (BULK_PURCHASE_ERROR_KEYS as Record<string, string>)[
-    Object.keys(BULK_PURCHASE_ERROR_KEYS)
-      .find(key => BULK_PURCHASE_ERROR_KEYS[key as keyof typeof BULK_PURCHASE_ERROR_KEYS] === errorCode)
-  ] || 'bulkPurchaseErrors.PromptNotFound';
+  const matchingKey = Object.keys(BULK_PURCHASE_ERROR_KEYS).find(
+    (key) => BULK_PURCHASE_ERROR_KEYS[key as keyof typeof BULK_PURCHASE_ERROR_KEYS] === errorCode,
+  );
+  const baseKey =
+    (matchingKey && (BULK_PURCHASE_ERROR_KEYS as Record<string, string>)[matchingKey]) ||
+    'bulkPurchaseErrors.PromptNotFound';
 
   return {
     title: `${baseKey}.title`,

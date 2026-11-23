@@ -54,7 +54,7 @@ export const GetPurchaseTransactions = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as { walletAddress: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
@@ -183,7 +183,7 @@ export const GetCreatorSalesAnalytics = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as { walletAddress: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
@@ -284,7 +284,7 @@ export const GetCreatorSupportMetrics = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as { walletAddress: string };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });
@@ -402,8 +402,12 @@ export const GetCreatorPayoutStatement = async (
   try {
     markPrivate(res);
     await connectDb();
-    const { walletAddress } = req.params;
-    const { startDate, endDate, format } = req.query;
+    const { walletAddress } = req.params as { walletAddress: string };
+    const { startDate, endDate, format } = req.query as {
+      startDate?: string;
+      endDate?: string;
+      format?: string;
+    };
 
     if (!walletAddress) {
       return res.status(400).json({ error: "walletAddress is required." });

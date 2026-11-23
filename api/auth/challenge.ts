@@ -13,7 +13,7 @@ import {
   PurchaseFailureReason,
 } from "../../src/lib/observability/purchaseFunnelMetrics";
 import { recordAuditEvent } from "../../server/src/services/auditTrail";
-import { ErrorCode } from "../../src/lib/api/errorCodes";
+import { ErrorCode, apiError } from "../../src/lib/api/errorCodes";
 import { sendApiError } from "../../src/lib/api/problemDetails";
 import { isPlaceholder } from "../../src/lib/validation/envValidator";
 

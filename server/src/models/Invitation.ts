@@ -89,7 +89,7 @@ invitationSchema.index(
   { expireAfterSeconds: 30 * 24 * 60 * 60 },
 );
 
-invitationSchema.static("ROLE_HIERARCHY", ROLE_HIERARCHY);
+(invitationSchema as any).static("ROLE_HIERARCHY", ROLE_HIERARCHY);
 
 const Invitation =
   mongoose.models.Invitation ||

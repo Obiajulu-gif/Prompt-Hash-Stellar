@@ -63,7 +63,7 @@ const mockServiceInstance = {
   ]),
   getImportStatistics: vi.fn(async () => ({
     totalRecords: 100,
-    bySourceType: { api: 50, file_upload: 50 },
+    bySourceType: { API_IMPORT: 50, FILE_UPLOAD: 50 },
     recentImports: 10,
     totalBatches: 5,
   })),
@@ -91,6 +91,11 @@ const mockStandaloneFunctions = {
       { transformType: "ai_enhancement", timestamp: new Date(), details: "Update 2" },
     ],
   })),
+};
+
+const mockProvenanceService = {
+  ...mockServiceInstance,
+  ...mockStandaloneFunctions,
 };
 
 vi.mock("../services/provenanceService", () => ({

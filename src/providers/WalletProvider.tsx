@@ -12,6 +12,7 @@ import storage from "../util/storage";
 import { stellarWalletNetwork } from "../lib/env";
 import { ALBEDO_ID } from "@creit.tech/stellar-wallets-kit/modules/albedo";
 import { useAsyncTransaction } from "../components/useAsyncTransaction";
+import { useQueryClient } from "@tanstack/react-query";
 import { classifyWalletError } from "../lib/wallet/walletErrors";
 import { signInWithWallet } from "../lib/auth/walletAuth";
 
