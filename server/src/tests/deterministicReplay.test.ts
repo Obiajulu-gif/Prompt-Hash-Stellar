@@ -19,6 +19,7 @@ import {
 import {
   promptListingProjection,
   type ReplayEvent,
+  type ProjectionDefinition,
 } from "../services/projectionReplay";
 
 function event(
@@ -79,6 +80,36 @@ const EXPECTED_PROMPT_1 = {
   revenueStroops: "22000000",
   incomplete: false,
 };
+
+const multiActorMutationProjection: ProjectionDefinition<{
+  resource: string;
+  value: number;
+  actors: string[];
+}> = {
+  name: "multi_actor_mutation",
+  version: 1,
+  description: "Deterministic counter for authorized actors mutating one resource.",
+  supportedEvents: { MutationApplied: [1] },
+  keyOf: (event) => (event.payload?.resource ? String(event.payload.resource) : null),
+  apply: (current, event) => {
+    const actor = event.payload?.actor;
+    if (!['actor-a', 'actor-b'].includes(actor)) {
+      throw new Error(`unauthorized actor: ${String(actor)}`);
+    }
+
+    return {
+      resource: String(event.payload.resource),
+      value: (current?.value ?? 0) + Number(event.payload.delta ?? 0),
+      actors: [...new Set([...(current?.actors ?? []), actor])].sort(),
+    };
+  },
+};
+
+const MULTI_ACTOR_JOURNAL: ReplayEvent[] = [
+  event('mutation-002', 22, 'MutationApplied', { resource: 'counter-1', actor: 'actor-b', delta: 2 }),
+  event('mutation-001', 21, 'MutationApplied', { resource: 'counter-1', actor: 'actor-a', delta: 1 }),
+  event('mutation-003', 23, 'MutationApplied', { resource: 'counter-1', actor: 'actor-a', delta: 3 }),
+];
 
 describe("deterministic replay fold", () => {
   it("normal path: folds the journal into the expected projection state", () => {
@@ -219,5 +250,28 @@ describe("deterministic replay verification", () => {
   it("returns a stable fingerprint helper independent of row order", () => {
     const rows = replayDeterministically(promptListingProjection, JOURNAL).rows;
     expect(fingerprintReplayRows([...rows].reverse())).toBe(fingerprintReplayRows(rows));
+  });
+
+  it("replays concurrent mutations from multiple actors identically through retries", () => {
+    const verification = verifyDeterministicReplay(multiActorMutationProjection, MULTI_ACTOR_JOURNAL, { seed: 1203 });
+
+    expect(verification.deterministic).toBe(true);
+    expect(verification.mismatches).toEqual([]);
+    expect(verification.baseline.rows).toEqual([
+      { key: "counter-1", data: { resource: "counter-1", value: 6, actors: ["actor-a", "actor-b"] }, lastLedger: 23, lastEventId: "mutation-003" },
+    ]);
+    expect(verification.runs.find((run) => run.order === "retry_storm")?.duplicates).toBeGreaterThan(0);
+  });
+
+  it("fails closed when a replayed mutation is not authorized", () => {
+    const unauthorized = event("mutation-unauthorized", 24, "MutationApplied", {
+      resource: "counter-1",
+      actor: "viewer",
+      delta: 100,
+    });
+
+    expect(() => replayDeterministically(multiActorMutationProjection, [...MULTI_ACTOR_JOURNAL, unauthorized])).toThrow(
+      "unauthorized actor: viewer",
+    );
   });
 });
