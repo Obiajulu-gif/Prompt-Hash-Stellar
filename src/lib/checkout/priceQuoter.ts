@@ -3,6 +3,7 @@
  *
  * Provides safe multi-currency Stellar quotes with predictable expiry
  */
+import { xlmToStroops } from "../stellar/format";
 
 export interface SupportedAssetConfig {
   name: string;

@@ -39,6 +39,7 @@ export default defineConfig({
   resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "@prompthash/schema": path.resolve(__dirname, "./packages/schema/src/index.ts"),
         "libsodium-wrappers": path.resolve(
           __dirname,
           "./node_modules/libsodium-wrappers/dist/modules/libsodium-wrappers.js"
