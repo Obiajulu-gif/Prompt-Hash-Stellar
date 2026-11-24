@@ -44,7 +44,7 @@ export function walletSessionSecret(): string | null {
 export function normalizeWallet(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const wallet = value.trim().toUpperCase();
-  return /^G[A-Z2-7]{56}$/.test(wallet) ? wallet : null;
+  return /^G[A-Z2-7]{55}$/.test(wallet) ? wallet : null;
 }
 
 export function issueWalletChallenge(secret: string, walletAddress: string) {
