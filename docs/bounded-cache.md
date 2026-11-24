@@ -18,3 +18,5 @@ Redis remains the shared source for cache entries across replicas. The local cac
 Invalidation is best-effort caching behavior: the database/ledger remains authoritative. Settlement and prompt-update handlers explicitly invalidate prompt, listing, search, and entitlement keys. If invalidation is suspected, restart replicas or call the existing prompt invalidation path; never delete authoritative records.
 
 Rollback is configuration-first: set `LOCAL_CACHE_MAX_ENTRIES=1` to effectively disable useful local retention while retaining the same API, then revert the fallback integration if necessary. A rollback may increase dependency traffic but does not require a data migration and does not change Redis keys or response contracts.
+
+Invalidation also detaches in-flight loads. The waiting caller can finish, but its result cannot repopulate the cache after invalidation. A subsequent read starts a fresh load. When the cache is already tracking its maximum number of loads, additional misses fetch directly without populating the cache.

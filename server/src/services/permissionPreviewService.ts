@@ -8,6 +8,9 @@ import {
 } from './permissionDiff';
 
 export interface PermissionDiff {
+  /** Role transition shown in the preview even when permission sets overlap. */
+  previousRole: UserRole | null;
+  newRole: UserRole | null;
   added: string[];
   removed: string[];
   isBroad: boolean;
@@ -40,7 +43,8 @@ export class PermissionPreviewService {
   static computeDiff(
     currentPermissions: Set<string>,
     newPermissions: Set<string>,
-    updateReq: UpdateRequest
+    updateReq: UpdateRequest,
+    currentRole?: UserRole,
   ): PermissionDiff {
     const { added, removed } = diffSets(currentPermissions, newPermissions);
 
@@ -55,8 +59,12 @@ export class PermissionPreviewService {
     // 2. Modifies more than 2 permissions at once
     const isBroad = (!updateReq.targetUserId) || (added.length + removed.length > 2);
     const scopes = updateReq.targetRole ? [updateReq.targetRole] : ['user-specific'];
+    const previousRole = currentRole ?? null;
+    const newRole = updateReq.newRole ?? currentRole ?? null;
 
     return {
+      previousRole,
+      newRole,
       added,
       removed,
       isBroad,
@@ -69,7 +77,8 @@ export class PermissionPreviewService {
       digest: diffDigest({
         affectedActors,
         scopes,
-        newRole: updateReq.newRole ?? null,
+        previousRole,
+        newRole,
         before: [...currentPermissions].sort(),
         after: [...newPermissions].sort(),
       }),
@@ -153,7 +162,7 @@ export class PermissionPreviewService {
     }
 
     return {
-      diff: this.computeDiff(currentPermissions, newPermissions, updateReq),
+      diff: this.computeDiff(currentPermissions, newPermissions, updateReq, currentContext.role),
       newPermissions,
     };
   }

@@ -126,6 +126,7 @@ Describe the breaking changes and migration path:
 ### Rollback
 - [ ] Rollback plan described in this PR (feature flag, migration rollback, or revert tag)
 - [ ] Rollback rehearsed in staging (deploy → rollback → smoke) with evidence linked below
+- [ ] Recovery evidence linked (restore/retry procedure and verification result)
 - [ ] Contract upgrade: `scripts/preflight_upgrade.py check` passes
 
 ### Maintainer Sign-Off
@@ -135,7 +136,7 @@ Describe the breaking changes and migration path:
 ### Exception (if any checklist items are skipped)
 Reason: <!-- P1 incident / CVE / regulatory -->
 Incident ticket: <!-- link -->
-Skipped items: <!-- gate keys, e.g. smoke, security, rollback-rehearsal -->
+Skipped items: <!-- gate keys, e.g. smoke, security, rollback-rehearsal, recovery-evidence -->
 Follow-up issue: <!-- link -->
 
 ---

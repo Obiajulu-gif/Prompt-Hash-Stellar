@@ -1,6 +1,7 @@
 import { expect, describe, it } from 'vitest';
 import { AuthContext, ROLE_PERMISSIONS } from '../middleware/rbac';
 import { PermissionPreviewService, UpdateRequest } from '../services/permissionPreviewService';
+import { PermissionDiffError } from '../services/permissionDiff';
 
 describe('PermissionPreviewService', () => {
   const baseContext: AuthContext = {
@@ -118,6 +119,8 @@ describe('PermissionPreviewService permission-diff report (#1036)', () => {
 
   it('applies a change whose reviewed digest matches the current state', () => {
     const report = PermissionPreviewService.previewUpdate(creator(), promoteToModerator);
+    expect(report.previousRole).toBe('creator');
+    expect(report.newRole).toBe('moderator');
     const next = PermissionPreviewService.applyUpdate(creator(), {
       ...promoteToModerator,
       expectedDiffDigest: report.digest,
@@ -127,9 +130,13 @@ describe('PermissionPreviewService permission-diff report (#1036)', () => {
   });
 
   it('refuses to apply a change without a reviewed report', () => {
-    expect(() => PermissionPreviewService.applyUpdate(creator(), promoteToModerator)).toThrow(
-      'Permission-diff report required',
-    );
+    try {
+      PermissionPreviewService.applyUpdate(creator(), promoteToModerator);
+      throw new Error('Expected missing-review rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PermissionDiffError);
+      expect((error as PermissionDiffError).apiCode).toBe('PERMISSION_DIFF_REQUIRED');
+    }
   });
 
   it('rejects a stale report when the target changed after review', () => {
@@ -137,12 +144,16 @@ describe('PermissionPreviewService permission-diff report (#1036)', () => {
     const changed = creator();
     changed.permissions.add('view_flagged_content'); // concurrent grant by another admin
 
-    expect(() =>
+    try {
       PermissionPreviewService.applyUpdate(changed, {
         ...promoteToModerator,
         expectedDiffDigest: report.digest,
-      }),
-    ).toThrow('Stale permission diff');
+      });
+      throw new Error('Expected stale-review rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PermissionDiffError);
+      expect((error as PermissionDiffError).apiCode).toBe('STALE_PERMISSION_DIFF');
+    }
   });
 
   it('rejects a report reused for a different change', () => {

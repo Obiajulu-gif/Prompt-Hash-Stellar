@@ -2,7 +2,7 @@ import {
   responseAbortSignal,
   TransferError,
 } from "../services/transferExecution";
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import connectDb from "../db/connectDb";
 import { authLimiter } from "../middleware/rateLimiter";
 import { requireAdminScope, type AdminRequest } from "../middleware/adminAuth";
@@ -10,9 +10,9 @@ import { requireIdempotency } from "../middleware/idempotency";
 import {
   runUserExport,
   listUserExports,
-  cleanupExpiredExports,
   verifyExportChecksum,
-  EXPORT_SCOPES,
+  collectExportRecords,
+  mayDownloadExport,
   type ExportScope,
 } from "../services/exportService";
 import { ExportRecord } from "../models/ExportRecord";
@@ -81,7 +81,7 @@ exportRouter.post(
   "/",
   authLimiter,
   requireAdminScope("exports:write"),
-  requireIdempotency,
+  (req: AdminRequest, res, next) => requireIdempotency(req, res, next, req.admin?.sub),
   async (req: AdminRequest, res: Response) => {
     try {
       await connectDb();
@@ -89,11 +89,9 @@ exportRouter.post(
       const {
         userId,
         scope = "prompt",
-        reason = "User-initiated data export",
       } = req.body as {
         userId?: string;
         scope?: ExportScope;
-        reason?: string;
       };
 
       // Determine the target user
@@ -167,7 +165,7 @@ exportRouter.post(
  * Check export status and download.
  *
  * GET /api/exports/:id
- * GET /api/exports/:id/download?token=...
+ * GET /api/exports/:id/download
  */
 exportRouter.get(
   "/:exportId",
@@ -217,9 +215,17 @@ exportRouter.get(
         });
       }
 
+      if (!mayDownloadExport(exportRecord, requestingUserId)) {
+        return res.status(403).json({ error: "Not authorized to view this export" });
+      }
+
       // Export is completed - check integrity checksum if available
       if (exportRecord.integrityChecksum && exportRecord.metadata) {
-        const { records } = await getExportRecords(exportRecord._id.toString());
+        const records = await collectExportRecords(
+          String(exportRecord.userId),
+          exportRecord.scope,
+          exportRecord.auditTrail?.performedBy === String(exportRecord.userId),
+        );
         const checksumValid = verifyExportChecksum(
           records,
           exportRecord.integrityChecksum,
@@ -253,14 +259,35 @@ exportRouter.get(
   },
 );
 
-/**
- * Helper: get the actual exported records from DB
- */
-async function getExportRecords(exportId: string): Promise<{ records: any[] }> {
-  const exportRecord = await ExportRecord.findById(exportId).lean();
-  // In a full implementation, we'd reconstruct the records from the original data
-  // For now, return empty - the actual records would be rebuilt from the DB query
-  return { records: [] };
-}
+exportRouter.get(
+  "/:exportId/download",
+  authLimiter,
+  requireAdminScope("exports:read"),
+  async (req: AdminRequest, res: Response) => {
+    try {
+      await connectDb();
+      const record = await ExportRecord.findById(req.params.exportId).lean();
+      if (!record) return res.status(404).json({ error: "Export record not found" });
+      const requester = req.admin?.sub ?? "";
+      if (!mayDownloadExport(record, requester)) {
+        return res.status(403).json({ error: "Not authorized to download this export" });
+      }
+      if (record.expiresAt <= new Date()) return res.status(410).json({ error: "Export expired" });
+      if (record.status !== "completed" || !record.integrityChecksum) {
+        return res.status(409).json({ error: "Export is not ready to download" });
+      }
+      const owner = String(record.userId);
+      const records = await collectExportRecords(owner, record.scope, record.auditTrail?.performedBy === owner);
+      if (!verifyExportChecksum(records, record.integrityChecksum)) {
+        return res.status(409).json({ error: "Export data changed. Create a new export and retry." });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      res.attachment("export.json");
+      return res.json({ records, integrityChecksum: record.integrityChecksum });
+    } catch {
+      return res.status(500).json({ error: "Failed to download export" });
+    }
+  },
+);
 
 export default exportRouter;

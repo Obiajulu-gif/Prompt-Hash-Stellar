@@ -15,7 +15,7 @@ import {
   FEATURE_FLAG_UPDATE_SCHEMA,
   validateConfigInput,
 } from "../services/adminConfigSchema.js";
-import { verifyRollback } from "../services/flagRolloutGuard.js";
+import { evaluateRolloutGuard, verifyRollback, type RolloutScope } from "../services/flagRolloutGuard.js";
 
 export const featureFlagRouter = express.Router();
 
@@ -108,7 +108,7 @@ featureFlagRouter.get(
   requireAdminScope("flags:read"),
   async (req, res) => {
     try {
-      const flag = await featureFlagService.getFlag(req.params.name);
+      const flag = await featureFlagService.getFlag(String(req.params.name));
       if (!flag) {
         return res.status(404).json({ error: "Flag not found" });
       }
@@ -149,8 +149,9 @@ featureFlagRouter.patch(
   requireAdminScope("flags:write"),
   async (req: AdminRequest, res: Response) => {
     const name = String(req.params.name);
+    const { rolloutHealth, ...patch } = req.body ?? {};
     // Invalid configuration is rejected before anything is written (#909).
-    const validation = validateConfigInput(FEATURE_FLAG_UPDATE_SCHEMA, req.body ?? {});
+    const validation = validateConfigInput(FEATURE_FLAG_UPDATE_SCHEMA, patch);
     if (!validation.ok) {
       return res.status(400).json({
         error: "Invalid configuration.",
@@ -158,6 +159,20 @@ featureFlagRouter.patch(
       });
     }
     try {
+      if (rolloutHealth !== undefined && validation.value.status !== "disabled") {
+        if (!rolloutHealth || typeof rolloutHealth !== "object" ||
+            typeof validation.value.rolloutPercentage !== "number") {
+          return res.status(400).json({ error: "Rollout health requires a rollout percentage." });
+        }
+        const scope: RolloutScope = name.includes("settlement") || name.includes("purchase_atomic")
+          ? "settlement"
+          : name.includes("payout") ? "payouts" : "global";
+        const decision = evaluateRolloutGuard(
+          { flag: name, scope, environment: "production", rolloutPercentage: validation.value.rolloutPercentage },
+          rolloutHealth,
+        );
+        if (!decision.allow) return res.status(409).json({ error: "Rollout blocked.", ...decision });
+      }
       const result = await applyAuditedConfigChange({
         ...auditContext(req),
         configType: "feature_flag",
@@ -185,7 +200,7 @@ featureFlagRouter.patch(
 // environment in one request, then runs `verifyRollback` so the response
 // says plainly whether the disable actually took. Domain checks this
 // route can't itself observe (indexer/outbox/ledger drift) are accepted
-// as caller-supplied evidence, defaulting to "pass" when omitted — wiring
+// as caller-supplied evidence, remaining unverified when omitted. Wiring
 // those to the real indexer/ledger services is follow-up work, not part
 // of this flag-service-local slice.
 featureFlagRouter.post(
@@ -216,10 +231,11 @@ featureFlagRouter.post(
       const flag = result.value;
 
       const verification = verifyRollback({
-        flagDisabledEverywhere: flag?.status === "disabled",
-        noPartialWrites: noPartialWrites ?? true,
-        invariantsPass: invariantsPass ?? true,
-        noLedgerDrift: noLedgerDrift ?? true,
+        flagDisabledEverywhere: flag?.status === "disabled" &&
+          (["development", "staging", "production"] as const).every((env) => flag.environments?.[env] === false),
+        noPartialWrites: noPartialWrites === true,
+        invariantsPass: invariantsPass === true,
+        noLedgerDrift: noLedgerDrift === true,
       });
 
       res.setHeader("X-Config-Change-Id", result.changeId);

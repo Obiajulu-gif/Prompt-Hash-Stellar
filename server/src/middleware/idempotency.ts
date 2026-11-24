@@ -16,7 +16,12 @@ function errorResponse(res: Response, status: number, code: string, error: strin
  * Protects a high-risk mutation with a durable request/outcome gate.
  * The route keeps its original response shape; only replay metadata is added.
  */
-export function requireIdempotency(req: Request, res: Response, next: NextFunction): void {
+export function requireIdempotency(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  actor?: string,
+): void {
   const key = req.get("Idempotency-Key");
   const keyError = validateIdempotencyKey(key);
   if (keyError) {
@@ -32,7 +37,10 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
   const scope = `${req.baseUrl}${req.path}`;
   const requestHash = hashIdempotentRequest({ method: req.method, scope, body: req.body });
 
-  void beginIdempotentRequest({ scope, key: key as string, requestHash })
+  const storeScope = actor
+    ? hashIdempotentRequest({ method: req.method, scope, body: { actor } })
+    : scope;
+  void beginIdempotentRequest({ scope: storeScope, key: key as string, requestHash })
     .then((decision) => {
       if (decision.kind === "conflict") {
         logger.warn("idempotency.conflict", {

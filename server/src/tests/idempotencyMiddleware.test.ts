@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   complete: vi.fn().mockResolvedValue(undefined),
   hash: vi.fn().mockReturnValue("request-hash"),
   validate: vi.fn((key?: string) => (key ? null : "missing key")),
-  replayStatus: vi.fn().mockReturnValue(201),
+  replayStatus: vi.fn((record: { statusCode: number }) => record.statusCode),
 }));
 
 vi.mock("../services/idempotencyService", () => ({
@@ -95,6 +95,44 @@ describe("requireIdempotency middleware", () => {
     await vi.waitFor(() => expect(retryResponse.body).toEqual({ purchaseId: "purchase-1" }));
     expect(retryResponse.headers["Idempotent-Replayed"]).toBe("true");
     expect(retryNext).not.toHaveBeenCalled();
+  });
+
+  it("blocks a concurrent duplicate and replays the original authorization failure", async () => {
+    const req = makeRequest("concurrent-key");
+    const first = makeResponse();
+    const duplicate = makeResponse();
+    const controller = vi.fn();
+    mocks.begin
+      .mockResolvedValueOnce({ kind: "new", record: { _id: "record-1" } })
+      .mockResolvedValueOnce({ kind: "in_progress", message: "request pending" });
+
+    requireIdempotency(req, first, controller);
+    requireIdempotency(req, duplicate, controller);
+    await vi.waitFor(() => expect(duplicate.statusCode).toBe(409));
+    expect(duplicate.body.code).toBe("IDEMPOTENCY_REQUEST_IN_PROGRESS");
+    expect(controller).toHaveBeenCalledOnce();
+    expect(mocks.complete).not.toHaveBeenCalled();
+
+    const denial = { code: "FORBIDDEN" };
+    first.status(403).json(denial);
+    first.emit("finish");
+    expect(mocks.complete).toHaveBeenCalledOnce();
+    expect(mocks.complete).toHaveBeenCalledWith({
+      recordId: "record-1",
+      statusCode: 403,
+      responseBody: denial,
+    });
+
+
+    mocks.begin.mockResolvedValueOnce({
+      kind: "replay",
+      record: { statusCode: 403, responseBody: denial },
+    });
+    const retry = makeResponse();
+    requireIdempotency(req, retry, controller);
+    await vi.waitFor(() => expect(retry.body).toEqual(denial));
+    expect(retry.statusCode).toBe(403);
+    expect(controller).toHaveBeenCalledOnce();
   });
 
   it("returns a conflict response and does not invoke the controller", async () => {

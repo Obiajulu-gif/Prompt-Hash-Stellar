@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Risk, permission review, API errors, and release evidence (Issues #1188, #1189, #1198, #1199)
+- High-risk action assessments now explain the score calculation and include each fired signal's rationale in their summary.
+- Permission previews expose both sides of a role transition; missing and stale review digests carry stable `PERMISSION_DIFF_REQUIRED` and `STALE_PERMISSION_DIFF` API codes.
+- High-risk release checks now require linked recovery procedure and verification evidence, with the existing incident-ticket waiver path.
+- Added contract tests for recovery evidence enforcement, score explanations, and stable permission review error codes.
+
 #### Replay, snapshot, dispute and session hardening (Issues #905, #906, #907, #908)
 - Replay validation (#905): journal rows are shape-checked before reducers run.
   Malformed rows stop strict runs and are counted and sampled in lenient runs,

@@ -29,6 +29,12 @@ export const ErrorCode = {
   /** The operation is understood but not permitted for this record right now. */
   OPERATION_NOT_ALLOWED: "OPERATION_NOT_ALLOWED",
 
+  /** Permission changes must be previewed and the preview digest supplied. */
+  PERMISSION_DIFF_REQUIRED: "PERMISSION_DIFF_REQUIRED",
+
+  /** Current permissions changed after the preview; the request must be reviewed again. */
+  STALE_PERMISSION_DIFF: "STALE_PERMISSION_DIFF",
+
   // ── Auth / access errors (4xx) ────────────────────────────────────────────
 
   /** The challenge token has expired. The client should request a new one. */
@@ -128,6 +134,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STALE_REQUEST: "This request is too old. Please try again.",
   NOT_FOUND: "The requested item could not be found.",
   OPERATION_NOT_ALLOWED: "This operation is not allowed right now.",
+  PERMISSION_DIFF_REQUIRED: "Review the permission changes before applying them.",
+  STALE_PERMISSION_DIFF: "Permissions changed after review. Create and review a fresh preview.",
   METHOD_NOT_ALLOWED: "This action is not supported.",
   CHALLENGE_EXPIRED: "Your session has expired. Click Decrypt Content to try again.",
   CHALLENGE_INVALID: "The unlock session is no longer valid. Click Decrypt Content to start over.",

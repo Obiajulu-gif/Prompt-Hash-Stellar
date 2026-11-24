@@ -62,3 +62,5 @@ If the diagnostics themselves misbehave (for example a new required variable not
 ## Tests
 
 `src/test/contributorDiagnostics.test.ts` covers each check group with injected `fetch`, command runner, and TCP probe, so it runs offline in `yarn test`.
+
+Run `yarn diagnose --help` for accepted flags. Invalid options exit with code 2 before any checks or writes. If another process creates `.env` while `--fix` is running, diagnostics leave that file intact and continue.

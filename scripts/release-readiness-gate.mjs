@@ -27,6 +27,7 @@ export const REQUIRED_EVIDENCE = {
   security: "Security checks pass",
   "rollback-plan": "Rollback plan described",
   "rollback-rehearsal": "Rollback rehearsed",
+  "recovery-evidence": "Recovery evidence linked",
 };
 
 export const MIGRATION_EVIDENCE = {
