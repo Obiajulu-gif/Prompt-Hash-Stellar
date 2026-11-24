@@ -45,6 +45,7 @@ describe("abuseRiskGuard middleware", () => {
   beforeEach(() => {
     abuseActivityLedger.reset();
     abuseReviewQueue.clear();
+    // Step-up proofs are process-wide; a verified earlier case must not leak into this one.
     stepUpVerificationStore.reset();
   });
 

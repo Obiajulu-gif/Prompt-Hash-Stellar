@@ -388,7 +388,18 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
         versionIndex: Number((prompt as any).currentVersionIndex ?? 1),
         txHash: txHash ?? "",
       });
+    if (existing) {
+      // Re-submission: the first write already created the single entitlement row.
+      return res.status(200).json({ message: "Already purchased; no new purchase recorded." });
     }
+    // Purchases are pinned to the version current at purchase time (see the
+    // route comment and the Purchase.versionIndex requirement).
+    await Purchase.create({
+      promptId: String(promptId),
+      buyerWallet: normalized,
+      versionIndex: (prompt as any).currentVersionIndex ?? 0,
+      txHash: txHash ?? null,
+    });
 
     return res.status(201).json({ message: "Purchase recorded." });
   } catch (err) {

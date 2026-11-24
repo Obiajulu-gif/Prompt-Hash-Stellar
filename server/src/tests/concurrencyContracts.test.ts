@@ -64,6 +64,7 @@ import {
 } from "../services/idempotencyService";
 import IdempotencyRecord from "../models/IdempotencyRecord";
 import Purchase from "../models/Purchase";
+import User from "../models/User";
 import { updateWithVersionCheck } from "../models/VersionedRecord";
 import { RecordPurchase } from "../controllers/versioningControllers";
 import { UpdateWithVersionCheck } from "../controllers/concurrencyControllers";
@@ -365,6 +366,13 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     promptMock.findById.mockReturnValue({
       select: () => ({ lean: async () => ({ owner: "creator-user-id" }) }),
     });
+    // The controller reads Prompt.findById(...).select(...).lean(), and the buyer
+    // must exist as a User; seed both so the first write is a real purchase.
+    const owner = new mongoose.Types.ObjectId();
+    promptMock.findById.mockReturnValue({
+      select: () => ({ lean: async () => ({ _id: "prompt-2", owner, currentVersionIndex: 1 }) }),
+    });
+    await User.create({ walletAddress: "gbuyer" });
 
     const call = async () => {
       const res = mockRes();
@@ -405,6 +413,8 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     promptMock.findById.mockReturnValue({
       select: () => ({ lean: async () => null }),
     });
+    promptMock.findById.mockReturnValue({ select: () => ({ lean: async () => null }) });
+    await User.create({ walletAddress: "gbuyer" });
     const res = mockRes();
     await RecordPurchase(
       mockReq({ promptId: "missing", walletAddress: "gbuyer" }),

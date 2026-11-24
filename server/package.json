@@ -23,6 +23,7 @@
     "schema:compat": "ts-node scripts/checkSchemaCompatibility.ts",
     "projections:replay": "ts-node scripts/replayProjection.ts",
     "backfill": "ts-node scripts/backfillTool.ts",
+    "repair:tool": "ts-node scripts/repairTool.ts",
     "seed:preview": "node scripts/seedPreview.mjs",
     "db:migrate": "ts-node src/db/migrateCli.ts up",
     "db:rollback": "ts-node src/db/rollbackCli.ts",
