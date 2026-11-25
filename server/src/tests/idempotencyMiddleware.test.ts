@@ -144,4 +144,73 @@ describe("requireIdempotency middleware", () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(next).not.toHaveBeenCalled();
   });
+
+  it("persists a failed outcome and replays it on retry without re-running the side effect", async () => {
+    // Retry after failure: the first attempt errors, so its 500 is stored and
+    // a retry with the same key must receive that stored 500, not re-execute.
+    mocks.begin.mockResolvedValueOnce({ kind: "new", record: { _id: "record-fail" } as any });
+    const firstResponse = makeResponse();
+    const firstNext = vi.fn(() => {
+      firstResponse.statusCode = 500;
+      firstResponse.json({ code: "DOWNSTREAM_UNAVAILABLE", error: "try later" });
+      firstResponse.emit("finish");
+    });
+    requireIdempotency(makeRequest("retry-key"), firstResponse, firstNext);
+    await vi.waitFor(() => expect(mocks.complete).toHaveBeenCalledWith({
+      recordId: "record-fail",
+      statusCode: 500,
+      responseBody: { code: "DOWNSTREAM_UNAVAILABLE", error: "try later" },
+    }));
+
+    mocks.begin.mockResolvedValueOnce({
+      kind: "replay",
+      record: {
+        _id: "record-fail",
+        status: "failed",
+        statusCode: 500,
+        responseBody: { code: "DOWNSTREAM_UNAVAILABLE", error: "try later" },
+      },
+    });
+    // replayStatus is read for logging and for the response, so queue the value twice.
+    mocks.replayStatus.mockReturnValueOnce(500).mockReturnValueOnce(500);
+    const retryResponse = makeResponse();
+    const retryNext = vi.fn();
+    requireIdempotency(makeRequest("retry-key"), retryResponse, retryNext);
+    await vi.waitFor(() => expect(retryResponse.body).toEqual({ code: "DOWNSTREAM_UNAVAILABLE", error: "try later" }));
+    expect(retryResponse.status).toHaveBeenCalledWith(500);
+    expect(retryResponse.headers["Idempotent-Replayed"]).toBe("true");
+    expect(retryNext).not.toHaveBeenCalled();
+  });
+
+  it("reports an expired key with a clear 409 and does not invoke the controller", async () => {
+    mocks.begin.mockResolvedValueOnce({
+      kind: "expired",
+      message: "This Idempotency-Key has expired. Generate a new key and retry.",
+    });
+    const res = makeResponse();
+    const next = vi.fn();
+    requireIdempotency(makeRequest("old-key"), res, next);
+    await vi.waitFor(() => expect(res.body).toEqual({
+      code: "IDEMPOTENCY_KEY_EXPIRED",
+      error: "This Idempotency-Key has expired. Generate a new key and retry.",
+    }));
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("rejects a concurrent duplicate while the first attempt is still processing", async () => {
+    mocks.begin.mockResolvedValueOnce({
+      kind: "in_progress",
+      message: "An identical request with this Idempotency-Key is still in progress.",
+    });
+    const res = makeResponse();
+    const next = vi.fn();
+    requireIdempotency(makeRequest("racing-key"), res, next);
+    await vi.waitFor(() => expect(res.body).toEqual({
+      code: "IDEMPOTENCY_REQUEST_IN_PROGRESS",
+      error: "An identical request with this Idempotency-Key is still in progress.",
+    }));
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(next).not.toHaveBeenCalled();
+  });
 });

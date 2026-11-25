@@ -24,8 +24,31 @@ const MAX_ATTEMPTS = 8;
 const MAX_FAILURES_BEFORE_DISABLE = 10;
 const BASE_BACKOFF_MS = 2_000;
 const MAX_BACKOFF_MS = 30 * 60 * 1000;
+/** Delay between checks while a subscription is switched off (not an attempt). */
+const INACTIVE_RECHECK_MS = POLL_INTERVAL_MS * 6;
+/**
+ * Upper bound on how long an event may wait behind an inactive subscription
+ * (~24h at the recheck interval). Without this bound an inactive subscriber
+ * keeps the row polling forever; after it the row is dead-lettered and can be
+ * replayed once the subscriber re-enables delivery.
+ */
+const MAX_INACTIVE_DEFERRALS = Math.ceil((24 * 60 * 60 * 1000) / INACTIVE_RECHECK_MS);
+/**
+ * 4xx responses that are transient by definition (RFC 9110 408; 425 Too Early).
+ * Every other 4xx is a permanent rejection and is dead-lettered immediately.
+ */
+const RETRYABLE_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 425]);
 const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000;
+
+/** Exported so the retry contract is asserted against the real policy, not a copy. */
+export const WEBHOOK_RETRY_POLICY = {
+  maxAttempts: MAX_ATTEMPTS,
+  baseBackoffMs: BASE_BACKOFF_MS,
+  maxBackoffMs: MAX_BACKOFF_MS,
+  maxInactiveDeferrals: MAX_INACTIVE_DEFERRALS,
+  retryableClientStatuses: [...RETRYABLE_CLIENT_STATUSES],
+} as const;
 
 let tickInFlight = false;
 let workerPaused = false;
@@ -71,20 +94,36 @@ export function verifyWebhookSignature(
   return signWebhookPayload(secret, input) === signature;
 }
 
-/** Exponential backoff with full jitter, capped at MAX_BACKOFF_MS. */
-function backoffDelayMs(attempt: number): number {
+/**
+ * Exponential backoff with "equal jitter", capped at MAX_BACKOFF_MS.
+ *
+ * The delay is drawn from [cap/2, cap). The previous full-jitter form drew
+ * from [0, cap), which could retry a transient blip almost immediately and
+ * stack retries from many rows onto a subscriber that is already struggling.
+ * Exported for tests; `random` is injectable for deterministic checks.
+ */
+export function computeBackoffDelayMs(attempt: number, random: () => number = Math.random): number {
   const cap = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** attempt);
-  return Math.floor(Math.random() * cap);
+  const half = cap / 2;
+  return Math.floor(half + random() * half);
 }
 
-/** Parses a `Retry-After` header (seconds or HTTP-date) into a delay in ms. */
+/**
+ * Parses a `Retry-After` header (seconds or HTTP-date) into a delay in ms.
+ * The server-directed delay is honored but capped at MAX_BACKOFF_MS so a
+ * hostile or misconfigured subscriber cannot park a row for days.
+ */
 function retryAfterMs(value: string | string[] | undefined): number | null {
   if (!value || Array.isArray(value)) return null;
   const seconds = Number(value);
-  if (!Number.isNaN(seconds)) return Math.max(0, seconds * 1000);
-  const date = Date.parse(value);
-  if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
-  return null;
+  let delay: number | null = null;
+  if (!Number.isNaN(seconds)) {
+    delay = Math.max(0, seconds * 1000);
+  } else {
+    const date = Date.parse(value);
+    if (!Number.isNaN(date)) delay = Math.max(0, date - Date.now());
+  }
+  return delay === null ? null : Math.min(MAX_BACKOFF_MS, delay);
 }
 
 /** Exported for tests — the atomic per-row claim used by the poll loop. */
@@ -120,6 +159,14 @@ async function markDelivered(rowId: unknown, subscriptionId: unknown) {
 }
 
 async function markDeadLetter(rowId: unknown, subscriptionId: unknown, reason: string) {
+  // Operators can inspect dead letters via GET /api/webhooks/dead-letters and
+  // replay them via POST /api/webhooks/dead-letters/:id/replay. The log line
+  // carries no payload and no secret — only identifiers and the reason.
+  console.warn("[webhook-outbox] Event dead-lettered.", {
+    rowId: String(rowId),
+    subscriptionId: String(subscriptionId),
+    reason,
+  });
   await WebhookOutboxEvent.findByIdAndUpdate(rowId, {
     $set: {
       status: "dead_letter",
@@ -140,7 +187,13 @@ async function markDeadLetter(rowId: unknown, subscriptionId: unknown, reason: s
   }
 }
 
-async function scheduleRetry(rowId: unknown, attempts: number, delayMs: number, reason: string) {
+async function scheduleRetry(
+  rowId: unknown,
+  attempts: number,
+  delayMs: number,
+  reason: string,
+  extra: Record<string, unknown> = {},
+) {
   await WebhookOutboxEvent.findByIdAndUpdate(rowId, {
     $set: {
       attempts,
@@ -148,6 +201,7 @@ async function scheduleRetry(rowId: unknown, attempts: number, delayMs: number, 
       lastError: reason,
       leaseHolder: null,
       leaseExpiresAt: null,
+      ...extra,
     },
   });
 }
@@ -165,18 +219,36 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
     return;
   }
   if (!sub.active) {
-    // Not the subscriber's fault and not permanent — check back later
-    // without burning a retry attempt.
-    await scheduleRetry(row._id, row.attempts, POLL_INTERVAL_MS * 6, "Subscription is inactive.");
+    // Not the subscriber's fault and not an attempt against the retry budget:
+    // check back later without consuming `attempts`. The deferral counter is
+    // bounded so a subscription that stays off forever cannot keep this row
+    // polling indefinitely; the row is dead-lettered and can be replayed.
+    const deferrals = (row.inactiveDeferrals ?? 0) + 1;
+    if (deferrals >= MAX_INACTIVE_DEFERRALS) {
+      await markDeadLetter(
+        row._id,
+        row.subscriptionId,
+        `Subscription stayed inactive for more than ${MAX_INACTIVE_DEFERRALS} checks; replay after re-enabling delivery.`,
+      );
+      return;
+    }
+    await scheduleRetry(row._id, row.attempts, INACTIVE_RECHECK_MS, "Subscription is inactive.", {
+      inactiveDeferrals: deferrals,
+    });
     return;
   }
   if (row.sequence > 1) {
-    const earlierUndelivered = await WebhookOutboxEvent.findOne({
+    // Only a PENDING earlier row holds back later sequences. A dead-lettered
+    // earlier row is terminal: treating it as "undelivered" previously blocked
+    // every later event for that subscriber forever. Sequence gaps are already
+    // part of the contract (see enqueue), so later events proceed and the
+    // gap is visible to subscribers through X-PromptHash-Sequence.
+    const earlierPending = await WebhookOutboxEvent.findOne({
       subscriptionId: row.subscriptionId,
       sequence: { $lt: row.sequence },
-      status: { $ne: "delivered" },
+      status: "pending",
     });
-    if (earlierUndelivered) {
+    if (earlierPending) {
       await scheduleRetry(
         row._id,
         row.attempts,
@@ -235,7 +307,7 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
     }
 
     if (result.status === 429) {
-      const delay = retryAfterMs(result.headers["retry-after"]) ?? backoffDelayMs(attempt);
+      const delay = retryAfterMs(result.headers["retry-after"]) ?? computeBackoffDelayMs(attempt);
       if (attempt >= MAX_ATTEMPTS) {
         await markDeadLetter(row._id, row.subscriptionId, `Rate limited (429) after ${attempt} attempts.`);
       } else {
@@ -244,17 +316,22 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
       return;
     }
 
-    if (result.status >= 500) {
+    if (result.status >= 500 || RETRYABLE_CLIENT_STATUSES.has(result.status)) {
       if (attempt >= MAX_ATTEMPTS) {
         await markDeadLetter(row._id, row.subscriptionId, `Server error ${result.status} after ${attempt} attempts.`);
       } else {
-        await scheduleRetry(row._id, attempt, backoffDelayMs(attempt), `Server error ${result.status}, attempt ${attempt}.`);
+        await scheduleRetry(
+          row._id,
+          attempt,
+          computeBackoffDelayMs(attempt),
+          `Transient status ${result.status}, attempt ${attempt}.`,
+        );
       }
       return;
     }
 
-    // Any other non-2xx (400-428, 430-499): a client-side rejection that
-    // won't resolve itself on retry.
+    // Any other non-2xx (400-407, 409-424, 426-499): a permanent client-side
+    // rejection that won't resolve itself on retry.
     await markDeadLetter(row._id, row.subscriptionId, `Rejected with status ${result.status}.`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -266,7 +343,7 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
     if (attempt >= MAX_ATTEMPTS) {
       await markDeadLetter(row._id, row.subscriptionId, `${message} (after ${attempt} attempts)`);
     } else {
-      await scheduleRetry(row._id, attempt, backoffDelayMs(attempt), message);
+      await scheduleRetry(row._id, attempt, computeBackoffDelayMs(attempt), message);
     }
   }
 }
