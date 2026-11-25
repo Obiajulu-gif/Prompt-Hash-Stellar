@@ -2,8 +2,7 @@
 // Defines retention periods and automatic renewal strategies to prevent
 // data corruption and access state violations.
 
-use crate::types::{DataKey, Error};
-use soroban_sdk::Env;
+use crate::types::DataKey;
 
 /// TTL constants (in ledgers, ~6 seconds per ledger)
 /// Reference: 1 day ≈ 14,400 ledgers, 1 year ≈ 5.256M ledgers
@@ -135,24 +134,6 @@ pub fn should_renew_key(current_ledger: u64, last_extended_ledger: u64, max_ttl:
 pub fn get_time_remaining(current_ledger: u64, last_extended_ledger: u64, max_ttl: u32) -> u64 {
     let expiry_at = last_extended_ledger.saturating_add(max_ttl as u64);
     expiry_at.saturating_sub(current_ledger)
-}
-
-/// Validate that dependent keys have sufficient TTL protection
-pub fn validate_ttl_dependency(
-    _env: &Env,
-    _parent_key: &DataKey,
-    _child_key: &DataKey,
-    parent_last_extended: u64,
-    child_last_extended: u64,
-) -> Result<(), Error> {
-    // Child TTL must be at least as long as parent
-    // Actually: child_last_extended must be >= parent_last_extended
-    // so they expire at the same time or child expires later
-    if child_last_extended < parent_last_extended {
-        return Err(Error::InvalidTtlPolicy);
-    }
-
-    Ok(())
 }
 
 /// Estimate expiry risk metrics for operator monitoring
