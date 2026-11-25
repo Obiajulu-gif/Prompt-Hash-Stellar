@@ -887,9 +887,18 @@ fn run_auth_replay_scenario() -> (Vec<bool>, StateSnapshot) {
             sub_invokes: &[],
         },
     }]);
-    let prompt_id = h
-        .client()
-        .create_prompt(&h.creator_a, &img, &title, &cat, &prev, &enc, &iv, &wk, &hash, &listing_cfg);
+    let prompt_id = h.client().create_prompt(
+        &h.creator_a,
+        &img,
+        &title,
+        &cat,
+        &prev,
+        &enc,
+        &iv,
+        &wk,
+        &hash,
+        &listing_cfg,
+    );
     h.created_prompts.push(prompt_id);
     results.push(true);
 
@@ -934,8 +943,14 @@ fn replay_authorization_paths_enforce_actor_boundaries() {
     let (res_2, snap_2) = run_auth_replay_scenario();
 
     assert_eq!(res_1, std::vec![false, true, true, true, false, true]);
-    assert_eq!(res_1, res_2, "Authorization outcomes must replay deterministically");
-    assert_eq!(snap_1, snap_2, "Authorization post-state must replay deterministically");
+    assert_eq!(
+        res_1, res_2,
+        "Authorization outcomes must replay deterministically"
+    );
+    assert_eq!(
+        snap_1, snap_2,
+        "Authorization post-state must replay deterministically"
+    );
     assert!(!snap_1.is_paused);
     assert_eq!(snap_1.prompts[0].price_stroops, 175_000_000);
 }
