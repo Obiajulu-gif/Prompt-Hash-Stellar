@@ -112,7 +112,7 @@ export function contentDispositionValue(
 // ── Deep redaction for outbound payloads ────────────────────────────────────
 
 const SENSITIVE_KEY_PATTERN =
-  /(secret|private[_-]?key|privatekey|mnemonic|seed[_-]?phrase|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|bearer|encrypted[_-]?prompt|plaintext|ciphertext|signing[_-]?secret|challenge[_-]?secret|salt|nonce)/i;
+  /(secret|private[_-]?key|privatekey|mnemonic|seed[_-]?phrase|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|bearer|encrypted[_-]?prompt|plaintext|ciphertext|signing[_-]?secret|challenge[_-]?secret|salt|nonce|wallet[_-]?address|email|phone|ssn|credit[_-]?card|card[_-]?number)/i;
 
 export interface RedactionOptions {
   /** Maximum object depth to walk (default 6). Deeper values become "[TRUNCATED]". */

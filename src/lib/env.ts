@@ -18,7 +18,15 @@ const envSchema = z.object({
   PUBLIC_PROMPT_HASH_CONTRACT_ID: z.string(),
   PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID: z.string(),
   PUBLIC_STELLAR_SIMULATION_ACCOUNT: z.string(),
-  PUBLIC_CHAT_API_BASE: z.string().url(),
+  // Origin of the backend that owns AI routes (#29). Optional: empty means
+  // same-origin. This is the BACKEND, never the AI provider; provider URLs and
+  // credentials live only in server env (AI_PROVIDER_BASE_URL).
+  PUBLIC_CHAT_API_BASE: z
+    .string()
+    .refine((value) => value === "" || /^https?:\/\//.test(value), {
+      message: "PUBLIC_CHAT_API_BASE must be empty or an http(s) URL.",
+    })
+    .optional(),
   PUBLIC_UNLOCK_PUBLIC_KEY: z.string(),
 });
 
@@ -31,7 +39,8 @@ const fallback = {
   PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID:
     "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
   PUBLIC_STELLAR_SIMULATION_ACCOUNT: "",
-  PUBLIC_CHAT_API_BASE: "https://secret-ai-gateway.onrender.com",
+  // No third-party AI default: an unset backend origin means same-origin.
+  PUBLIC_CHAT_API_BASE: "",
   PUBLIC_UNLOCK_PUBLIC_KEY: "",
 };
 
@@ -79,7 +88,8 @@ export const horizonUrl = env.PUBLIC_STELLAR_HORIZON_URL;
 export const promptHashContractId = env.PUBLIC_PROMPT_HASH_CONTRACT_ID;
 export const nativeAssetContractId = env.PUBLIC_STELLAR_NATIVE_ASSET_CONTRACT_ID;
 export const simulationAccount = env.PUBLIC_STELLAR_SIMULATION_ACCOUNT;
-export const chatApiBase = env.PUBLIC_CHAT_API_BASE;
+/** Backend origin for AI routes; "" means same-origin. No trailing slash. */
+export const chatApiBase = (env.PUBLIC_CHAT_API_BASE ?? "").replace(/\/+$/, "");
 export const unlockPublicKey = env.PUBLIC_UNLOCK_PUBLIC_KEY;
 export const allowHttp = new URL(rpcUrl).hostname === "localhost";
 

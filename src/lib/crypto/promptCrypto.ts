@@ -1,5 +1,6 @@
 import { Buffer } from "buffer";
 import sodium from "libsodium-wrappers";
+import { formatWrappedKey } from "./wrappedKeyFormat";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -263,19 +264,23 @@ export async function wrapPromptKey(
   );
 }
 
-/** Prepare the complete encrypted publish payload and its v1 plaintext commitment. */
+/**
+ * Prepare the complete encrypted publish payload and its v1 plaintext commitment.
+ *
+ * Pass `unlockKeyId` (the active key version from the backend) to tag the
+ * wrapped key with its version (#27). Omit it only for legacy-compatible output.
+ */
 export async function encryptAndWrapPromptPayload(
   plaintext: string,
   recipientPublicKeyBase64: string,
+  options: { unlockKeyId?: string } = {},
 ) {
   const encrypted = await encryptPromptPlaintext(plaintext);
+  const sealed = await wrapPromptKey(encrypted.keyBytes, recipientPublicKeyBase64);
   return {
     encryptedPrompt: encrypted.encryptedPrompt,
     encryptionIv: encrypted.encryptionIv,
-    wrappedKey: await wrapPromptKey(
-      encrypted.keyBytes,
-      recipientPublicKeyBase64,
-    ),
+    wrappedKey: options.unlockKeyId ? formatWrappedKey(options.unlockKeyId, sealed) : sealed,
     contentHash: encrypted.contentHash,
     contentHashAlgorithm: PROMPT_CONTENT_HASH_ALGORITHM,
     contentHashVersion: PROMPT_CONTENT_HASH_VERSION,

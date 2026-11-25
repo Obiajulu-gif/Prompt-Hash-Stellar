@@ -47,10 +47,45 @@ export const MODEL_CONFIG = {
   },
 };
 
+/**
+ * Raised when the backend's AI boundary is disabled or failing. `message` is
+ * safe to show to users; `code` is the backend's structured error code
+ * (e.g. AI_PROVIDER_NOT_CONFIGURED, AI_PROVIDER_TIMEOUT).
+ */
+export class AiUnavailableError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+
+  constructor(message: string, code: string, retryable: boolean) {
+    super(message);
+    this.name = "AiUnavailableError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+/** Backend AI routes live under the backend origin (same-origin when unset). */
+function aiGatewayBase(): string {
+  return `${chatApiBase}/api/chat/gateway`;
+}
+
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
   if (!response.ok) {
     const text = await response.text();
+    // Backend AI errors are structured JSON: { error, message, retryable }.
+    try {
+      const body = JSON.parse(text) as { error?: unknown; message?: unknown; retryable?: unknown };
+      if (typeof body.error === "string" && body.error.startsWith("AI_")) {
+        throw new AiUnavailableError(
+          typeof body.message === "string" ? body.message : "AI assistance is unavailable.",
+          body.error,
+          body.retryable === true,
+        );
+      }
+    } catch (err) {
+      if (err instanceof AiUnavailableError) throw err;
+    }
     throw new Error(text || `Request failed with status ${response.status}.`);
   }
 
@@ -59,7 +94,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 
 export async function getModels() {
   try {
-    return await fetchJson<{ models: string[] }>(`${chatApiBase}/api/models`);
+    return await fetchJson<{ models: string[] }>(`${aiGatewayBase()}/models`);
   } catch {
     return {
       models: [
@@ -72,10 +107,13 @@ export async function getModels() {
   }
 }
 
+/** True only when the backend reports the AI feature configured and reachable. */
 export async function checkHealth() {
   try {
-    const response = await fetch(`${chatApiBase}/api/health`);
-    return response.ok;
+    const response = await fetch(`${aiGatewayBase()}/health`);
+    if (!response.ok) return false;
+    const body = (await response.json()) as { status?: string };
+    return body.status === "ok";
   } catch {
     return false;
   }
@@ -86,7 +124,7 @@ export async function getChatResponse(
   model: AIModel = "gemini-2.5-flash",
 ) {
   return fetchJson<unknown>(
-    `${chatApiBase}/api/chat?prompt=${encodeURIComponent(prompt)}&model=${model}`,
+    `${aiGatewayBase()}?prompt=${encodeURIComponent(prompt)}&model=${encodeURIComponent(model)}`,
     {
       method: "GET",
       headers: {
@@ -124,7 +162,7 @@ export function localImprovePrompt(prompt: string) {
 
 export async function improvePrompt(prompt: string) {
   try {
-    const result = await fetchJson<unknown>(`${chatApiBase}/api/improve-prompt`, {
+    const result = await fetchJson<unknown>(`${chatApiBase}/api/improve-proxy`, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain",

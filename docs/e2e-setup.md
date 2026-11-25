@@ -80,3 +80,29 @@ Artifacts are under `playwright-report/` and `test-results/` after a failed run.
 - Do not introduce real time waits; use `expect(...).toBeVisible()` with `page.route` mocks.
 - Use `asOf` dates explicitly in any time-sensitive helper.
 - Do not call live `fetch` without a route mock; all `/api/*` and `*.stellar.org` traffic in tests must be mocked so `E2E_LIVE` remains the only opt-in for live runs.
+
+## Highest-risk journey and validation
+
+The buyer path (sign, settle, entitlement, unlock) is the highest-risk user flow
+because a failure there either blocks a paying buyer or releases paid content to
+the wrong account. The nine scenarios in `tests/e2e/buyer-journey.spec.js` are the
+gate for it: one happy path and eight failure, retry and recovery states.
+
+Run the suite locally (it starts the Vite dev server on port 5173 itself):
+
+```bash
+npm ci
+npx playwright install chromium   # first run only; matches the installed Playwright version
+npx playwright test tests/e2e/buyer-journey.spec.js --reporter=list
+```
+
+Actionable failures: a failing test prints the request or console error, and
+writes a screenshot, video and trace under `test-results/`. Open a trace with
+`npx playwright show-trace <trace.zip>`.
+
+**Regression this suite guards.** A frontend module exporting the same name twice
+(`xlmToStroopsBigInt` in `src/lib/checkout/priceQuoter.ts`) stopped the Vite dev
+server from serving any page. Every scenario then failed on `page.goto('/')` with
+`ERR_ABORTED`, and the log showed `Duplicate export of 'xlmToStroopsBigInt'`. If
+every scenario fails at navigation, check the Vite output in the `[WebServer]` log
+lines before you investigate the journey itself.

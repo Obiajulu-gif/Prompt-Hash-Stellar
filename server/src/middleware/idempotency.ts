@@ -6,11 +6,7 @@ import {
   replayStatus,
   validateIdempotencyKey,
 } from "../services/idempotencyService";
-import { serializeLogEntry } from "./correlation";
-
-function logDecision(level: "info" | "warn", event: string, fields: Record<string, unknown>) {
-  console[level](serializeLogEntry({ level, event, ...fields }));
-}
+import { logger } from "../services/structuredLogger";
 
 function errorResponse(res: Response, status: number, code: string, error: string) {
   return res.status(status).json({ code, error });
@@ -29,7 +25,7 @@ export function requireIdempotency(
   const key = req.get("Idempotency-Key");
   const keyError = validateIdempotencyKey(key);
   if (keyError) {
-    logDecision("info", "idempotency.key_invalid", {
+    logger.info("idempotency.key_invalid", {
       method: req.method,
       path: `${req.baseUrl}${req.path}`,
       reason: keyError,
@@ -47,7 +43,7 @@ export function requireIdempotency(
   void beginIdempotentRequest({ scope: storeScope, key: key as string, requestHash })
     .then((decision) => {
       if (decision.kind === "conflict") {
-        logDecision("warn", "idempotency.conflict", {
+        logger.warn("idempotency.conflict", {
           method: req.method,
           path: scope,
           requestHash,
@@ -56,7 +52,7 @@ export function requireIdempotency(
         return;
       }
       if (decision.kind === "expired") {
-        logDecision("warn", "idempotency.expired", {
+        logger.warn("idempotency.expired", {
           method: req.method,
           path: scope,
           requestHash,
@@ -65,7 +61,7 @@ export function requireIdempotency(
         return;
       }
       if (decision.kind === "in_progress") {
-        logDecision("info", "idempotency.in_progress", {
+        logger.info("idempotency.in_progress", {
           method: req.method,
           path: scope,
           requestHash,
@@ -74,7 +70,7 @@ export function requireIdempotency(
         return;
       }
       if (decision.kind === "replay") {
-        logDecision("info", "idempotency.replay", {
+        logger.info("idempotency.replay", {
           method: req.method,
           path: scope,
           requestHash,
@@ -106,7 +102,7 @@ export function requireIdempotency(
         return originalSend(body);
       }) as Response["send"];
       res.once("finish", () => {
-        logDecision("info", "idempotency.completed", {
+        logger.info("idempotency.completed", {
           method: req.method,
           path: scope,
           requestHash,

@@ -5,6 +5,7 @@ vi.mock("../services/auditTrail", () => ({ recordAuditEvent: vi.fn() }));
 
 import { abuseRiskGuard } from "../middleware/abuseRiskGuard.js";
 import { abuseActivityLedger, abuseReviewQueue } from "../services/abuseRiskScoring.js";
+import { stepUpVerificationStore } from "../services/stepUpVerification.js";
 
 const WALLET = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
@@ -44,6 +45,8 @@ describe("abuseRiskGuard middleware", () => {
   beforeEach(() => {
     abuseActivityLedger.reset();
     abuseReviewQueue.clear();
+    // Step-up proofs are process-wide; a verified earlier case must not leak into this one.
+    stepUpVerificationStore.reset();
   });
 
   it("passes ordinary requests straight through", () => {

@@ -57,6 +57,7 @@ import {
 } from "../services/idempotencyService";
 import IdempotencyRecord from "../models/IdempotencyRecord";
 import Purchase from "../models/Purchase";
+import User from "../models/User";
 import { updateWithVersionCheck } from "../models/VersionedRecord";
 import { RecordPurchase } from "../controllers/versioningControllers";
 import { UpdateWithVersionCheck } from "../controllers/concurrencyControllers";
@@ -353,12 +354,18 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     skip,
   }) => {
     if (!mongoUp) return skip();
-    promptMock.findById.mockResolvedValue({ currentVersionIndex: 1 });
+    // The controller reads Prompt.findById(...).select(...).lean(), and the buyer
+    // must exist as a User; seed both so the first write is a real purchase.
+    const owner = new mongoose.Types.ObjectId();
+    promptMock.findById.mockReturnValue({
+      select: () => ({ lean: async () => ({ _id: "prompt-2", owner, currentVersionIndex: 1 }) }),
+    });
+    await User.create({ walletAddress: "gbuyer" });
 
     const call = async () => {
       const res = mockRes();
       await RecordPurchase(
-        mockReq({ promptId: "prompt-2", buyerWallet: "gBuyer" }),
+        mockReq({ promptId: "prompt-2", walletAddress: "gBuyer" }),
         res,
       );
       return res;
@@ -382,7 +389,7 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
   }) => {
     if (!mongoUp) return skip();
     const res = mockRes();
-    await RecordPurchase(mockReq({ promptId: "prompt-x" }), res); // no buyerWallet
+    await RecordPurchase(mockReq({ promptId: "prompt-x" }), res); // no walletAddress
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/required/i);
     expect(await Purchase.countDocuments({})).toBe(0);
@@ -390,10 +397,11 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
 
   it("404s an unknown prompt without creating a purchase", async ({ skip }) => {
     if (!mongoUp) return skip();
-    promptMock.findById.mockResolvedValue(null);
+    promptMock.findById.mockReturnValue({ select: () => ({ lean: async () => null }) });
+    await User.create({ walletAddress: "gbuyer" });
     const res = mockRes();
     await RecordPurchase(
-      mockReq({ promptId: "missing", buyerWallet: "gbuyer" }),
+      mockReq({ promptId: "missing", walletAddress: "gbuyer" }),
       res,
     );
     expect(res.statusCode).toBe(404);
