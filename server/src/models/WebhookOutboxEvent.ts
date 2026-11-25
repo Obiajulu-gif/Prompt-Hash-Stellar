@@ -23,7 +23,12 @@ const webhookOutboxEventSchema = new mongoose.Schema(
       default: "pending",
       index: true,
     },
+    // Counts delivery attempts that reached the subscriber (the retry budget).
     attempts: { type: Number, default: 0 },
+    // Counts checks made while the subscription was switched off. Tracked
+    // separately so an inactive subscriber never burns the retry budget, but
+    // bounded so the row cannot poll forever (see webhookOutboxWorker).
+    inactiveDeferrals: { type: Number, default: 0 },
     nextAttemptAt: { type: Date, default: () => new Date(), index: true },
     // Distributed-lease fields, mirroring the compare-and-swap pattern used
     // by the Soroban indexer (`IndexerState`) — only the worker whose
