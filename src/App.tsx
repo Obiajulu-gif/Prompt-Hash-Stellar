@@ -26,12 +26,14 @@ const AdminConfigPage = lazy(
 const AdminDisputesPage = lazy(() => import("./pages/admin/Disputes.tsx"));
 
 import { OfflineBanner } from "./components/OfflineBanner";
+import { DegradedDependencyBanner } from "./components/DegradedDependencyBanner";
 
 const AppLayout = () => {
   const location = useLocation();
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <OfflineBanner />
+      <DegradedDependencyBanner />
       <AnimatePresence mode="wait">
         <PageTransition key={location.pathname}>
           <Outlet />

@@ -37,9 +37,37 @@ const DEFAULT_MESSAGES: Record<ThirdPartyService, Record<ServiceDegradationStatu
 
 class DegradedServiceFallbackManager {
   private states: Map<ThirdPartyService, ServiceState> = new Map();
+  private listeners: Set<() => void> = new Set();
 
   constructor() {
     this.reset();
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch (err) {
+        logger.error({ err }, "Error in fallback status subscriber listener");
+      }
+    }
+  }
+
+  public getAllStates(): ServiceState[] {
+    return Array.from(this.states.values());
+  }
+
+  public getDegradedServices(): ServiceState[] {
+    return Array.from(this.states.values()).filter(
+      (s) => s.status === "degraded" || s.status === "unavailable"
+    );
   }
 
   public reset(): void {
@@ -51,6 +79,7 @@ class DegradedServiceFallbackManager {
         lastUpdated: new Date().toISOString(),
       });
     }
+    this.notify();
   }
 
   public setServiceStatus(
@@ -69,6 +98,7 @@ class DegradedServiceFallbackManager {
     });
 
     if (previousStatus !== status) {
+      this.notify();
       if (status === "healthy") {
         metrics.emit("service_recovered", 1, { service, previousStatus });
         logger.info({ service, previousStatus }, `Third-party service ${service} recovered to healthy`);

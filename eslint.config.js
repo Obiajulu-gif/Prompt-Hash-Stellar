@@ -11,6 +11,7 @@ export default tseslint.config(
     "src/pages/Debugger.tsx",
     "src/contracts/*",
     "!src/contracts/util.ts",
+    "server/**",
   ]),
   {
     extends: [

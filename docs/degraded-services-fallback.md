@@ -24,3 +24,19 @@ Fallback state transitions and action blockages emit structured observability ev
 - `fallback_activated`: Emitted when a service enters `degraded` or `unavailable` state.
 - `service_recovered`: Emitted when a service returns to `healthy` status.
 - `critical_action_blocked`: Emitted when a user action is safely blocked due to service unavailability.
+
+## User-Facing Degraded Dependency Status (#1144)
+
+The frontend provides real-time, user-safe visibility into degraded dependency states via `DegradedDependencyBanner` and `useDegradedServiceStatus`:
+
+### Behavior & Paths
+- **Normal Path**: When all monitored dependencies (`ipfs`, `stellar_rpc`, `safety_scanner`) are healthy, no banner is rendered, and all marketplace operations proceed normally.
+- **Failure Path (Degraded / Unavailable)**: When any dependency becomes degraded or unavailable, a prominent, accessible notification banner renders:
+  - **Degraded**: Amber status banner with user-safe explanation and guidance (e.g. extended RPC transaction windows).
+  - **Unavailable**: Rose/critical status banner informing users that critical mutating or financial operations are safely paused, while non-critical browsing remains functional.
+- **Retry Path**: The banner includes a "Retry" button that polls service health probes and automatically clears the warning once dependencies recover.
+- **Authorization / Privacy Path**: The component renders strictly pre-approved, safe customer copy from `DEFAULT_MESSAGES`. Raw error messages, internal IP addresses, stack traces, and database or RPC credentials are never surfaced to the client DOM.
+
+### Rollback & Migration
+- The banner is self-contained. To disable or roll back, simply remove `<DegradedDependencyBanner />` from `src/App.tsx`.
+- No database migrations or contract changes are required. Existing contracts and APIs remain completely backward-compatible.
