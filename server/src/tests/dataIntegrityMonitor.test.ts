@@ -6,29 +6,47 @@ vi.mock("../db/connectDb", () => ({
 }));
 
 // Mock mongoose models
+// `find()` is awaited through `.select(...).lean()` in the service, so the
+// mocked query has to be chainable *and* awaitable.
+function findQuery(value: any = []) {
+  const query: any = {
+    select: () => query,
+    sort: () => query,
+    limit: () => query,
+    lean: () => Promise.resolve(value),
+    then: (onFulfilled: any, onRejected: any) =>
+      Promise.resolve(value).then(onFulfilled, onRejected),
+  };
+  return query;
+}
+
 vi.mock("../models/Prompt", () => {
   const m: any = {
-    find: vi.fn(),
+    find: vi.fn(() => findQuery([])),
     findOne: vi.fn(),
     aggregate: vi.fn(),
     countDocuments: vi.fn(),
     exists: vi.fn(),
   };
-  return m;
+  return { default: m, ...m };
 });
 
 vi.mock("../models/User", () => {
   const m: any = {
     exists: vi.fn(),
   };
-  return m;
+  return { default: m, ...m };
 });
 
 import { runDataIntegrityCheck, generateRemediationGuidance } from "../services/dataIntegrityMonitor";
+import Prompt from "../models/Prompt";
+import User from "../models/User";
 
 describe("Data Integrity Monitor", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    (Prompt.aggregate as any).mockResolvedValue([]);
+    (Prompt.find as any).mockReturnValue(findQuery([]));
   });
 
   describe("runDataIntegrityCheck", () => {
@@ -60,7 +78,7 @@ describe("Data Integrity Monitor", () => {
       (Prompt.countDocuments as any).mockResolvedValue(50);
 
       // Mock: one prompt with orphaned owner reference
-      (Prompt.find as any).mockResolvedValue([
+      (Prompt.find as any).mockReturnValue(findQuery([
         {
           _id: "prompt-orphan-1",
           onChainId: "oc-1",
@@ -69,7 +87,7 @@ describe("Data Integrity Monitor", () => {
           isActive: true,
           category: "Other",
         },
-      ]);
+      ]));
 
       // Mock: User.exists returns false for the orphaned user
       (User.exists as any).mockResolvedValueOnce(false);
@@ -104,16 +122,16 @@ describe("Data Integrity Monitor", () => {
       (Prompt.countDocuments as any).mockResolvedValue(50);
 
       // Mock: stale prompts found
-      (Prompt.find as any).mockResolvedValueOnce([
+      (Prompt.find as any).mockReturnValue(findQuery([
         {
           _id: "prompt-stale-1",
           onChainId: "oc-stale-1",
           title: "Stale Prompt",
           isActive: true,
           lifecycleState: "published",
-          updatedAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString(), // 400 days ago
+          updatedAt: new Date(Date.now() - 800 * 24 * 60 * 60 * 1000).toISOString(), // 800 days ago
         },
-      ]);
+      ]));
 
       const report = await runDataIntegrityCheck();
 
@@ -125,7 +143,7 @@ describe("Data Integrity Monitor", () => {
       (Prompt.countDocuments as any).mockResolvedValue(50);
 
       // Mock: prompts with various inconsistencies
-      (Prompt.find as any).mockResolvedValueOnce([
+      (Prompt.find as any).mockReturnValue(findQuery([
         {
           _id: "prompt-incons-1",
           onChainId: "oc-incons-1",
@@ -142,7 +160,7 @@ describe("Data Integrity Monitor", () => {
           price: 10,
           category: "Art",
         },
-      ]);
+      ]));
 
       const report = await runDataIntegrityCheck();
 

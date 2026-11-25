@@ -14,7 +14,7 @@ import { logger } from "../services/structuredLogger";
 /**
  * Extract actor metadata from request.
  */
-function extractActorMetadata(req: Request): {
+export function extractActorMetadata(req: Request): {
   actorType: "user" | "system" | "service" | "admin";
   actorId: string;
   actorName?: string;

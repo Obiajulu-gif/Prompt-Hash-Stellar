@@ -31,6 +31,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { isDeepStrictEqual } from "node:util";
 import { DomainInvariantsService } from "../services/domainInvariants";
 
 // ─── Shared in-memory helpers ────────────────────────────────────────────────
@@ -66,7 +67,9 @@ async function atomicConditionalUpdate<T>(
   jitterMs = 5,
 ): Promise<{ updated: boolean }> {
   await jitter(jitterMs);
-  if (store.get(key) !== expectedValue) {
+  // Structural comparison: the stored value may be an array/object copy, and a
+  // reference check would make every racer look stale.
+  if (!isDeepStrictEqual(store.get(key), expectedValue)) {
     throw new StaleVersionError(key, expectedValue, store.get(key));
   }
   store.set(key, newValue);

@@ -106,7 +106,7 @@ export async function applyDisputeTransition(
   input: DisputeTransitionInput,
 ): Promise<DisputeTransitionResult> {
   const rule = DISPUTE_TRANSITIONS[input.event];
-  const key = { promptId: String(input.promptId), buyerWallet: input.buyerWallet.toLowerCase() };
+  const key = { promptId: String(input.promptId), buyerWallet: String(input.buyerWallet).toLowerCase() };
   const actor = input.actor ?? "system";
   const now = new Date();
 

@@ -44,6 +44,8 @@ export function walletSessionSecret(): string | null {
 export function normalizeWallet(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const wallet = value.trim().toUpperCase();
+  // A Stellar StrKey is 56 characters: the 'G' version byte plus 55 base32
+  // payload/checksum characters.
   return /^G[A-Z2-7]{55}$/.test(wallet) ? wallet : null;
 }
 

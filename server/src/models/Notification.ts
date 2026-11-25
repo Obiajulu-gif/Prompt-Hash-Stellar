@@ -34,7 +34,14 @@ export type NotificationType =
   | "security_alert"
   | "account_lifecycle"
   | "entitlement_update"
-  | "support_access_notice";
+  | "support_access_notice"
+  | "purchase_confirmed"
+  | "payout_available"
+  | "dispute_opened"
+  | "dispute_resolved"
+  | "moderation_action"
+  | "ownership_transfer"
+  | "system";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "prompt_update",
@@ -43,6 +50,13 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "account_lifecycle",
   "entitlement_update",
   "support_access_notice",
+  "purchase_confirmed",
+  "payout_available",
+  "dispute_opened",
+  "dispute_resolved",
+  "moderation_action",
+  "ownership_transfer",
+  "system",
 ];
 
 /**
@@ -55,6 +69,13 @@ export const MANDATORY_NOTIFICATION_TYPES: NotificationType[] = [
   "account_lifecycle",
   "entitlement_update",
   "support_access_notice",
+  "purchase_confirmed",
+  "payout_available",
+  "dispute_opened",
+  "dispute_resolved",
+  "moderation_action",
+  "ownership_transfer",
+  "system",
 ];
 
 export const OPTIONAL_NOTIFICATION_TYPES: NotificationType[] =

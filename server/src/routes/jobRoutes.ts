@@ -84,14 +84,14 @@ jobRouter.get("/dead-letter", requireAdminScope("jobs:read"), async (_req, res) 
 });
 
 jobRouter.get("/:id", requireAdminScope("jobs:read"), async (req, res) => {
-  const job = await getJobById(req.params.id);
+  const job = await getJobById(String(req.params.id));
   if (!job) return res.status(404).json({ error: "Job not found" });
   res.json(job);
 });
 
 jobRouter.post("/:id/requeue", requireAdminScope("jobs:write"), async (req, res) => {
   try {
-    const job = await requeueDeadLetter(req.params.id);
+    const job = await requeueDeadLetter(String(req.params.id));
     res.json(job);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

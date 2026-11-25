@@ -20,6 +20,26 @@ export function requireIdempotency(
   req: Request,
   res: Response,
   next: NextFunction,
+): void {
+  runIdempotencyGate(req, res, next);
+}
+
+/**
+ * Same gate, but scoped to an authenticated actor so two callers reusing the
+ * same key never share a record. Kept as a separate factory because Express
+ * detects error-handling middleware by arity: a 4-parameter handler is skipped
+ * in normal dispatch, which silently disabled the gate (#1041).
+ */
+export function requireIdempotencyForActor(
+  actor: string | undefined,
+): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next) => runIdempotencyGate(req, res, next, actor);
+}
+
+function runIdempotencyGate(
+  req: Request,
+  res: Response,
+  next: NextFunction,
   actor?: string,
 ): void {
   const key = req.get("Idempotency-Key");

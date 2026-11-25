@@ -15,6 +15,7 @@ import {
   getBulkImportStatus,
   listBulkImports,
 } from "../controllers/bulkImportController";
+import { verifyImportAttestationHandler } from "../controllers/importAttestationController";
 
 /**
  * Prompt provenance graph (#753).
@@ -83,8 +84,9 @@ provenanceRouter.post(
             parentOnChainId: req.body?.relatedPromptId,
             relationKind: req.body?.kind,
             actor: {
-              walletAddress: req.sessionWallet,
-              timestamp: new Date(),
+              actorType: "user",
+              actorId: req.sessionWallet ?? "anonymous",
+              actorWallet: req.sessionWallet,
             },
             transformationType: req.body?.transformationType,
             transformDetails: req.body?.transformDetails,
@@ -118,6 +120,15 @@ provenanceRouter.delete(
       handleProvenanceError(res, err);
     }
   },
+);
+
+// ── Cryptographic Import Provenance (#1206) ─────────────────────────────────
+// POST /api/provenance/imports/verify — verify a stored import attestation
+// (admin; read-only; requires IMPORT_PROVENANCE_SIGNING_KEY on the server)
+provenanceRouter.post(
+  "/imports/verify",
+  requireAdminScope("provenance:read"),
+  verifyImportAttestationHandler,
 );
 
 // ── Bulk Import Routes (Issue #929) ──────────────────────────────────────────
@@ -154,7 +165,7 @@ provenanceRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const record = await provenanceService.provenanceService.getProvenanceByPromptId(req.params.promptId);
+      const record = await provenanceService.provenanceService.getProvenanceByPromptId(String(req.params.promptId));
       if (!record) {
         return res.status(404).json({ error: "Provenance record not found" });
       }
@@ -170,7 +181,7 @@ provenanceRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const prompts = await provenanceService.provenanceService.getBatchPrompts(req.params.batchId);
+      const prompts = await provenanceService.provenanceService.getBatchPrompts(String(req.params.batchId));
       res.json({ batchId: req.params.batchId, count: prompts.length, prompts });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch batch prompts" });
@@ -183,7 +194,7 @@ provenanceRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const lineage = await provenanceService.provenanceService.getLineage(req.params.promptId);
+      const lineage = await provenanceService.provenanceService.getLineage(String(req.params.promptId));
       res.json(lineage);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch lineage" });
@@ -196,7 +207,7 @@ provenanceRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const derivatives = await provenanceService.provenanceService.getDerivatives(req.params.promptId);
+      const derivatives = await provenanceService.provenanceService.getDerivatives(String(req.params.promptId));
       res.json({ promptId: req.params.promptId, count: derivatives.length, derivatives });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch derivatives" });
@@ -239,7 +250,7 @@ provenanceRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const derivatives = await provenanceService.getDerivativesWithProvenance(req.params.promptId);
+      const derivatives = await provenanceService.getDerivativesWithProvenance(String(req.params.promptId));
       res.json({ 
         promptId: req.params.promptId, 
         count: derivatives.length, 
@@ -262,7 +273,9 @@ provenanceRouter.post(
         ...req.body,
         actor: {
           ...req.body.actor,
-          walletAddress: req.sessionWallet,
+          actorWallet: req.sessionWallet,
+          actorId: req.sessionWallet ?? "anonymous",
+          actorType: "user",
         },
       });
       res.status(201).json(result);
@@ -303,8 +316,9 @@ provenanceRouter.post(
         ...req.body,
         actor: {
           ...req.body.actor,
-          walletAddress: req.sessionWallet,
-          timestamp: new Date(),
+          actorWallet: req.sessionWallet,
+          actorId: req.sessionWallet ?? "anonymous",
+          actorType: "user",
         },
       });
       res.json(result);
@@ -347,7 +361,7 @@ provenanceRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const history = await provenanceService.getUpdateHistory(req.params.promptId);
+      const history = await provenanceService.getUpdateHistory(String(req.params.promptId));
       res.json(history);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch update history" });

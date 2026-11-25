@@ -6,7 +6,7 @@ import { Router, Response } from "express";
 import connectDb from "../db/connectDb";
 import { authLimiter } from "../middleware/rateLimiter";
 import { requireAdminScope, type AdminRequest } from "../middleware/adminAuth";
-import { requireIdempotency } from "../middleware/idempotency";
+import { requireIdempotencyForActor } from "../middleware/idempotency";
 import {
   runUserExport,
   listUserExports,
@@ -81,7 +81,7 @@ exportRouter.post(
   "/",
   authLimiter,
   requireAdminScope("exports:write"),
-  (req: AdminRequest, res, next) => requireIdempotency(req, res, next, req.admin?.sub),
+  (req: AdminRequest, res, next) => requireIdempotencyForActor(req.admin?.sub)(req, res, next),
   async (req: AdminRequest, res: Response) => {
     try {
       await connectDb();

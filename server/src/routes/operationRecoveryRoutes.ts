@@ -40,7 +40,7 @@ operationRecoveryRouter.get(
  * Retrieve recovery status and deterministic plan for an operation.
  */
 operationRecoveryRouter.get("/:operationId", async (req: Request, res: Response) => {
-  const { operationId } = req.params;
+  const { operationId } = req.params as Record<string, string>;
 
   if (!operationId) {
     return res.status(400).json({ error: "operationId is required" });
@@ -64,7 +64,7 @@ operationRecoveryRouter.get("/:operationId", async (req: Request, res: Response)
  * User-initiated retry for a stuck or recoverable operation.
  */
 operationRecoveryRouter.post("/:operationId/retry", requireIdempotency, async (req: Request, res: Response) => {
-  const { operationId } = req.params;
+  const { operationId } = req.params as Record<string, string>;
   const userWallet =
     (req.headers["x-wallet-address"] as string) ||
     req.body?.userWallet ||
@@ -100,7 +100,7 @@ operationRecoveryRouter.post(
   requireAdminScope("support:write"),
   requireIdempotency,
   async (req: Request, res: Response) => {
-    const { operationId } = req.params;
+    const { operationId } = req.params as Record<string, string>;
     const { action, reason } = req.body;
 
     if (!operationId) {

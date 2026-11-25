@@ -22,7 +22,7 @@ export const ResolvePromptPermalink = async (
   try {
     await connectDb();
 
-    const identifier = req.params.identifier || (req.query.identifier as string);
+    const identifier = String(req.params.identifier ?? req.query.identifier ?? "");
     if (!identifier) {
       return res.status(400).json({ error: "Record identifier or slug is required." });
     }
@@ -35,7 +35,7 @@ export const ResolvePromptPermalink = async (
     const isAdmin = Boolean((req as any).admin);
     const role = isAdmin ? "admin" : undefined;
 
-    const result = await resolvePermalink(identifier, { viewerWallet, role });
+    const result = await resolvePermalink(identifier, { viewerWallet, role: role as "admin" | undefined });
 
     // Handle 301 Permanent Redirect for renamed records
     if (result.status === "redirect") {
@@ -79,7 +79,7 @@ export const RenamePromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const { newTitle, reason, walletAddress } = req.body;
 
     if (!promptId) {
@@ -124,7 +124,7 @@ export const ArchivePromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const { reason, walletAddress } = req.body;
 
     const updated = await archiveRecord({
@@ -161,7 +161,7 @@ export const RestorePromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const { reason, walletAddress } = req.body;
 
     const updated = await restoreRecord({
@@ -197,7 +197,7 @@ export const RestrictPromptRecord = async (
   try {
     await connectDb();
 
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const { reason, notes, moderatorWallet } = req.body;
 
     const updated = await restrictRecord({

@@ -805,6 +805,12 @@ export async function verifyExternalEvidence(
     options.store.findByNonce(envelope.issuer, envelope.nonce),
   );
   if (nonceOwner) {
+    // A concurrent identical import can lose the insert race: the other
+    // verifier stored this same envelope, so collapse into that record instead
+    // of reporting its nonce as reused.
+    if (nonceOwner.fingerprint === fingerprint) {
+      return toVerified(nonceOwner, true);
+    }
     throw new ExternalEvidenceError(
       "nonce_reuse",
       `Nonce "${envelope.nonce}" was already used by evidence "${nonceOwner.evidenceId}".`,

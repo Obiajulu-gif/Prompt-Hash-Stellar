@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { supportCaseService } from "../services/supportCaseService.js";
 import SupportCase from "../models/SupportCase.js";
+import { setupRealMongo, teardownRealMongo } from "./helpers/realMongo";
 
 describe("SupportCaseService", () => {
+  beforeAll(async () => {
+    await setupRealMongo();
+  });
+
+  afterAll(async () => {
+    await teardownRealMongo();
+  });
+
   beforeEach(async () => {
     await SupportCase.deleteMany({});
   });

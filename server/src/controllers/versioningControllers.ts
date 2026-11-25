@@ -5,6 +5,7 @@ import PromptVersion from "../models/PromptVersion";
 import Purchase from "../models/Purchase";
 import User from "../models/User";
 import { deliverNotification } from "../services/notificationRouting";
+import { invalidatePromptCaches } from "../services/cacheService";
 
 /**
  * Authorization matrix for prompt lifecycle operations.
@@ -103,7 +104,7 @@ export async function resolveActor(
     return { actor: "anonymous", user: null };
   }
 
-  const normalized = walletAddress.toLowerCase();
+  const normalized = String(walletAddress).toLowerCase();
   const user = await User.findOne({ walletAddress: normalized });
   if (!user) {
     return { actor: "anonymous", user: null };
@@ -194,7 +195,7 @@ export const PostPromptUpdate = async (req: Request, res: Response): Promise<Res
       versionIndex: nextVersion,
       content,
       changeNote: changeNote ?? "",
-      createdBy: walletAddress.toLowerCase(),
+      createdBy: String(walletAddress).toLowerCase(),
     });
 
     await Prompt.findByIdAndUpdate(prompt._id, {
@@ -244,7 +245,7 @@ import {
 export const GetPromptVersions = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     if (!promptId) return res.status(400).json({ error: "promptId is required." });
 
     let limit = 20;
@@ -316,13 +317,16 @@ export const GetPromptVersions = async (req: Request, res: Response): Promise<Re
 export const GetBuyerVersion = async (req: Request, res: Response): Promise<Response> => {
   try {
     await connectDb();
-    const { promptId, versionIndex } = req.params;
+    const { promptId, versionIndex } = req.params as Record<string, string>;
     const walletAddress = req.body?.walletAddress ?? req.query?.walletAddress;
     if (!promptId) {
       return res.status(400).json({ error: "promptId is required." });
     }
+    if (typeof walletAddress !== "string" || !walletAddress) {
+      return res.status(400).json({ error: "promptId and walletAddress are required." });
+    }
 
-    const { actor } = await resolveActor(typeof walletAddress === "string" ? walletAddress : null, {
+    const { actor } = await resolveActor(walletAddress, {
       promptId: String(promptId),
       requiredOperation: "getBuyerVersion",
     });
@@ -376,6 +380,14 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
     }
 
     const existing = await Purchase.findOne({ promptId: String(promptId), buyerWallet: normalized }).lean();
+    if (!existing) {
+      await Purchase.create({
+        promptId: String(promptId),
+        buyerWallet: normalized,
+        // The licence covers the prompt version that was live at purchase time.
+        versionIndex: Number((prompt as any).currentVersionIndex ?? 1),
+        txHash: txHash ?? "",
+      });
     if (existing) {
       // Re-submission: the first write already created the single entitlement row.
       return res.status(200).json({ message: "Already purchased; no new purchase recorded." });
@@ -481,10 +493,4 @@ export const AdministrativeAction = async (req: Request, res: Response): Promise
 
 function currentPromptSchemaVersion(): number {
   return 2;
-}
-
-async function invalidatePromptCaches(_key: string): Promise<void> {
-  // Cache invalidation is handled by the cache layer; this hook exists so
-  // controllers can remain agnostic of the cache backend.
-  return;
 }

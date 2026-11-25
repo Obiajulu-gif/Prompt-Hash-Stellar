@@ -22,7 +22,7 @@ staleCacheRouter.get(
 
       const sourceVersions: Record<string, string | number> = {};
       for (let i = 0; i < keyList.length; i++) {
-        sourceVersions[keyList[i]] = versionList[i] ?? "1";
+        sourceVersions[String(keyList[i])] = String(versionList[i] ?? "1");
       }
 
       const report = await detectStaleCache(sourceVersions);
@@ -42,9 +42,9 @@ staleCacheRouter.get(
   requireAdminScope("health:read"),
   async (req, res) => {
     try {
-      const { promptId } = req.params;
-      const version = req.query.version ?? "1";
-      const sourceVersions = buildPromptSourceVersions(promptId, version);
+      const { promptId } = req.params as Record<string, string>;
+      const version = typeof req.query.version === "string" ? req.query.version : "1";
+      const sourceVersions = buildPromptSourceVersions(promptId, String(version));
       const report = await detectStaleCache(sourceVersions);
       res.json({ success: true, promptId, report });
     } catch (err: any) {

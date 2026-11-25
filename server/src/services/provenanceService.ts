@@ -458,7 +458,30 @@ class ProvenanceService {
     actorId?: string;
   }): Promise<any> {
     try {
-      return await ProvenanceRecord.getImportStats(params);
+      const match: Record<string, unknown> = {};
+      if (params.sourceType) match.sourceType = params.sourceType;
+      if (params.actorId) match["actor.actorId"] = params.actorId;
+      if (params.startDate || params.endDate) {
+        match.createdAt = {
+          ...(params.startDate ? { $gte: params.startDate } : {}),
+          ...(params.endDate ? { $lte: params.endDate } : {}),
+        };
+      }
+      const rows = await ProvenanceRecord.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: "$sourceType",
+            count: { $sum: 1 },
+            lastImportedAt: { $max: "$createdAt" },
+          },
+        },
+        { $sort: { count: -1 } },
+      ]);
+      return {
+        total: rows.reduce((sum: number, row: { count: number }) => sum + row.count, 0),
+        bySourceType: rows,
+      };
     } catch (error) {
       logger.error("Failed to get import statistics", { error, params });
       throw error;
@@ -548,7 +571,8 @@ export async function trackDerivedPrompt(params: {
     const transformations: Partial<ITransformMetadata>[] = [
       {
         transformType,
-        timestamp: new Date(),
+        transformTimestamp: new Date(),
+        transformVersion: "1.0",
         actor,
         details: transformDetails || `Derived from prompt ${parentOnChainId || parentPromptId} via ${relationKind}`,
       },
@@ -557,24 +581,24 @@ export async function trackDerivedPrompt(params: {
     // If parent has provenance, inherit some metadata
     const sourceSystem: ISourceSystem = parentProvenance
       ? {
-          name: parentProvenance.sourceSystem.name,
-          version: parentProvenance.sourceSystem.version,
-          identifier: `derived_from_${parentOnChainId || parentPromptId}`,
+          systemName: parentProvenance.sourceSystem.systemName,
+          systemVersion: parentProvenance.sourceSystem.systemVersion,
+          externalId: `derived_from_${parentOnChainId || parentPromptId}`,
         }
       : {
-          name: "PromptHash Platform",
-          version: "1.0",
-          identifier: `derived_from_${parentOnChainId || parentPromptId}`,
+          systemName: "PromptHash Platform",
+          systemVersion: "1.0",
+          externalId: `derived_from_${parentOnChainId || parentPromptId}`,
         };
 
-    const provenanceRecord = await createProvenanceRecord({
+    const provenanceRecord = await provenanceService.createProvenanceRecord({
       promptId,
       onChainId,
-      sourceType: "BLOCKCHAIN", // Derived prompts typically come from on-chain parents
+      sourceType: "system", // Derived from an on-chain parent prompt
       sourceSystem,
       transformations,
       actor,
-      parentRecordId: parentProvenance ? String(parentProvenance._id) : undefined,
+      parentProvenanceId: parentProvenance ? String(parentProvenance._id) : undefined,
     });
 
     // 4. Update the prompt with provenance reference
@@ -582,7 +606,7 @@ export async function trackDerivedPrompt(params: {
       $set: {
         provenanceRecordId: provenanceRecord._id,
         provenanceSource: "BLOCKCHAIN",
-        provenanceActorId: actor.userId || actor.walletAddress,
+        provenanceActorId: actor.actorId || actor.actorWallet,
         hasProvenance: true,
       },
     });
@@ -597,7 +621,7 @@ export async function trackDerivedPrompt(params: {
         $set: {
           kind: relationKind,
           origin: "creator",
-          declaredBy: actor.walletAddress?.toLowerCase(),
+          declaredBy: actor.actorWallet?.toLowerCase(),
         },
       },
       { upsert: true, new: true },
@@ -605,9 +629,10 @@ export async function trackDerivedPrompt(params: {
 
     // 6. Record audit event
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
+      actor: actor.actorWallet || actor.actorId || "system",
       action: "prompt.derived",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      promptId,
       metadata: {
         parentPromptId,
         relationKind,
@@ -751,7 +776,7 @@ export async function getDerivativesWithProvenance(
   const sanitizedDerivatives: any[] = [];
   for (const item of derivativeMap.values()) {
     const doc = promptDocMap.get(item.promptId) || (item.onChainId ? promptDocMap.get(item.onChainId) : null);
-    const visEval = evaluateVisibility(doc, viewerContext);
+    const visEval = evaluateVisibility(doc, viewerContext as any);
 
     if (visEval.isPublic) {
       sanitizedDerivatives.push({
@@ -816,14 +841,14 @@ export async function trackPromptUpdate(params: {
         promptId,
       });
 
-      provenance = await createProvenanceRecord({
+      provenance = await provenanceService.createProvenanceRecord({
         promptId,
         onChainId,
-        sourceType: "MANUAL_ENTRY",
+        sourceType: "manual",
         sourceSystem: {
-          name: "PromptHash Platform",
-          version: "1.0",
-          identifier: `prompt_${onChainId || promptId}`,
+          systemName: "PromptHash Platform",
+          systemVersion: "1.0",
+          externalId: `prompt_${onChainId || promptId}`,
         },
         actor,
       });
@@ -832,7 +857,8 @@ export async function trackPromptUpdate(params: {
     // 2. Add transformation to the provenance record
     const transformation: Partial<ITransformMetadata> = {
       transformType: updateType,
-      timestamp: new Date(),
+      transformVersion: "1.0",
+      transformTimestamp: new Date(),
       actor,
       details: updateDetails,
       metadata: {
@@ -851,9 +877,10 @@ export async function trackPromptUpdate(params: {
 
     // 4. Record audit event
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
+      actor: actor.actorWallet || actor.actorId || "system",
       action: "prompt.updated",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      promptId,
       metadata: {
         updateType,
         changedFields,
@@ -922,9 +949,10 @@ export async function archiveProvenance(params: {
     await provenance.save();
 
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
+      actor: actor.actorWallet || actor.actorId || "system",
       action: "prompt.archived",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      promptId,
       metadata: {
         reason,
         provenanceRecordId: String(provenance._id),
@@ -983,9 +1011,10 @@ export async function restoreProvenance(params: {
     await provenance.save();
 
     await recordAuditEvent({
-      actor: actor.walletAddress || actor.userId || "system",
+      actor: actor.actorWallet || actor.actorId || "system",
       action: "prompt.restored",
-      resource: `prompt:${promptId}`,
+      result: "success",
+      promptId,
       metadata: {
         provenanceRecordId: String(provenance._id),
       },
@@ -1041,10 +1070,10 @@ export async function getUpdateHistory(promptId: string): Promise<{
   ];
 
   const updates = provenance.transformations
-    .filter((t) => updateTransforms.includes(t.transformType))
-    .map((t) => ({
+    .filter((t: any) => updateTransforms.includes(t.transformType))
+    .map((t: any) => ({
       transformType: t.transformType,
-      timestamp: t.timestamp,
+      timestamp: t.transformTimestamp,
       actor: t.actor,
       details: t.details,
       metadata: t.metadata,
@@ -1053,7 +1082,7 @@ export async function getUpdateHistory(promptId: string): Promise<{
   return {
     promptId,
     totalUpdates: updates.length,
-    updates: updates.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
+    updates: updates.sort((a: any, b: any) => b.timestamp.getTime() - a.timestamp.getTime()),
   };
 }
 

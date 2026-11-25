@@ -21,6 +21,7 @@ import {
 } from "../../../packages/schema/src/visibility.js";
 
 import { logger } from "./structuredLogger.js";
+import type { AuditAction } from "../models/AuditLog";
 import { recordAuditEvent } from "./auditTrail.js";
 import { cacheDel } from "./cacheService.js";
 
@@ -141,7 +142,10 @@ export function filterVisiblePrompts<T extends Record<string, any>>(
 
   for (const record of records) {
     const enforcement = enforceRecordVisibility(record, viewer);
-    if (enforcement.allowed && enforcement.record) {
+    // Listings (search, discovery, marketplace) only surface publicly visible
+    // records. Archived prompts stay readable through their direct permalink
+    // tombstone, so `canAccess` alone would leak them into result lists.
+    if (enforcement.allowed && enforcement.record && evaluateVisibility(record, viewer).isPublic) {
       results.push(enforcement.record);
     }
   }
@@ -283,7 +287,7 @@ export async function logVisibilityViolation(params: {
 }): Promise<void> {
   try {
     await recordAuditEvent({
-      action: params.action,
+      action: params.action as AuditAction,
       result: "denied",
       promptId: params.promptId,
       walletAddress: params.attemptedBy || null,

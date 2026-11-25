@@ -57,7 +57,7 @@ describe("DuplicateMergeReviewService (#1130)", () => {
       const variantPrompt: DuplicatePromptRecord = {
         id: "p-004",
         title: "SEO Keyword Prompt",
-        content: "Generate 10 high-ranking keywords for a B2B SaaS web site.",
+        content: "Generate 10 high-ranking keywords for a B2B SaaS company website.",
         version: 1,
         visible: true,
         createdAt: new Date("2026-01-04T00:00:00Z"),

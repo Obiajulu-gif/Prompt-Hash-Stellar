@@ -50,7 +50,7 @@ export const AcceptInvitation = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { invitationId } = req.params;
+    const { invitationId } = req.params as Record<string, string>;
     const { inviteeWallet, currentRole } = req.body;
 
     if (!inviteeWallet) {
@@ -84,7 +84,7 @@ export const RevokeInvitation = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { invitationId } = req.params;
+    const { invitationId } = req.params as Record<string, string>;
     const { revokerWallet } = req.body;
 
     if (!revokerWallet) {
@@ -117,7 +117,7 @@ export const ListInvitations = async (
   res: Response,
 ): Promise<Response<any>> => {
   try {
-    const { walletAddress } = req.params;
+    const { walletAddress } = req.params as Record<string, string>;
     const { direction, status, limit, cursor } = req.query;
 
     if (!walletAddress) {

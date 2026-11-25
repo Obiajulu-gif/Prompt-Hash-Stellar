@@ -28,14 +28,47 @@ vi.mock("../models/Notification", () => {
     default: model,
     NOTIFICATION_TYPES: [
       "prompt_update",
+      "purchase_receipt",
+      "security_alert",
+      "account_lifecycle",
+      "entitlement_update",
+      "support_access_notice",
       "purchase_confirmed",
+      "payout_available",
       "dispute_opened",
       "dispute_resolved",
-      "payout_available",
       "moderation_action",
       "ownership_transfer",
       "system",
     ],
+    MANDATORY_NOTIFICATION_TYPES: [
+      "security_alert",
+      "account_lifecycle",
+      "entitlement_update",
+      "support_access_notice",
+      "purchase_confirmed",
+      "payout_available",
+      "dispute_opened",
+      "dispute_resolved",
+      "moderation_action",
+      "ownership_transfer",
+      "system",
+    ],
+    OPTIONAL_NOTIFICATION_TYPES: ["prompt_update", "purchase_receipt"],
+    isMandatoryNotificationType: (type: string) =>
+      [
+        "security_alert",
+        "account_lifecycle",
+        "entitlement_update",
+        "support_access_notice",
+        "purchase_confirmed",
+        "payout_available",
+        "dispute_opened",
+        "dispute_resolved",
+        "moderation_action",
+        "ownership_transfer",
+        "system",
+      ].includes(type),
   };
 });
 
@@ -44,6 +77,23 @@ vi.mock("../models/NotificationPreferences", () => ({
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
   },
+}));
+
+vi.mock("../models/NotificationPreference", () => ({
+  default: {
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+  },
+}));
+
+vi.mock("../models/User", () => ({
+  default: {
+    findOne: vi.fn(),
+  },
+}));
+
+vi.mock("../services/auditTrail", () => ({
+  recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../db/connectDb", () => ({
@@ -56,6 +106,8 @@ vi.mock("../services/structuredLogger", () => ({
 
 import Notification from "../models/Notification";
 import NotificationPreferences from "../models/NotificationPreferences";
+import NotificationPreference from "../models/NotificationPreference";
+import User from "../models/User";
 import {
   createNotification,
   fanOutNotification,
@@ -389,36 +441,43 @@ describe("ClearNotifications", () => {
   });
 });
 
+/** `Model.findOne(...).lean()` */
+const leanQuery = (value: unknown) => ({ lean: async () => value });
+
 describe("GetNotificationPreferences", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns stored preferences when they exist", async () => {
     const { req, res, json } = mockReqRes({ walletAddress: "GABC" });
-    (NotificationPreferences.findOne as any).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({
-        walletAddress: "gabc",
-        mutedTypes: ["system"],
-        emailEnabled: false,
-      }),
-    });
+    (NotificationPreference.findOne as any).mockReturnValue(
+      leanQuery({ preferences: { prompt_update: { inApp: false, email: false } } }),
+    );
+    (User.findOne as any).mockReturnValue(leanQuery(null));
 
     await GetNotificationPreferences(req, res);
 
     expect(json).toHaveBeenCalledWith(
-      expect.objectContaining({ mutedTypes: ["system"] }),
+      expect.objectContaining({
+        preferences: expect.objectContaining({
+          prompt_update: { inApp: false, email: false },
+        }),
+      }),
     );
   });
 
   it("returns safe defaults when no preferences document exists", async () => {
     const { req, res, json } = mockReqRes({ walletAddress: "GABC" });
-    (NotificationPreferences.findOne as any).mockReturnValue({
-      lean: vi.fn().mockResolvedValue(null),
-    });
+    (NotificationPreference.findOne as any).mockReturnValue(leanQuery(null));
+    (User.findOne as any).mockReturnValue(leanQuery(null));
 
     await GetNotificationPreferences(req, res);
 
     expect(json).toHaveBeenCalledWith(
-      expect.objectContaining({ mutedTypes: [], emailEnabled: false }),
+      expect.objectContaining({
+        preferences: expect.objectContaining({
+          prompt_update: { inApp: true, email: true },
+        }),
+      }),
     );
   });
 });
@@ -426,58 +485,70 @@ describe("GetNotificationPreferences", () => {
 describe("UpdateNotificationPreferences", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("upserts valid preference fields and returns the updated document", async () => {
+  it("upserts valid preference fields and returns the effective preferences", async () => {
     const { req, res, json } = mockReqRes(
       { walletAddress: "GABC" },
       {},
-      { mutedTypes: ["dispute_opened", "system"], emailEnabled: true },
+      { preferences: { prompt_update: { email: false } } },
     );
-    const updated = {
-      walletAddress: "gabc",
-      mutedTypes: ["dispute_opened", "system"],
-      emailEnabled: true,
-    };
-    (NotificationPreferences.findOneAndUpdate as any).mockResolvedValue(
-      updated,
+    (NotificationPreference.findOne as any).mockReturnValue(
+      leanQuery({ preferences: { prompt_update: { inApp: true, email: false } } }),
     );
+    (NotificationPreference.findOneAndUpdate as any).mockResolvedValue({});
+    (User.findOne as any).mockReturnValue(leanQuery(null));
 
     await UpdateNotificationPreferences(req, res);
 
-    expect(NotificationPreferences.findOneAndUpdate).toHaveBeenCalledWith(
+    expect(NotificationPreference.findOneAndUpdate).toHaveBeenCalledWith(
       { walletAddress: "gabc" },
       {
-        $set: expect.objectContaining({
-          mutedTypes: ["dispute_opened", "system"],
-          emailEnabled: true,
-        }),
+        $set: {
+          "preferences.prompt_update.inApp": true,
+          "preferences.prompt_update.email": false,
+        },
       },
-      { upsert: true, new: true },
+      expect.objectContaining({ upsert: true, new: true }),
     );
-    expect(json).toHaveBeenCalledWith(updated);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferences: expect.objectContaining({
+          prompt_update: { inApp: true, email: false },
+        }),
+      }),
+    );
   });
 
-  it("silently filters out unrecognised notification types", async () => {
-    const { req, res } = mockReqRes(
-      { walletAddress: "GABC" },
-      {},
-      { mutedTypes: ["purchase_confirmed", "not_a_type", 42] },
-    );
-    (NotificationPreferences.findOneAndUpdate as any).mockResolvedValue({
-      mutedTypes: ["purchase_confirmed"],
-    });
-
-    await UpdateNotificationPreferences(req, res);
-
-    const updateArg = (NotificationPreferences.findOneAndUpdate as any).mock
-      .calls[0][1];
-    expect(updateArg.$set.mutedTypes).toEqual(["purchase_confirmed"]);
-  });
-
-  it("returns 400 when no valid preference fields are provided", async () => {
+  it("rejects unknown notification types", async () => {
     const { req, res, status } = mockReqRes(
       { walletAddress: "GABC" },
       {},
-      { unknownField: "whatever" }, // no mutedTypes or emailEnabled at all
+      { preferences: { not_a_type: { email: false } } },
+    );
+
+    await UpdateNotificationPreferences(req, res);
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(NotificationPreference.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects attempts to mute mandatory notification types", async () => {
+    const { req, res, status } = mockReqRes(
+      { walletAddress: "GABC" },
+      {},
+      { preferences: { system: { inApp: false } } },
+    );
+
+    await UpdateNotificationPreferences(req, res);
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(NotificationPreference.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when an unknown preference field is provided", async () => {
+    const { req, res, status } = mockReqRes(
+      { walletAddress: "GABC" },
+      {},
+      { preferences: { unknownField: { email: false } } },
     );
 
     await UpdateNotificationPreferences(req, res);

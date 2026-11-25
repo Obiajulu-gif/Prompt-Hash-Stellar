@@ -70,6 +70,496 @@
     }
   ],
   "paths": {
+    "/api/prompts/{promptId}/rename": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Rename a prompt record and preserve its previous permalinks",
+        "description": "Renames a prompt, records an immutable rename history entry, and keeps old slugs redirecting to the canonical URL.",
+        "operationId": "renamePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Prompt id or on-chain id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newTitle"
+                ],
+                "properties": {
+                  "newTitle": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Wallet performing the rename when not an admin."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rename applied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "canonicalUrl": {
+                      "type": "string"
+                    },
+                    "previousSlugs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid newTitle."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/archive-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Archive a prompt record and preserve its permalink history",
+        "operationId": "archivePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "promptId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation completed."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Wallet session or admin token required."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restore-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restore an archived prompt record",
+        "operationId": "restorePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "promptId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation completed."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Wallet session or admin token required."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restrict-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restrict a prompt permalink to authorised viewers",
+        "operationId": "restrictPromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "promptId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation completed."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Wallet session or admin token required."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminToken": []
+          }
+        ]
+      }
+    },
+    "/api/prompts/duplicate/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Check content for near-duplicate prompts",
+        "operationId": "checkPromptDuplicate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "contentHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Similarity result."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/disputes": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Open a dispute on an ownership transfer",
+        "operationId": "openOwnershipDispute",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "transferId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation completed."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Wallet session or admin token required."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletAddress",
+                  "reason"
+                ],
+                "properties": {
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Read an ownership dispute",
+        "operationId": "getOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "disputeId"
+          },
+          {
+            "name": "walletAddress",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "walletAddress"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute record."
+          },
+          "401": {
+            "description": "Wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/evidence": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Attach evidence to an ownership dispute",
+        "operationId": "addOwnershipDisputeEvidence",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "disputeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation completed."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Wallet session or admin token required."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletAddress"
+                ],
+                "properties": {
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/withdraw": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Withdraw an ownership dispute",
+        "operationId": "withdrawOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "disputeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation completed."
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "description": "Wallet session or admin token required."
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletAddress"
+                ],
+                "properties": {
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [

@@ -1,11 +1,29 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterEach,
+  afterAll,
+  vi,
+} from "vitest";
 import { qualityCheckService } from "../services/qualityCheckService.js";
 import QualityCheckResult from "../models/QualityCheckResult.js";
 import Prompt from "../models/Prompt.js";
 import mongoose from "mongoose";
+import { setupRealMongo, teardownRealMongo } from "./helpers/realMongo";
 
 describe("QualityCheckService", () => {
   let promptId: string;
+
+  beforeAll(async () => {
+    await setupRealMongo();
+  });
+
+  afterAll(async () => {
+    await teardownRealMongo();
+  });
 
   beforeEach(async () => {
     await QualityCheckResult.deleteMany({});
@@ -16,7 +34,8 @@ describe("QualityCheckService", () => {
       title: "Test Prompt Title",
       content: "This is a detailed test prompt content with substantial length",
       description: "A comprehensive description of the prompt",
-      category: "Writing",
+      image: "https://example.com/test-prompt.png",
+      category: "Creative Writing",
       price: 10,
       tags: ["ai", "writing"],
       owner: new mongoose.Types.ObjectId(),
@@ -39,9 +58,12 @@ describe("QualityCheckService", () => {
   });
 
   it("should detect blocking failures", async () => {
-    const prompt = await Prompt.findById(promptId);
-    prompt.title = ""; // Clear title - should fail
-    await prompt.save();
+    // Clear the title below the schema minimum, bypassing document validation
+    // so the quality rule (not the schema) is what flags the prompt.
+    await Prompt.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(promptId) },
+      { $set: { title: "" } }
+    );
 
     const result = await qualityCheckService.runChecks(promptId);
 
@@ -64,6 +86,7 @@ describe("QualityCheckService", () => {
   });
 
   it("should check if prompt can publish paid", async () => {
+    await qualityCheckService.runChecks(promptId);
     const result = await qualityCheckService.canPublishPaid(promptId);
 
     expect(result.canPublish).toBe(true);

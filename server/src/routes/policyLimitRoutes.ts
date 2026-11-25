@@ -139,7 +139,10 @@ policyLimitRouter.post(
     }
     const { change } = parsed;
     const report = policyLimitService.previewOverrideChange(change)!;
-    if (rejectUnreviewed(res, req.body.diffDigest, report)) return;
+    // A retry whose target state already matches the current state is a noop:
+    // there is nothing new to review, so a fresh digest must not be required.
+    const isNoop = report.direction === "unchanged";
+    if (!isNoop && rejectUnreviewed(res, req.body.diffDigest, report)) return;
 
     const grantedBy = (req as any).adminToken?.sub || (req as any).admin?.sub || "admin";
     const idempotencyKey = req.headers["idempotency-key"];
@@ -206,7 +209,7 @@ policyLimitRouter.delete(
   "/overrides/:overrideId",
   requireAdminScope("ratelimit:write"),
   async (req: Request, res: Response) => {
-    const { overrideId } = req.params;
+    const { overrideId } = req.params as Record<string, string>;
     const { reason, diffDigest } = req.body ?? {};
     const revokedBy = (req as any).adminToken?.sub || (req as any).admin?.sub || "admin";
 

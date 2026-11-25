@@ -148,7 +148,7 @@ recordMergeRouter.get(
   async (req: Request, res: Response) => {
     try {
       await connectDb();
-      const resolved = await resolveMergedRecordId(req.params.promptId, committedRedirectLookup);
+      const resolved = await resolveMergedRecordId(String(req.params.promptId), committedRedirectLookup);
       return res.json({ success: true, requestedId: req.params.promptId, ...resolved });
     } catch (err) {
       if (err instanceof RecordMergeError) {

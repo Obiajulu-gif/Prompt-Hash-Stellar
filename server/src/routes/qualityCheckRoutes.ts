@@ -67,7 +67,7 @@ qualityCheckRouter.post(
     try {
       const { overriddenBy, reason } = req.body;
       const result = await qualityCheckService.overrideChecks(
-        req.params.promptId,
+        String(req.params.promptId),
         overriddenBy,
         reason
       );

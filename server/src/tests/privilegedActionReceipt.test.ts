@@ -184,7 +184,7 @@ describe("PrivilegedActionReceiptService (#1127)", () => {
       const result = PrivilegedActionReceiptService.verifyReceipt(tampered);
       expect(result.valid).toBe(false);
       expect(result.tamperedFields).toContain("payload");
-      expect(result.tamperedFields).toContain("signature");
+      expect(result.tamperedFields).toContain("payloadDigest");
     });
   });
 

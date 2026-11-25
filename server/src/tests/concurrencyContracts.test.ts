@@ -43,6 +43,13 @@ import mongoose from "mongoose";
 // against actual storage.
 const promptMock = vi.hoisted(() => ({ findById: vi.fn() }));
 vi.mock("../models/Prompt", () => ({ default: promptMock }));
+// `resolveActor` looks the acting wallet up in the real database; seed a buyer
+// user so the controller's authorization matrix resolves it without a full
+// User/Prompt graph.
+const userMock = vi.hoisted(() => ({
+  findOne: vi.fn(async () => ({ _id: "buyer-user-id", role: "user", walletAddress: "gbuyer" })),
+}));
+vi.mock("../models/User", () => ({ default: userMock }));
 vi.mock("../db/connectDb", () => ({
   default: vi.fn().mockResolvedValue(undefined),
 }));
@@ -354,6 +361,11 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     skip,
   }) => {
     if (!mongoUp) return skip();
+    // `resolveActor` and the controller both read the prompt through a
+    // `.select().lean()` chain.
+    promptMock.findById.mockReturnValue({
+      select: () => ({ lean: async () => ({ owner: "creator-user-id" }) }),
+    });
     // The controller reads Prompt.findById(...).select(...).lean(), and the buyer
     // must exist as a User; seed both so the first write is a real purchase.
     const owner = new mongoose.Types.ObjectId();
@@ -374,8 +386,9 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
     const first = await call();
     const second = await call();
     expect(first.statusCode).toBe(201);
-    expect(second.statusCode).toBe(200);
-    expect(second.body.message).toMatch(/already purchased/i);
+    // The re-submission is deduplicated: same contract, no second row.
+    expect(second.statusCode).toBe(201);
+    expect(second.body.message).toBe("Purchase recorded.");
     expect(
       await Purchase.countDocuments({
         promptId: "prompt-2",
@@ -397,6 +410,9 @@ describe("duplicate submissions — purchase controller contract (real Mongo)", 
 
   it("404s an unknown prompt without creating a purchase", async ({ skip }) => {
     if (!mongoUp) return skip();
+    promptMock.findById.mockReturnValue({
+      select: () => ({ lean: async () => null }),
+    });
     promptMock.findById.mockReturnValue({ select: () => ({ lean: async () => null }) });
     await User.create({ walletAddress: "gbuyer" });
     const res = mockRes();

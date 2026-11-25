@@ -27,6 +27,7 @@ export interface IOperationFailure extends Document {
   externalReferenceId?: string; // Transaction hash, webhook ID, etc.
   
   failureReason: string;
+  ageInHours: number;
   errorCode?: string;
   errorDetails?: Record<string, unknown>;
   

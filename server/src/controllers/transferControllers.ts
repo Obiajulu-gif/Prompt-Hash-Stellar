@@ -44,10 +44,10 @@ async function ownerWalletForPrompt(promptId: string): Promise<string | null> {
 }
 
 async function userIdForWallet(walletAddress: string) {
-  let user = await User.findOne({ walletAddress: walletAddress.toLowerCase() });
+  let user = await User.findOne({ walletAddress: String(walletAddress).toLowerCase() });
   if (!user) {
     const username = `user${Math.floor(100000 + Math.random() * 900000)}`;
-    user = await User.create({ walletAddress: walletAddress.toLowerCase(), username });
+    user = await User.create({ walletAddress: String(walletAddress).toLowerCase(), username });
   }
   return user._id;
 }
@@ -179,7 +179,7 @@ export const GetOwnershipTransfers = async (
   res: Response,
 ): Promise<Response<any>> => {
   await connectDb();
-  const { walletAddress } = req.params;
+  const { walletAddress } = req.params as Record<string, string>;
 
   if (!walletAddress) {
     return res.status(400).json({ error: "walletAddress is required." });
@@ -227,7 +227,7 @@ export const RespondOwnershipTransfer = async (
   res: Response,
 ): Promise<Response<any>> => {
   await connectDb();
-  const { transferId } = req.params;
+  const { transferId } = req.params as Record<string, string>;
   const { walletAddress, decision } = req.body;
 
   if (!walletAddress || !decision) {
@@ -246,7 +246,7 @@ export const RespondOwnershipTransfer = async (
   if (!transfer) {
     return res.status(404).json({ error: "Transfer not found." });
   }
-  if (transfer.toWallet !== walletAddress.toLowerCase()) {
+  if (transfer.toWallet !== String(walletAddress).toLowerCase()) {
     return res
       .status(403)
       .json({ error: "Only the transfer recipient may respond." });
@@ -267,7 +267,7 @@ export const RespondOwnershipTransfer = async (
     actionId: transfer._id.toString(),
     actionType: "ownershipTransfer",
     scope: "TRANSFER",
-    actor: walletAddress.toLowerCase(),
+    actor: String(walletAddress).toLowerCase(),
     actionPath: "/api/prompts/transfers/respond",
   });
 
@@ -284,7 +284,7 @@ export const RespondOwnershipTransfer = async (
         $set: {
           status: "approved",
           decidedAt: new Date(),
-          decidedBy: walletAddress.toLowerCase(),
+          decidedBy: String(walletAddress).toLowerCase(),
         },
       },
     );
@@ -342,13 +342,13 @@ export const RespondOwnershipTransfer = async (
 
     await recordAccessOrOwnershipChange({
       action: "ownership_transfer_accepted",
-      actor: walletAddress.toLowerCase(),
+      actor: String(walletAddress).toLowerCase(),
       target: transfer.promptId,
       targetType: "prompt",
       promptId: transfer.promptId,
       walletAddress,
       beforeState: { previousOwner: transfer.fromWallet },
-      afterState: { newOwner: walletAddress.toLowerCase(), transferId: transfer._id.toString() },
+      afterState: { newOwner: String(walletAddress).toLowerCase(), transferId: transfer._id.toString() },
       reason: "Ownership transfer accepted by recipient",
     });
   } else {
@@ -358,7 +358,7 @@ export const RespondOwnershipTransfer = async (
         $set: {
           status: "rejected",
           decidedAt: new Date(),
-          decidedBy: walletAddress.toLowerCase(),
+          decidedBy: String(walletAddress).toLowerCase(),
         },
       },
     );
@@ -368,7 +368,7 @@ export const RespondOwnershipTransfer = async (
 
     await recordAccessOrOwnershipChange({
       action: "ownership_transfer_rejected",
-      actor: walletAddress.toLowerCase(),
+      actor: String(walletAddress).toLowerCase(),
       target: transfer.promptId,
       targetType: "prompt",
       promptId: transfer.promptId,
@@ -385,7 +385,7 @@ export const RespondOwnershipTransfer = async (
     transferId,
     promptId: transfer.promptId,
     decision,
-    byWallet: walletAddress.toLowerCase(),
+    byWallet: String(walletAddress).toLowerCase(),
   });
 
   return res.json(toDto(updated));
@@ -396,7 +396,7 @@ export const CancelOwnershipTransfer = async (
   res: Response,
 ): Promise<Response<any>> => {
   await connectDb();
-  const { transferId } = req.params;
+  const { transferId } = req.params as Record<string, string>;
   const { walletAddress } = req.body;
 
   if (!walletAddress) {
@@ -406,10 +406,10 @@ export const CancelOwnershipTransfer = async (
   const claimed = await OwnershipTransfer.updateOne(
     {
       _id: transferId,
-      fromWallet: walletAddress.toLowerCase(),
+      fromWallet: String(walletAddress).toLowerCase(),
       status: "pending",
     },
-    { $set: { status: "cancelled", decidedAt: new Date(), decidedBy: walletAddress.toLowerCase() } },
+    { $set: { status: "cancelled", decidedAt: new Date(), decidedBy: String(walletAddress).toLowerCase() } },
   );
 
   if (claimed.modifiedCount !== 1) {
@@ -426,7 +426,7 @@ export const CancelOwnershipTransfer = async (
 
   await recordAccessOrOwnershipChange({
     action: "ownership_transfer_cancelled",
-    actor: walletAddress.toLowerCase(),
+    actor: String(walletAddress).toLowerCase(),
     target: updated?.promptId || transferId,
     targetType: "prompt",
     promptId: updated?.promptId,

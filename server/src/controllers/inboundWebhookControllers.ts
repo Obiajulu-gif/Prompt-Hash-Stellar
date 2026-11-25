@@ -249,7 +249,7 @@ export const RetryFailedInboundEvent = async (
 ): Promise<Response> => {
   try {
     await connectDb();
-    const reset = await retryFailedEvent(req.params.id);
+    const reset = await retryFailedEvent(String(req.params.id));
     if (!reset) {
       logger.warn("Inbound webhook retry target not found", {
         action: "inboundWebhookRetry",

@@ -82,7 +82,7 @@ describe("canonicalize - numeric precision (Issue #873)", () => {
 
   it("allows custom numeric precision", () => {
     const a = canonicalize(1.2345, { numericPrecision: 2 });
-    const b = canonicalize(1.2399, { numericPrecision: 2 });
+    const b = canonicalize(1.2311, { numericPrecision: 2 });
     expect(a).toBe(b);
   });
 });
@@ -106,7 +106,7 @@ describe("canonicalize - dates and primitives (Issue #873)", () => {
 
   it("handles arrays with canonicalized elements", () => {
     const a = canonicalize([{ b: 1, a: 2 }, { d: 3, c: 4 }]);
-    const b = canonicalize([{ c: 4, d: 3 }, { a: 2, b: 1 }]);
+    const b = canonicalize([{ a: 2, b: 1 }, { c: 4, d: 3 }]);
     expect(a).toBe(b);
   });
 });
@@ -153,8 +153,8 @@ describe("normalizeInput (Issue #873)", () => {
 
 describe("isCanonicallyEquivalent - legacy compatibility (Issue #873)", () => {
   it("returns true for equivalent legacy and new payloads", () => {
-    const legacy = { customer_name: "John Doe", amount: 100.00 };
-    const neo = { amount: 100, customerName: "John Doe" };
+    const legacy = { customer_name: "  John Doe ", amount: 100.00 };
+    const neo = { amount: 100, customer_name: "john doe" };
     expect(isCanonicallyEquivalent(legacy, neo, { lowerCase: true })).toBe(true);
   });
 

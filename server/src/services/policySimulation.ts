@@ -5,7 +5,7 @@
  * before applying policy changes.
  */
 
-import { db } from '../db/connection';
+import { db } from '../config/database';
 import { logger } from '../util/logger';
 
 interface PolicyChange {
@@ -336,8 +336,8 @@ async function simulateBulkRefund(
   `, [promptId]);
   
   const purchaseCount = purchases.rows.length;
-  const totalRefund = purchases.rows.reduce((sum, p) => sum + parseFloat(p.amount_xlm), 0);
-  const uniqueBuyers = new Set(purchases.rows.map(p => p.buyer_address)).size;
+  const totalRefund = purchases.rows.reduce((sum: number, p: any) => sum + parseFloat(p.amount_xlm), 0);
+  const uniqueBuyers = new Set(purchases.rows.map((p: any) => p.buyer_address)).size;
   
   const result: SimulationResult = {
     policyChange: {

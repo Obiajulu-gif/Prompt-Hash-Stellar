@@ -53,7 +53,9 @@ class QualityCheckService {
     const checks: QualityCheck[] = [];
 
     for (const [ruleName, rule] of Object.entries(QUALITY_RULES)) {
-      const passed = rule.validate(prompt);
+      // Coerce to a real boolean: rule validators such as `prompt.title && …`
+      // can return the raw field value ("") which Mongoose cannot cast.
+      const passed = Boolean(rule.validate(prompt));
       checks.push({
         name: ruleName,
         description: rule.description,
@@ -63,7 +65,7 @@ class QualityCheckService {
       });
     }
 
-    const blockingFailures = checks.filter((c) => c.severity === "blocking" && !c.passed);
+    const blockingFailures = checks.filter((c: any) => c.severity === "blocking" && !c.passed);
     const overallStatus = blockingFailures.length === 0 ? "passed" : "failed";
 
     let result = await QualityCheckResult.findOne({ promptId });
@@ -101,15 +103,17 @@ class QualityCheckService {
       };
     }
 
-    const failures = result.checks
-      .filter((c) => !c.passed)
-      .map((c) => c.message || `Failed: ${c.name}`);
-
-    const isOverridden = result.overriddenAt && !result.blockedAt;
-    const blockingFailures = result.checks.filter((c) => c.severity === "blocking" && !c.passed);
+    const isOverridden = Boolean(result.overriddenAt) && !result.blockedAt;
+    // Only blocking failures prevent paid publication; warnings are advisory.
+    const blockingFailures = isOverridden
+      ? []
+      : result.checks.filter((c: any) => c.severity === "blocking" && !c.passed);
+    const failures = blockingFailures.map(
+      (c: any) => c.message || `Failed: ${c.name}`
+    );
 
     return {
-      canPublish: isOverridden || blockingFailures.length === 0,
+      canPublish: blockingFailures.length === 0,
       failures,
     };
   }
@@ -127,6 +131,9 @@ class QualityCheckService {
     result.overriddenAt = new Date();
     result.overriddenBy = overriddenBy.toLowerCase();
     result.overrideReason = reason;
+    // A maintainer override supersedes an existing blocking result, so the
+    // prompt is no longer reported as blocked by `canPublishPaid`.
+    result.blockedAt = undefined;
 
     await result.save();
     logger.info(`Quality checks overridden for prompt ${promptId} by ${overriddenBy}`);

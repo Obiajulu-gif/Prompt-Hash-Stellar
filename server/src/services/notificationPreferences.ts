@@ -123,7 +123,7 @@ export function buildEffectivePreferences(input: {
 export async function getEffectivePreferences(
   walletAddress: string,
 ): Promise<EffectivePreferences> {
-  const wallet = walletAddress.toLowerCase();
+  const wallet = String(walletAddress).toLowerCase();
   const [stored, user] = await Promise.all([
     NotificationPreference.findOne({ walletAddress: wallet }).lean(),
     User.findOne({ walletAddress: wallet }).lean(),
@@ -185,7 +185,7 @@ export async function updateNotificationPreferences(
   patch: PreferencePatch,
   context: { requestId?: string | null } = {},
 ): Promise<EffectivePreferences> {
-  const wallet = walletAddress.toLowerCase();
+  const wallet = String(walletAddress).toLowerCase();
   const types = validatePreferencePatch(patch);
 
   if (types.length > 0) {

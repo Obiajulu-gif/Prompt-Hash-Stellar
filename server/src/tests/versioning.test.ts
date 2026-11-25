@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import mongoose from "mongoose";
 import Prompt from "../models/Prompt";
 import PromptVersion from "../models/PromptVersion";
@@ -31,6 +31,26 @@ vi.mock("../services/notificationRouting", () => ({
 
 import { deliverNotification } from "../services/notificationRouting";
 
+/** `Model.findById(...).select(...).lean()` */
+const selectLean = (value: unknown) => ({
+  select: () => ({ lean: async () => value }),
+});
+
+/** `Model.findOne(...).lean()` */
+const findLean = (value: unknown) => ({ lean: async () => value });
+
+/** `Model.find(...).select(...).sort(...).limit(...).lean()` */
+const versionListQuery = (versions: unknown[]) => ({
+  select: () => ({
+    sort: () => ({ limit: () => ({ lean: async () => versions }) }),
+  }),
+});
+
+/** `Model.findOne(...).sort(...).lean()` */
+const sortedFindOne = (value: unknown) => ({
+  sort: () => ({ lean: async () => value }),
+});
+
 describe("Prompt Versioning System", () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
@@ -38,7 +58,7 @@ describe("Prompt Versioning System", () => {
   let mockPrompt: any;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
     // Setup mock request and response
     mockReq = {
       body: {},
@@ -68,6 +88,24 @@ describe("Prompt Versioning System", () => {
     };
   });
 
+  /** Resolve the acting wallet as the prompt owner (creator role). */
+  const actAsCreator = (ownerId: unknown = mockUser._id) => {
+    vi.spyOn(User, "findOne").mockResolvedValue(mockUser as any);
+    vi.spyOn(Prompt, "findById").mockReturnValue(
+      selectLean({ owner: ownerId }) as any
+    );
+    vi.spyOn(Purchase, "findOne").mockReturnValue(findLean(null) as any);
+  };
+
+  /** Resolve the acting wallet as a buyer holding `purchase`. */
+  const actAsBuyer = (purchase: unknown) => {
+    vi.spyOn(User, "findOne").mockResolvedValue(mockUser as any);
+    vi.spyOn(Prompt, "findById").mockReturnValue(
+      selectLean({ owner: new mongoose.Types.ObjectId() }) as any
+    );
+    vi.spyOn(Purchase, "findOne").mockReturnValue(findLean(purchase) as any);
+  };
+
   describe("PostPromptUpdate", () => {
     it("should create a new version without replacing history", async () => {
       mockReq.body = {
@@ -77,17 +115,17 @@ describe("Prompt Versioning System", () => {
         changeNote: "Fixed a typo",
       };
 
-      vi.spyOn(User, "findOne").mockResolvedValueOnce(mockUser);
-      vi.spyOn(Prompt, "findOne").mockResolvedValueOnce(mockPrompt);
-      vi.spyOn(PromptVersion, "create").mockResolvedValueOnce({
+      actAsCreator();
+      vi.spyOn(Prompt, "findOne").mockResolvedValue(mockPrompt as any);
+      vi.spyOn(PromptVersion, "create").mockResolvedValue({
         promptId: mockPrompt._id.toString(),
         versionIndex: 2,
         content: "Updated content",
         changeNote: "Fixed a typo",
         createdBy: "test-wallet",
       } as any);
-      vi.spyOn(Prompt, "findByIdAndUpdate").mockResolvedValueOnce({});
-      vi.spyOn(Purchase, "find").mockResolvedValueOnce([]);
+      vi.spyOn(Prompt, "findByIdAndUpdate").mockResolvedValue({} as any);
+      vi.spyOn(Purchase, "find").mockResolvedValue([] as any);
 
       await PostPromptUpdate(mockReq as Request, mockRes as Response);
 
@@ -117,9 +155,6 @@ describe("Prompt Versioning System", () => {
     });
 
     it("should notify all buyers when content is updated", async () => {
-      const buyer1 = { walletAddress: "buyer1" };
-      const buyer2 = { walletAddress: "buyer2" };
-
       mockReq.body = {
         promptId: mockPrompt._id.toString(),
         walletAddress: "test-wallet",
@@ -127,13 +162,13 @@ describe("Prompt Versioning System", () => {
         changeNote: "Major update",
       };
 
-      vi.spyOn(User, "findOne").mockResolvedValueOnce(mockUser);
-      vi.spyOn(Prompt, "findOne").mockResolvedValueOnce(mockPrompt);
-      vi.spyOn(PromptVersion, "create").mockResolvedValueOnce({
+      actAsCreator();
+      vi.spyOn(Prompt, "findOne").mockResolvedValue(mockPrompt as any);
+      vi.spyOn(PromptVersion, "create").mockResolvedValue({
         versionIndex: 2,
       } as any);
-      vi.spyOn(Prompt, "findByIdAndUpdate").mockResolvedValueOnce({});
-      vi.spyOn(Purchase, "find").mockResolvedValueOnce([
+      vi.spyOn(Prompt, "findByIdAndUpdate").mockResolvedValue({} as any);
+      vi.spyOn(Purchase, "find").mockResolvedValue([
         { buyerWallet: "buyer1" },
         { buyerWallet: "buyer2" },
       ] as any);
@@ -167,15 +202,16 @@ describe("Prompt Versioning System", () => {
         promptId: mockPrompt._id.toString(),
       };
 
-      vi.spyOn(PromptVersion, "find").mockReturnValueOnce({
-        sort: vi.fn().mockReturnValueOnce({
-          select: vi.fn().mockResolvedValueOnce(versions),
-        }),
-      } as any);
+      vi.spyOn(PromptVersion, "find").mockReturnValue(
+        versionListQuery(versions) as any
+      );
 
       await GetPromptVersions(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.json).toHaveBeenCalledWith(versions);
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ versions })
+      );
     });
 
     it("should exclude content from version history", async () => {
@@ -183,14 +219,19 @@ describe("Prompt Versioning System", () => {
         promptId: mockPrompt._id.toString(),
       };
 
-      const select = vi.fn().mockResolvedValueOnce([]);
-      vi.spyOn(PromptVersion, "find").mockReturnValueOnce({
-        sort: vi.fn().mockReturnValueOnce({ select }),
-      } as any);
+      const select = vi.fn(() => ({
+        sort: () => ({ limit: () => ({ lean: async () => [] }) }),
+      }));
+      vi.spyOn(PromptVersion, "find").mockReturnValue({ select } as any);
 
       await GetPromptVersions(mockReq as Request, mockRes as Response);
 
-      expect(select).toHaveBeenCalledWith("-content");
+      expect(select).toHaveBeenCalledWith(
+        "promptId versionIndex changeNote createdBy createdAt"
+      );
+      expect(select).not.toHaveBeenCalledWith(
+        expect.stringContaining("content ")
+      );
     });
 
     it("should return 400 if promptId is missing", async () => {
@@ -208,28 +249,27 @@ describe("Prompt Versioning System", () => {
   });
 
   describe("RecordPurchase", () => {
-    it("should record a purchase with the current version index", async () => {
+    it("should record a purchase for the acting wallet", async () => {
       mockReq.body = {
         promptId: mockPrompt._id.toString(),
-        buyerWallet: "buyer-wallet",
+        walletAddress: "buyer-wallet",
         txHash: "0x123abc",
       };
 
-      vi.spyOn(Prompt, "findById").mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockPrompt),
-      } as any);
-      vi.spyOn(Purchase, "findOne").mockResolvedValueOnce(null);
-      vi.spyOn(Purchase, "create").mockResolvedValueOnce({
+      actAsBuyer(null);
+      vi.spyOn(Purchase, "create").mockResolvedValue({
         promptId: mockPrompt._id.toString(),
         buyerWallet: "buyer-wallet",
-        versionIndex: 1,
+        txHash: "0x123abc",
       } as any);
 
       await RecordPurchase(mockReq as Request, mockRes as Response);
 
       expect(Purchase.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          versionIndex: 1,
+          promptId: mockPrompt._id.toString(),
+          buyerWallet: "buyer-wallet",
+          txHash: "0x123abc",
         })
       );
       expect(mockRes.status).toHaveBeenCalledWith(201);
@@ -238,31 +278,37 @@ describe("Prompt Versioning System", () => {
     it("should preserve older purchases and not allow re-purchasing", async () => {
       mockReq.body = {
         promptId: mockPrompt._id.toString(),
-        buyerWallet: "buyer-wallet",
+        walletAddress: "buyer-wallet",
       };
 
-      vi.spyOn(Prompt, "findById").mockResolvedValueOnce(mockPrompt);
-      vi.spyOn(Purchase, "findOne").mockResolvedValueOnce({
+      actAsBuyer({
         promptId: mockPrompt._id.toString(),
         buyerWallet: "buyer-wallet",
         versionIndex: 1,
-      } as any);
+      });
+      const create = vi.spyOn(Purchase, "create");
+      vi.spyOn(Purchase, "findOne").mockReturnValue(
+        findLean({
+          promptId: mockPrompt._id.toString(),
+          buyerWallet: "buyer-wallet",
+          versionIndex: 1,
+        }) as any
+      );
 
       await RecordPurchase(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      // The original purchase row is kept; no duplicate is written.
+      expect(create).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(201);
       expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: "Already purchased.",
-          versionIndex: 1,
-        })
+        expect.objectContaining({ message: "Purchase recorded." })
       );
     });
 
     it("should require promptId and buyerWallet", async () => {
       mockReq.body = {
         promptId: mockPrompt._id.toString(),
-        // Missing buyerWallet
+        // Missing walletAddress
       };
 
       await RecordPurchase(mockReq as Request, mockRes as Response);
@@ -273,17 +319,11 @@ describe("Prompt Versioning System", () => {
 
   describe("GetBuyerVersion", () => {
     it("should return the specific version a buyer purchased", async () => {
-      mockReq.query = {
+      mockReq.params = {
         promptId: mockPrompt._id.toString(),
-        buyerWallet: "buyer-wallet",
+        versionIndex: "1",
       };
-
-      const purchase = {
-        promptId: mockPrompt._id.toString(),
-        buyerWallet: "buyer-wallet",
-        versionIndex: 1,
-        createdAt: new Date(),
-      };
+      mockReq.query = { walletAddress: "buyer-wallet" };
 
       const version = {
         promptId: mockPrompt._id.toString(),
@@ -292,41 +332,33 @@ describe("Prompt Versioning System", () => {
         changeNote: "Initial version",
       };
 
-      vi.spyOn(Purchase, "findOne").mockResolvedValueOnce(purchase as any);
-      vi.spyOn(PromptVersion, "findOne").mockResolvedValueOnce(version as any);
-      vi.spyOn(Prompt, "findById").mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValue(mockPrompt),
-      } as any);
+      actAsBuyer({ versionIndex: 1 });
+      vi.spyOn(PromptVersion, "findOne").mockReturnValue(
+        sortedFindOne(version) as any
+      );
 
       await GetBuyerVersion(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        version: expect.objectContaining({
           versionIndex: 1,
           content: "Version 1 content",
-          purchasedAt: purchase.createdAt,
-        })
-      );
+        }),
+      });
     });
 
     it("should identify which version a buyer currently accesses", async () => {
-      mockReq.query = {
+      mockReq.params = {
         promptId: mockPrompt._id.toString(),
-        buyerWallet: "buyer-wallet",
+        versionIndex: "1",
       };
+      mockReq.query = { walletAddress: "buyer-wallet" };
 
-      const purchase = {
-        versionIndex: 1,
-      };
-
-      vi.spyOn(Purchase, "findOne").mockResolvedValueOnce(purchase as any);
-      vi.spyOn(PromptVersion, "findOne").mockResolvedValueOnce({
-        versionIndex: 1,
-        content: "Specific version content",
-      } as any);
-      vi.spyOn(Prompt, "findById").mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValue(mockPrompt),
-      } as any);
+      actAsBuyer({ versionIndex: 1 });
+      vi.spyOn(PromptVersion, "findOne").mockReturnValue(
+        sortedFindOne({ versionIndex: 1, content: "Specific version content" }) as any
+      );
 
       await GetBuyerVersion(mockReq as Request, mockRes as Response);
 
@@ -337,27 +369,21 @@ describe("Prompt Versioning System", () => {
     });
 
     it("should return 404 if purchase record not found", async () => {
-      mockReq.query = {
-        promptId: mockPrompt._id.toString(),
-        buyerWallet: "buyer-wallet",
-      };
+      mockReq.params = { promptId: mockPrompt._id.toString() };
+      mockReq.query = { walletAddress: "buyer-wallet" };
 
-      vi.spyOn(Purchase, "findOne").mockResolvedValueOnce(null);
+      // No purchase record: the wallet is not a buyer of this prompt.
+      actAsBuyer(null);
 
       await GetBuyerVersion(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(404);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.stringContaining("No purchase record found"),
-        })
-      );
+      expect(mockRes.status).toHaveBeenCalledWith(403);
     });
 
     it("should require promptId and buyerWallet query params", async () => {
-      mockReq.query = {
+      mockReq.params = {
         promptId: mockPrompt._id.toString(),
-        // Missing buyerWallet
+        // Missing walletAddress
       };
 
       await GetBuyerVersion(mockReq as Request, mockRes as Response);
@@ -378,49 +404,10 @@ describe("Prompt Versioning System", () => {
     });
 
     it("should allow buyers to identify the version they access", async () => {
-      const purchase = {
-        promptId: "prompt-1",
-        buyerWallet: "buyer-1",
-        versionIndex: 1,
-        createdAt: new Date("2024-01-01"),
-      };
+      const purchase = { versionIndex: 1 };
+      const version = { versionIndex: 1, content: "Version 1 content" };
 
-      // Buyer can query their purchase to find versionIndex
-      expect(purchase.versionIndex).toBeDefined();
-      expect(purchase.createdAt).toBeDefined();
-    });
-
-    it("should preserve access for earlier purchasers", async () => {
-      // When prompt is updated to V2, V1 purchase records remain valid
-      const v1Purchase = { versionIndex: 1 };
-      const v2Purchase = { versionIndex: 2 };
-
-      expect(v1Purchase.versionIndex).toBe(1);
-      expect(v2Purchase.versionIndex).toBe(2);
-
-      // Both can be retrieved independently
-      expect([v1Purchase, v2Purchase].length).toBe(2);
-    });
-
-    it("should make version metadata available to frontend and unlock services", async () => {
-      // GetBuyerVersion returns metadata needed for unlock
-      mockReq.query = {
-        promptId: "prompt-1",
-        buyerWallet: "buyer-1",
-      };
-
-      const versionData = {
-        versionIndex: 1,
-        changeNote: "Initial version",
-        content: "encrypted-content",
-        purchasedAt: new Date(),
-      };
-
-      // Frontend/unlock service can access all needed metadata
-      expect(versionData.versionIndex).toBeDefined();
-      expect(versionData.changeNote).toBeDefined();
-      expect(versionData.content).toBeDefined();
-      expect(versionData.purchasedAt).toBeDefined();
+      expect(purchase.versionIndex).toBe(version.versionIndex);
     });
   });
 });

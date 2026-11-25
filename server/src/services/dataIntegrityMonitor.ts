@@ -190,13 +190,17 @@ async function checkStaleRecords(
     .lean();
 
   for (const prompt of stalePrompts) {
-    const lastUpdated =
-      prompt.updatedAt > (prompt.lifecycleUpdatedAt || prompt.updatedAt)
-        ? prompt.updatedAt
-        : prompt.lifecycleUpdatedAt;
+    // lean() rows can hold Dates or ISO strings (and either field may be
+    // absent on legacy records), so normalise before comparing.
+    const timestamps = [prompt.updatedAt, prompt.lifecycleUpdatedAt]
+      .filter((value) => value !== undefined && value !== null)
+      .map((value) => new Date(value).getTime())
+      .filter((value) => Number.isFinite(value));
+
+    if (timestamps.length === 0) continue;
 
     const ageDays = Math.floor(
-      (new Date().getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24)
+      (Date.now() - Math.max(...timestamps)) / (1000 * 60 * 60 * 24)
     );
 
     if (ageDays > staleThresholdDays) {

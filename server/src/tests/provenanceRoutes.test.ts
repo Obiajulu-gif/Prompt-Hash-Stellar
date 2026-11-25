@@ -93,9 +93,16 @@ const mockStandaloneFunctions = {
   })),
 };
 
-vi.mock("../services/provenanceService", () => ({
-  provenanceService: mockServiceInstance,
+// Single handle covering both the service instance methods and the
+// standalone helpers the routes import from the same module.
+const mockProvenanceService = {
+  ...mockServiceInstance,
   ...mockStandaloneFunctions,
+};
+
+vi.mock("../services/provenanceService", () => ({
+  provenanceService: mockProvenanceService,
+  ...mockProvenanceService,
 }));
 
 // Helper to create mock request/response
@@ -251,7 +258,7 @@ describe("Provenance Routes - Query Endpoints", () => {
     const stats = await mockProvenanceService.getImportStatistics();
 
     expect(stats.totalRecords).toBe(100);
-    expect(stats.bySourceType).toHaveProperty("API_IMPORT");
+    expect(stats.bySourceType).toHaveProperty("api");
     expect(stats.totalBatches).toBe(5);
   });
 });

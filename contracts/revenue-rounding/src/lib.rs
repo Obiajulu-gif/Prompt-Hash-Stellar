@@ -118,8 +118,8 @@ mod tests {
         for payment in [1, 1, 7, 2, 1, 101, 3, 1, 19, 1] {
             let result = allocate_round(payment, &bps, &remainders, reserve).unwrap();
             deposited += payment;
-            for index in 0..3 {
-                paid[index] += result.amounts[index];
+            for (index, amount) in paid.iter_mut().enumerate() {
+                *amount += result.amounts[index];
             }
             assert_eq!(paid.iter().sum::<i128>() + result.reserve_after, deposited);
             assert!(result.reserve_after >= 0);
@@ -161,8 +161,8 @@ mod tests {
             let result = allocate_round(payment, &bps, &remainders, reserve).unwrap();
 
             total_deposited += payment;
-            for index in 0..DEPOSITORS {
-                paid[index] += result.amounts[index];
+            for (index, amount) in paid.iter_mut().enumerate() {
+                *amount += result.amounts[index];
             }
             assert_eq!(
                 paid.iter().sum::<i128>() + result.reserve_after,

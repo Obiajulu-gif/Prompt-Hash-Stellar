@@ -85,7 +85,7 @@ class RecommendationFeedbackService {
     const preferences = await UserPreferences.findOne({ userWallet: wallet });
 
     if (preferences) {
-      preferences.hiddenPrompts = preferences.hiddenPrompts.filter((id) => id !== promptId);
+      preferences.hiddenPrompts = preferences.hiddenPrompts.filter((id: string) => id !== promptId);
       await preferences.save();
     }
 
@@ -98,7 +98,7 @@ class RecommendationFeedbackService {
     const preferences = await UserPreferences.findOne({ userWallet: wallet });
 
     if (preferences) {
-      preferences.hiddenCreators = preferences.hiddenCreators.filter((c) => c !== creator);
+      preferences.hiddenCreators = preferences.hiddenCreators.filter((c: string) => c !== creator);
       await preferences.save();
     }
 

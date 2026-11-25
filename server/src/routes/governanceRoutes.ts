@@ -19,7 +19,7 @@ export const governanceRouter = express.Router();
 governanceRouter.post(
   "/vote/:promptId",
   asyncHandler(async (req, res) => {
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const { voterWallet } = req.body as { voterWallet?: string };
 
     if (!voterWallet) {
@@ -58,7 +58,7 @@ governanceRouter.post(
 governanceRouter.delete(
   "/vote/:promptId",
   asyncHandler(async (req, res) => {
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const { voterWallet } = req.body as { voterWallet?: string };
 
     if (!voterWallet) {
@@ -86,7 +86,7 @@ governanceRouter.delete(
 governanceRouter.get(
   "/votes/:promptId",
   asyncHandler(async (req, res) => {
-    const { promptId } = req.params;
+    const { promptId } = req.params as Record<string, string>;
     const count = await Vote.countDocuments({ promptId });
     res.json({ promptId, upvotes: count });
   })

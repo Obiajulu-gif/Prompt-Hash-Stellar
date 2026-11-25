@@ -46,7 +46,7 @@ export async function enqueue(
   const safeData = redactSensitiveFields(data);
 
   const subscriptions = await WebhookSubscription.find({
-    walletAddress: walletAddress.toLowerCase(),
+    walletAddress: String(walletAddress).toLowerCase(),
     active: true,
     events: event,
   });

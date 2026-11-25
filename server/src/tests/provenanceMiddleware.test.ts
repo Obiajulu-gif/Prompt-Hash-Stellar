@@ -43,6 +43,8 @@ vi.mock("../services/provenanceService", () => ({
   })),
 }));
 
+import { extractActorMetadata } from "../middleware/provenanceMiddleware";
+
 describe("Provenance Middleware - Update Tracking", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -213,53 +215,47 @@ describe("Provenance Middleware - Update Tracking", () => {
 
 describe("Provenance Middleware - Actor Extraction", () => {
   it("extracts user actor metadata from request", () => {
-    const req: Partial<Request> = {
-      user: { id: "user_123", role: "user" },
+    const req = {
+      user: { _id: { toString: () => "user_123" }, role: "user" },
       ip: "192.168.1.1",
-      get: (header: string) => (header === "user-agent" ? "TestAgent/1.0" : undefined),
+      headers: { "user-agent": "TestAgent/1.0" },
+      socket: {},
     } as any;
 
-    const actor = {
-      actorId: (req as any).user?.id,
-      actorType: (req as any).user?.role === "admin" ? "admin" : "user",
-      ipAddress: req.ip,
-      userAgent: req.get?.("user-agent"),
-    };
+    const actor = extractActorMetadata(req);
 
-    expect(actor.userId).toBe("user_123");
+    expect(actor.actorId).toBe("user_123");
     expect(actor.actorType).toBe("user");
-    expect(actor.ipAddress).toBe("192.168.1.1");
-    expect(actor.userAgent).toBe("TestAgent/1.0");
+    expect(actor.actorIp).toBe("192.168.1.1");
+    expect(actor.actorUserAgent).toBe("TestAgent/1.0");
   });
 
   it("extracts admin actor metadata", () => {
-    const req: Partial<Request> = {
-      user: { id: "admin_123", role: "admin", walletAddress: "GADMIN" },
+    const req = {
+      user: {
+        _id: { toString: () => "admin_123" },
+        role: "admin",
+        walletAddress: "GADMIN",
+      },
+      headers: {},
+      socket: {},
     } as any;
 
-    const actor = {
-      actorId: (req as any).user?.id,
-      walletAddress: (req as any).user?.walletAddress,
-      actorType: (req as any).user?.role === "admin" ? "admin" : "user",
-    };
+    const actor = extractActorMetadata(req);
 
-    expect(actor.userId).toBe("admin_123");
-    expect(actor.walletAddress).toBe("GADMIN");
+    expect(actor.actorId).toBe("GADMIN");
+    expect(actor.actorWallet).toBe("GADMIN");
     expect(actor.actorType).toBe("admin");
+    expect(actor.actorRole).toBe("admin");
   });
 
   it("handles system actor when no user", () => {
-    const req: Partial<Request> = {
-      user: undefined,
-    } as any;
+    const req = { headers: {}, socket: {} } as any;
 
-    const actor = {
-      actorType: (req as any).user ? "user" : "system",
-      actorId: (req as any).user?.id || "system",
-    };
+    const actor = extractActorMetadata(req);
 
     expect(actor.actorType).toBe("system");
-    expect(actor.userId).toBe("system");
+    expect(actor.actorId).toBe("system");
   });
 });
 

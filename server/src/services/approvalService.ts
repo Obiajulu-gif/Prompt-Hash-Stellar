@@ -1,5 +1,5 @@
 import connectDb from "../db/connectDb";
-import Approval from "../models/Approval";
+import { Approval, type IApproval } from "../models/Approval";
 import { SignedReceiptService } from "./signedReceiptService";
 
 export interface ApprovalRecord {
@@ -125,12 +125,14 @@ export class ApprovalService {
       };
     }
 
-    // Check if already decided
+    // Check if already decided. An approval that is already granted needs no
+    // rejection reason; anything else reports why it was refused.
     if (approval.status !== "pending") {
       const decision = approval.status;
       return {
         approved: decision === "approved",
-        reason: `Approval was already ${decision}`,
+        reason:
+          decision === "approved" ? undefined : `Approval was already ${decision}`,
         scopeMismatch: false,
         expired: new Date() > approval.expiresAt,
       };
@@ -286,29 +288,29 @@ export class ApprovalService {
       expiresAt: { $gt: new Date() },
     });
 
-    if (!pending) {
-      // No pending approval - check if there's an approved one
-      const approved = await Approval.findOne({
-        actionId,
-        scope,
-        status: "approved",
-        expiresAt: { $gt: new Date() },
-      });
+    // No pending approval - fall back to an already-granted one.
+    const approvedRecord = pending
+      ? null
+      : await Approval.findOne({
+          actionId,
+          scope,
+          status: "approved",
+          expiresAt: { $gt: new Date() },
+        });
 
-      if (!approved) {
-        return {
-          requiresApproval: true,
-          approved: false,
-          reason: "No valid approval found for this protected action",
-          scopeMismatch: false,
-          expired: false,
-        };
-      }
+    if (!pending && !approvedRecord) {
+      return {
+        requiresApproval: true,
+        approved: false,
+        reason: "No valid approval found for this protected action",
+        scopeMismatch: false,
+        expired: false,
+      };
     }
 
-    // Evaluate the approval
+    // Evaluate the approval (pending first, otherwise the granted record).
     const evaluation = await this.evaluateApproval({
-      approvalId: pending ? pending._id.toString() : "",
+      approvalId: (pending ?? approvedRecord)!._id.toString(),
       actor,
       scope,
       actionPath,

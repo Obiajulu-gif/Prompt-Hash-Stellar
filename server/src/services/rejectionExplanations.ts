@@ -60,7 +60,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "stale_state",
     message: "The record is out of date or no longer applicable",
     hint: "Refresh the page or re-request the operation with current data.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 409,
   },
 
@@ -69,7 +69,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "external_service_unavailable",
     message: "External service is temporarily unavailable",
     hint: "This is a temporary issue. Please try again in a moment.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 502,
   },
 
@@ -87,7 +87,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "resource_conflict",
     message: "There is a conflict with the current state of the resource",
     hint: "Another operation may be in progress. Wait and try again.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 409,
   },
 
@@ -96,7 +96,7 @@ export const REJECTION_EXPLANATIONS: Record<RejectionCode, RejectionExplanation>
     reason: "rate_limit_exceeded",
     message: "Too many requests. Please slow down.",
     hint: "Wait before making another request, or reduce the request frequency.",
-    recoveryPath: null,
+    recoveryPath: undefined,
     status: 429,
   },
 };
@@ -117,7 +117,7 @@ export function getRejectionExplanation(code: RejectionCode): RejectionExplanati
 export function mapFailureToRejection(
   error: Error & { code?: string; status?: number },
 ): RejectionExplanation {
-  const { code = "validation", status = 400 } = error;
+  const { code = "validation" } = error;
 
   // Map known error codes to rejection explanations
   const mapping: Record<string, RejectionExplanation> = {
@@ -156,10 +156,12 @@ export function mapFailureToRejection(
     "RATE_LIMIT": REJECTION_EXPLANATIONS.rate_limited,
   };
 
-  const mapped = mapping[code] || REJECTION_EXPLANATIONS.not_found;
+  // Clone so per-call status overrides never mutate the shared table.
+  const mapped = { ...(mapping[code] || REJECTION_EXPLANATIONS.not_found) };
 
-  // Ensure status is correct
-  mapped.status = status || mapped.status;
+  // Ensure status is correct: prefer the error's own status, otherwise keep
+  // the status defined for the mapped explanation.
+  mapped.status = typeof error.status === "number" ? error.status : mapped.status;
 
   return mapped;
 }

@@ -124,6 +124,7 @@ describe("abuseRiskGuard explainable responses", () => {
   beforeEach(() => {
     abuseActivityLedger.reset();
     abuseReviewQueue.clear();
+    stepUpVerificationStore.reset();
   });
 
   const makeSelfDeal = (mode: "shadow" | "enforce", stepUp = false) =>

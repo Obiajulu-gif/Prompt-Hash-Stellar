@@ -116,7 +116,7 @@ describe("Rejection Explanations", () => {
       error.status = 400;
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("validation_error");
+      expect(result.reason).toBe("validation_error");
       expect(result.status).toBe(400);
     });
 
@@ -126,7 +126,7 @@ describe("Rejection Explanations", () => {
       error.status = 403;
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("insufficient_permission");
+      expect(result.reason).toBe("insufficient_permission");
       expect(result.status).toBe(403);
     });
 
@@ -136,7 +136,7 @@ describe("Rejection Explanations", () => {
       error.status = 404;
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("resource_not_found");
+      expect(result.reason).toBe("resource_not_found");
       expect(result.status).toBe(404);
     });
 
@@ -146,7 +146,7 @@ describe("Rejection Explanations", () => {
       error.status = 409;
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("resource_conflict");
+      expect(result.reason).toBe("resource_conflict");
       expect(result.status).toBe(409);
     });
 
@@ -156,7 +156,7 @@ describe("Rejection Explanations", () => {
       error.status = 429;
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("rate_limit_exceeded");
+      expect(result.reason).toBe("rate_limit_exceeded");
       expect(result.status).toBe(429);
     });
 
@@ -166,7 +166,7 @@ describe("Rejection Explanations", () => {
       error.status = 502;
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("external_service_unavailable");
+      expect(result.reason).toBe("external_service_unavailable");
       expect(result.status).toBe(502);
     });
 
@@ -175,7 +175,7 @@ describe("Rejection Explanations", () => {
       error.code = "UNKNOWN_CODE";
 
       const result = mapFailureToRejection(error);
-      expect(result.code).toBe("resource_not_found");
+      expect(result.reason).toBe("resource_not_found");
       expect(result.status).toBe(404);
     });
 
