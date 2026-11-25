@@ -1467,6 +1467,220 @@
         }
       }
     },
+    "/api/prompts/{promptId}/rename": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Rename a prompt record and update aliases",
+        "description": "Renames a prompt record, assigning a new canonical slug and registering previous aliases.",
+        "operationId": "renamePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newTitle"
+                ],
+                "properties": {
+                  "newTitle": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt renamed successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/archive-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Archive a prompt record permalink",
+        "description": "Archives a prompt record so it is hidden from marketplace discovery while maintaining permalink tombstone.",
+        "operationId": "archivePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt archived successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restore-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restore an archived prompt record",
+        "description": "Restores an archived prompt record back to active listing status.",
+        "operationId": "restorePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt restored successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restrict-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restrict a prompt record (admin only)",
+        "description": "Restricts a prompt record for policy violations or moderation reasons.",
+        "operationId": "restrictPromptRecord",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "On-chain prompt id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt restricted successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
     "/api/prompts/licensing/update": {
       "post": {
         "tags": [
@@ -1766,6 +1980,225 @@
           },
           "404": {
             "description": "Transfer not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/disputes": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Open an ownership dispute",
+        "description": "Opens an ownership dispute for a prompt transfer.",
+        "operationId": "openOwnershipDispute",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Ownership transfer identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletAddress",
+                  "reason"
+                ],
+                "properties": {
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Dispute opened successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "404": {
+            "description": "Transfer not found."
+          },
+          "409": {
+            "description": "Conflict."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Get an ownership dispute",
+        "description": "Returns details of an ownership dispute for the calling party.",
+        "operationId": "getOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Dispute identifier."
+          },
+          {
+            "name": "walletAddress",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Party wallet address."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute details."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/evidence": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Add dispute evidence",
+        "description": "Adds evidence to an open ownership dispute.",
+        "operationId": "addOwnershipDisputeEvidence",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Dispute identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletAddress"
+                ],
+                "properties": {
+                  "walletAddress": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "evidenceUrl": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Evidence added successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Dispute not found."
+          },
+          "409": {
+            "description": "Conflict."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/withdraw": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Withdraw an ownership dispute",
+        "description": "Withdraws an open ownership dispute.",
+        "operationId": "withdrawOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Dispute identifier."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "walletAddress"
+                ],
+                "properties": {
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dispute withdrawn successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "403": {
+            "description": "Forbidden."
+          },
+          "404": {
+            "description": "Dispute not found."
+          },
+          "409": {
+            "description": "Conflict."
           }
         }
       }
@@ -3733,14 +4166,14 @@
         }
       }
     },
-    "/api/prompts/similarity/check": {
+    "/api/prompts/duplicate/check": {
       "post": {
         "tags": [
           "Prompts"
         ],
-        "summary": "Check prompt similarity",
+        "summary": "Check prompt duplicates",
         "description": "Anti-plagiarism semantic similarity check against the indexed prompt corpus.",
-        "operationId": "checkSimilarity",
+        "operationId": "checkDuplicate",
         "requestBody": {
           "required": true,
           "content": {
