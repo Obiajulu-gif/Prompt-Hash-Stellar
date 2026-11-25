@@ -3,7 +3,9 @@ import {
   DeleteWebhook,
   GetWebhook,
   ListWebhookDeadLetters,
+  ListWebhookDedupeRecords,
   RegisterWebhook,
+  ReleaseWebhookDedupeRecord,
   ReplayWebhookDeadLetter,
   RotateWebhookSecret,
 } from "../controllers/webhookControllers";
@@ -35,6 +37,20 @@ webhookRouter.post(
   requireIdempotency,
   ReplayWebhookDeadLetter,
 );
+// Inbound deduplication inspection and recovery (#1180). Registered before
+// `/:id/...` routes so the literal `/dedupe` prefix always wins the match.
+webhookRouter.get(
+  "/dedupe",
+  requireAdminScope("webhook:read"),
+  ListWebhookDedupeRecords,
+);
+webhookRouter.post(
+  "/dedupe/:id/release",
+  requireAdminScope("webhook:write"),
+  requireIdempotency,
+  ReleaseWebhookDedupeRecord,
+);
+
 webhookRouter.post(
   "/:id/rotate-secret",
   requireAdminScope("webhook:write"),

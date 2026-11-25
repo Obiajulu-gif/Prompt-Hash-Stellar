@@ -4,6 +4,13 @@ import connectDb from "../db/connectDb";
 import WebhookSubscription from "../models/WebhookSubscription";
 import { listDeadLetters, replayDeadLetter, rotateSigningKey } from "../services/webhookOutbox";
 import { enforceUrlAllowList } from "../services/allowListPolicy";
+import {
+  getWebhookDedupeRecord,
+  listWebhookDedupeRecords,
+  releaseWebhookDelivery,
+  type WebhookDedupeFilter,
+} from "../services/deduplication";
+import { recordAuditEvent } from "../services/auditTrail";
 
 export const RegisterWebhook = async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -140,6 +147,87 @@ export const RotateWebhookSecret = async (req: Request, res: Response): Promise<
       return res.status(404).json({ error: "No webhook subscription found with that id." });
     }
     return res.status(200).json({ message: "Signing key rotated.", secret: newSecret });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
+const WEBHOOK_DEDUPE_STATUSES = ["in_flight", "processed", "failed"] as const;
+
+/**
+ * GET /api/webhooks/dedupe?key=&status=&source=&limit=
+ *
+ * Admin inspection of the inbound deduplication ledger (#1180). Without a
+ * `key`, returns the most recently touched records so operators can find
+ * deliveries stuck `in_flight` or repeatedly `failed`. The scoped key is
+ * `webhook:<source>:<eventId>`.
+ */
+export const ListWebhookDedupeRecords = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const { key, status, source, limit } = req.query;
+
+    if (key) {
+      const record = await getWebhookDedupeRecord(String(key));
+      if (!record) {
+        return res.status(404).json({ error: "No deduplication record found for that key." });
+      }
+      return res.status(200).json(record);
+    }
+
+    if (status && !(WEBHOOK_DEDUPE_STATUSES as readonly string[]).includes(String(status))) {
+      return res.status(400).json({
+        error: `status must be one of: ${WEBHOOK_DEDUPE_STATUSES.join(", ")}.`,
+      });
+    }
+
+    const rows = await listWebhookDedupeRecords({
+      status: status ? (String(status) as WebhookDedupeFilter["status"]) : undefined,
+      source: source ? String(source) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    return res.status(200).json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
+/**
+ * POST /api/webhooks/dedupe/:id/release
+ *
+ * Operator rollback for an in-flight or failed reservation (#1180). Releasing
+ * lets the next provider retry run processing again; it never deletes a
+ * completed record, so a `processed` event cannot be replayed by this route.
+ */
+export const ReleaseWebhookDedupeRecord = async (
+  req: Request & { admin?: { sub?: string }; requestId?: string | null },
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+    const released = await releaseWebhookDelivery(req.params.id);
+    if (!released) {
+      return res.status(404).json({
+        error: "No in-flight or failed deduplication record found with that id.",
+      });
+    }
+
+    void recordAuditEvent({
+      action: "webhook_dedupe_released",
+      result: "success",
+      actor: req.admin?.sub ?? null,
+      target: req.params.id,
+      targetType: "webhook_dedupe_record",
+      requestId: req.requestId ?? null,
+      reason: "Operator released a webhook deduplication reservation for retry.",
+    });
+
+    return res
+      .status(200)
+      .json({ message: "Deduplication record released; the next delivery will be processed." });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
