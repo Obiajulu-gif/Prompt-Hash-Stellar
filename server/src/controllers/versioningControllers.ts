@@ -366,7 +366,7 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
       return denyResponse(res, "recordPurchase", "anonymous");
     }
 
-    const prompt = await Prompt.findById(promptId).select("owner").lean();
+    const prompt = await Prompt.findById(promptId).select("owner currentVersionIndex").lean();
     if (!prompt) {
       return res.status(404).json({ error: "Prompt not found." });
     }
@@ -376,13 +376,18 @@ export const RecordPurchase = async (req: Request, res: Response): Promise<Respo
     }
 
     const existing = await Purchase.findOne({ promptId: String(promptId), buyerWallet: normalized }).lean();
-    if (!existing) {
-      await Purchase.create({
-        promptId: String(promptId),
-        buyerWallet: normalized,
-        txHash: txHash ?? null,
-      });
+    if (existing) {
+      // Re-submission: the first write already created the single entitlement row.
+      return res.status(200).json({ message: "Already purchased; no new purchase recorded." });
     }
+    // Purchases are pinned to the version current at purchase time (see the
+    // route comment and the Purchase.versionIndex requirement).
+    await Purchase.create({
+      promptId: String(promptId),
+      buyerWallet: normalized,
+      versionIndex: (prompt as any).currentVersionIndex ?? 0,
+      txHash: txHash ?? null,
+    });
 
     return res.status(201).json({ message: "Purchase recorded." });
   } catch (err) {
