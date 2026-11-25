@@ -187,5 +187,28 @@ describe("Rejection Explanations", () => {
       const result = mapFailureToRejection(error, 400);
       expect(result.status).toBe(400);
     });
+
+    it("should not mutate the shared taxonomy between requests", () => {
+      const unauthorized = new Error("Unauthorized") as any;
+      unauthorized.code = "UNAUTHORIZED";
+      unauthorized.status = 401;
+
+      const retryable = new Error("Service unavailable") as any;
+      retryable.code = "EXTERNAL_UNAVAILABLE";
+      retryable.status = 503;
+
+      expect(mapFailureToRejection(unauthorized).status).toBe(401);
+      expect(mapFailureToRejection(retryable).status).toBe(503);
+      expect(mapFailureToRejection({ code: "UNAUTHORIZED" } as any).status).toBe(403);
+      expect(REJECTION_EXPLANATIONS.permission_denied.status).toBe(403);
+      expect(REJECTION_EXPLANATIONS.external_service.status).toBe(502);
+    });
+
+    it("should keep the fallback taxonomy status when an error has no status", () => {
+      const result = mapFailureToRejection(new Error("Unexpected failure") as any);
+
+      expect(result.code).toBe("resource_not_found");
+      expect(result.status).toBe(404);
+    });
   });
 });
