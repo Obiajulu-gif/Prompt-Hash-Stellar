@@ -88,23 +88,56 @@ normally.
 
 ---
 
-## 7. Admin HTTP Endpoints
+## 7. Wallet Session Guard: Edge Cases, Recovery and Verification (#1133)
 
-Mounted under `/api/admin/security-events` (`server/src/routes/securityEventRoutes.ts`):
+`requireWalletSession` (`server/src/middleware/walletSession.ts`) is the admission
+point for `Authorization: Bearer` wallet sessions. It checks revocation after the
+token signature, expiry, wallet binding and action. The table lists the outcome for
+each path.
 
-| Method | Path | Required Scope | Description |
-| --- | --- | --- | --- |
-| `POST` | `/api/admin/security-events/invalidate` | `security:revoke` | Record a security event (`{ type, subject, reason, metadata? }`) and invalidate matching sessions. |
-| `POST` | `/api/admin/security-events/reinstate` | `security:revoke` | Roll back a subject or global (`*`) revocation after a verified false alarm (`{ subject, reason }`). |
-| `GET` | `/api/admin/security-events/status/:subject` | `security:read` | Inspect current revocation status for a Stellar address, operator ID, or `*`. |
-| `GET` | `/api/admin/security-events/audit` | `security:read` | Retrieve the immutable in-memory security event audit trail (filterable by `type`, `subject`, `limit`). |
+| Path | Result | Client-visible `code` |
+| --- | --- | --- |
+| Valid session for its own wallet | `next()`; `req.sessionWallet` set | none |
+| Wallet param lower-case | Normalized to the account form, then admitted | none |
+| Malformed wallet address | `400` before the token is read | none |
+| Missing bearer token | `401` | none |
+| Expired token, or token for another wallet | `401` | none |
+| Unlock challenge replayed as a session | `401` (action mismatch) | none |
+| Session secret not configured | `503`, no detail returned | none |
+| Session issued before a subject security event | `401` with the policy's user-safe message | `subject_revoked_by_security_event` |
+| Session issued after the event | `next()`; the user signs in again | none |
+| Other accounts after one subject event | Unaffected | none |
 
----
+**Edge cases**
 
-## 8. Edge Cases, Retry Semantics & Rollback Behavior
+- Wallet addresses are 56-character Stellar strkeys (`G` plus 55 base32 characters).
+  The guard previously required 56 characters after the `G`, which rejected every
+  real wallet. Revocation normalization uses the same 55-character form.
+- The internal revocation `reason` never appears in a response. Check it in the
+  audit trail and the registry status only.
+- A cutoff more than 60 seconds in the future is refused (`invalid_timestamp`), so a
+  mis-set clock cannot pre-revoke sessions that do not exist yet.
+- Revocation records are retained for `MAX_REVOCATION_RETENTION_MS`. A token older
+  than that has already expired, so pruning cannot readmit a revoked session.
 
-- **Monotonic Idempotent Retries**: Duplicate or retried revocation calls for the same subject or global cutoff compute `Math.max(existingCutoff, newCutoff)`, ensuring an out-of-order retry with an older timestamp never weakens an active security cutoff while preserving every attempt in the audit trail.
-- **Boundary Timestamps**: Tokens with `issuedAt <= revokedBefore` are rejected; tokens minted at `revokedBefore + 1` or later are admitted. Future cutoffs beyond a 60-second clock-skew tolerance (`now + 60_000`) are rejected with `invalid_timestamp`.
-- **Case & Format Normalization**: Valid base32 Stellar addresses (`^G[A-Z2-7]{55}$`) are normalized to uppercase; operator handles are trimmed and lowercased so mixed-case inputs never bypass cutoffs.
-- **Precedence Order**: Global emergency cutoffs (`global_security_event`) are evaluated before subject cutoffs (`subject_revoked_by_security_event`), which are evaluated before individual token nonces (`token_nonce_revoked`).
-- **Rollback / False-Alarm Recovery**: Calling `POST /api/admin/security-events/reinstate` (or `registry.reinstateSubject`) removes the active cutoff immediately while keeping historical revocation records intact in the audit trail.
+**Recovery and rollback**
+
+- For a false alarm, an authorized operator (`admin` or `security:revoke`) calls
+  `reinstateSubject(subject, actor, reason)`. Pre-event sessions work again, and the
+  reinstatement is audited. A viewer call throws `unauthorized` and changes nothing.
+- A user whose session was revoked signs a new challenge. The new session is
+  admitted because it was issued after the cutoff.
+
+**Verification**
+
+```bash
+cd server
+npx vitest run src/tests/walletSessionRevocation.test.ts \
+  src/tests/sessionRevocationService.test.ts \
+  src/tests/sessionInvalidationPolicy.test.ts \
+  src/tests/abuseRiskGuard.test.ts
+```
+
+Step-up decisions use `hasFreshWalletSession`, so a session older than the step-up
+window (5 minutes by default) does not count as a fresh signature, and a revoked
+session does not either.
