@@ -202,4 +202,68 @@ mod tests {
             );
         }
     }
+
+    /// Parent keys used to instantiate each `DependsOn` description. The
+    /// description strings are the contract; the concrete ids are arbitrary.
+    fn parent_key_for(description: &str, env: &Env) -> DataKey {
+        match description {
+            "Prompt" => DataKey::Prompt(1),
+            "Purchase" => DataKey::Purchase(1, Address::generate(env)),
+            other => panic!("unexpected TTL parent description: {}", other),
+        }
+    }
+
+    #[test]
+    fn test_dependent_keys_never_outlive_their_parent_policy() {
+        // Invariant from ttl_policy.rs: a dependent key's max TTL must not
+        // exceed its parent's, so it cannot outlive the record it supports.
+        let env = Env::default();
+        let addr = Address::generate(&env);
+        let children = [
+            DataKey::PurchaseEscrow(1, addr.clone()),
+            DataKey::PurchaseDispute(1, addr.clone()),
+            DataKey::ListingRevision(1, 0),
+            DataKey::VoucherKey(1, soroban_sdk::BytesN::from_array(&env, &[0u8; 32])),
+        ];
+
+        for child in children {
+            let TTLDependency::DependsOn(parent_description) = get_ttl_dependency(&child) else {
+                panic!("expected a dependent classification for this key family");
+            };
+            let parent = parent_key_for(parent_description, &env);
+            assert!(
+                get_ttl_for_key(&child) <= get_ttl_for_key(&parent),
+                "dependent key must not outlive parent {}",
+                parent_description
+            );
+        }
+    }
+
+    #[test]
+    fn test_listing_revision_is_renewed_with_prompt_ttl() {
+        // renew_critical_keys renews a prompt's revisions alongside it, which is
+        // only sound when the revision's TTL equals the prompt's (both ONE_YEAR).
+        assert!(matches!(
+            get_ttl_dependency(&DataKey::ListingRevision(1, 0)),
+            TTLDependency::DependsOn("Prompt")
+        ));
+        assert_eq!(
+            get_ttl_for_key(&DataKey::ListingRevision(1, 0)),
+            get_ttl_for_key(&DataKey::Prompt(1)),
+        );
+    }
+
+    #[test]
+    fn test_independent_keys_have_no_parent() {
+        let env = Env::default();
+        let addr = Address::generate(&env);
+        assert!(matches!(
+            get_ttl_dependency(&DataKey::Purchase(1, addr.clone())),
+            TTLDependency::Independent
+        ));
+        assert!(matches!(
+            get_ttl_dependency(&DataKey::Prompt(1)),
+            TTLDependency::Independent
+        ));
+    }
 }

@@ -21,3 +21,34 @@ export type {
   ReceiptVerificationResult,
 } from "./types.js";
 export type { VerifyReceiptOptions } from "./receipts.js";
+
+// Versioned audit-event contract (Issue #1094)
+export {
+  AUDIT_SCHEMA_VERSION,
+  SUPPORTED_AUDIT_SCHEMA_VERSIONS,
+  REDACTED_FIELDS,
+  HASHED_FIELDS,
+  REDACTION_SENTINEL,
+  SCHEMA_MIGRATION_NOTES,
+  redactEvent,
+  redactObject,
+  sha256Hex,
+  validateAuditEvent,
+  isCompatible,
+  isFutureVersion,
+  migrateEvent,
+  migrationPathSummary,
+} from "./audit/index.js";
+export type {
+  AuditEvent,
+  AuditActor,
+  AuditResource,
+  AuditCorrelation,
+  AuditEventName,
+  AuditSchemaVersion,
+  SchemaMigrationNote,
+  ValidationResult,
+  ValidationOk,
+  ValidationError,
+  MigrationResult,
+} from "./audit/index.js";
