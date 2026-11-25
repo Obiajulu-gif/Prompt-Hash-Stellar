@@ -157,6 +157,25 @@ describe("RequestOwnershipTransfer (#708)", () => {
     );
   });
 
+  it("sets a bounded expiry on every new transfer", async () => {
+    vi.spyOn(Prompt, "findOne")
+      .mockReturnValueOnce(chain({ owner: { walletAddress: FROM.toLowerCase() } }) as any)
+      .mockReturnValueOnce(chain({ title: "SQL Prompt" }) as any);
+    vi.spyOn(OwnershipTransfer, "updateMany").mockResolvedValue({ modifiedCount: 0 } as any);
+    vi.spyOn(OwnershipTransfer, "findOne").mockResolvedValue(null);
+    const create = vi.spyOn(OwnershipTransfer, "create").mockResolvedValue(mkTransfer() as any);
+    const before = Date.now();
+
+    await RequestOwnershipTransfer(
+      req({ body: { promptId: "101", fromWallet: FROM, toWallet: TO } }) as Request,
+      res() as Response,
+    );
+
+    const expiresAt = create.mock.calls[0][0].expiresAt as Date;
+    expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + TRANSFER_TTL_MS - 1_000);
+    expect(expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + TRANSFER_TTL_MS + 1_000);
+  });
+
   it("holds the listing with 423 while an open ownership dispute exists, and creates nothing (#907)", async () => {
     vi.spyOn(Prompt, "findOne").mockReturnValueOnce(
       chain({ owner: { walletAddress: FROM.toLowerCase() } }) as any,
