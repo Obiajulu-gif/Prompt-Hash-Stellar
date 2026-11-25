@@ -229,6 +229,14 @@ const provenanceRecordSchema = new mongoose.Schema(
       default: "unverified",
       index: true,
     },
+
+    // Digest of the canonical import and lineage metadata. It is immutable
+    // evidence that the provenance fields were not changed after creation.
+    provenanceHash: {
+      type: String,
+      match: /^[a-f0-9]{64}$/,
+      index: true,
+    },
     
     verificationTimestamp: {
       type: Date,

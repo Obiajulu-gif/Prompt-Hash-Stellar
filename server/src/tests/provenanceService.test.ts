@@ -161,6 +161,25 @@ describe("Provenance Service - Import Tracking", () => {
     expect(record.sourceType).toBe("system");
     expect(record.onChainId).toBe("123");
   });
+
+  it("computes a stable hash and changes it when imported provenance changes", () => {
+    const input = {
+      promptId: "prompt_hash",
+      sourceType: "api" as ImportSourceType,
+      sourceSystem: { systemName: "catalog", systemVersion: "2" },
+      actor: { actorType: "service" as const, actorId: "importer" },
+      metadata: { sourceRow: 7 },
+    };
+    const hash = provenanceService.computeProvenanceHash(input);
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(provenanceService.computeProvenanceHash({ ...input })).toBe(hash);
+    expect(
+      provenanceService.computeProvenanceHash({
+        ...input,
+        metadata: { sourceRow: 8 },
+      }),
+    ).not.toBe(hash);
+  });
 });
 
 describe("Provenance Service - Derived Records", () => {
