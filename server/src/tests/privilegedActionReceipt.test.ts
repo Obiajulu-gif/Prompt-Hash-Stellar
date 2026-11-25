@@ -186,6 +186,33 @@ describe("PrivilegedActionReceiptService (#1127)", () => {
       expect(result.tamperedFields).toContain("payload");
       expect(result.tamperedFields).toContain("signature");
     });
+
+    it("detects tampering with admin-change scope and target metadata", async () => {
+      const receipt = await PrivilegedActionReceiptService.issueReceipt({
+        actor: "admin-config",
+        action: "flags:update",
+        scope: "flags:write",
+        status: "SUCCESS",
+        target: "strict_settlement_checks",
+        targetType: "feature_flag",
+        reason: "release-1221",
+        payload: { enabled: true },
+      });
+
+      const tampered = {
+        ...receipt,
+        externalReferences: {
+          ...receipt.externalReferences,
+          scope: "flags:read",
+          target: "different_flag",
+        },
+      };
+
+      const result = PrivilegedActionReceiptService.verifyReceipt(tampered);
+      expect(result.valid).toBe(false);
+      expect(result.tamperedFields).toContain("externalReferences");
+      expect(result.tamperedFields).toContain("signature");
+    });
   });
 
   describe("Query Path", () => {
