@@ -190,7 +190,8 @@ OperationFailureSchema.virtual('ageInHours').get(function() {
 
 // Check if stale (older than 24 hours)
 OperationFailureSchema.virtual('isStale').get(function() {
-  return this.ageInHours > 24;
+  const diff = Date.now() - this.firstFailedAt.getTime();
+  return diff > 24 * 60 * 60 * 1000;
 });
 
 // Instance method: Record retry attempt

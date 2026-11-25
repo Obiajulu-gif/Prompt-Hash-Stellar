@@ -18,10 +18,11 @@ import {
   type RecordVisibility,
   type ViewerContext,
   type VisibilityEvaluation,
-} from "../../../packages/schema/src/visibility.js";
+} from "@prompthash/schema";
 
 import { logger } from "./structuredLogger.js";
 import { recordAuditEvent } from "./auditTrail.js";
+import type { AuditAction } from "../models/AuditLog.js";
 import { cacheDel } from "./cacheService.js";
 
 export {
@@ -275,7 +276,7 @@ export async function checkCacheVisibilityDrift(
  * access attempt to a restricted/private record is blocked.
  */
 export async function logVisibilityViolation(params: {
-  action: string;
+  action: AuditAction;
   promptId: string;
   attemptedBy?: string | null;
   targetVisibility: RecordVisibility;

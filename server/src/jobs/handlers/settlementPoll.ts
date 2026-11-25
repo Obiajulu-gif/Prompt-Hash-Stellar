@@ -6,6 +6,7 @@
  * Keep payload small (versioned).
  */
 import type { JobRecordDTO } from "../types";
+import Purchase from "../../models/Purchase.js";
 
 export async function handleSettlementPoll(job: JobRecordDTO): Promise<void> {
   const { promptId, purchaseId, buyerWallet, txHash } = job.payload as any;
@@ -21,7 +22,6 @@ export async function handleSettlementPoll(job: JobRecordDTO): Promise<void> {
   //
   // For the skeleton, we simulate with Purchase lookup when available.
   try {
-    const Purchase = (await import("../../models/Purchase")).default;
     const existing = await Purchase.findOne({ promptId: String(promptId), buyerWallet: String(buyerWallet).toLowerCase() });
     if (existing && existing.status === "purchased" && existing.txHash) {
       // Already settled — idempotent no-op

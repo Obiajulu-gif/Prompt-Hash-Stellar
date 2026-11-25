@@ -1429,6 +1429,468 @@
         }
       }
     },
+    "/api/prompts/{promptId}/archive-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Archive a prompt permalink",
+        "description": "Archives a prompt record so its permalink stops resolving to live content. The creator wallet or an admin session is required.",
+        "operationId": "archivePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Why the record is being archived."
+                  },
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Creator wallet performing the archive."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record archived; the permalink no longer resolves to live content."
+          },
+          "400": {
+            "description": "The promptId is missing."
+          },
+          "404": {
+            "description": "No prompt matches the identifier."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restore-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restore an archived permalink",
+        "description": "Restores a previously archived prompt record so its permalink resolves again.",
+        "operationId": "restorePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Why the record is being restored."
+                  },
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Creator wallet performing the restore."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record restored and resolvable again."
+          },
+          "400": {
+            "description": "The promptId is missing."
+          },
+          "404": {
+            "description": "No prompt matches the identifier."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restrict-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restrict a prompt permalink",
+        "description": "Restricts a prompt record so its permalink no longer exposes content to unauthorized viewers. Admin scope `moderation:write` is required.",
+        "operationId": "restrictPromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Moderation reason for the restriction."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record restricted."
+          },
+          "403": {
+            "description": "The caller lacks the moderation:write admin scope."
+          },
+          "404": {
+            "description": "No prompt matches the identifier."
+          }
+        }
+      }
+    },
+    "/api/prompts/duplicate/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Check for duplicate prompts",
+        "description": "Checks a candidate prompt against the marketplace for exact and near-duplicate content. Subject to the COMPUTE_SIMILARITY_CHECK policy limit.",
+        "operationId": "checkDuplicatePrompt",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "Candidate prompt title."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Candidate prompt body."
+                  },
+                  "contentHash": {
+                    "type": "string",
+                    "description": "Precomputed content hash, when available."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Duplicate assessment for the candidate prompt."
+          },
+          "400": {
+            "description": "The candidate payload is invalid."
+          },
+          "429": {
+            "description": "The similarity policy limit was exceeded."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/disputes": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Open an ownership transfer dispute",
+        "description": "Opens a dispute on a pending ownership transfer. Requires a wallet session for one of the transfer parties and an `Idempotency-Key` header.",
+        "operationId": "openOwnershipDispute",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Wallet of the party opening the dispute."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "Reason for the dispute."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Dispute opened."
+          },
+          "400": {
+            "description": "walletAddress or reason is invalid."
+          },
+          "404": {
+            "description": "Transfer not found."
+          },
+          "409": {
+            "description": "A dispute is already open for this transfer."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Read an ownership transfer dispute",
+        "description": "Returns the dispute, its parties, status and evidence for a wallet that is a party to the transfer.",
+        "operationId": "getOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute record with evidence."
+          },
+          "403": {
+            "description": "The caller is not a party to the transfer."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/evidence": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Add evidence to an ownership transfer dispute",
+        "description": "Appends a note and optional evidence URL to an open dispute. Only a party to the transfer may add evidence.",
+        "operationId": "addOwnershipDisputeEvidence",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Wallet of the party adding evidence."
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "Evidence note."
+                  },
+                  "evidenceUrl": {
+                    "type": "string",
+                    "description": "Link to supporting evidence."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Evidence recorded."
+          },
+          "400": {
+            "description": "The evidence payload is invalid."
+          },
+          "403": {
+            "description": "The caller is not a party to the transfer."
+          },
+          "404": {
+            "description": "Dispute not found."
+          },
+          "409": {
+            "description": "The dispute is no longer open."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/withdraw": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Withdraw an ownership transfer dispute",
+        "description": "Withdraws an open dispute opened by the calling party.",
+        "operationId": "withdrawOwnershipDispute",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "walletAddress": {
+                    "type": "string",
+                    "description": "Wallet of the party withdrawing the dispute."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dispute withdrawn."
+          },
+          "400": {
+            "description": "walletAddress is invalid."
+          },
+          "403": {
+            "description": "The caller did not open the dispute."
+          },
+          "404": {
+            "description": "Dispute not found."
+          },
+          "409": {
+            "description": "The dispute is no longer open."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/rename": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Rename a prompt record",
+        "description": "Renames a prompt record and keeps the previous slug so old permalinks resolve with a 301 redirect. Requires the creator wallet or an admin session.",
+        "operationId": "renamePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newTitle"
+                ],
+                "properties": {
+                  "newTitle": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "walletAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt renamed; returns the new slug, canonical URL and previous slugs."
+          },
+          "400": {
+            "description": "The promptId is missing or newTitle is shorter than 3 characters."
+          },
+          "404": {
+            "description": "No prompt matches the identifier."
+          },
+          "500": {
+            "description": "Unexpected error while renaming the record."
+          }
+        }
+      }
+    },
     "/api/prompts/{promptId}/license": {
       "get": {
         "tags": [

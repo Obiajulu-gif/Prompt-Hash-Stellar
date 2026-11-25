@@ -12,6 +12,7 @@ import type { AdminRequest } from "../middleware/adminAuth";
 import Prompt from "../models/Prompt";
 import { provenanceService } from "../services/provenanceService";
 import { policyLimitService } from "../services/policyLimitService";
+import { evaluateImportLoadBudget } from "../services/importLoadBudget";
 import { logger } from "../services/structuredLogger";
 import { recordAuditEvent } from "../services/auditTrail";
 
@@ -110,6 +111,20 @@ export async function bulkImportPrompts(
       return res.status(400).json({
         error: "Invalid request",
         message: "items array must contain between 1 and 1000 entries",
+      });
+    }
+
+    // Pre-flight resource budget: reject an oversized payload before any
+    // parsing, policy bookkeeping, transfer record or write happens (#1173).
+    const loadBudget = evaluateImportLoadBudget(items);
+    if (!loadBudget.allowed) {
+      return res.status(413).json({
+        error: "Import batch exceeds resource budget",
+        code: loadBudget.violations[0].code,
+        message: loadBudget.violations[0].message,
+        violations: loadBudget.violations,
+        limits: loadBudget.limits,
+        retryable: false,
       });
     }
 

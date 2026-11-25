@@ -230,7 +230,7 @@ export function errorHandlerMiddleware(
   const originalSend = res.send;
 
   // Override res.send to intercept error responses
-  res.send = function (body: any) {
+  res.send = function (body: any): any {
     // If this is an error response (status >= 400) and body is an Error object
     if (res.statusCode >= 400 && body instanceof Error) {
       const explanation = mapFailureToRejection(body);
@@ -253,9 +253,10 @@ export function errorHandlerMiddleware(
         recoveryPath: explanation.recoveryPath,
         correlationId: req.correlationId,
       });
+      return res;
     } else {
       // Pass through normally
-      originalSend.call(this, body);
+      return originalSend.call(this, body);
     }
   };
 

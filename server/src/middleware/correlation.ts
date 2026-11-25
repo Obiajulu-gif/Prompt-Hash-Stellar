@@ -80,7 +80,7 @@ const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
   /\bsk[A-Za-z0-9]{16,}/,
   /\bsk_[A-Za-z0-9]{16,}/,
   /\bghp_[A-Za-z0-9]{16,}/,
-  /\xox[0-9a-f]{16,}/i,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
   /\beyJ[a-zA-Z0-9]+\.[A-Za-z0-9]+\.[a-zA-Z0-9_-]+/,
   /-----BEGIN [A-Z ]+-----[\s\S]+?-----END [A-Z ]+-----/,
   /\b[A-Za-z0-9_\-]{20}\.[A-Za-z0-9_\-]{20}\.[a-zA-Z0-9_\-]{20}/,
@@ -210,7 +210,7 @@ export function correlationMiddleware(req: Request, res: Response, next: NextFun
   const incomingId = req.headers["x-correlation-id"] || req.headers["x-request-id"];
   const correlationId = (typeof incomingId === "string" && incomingId)
     ? incomingId
-    : crypto.randomUUId();
+    : crypto.randomUUID();
 
   req.correlationId = correlationId;
   res.setHeader("X-Correlation-ID", correlationId);

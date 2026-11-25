@@ -6,7 +6,7 @@ import {
   globalNonceLedger,
   verifyChallengeSignature,
   verifyChallengeToken,
-} from "../../../src/lib/auth/challenge";
+} from "../shared/challenge.js";
 import { requireIdempotency } from "../middleware/idempotency";
 import { requireWalletSession, type WalletSessionRequest, normalizeWallet, walletSessionSecret } from "../middleware/walletSession";
 import {

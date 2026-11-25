@@ -5,6 +5,7 @@
  * file reference; request handler only enqueues the job and returns jobId.
  */
 import type { JobRecordDTO } from "../types";
+import PayoutStatement from "../../models/PayoutStatement.js";
 
 export async function handleExportCsv(job: JobRecordDTO): Promise<void> {
   const { creatorWallet, startDate, endDate, requestedBy } = job.payload as any;
@@ -17,7 +18,6 @@ export async function handleExportCsv(job: JobRecordDTO): Promise<void> {
   // Real implementation: query PayoutStatement / Purchase, write CSV to S3 or temp file,
   // store artifact id. We simulate with a light DB touch.
   try {
-    const PayoutStatement = (await import("../../models/PayoutStatement")).default;
     await PayoutStatement.findOne({ creatorWallet: String(creatorWallet).toLowerCase() }).lean().catch(() => null);
   } catch (err: any) {
     if (err.name === "MongooseError" || err.message?.includes("not connected")) {

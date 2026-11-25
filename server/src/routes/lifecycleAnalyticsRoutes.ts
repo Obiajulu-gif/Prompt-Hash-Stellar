@@ -8,7 +8,7 @@ import {
   analyzeLifecycle,
   normalizeLifecycleEvent,
   type LifecycleEvent as NormalizedEvent,
-} from "../../../src/lib/analytics/lifecycleAnalytics";
+} from "../shared/lifecycleAnalytics.js";
 
 /**
  * Lifecycle analytics. See docs/lifecycle-analytics.md.

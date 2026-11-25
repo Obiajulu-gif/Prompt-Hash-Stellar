@@ -1,4 +1,6 @@
 import Notification, { NotificationType } from "../models/Notification";
+import NotificationPreferences from "../models/NotificationPreferences";
+import { logger } from "./structuredLogger";
 
 export interface CreateNotificationOptions {
   recipientWallet: string;
@@ -156,4 +158,142 @@ export class NotificationService {
       .sort({ createdAt: -1 })
       .exec();
   }
+}
+
+export interface CreateNotificationParams {
+  recipientWallet: string;
+  type: NotificationType;
+  message: string;
+  deepLink?: string | null;
+  promptId?: string | null;
+  promptTitle?: string;
+  versionIndex?: number | null;
+  changeNote?: string;
+  /** Stable idempotency key — typically the on-chain event id. */
+  idempotencyKey?: string | null;
+}
+
+/**
+ * Persists a notification for `recipientWallet`, skipping the write when the
+ * recipient has muted the type. Duplicate idempotency keys are treated as a
+ * successful no-op so retried indexer ticks never double-notify.
+ */
+export async function createNotification(
+  params: CreateNotificationParams,
+): Promise<InstanceType<typeof Notification> | null> {
+  const wallet = params.recipientWallet.toLowerCase();
+
+  try {
+    const prefs = await NotificationPreferences.findOne({ walletAddress: wallet }).lean();
+    const mutedTypes: string[] = (prefs as { mutedTypes?: string[] } | null)?.mutedTypes ?? [];
+    if (mutedTypes.includes(params.type)) {
+      logger.debug("Notification suppressed by user preference", {
+        action: "createNotification",
+        type: params.type,
+        wallet,
+      });
+      return null;
+    }
+  } catch (prefErr) {
+    // Preference lookup failure must never block notification delivery.
+    logger.warn("Failed to load notification preferences; proceeding without preference check", {
+      action: "createNotification",
+      wallet,
+      error: prefErr,
+    });
+  }
+
+  const doc: Record<string, unknown> = {
+    recipientWallet: wallet,
+    type: params.type,
+    message: params.message,
+    deepLink: params.deepLink ?? null,
+    promptId: params.promptId ?? null,
+    promptTitle: params.promptTitle ?? "",
+    versionIndex: params.versionIndex ?? null,
+    changeNote: params.changeNote ?? "",
+  };
+
+  if (params.idempotencyKey) {
+    doc.idempotencyKey = params.idempotencyKey;
+  }
+
+  try {
+    return await Notification.create(doc);
+  } catch (err: unknown) {
+    if ((err as { code?: number }).code === 11000) {
+      logger.debug("Notification already exists for idempotency key", {
+        action: "createNotification",
+        idempotencyKey: params.idempotencyKey,
+        wallet,
+      });
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Sends the same event to every wallet in `recipientWallets`. Idempotency keys
+ * are suffixed per wallet so each recipient has a unique document.
+ */
+export async function fanOutNotification(
+  recipientWallets: (string | undefined | null)[],
+  params: Omit<CreateNotificationParams, "recipientWallet">,
+): Promise<void> {
+  const wallets = recipientWallets.filter((w): w is string => Boolean(w));
+  await Promise.allSettled(
+    wallets.map((wallet) =>
+      createNotification({
+        ...params,
+        recipientWallet: wallet,
+        idempotencyKey: params.idempotencyKey
+          ? `${params.idempotencyKey}:${wallet.toLowerCase()}`
+          : undefined,
+      }).catch((err) => {
+        logger.error("fanOutNotification failed for one recipient", {
+          action: "fanOutNotification",
+          wallet,
+          error: err,
+        });
+      }),
+    ),
+  );
+}
+
+/**
+ * Deletes read notifications older than `retentionDays` in batches. The TTL
+ * index is the primary retention mechanism; this is the manual fallback.
+ */
+export async function pruneOldNotifications(
+  retentionDays = 90,
+  batchSize = 500,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  let totalDeleted = 0;
+
+  for (;;) {
+    const docs = await Notification.find(
+      { read: true, createdAt: { $lt: cutoff } },
+      { _id: 1 },
+    )
+      .limit(batchSize)
+      .lean();
+
+    if (docs.length === 0) break;
+
+    const ids = docs.map((d: { _id: unknown }) => d._id);
+    const result = await Notification.deleteMany({ _id: { $in: ids } });
+    totalDeleted += result.deletedCount ?? 0;
+
+    logger.info("Pruned old notifications batch", {
+      action: "pruneOldNotifications",
+      deleted: result.deletedCount,
+      total: totalDeleted,
+    });
+
+    if (docs.length < batchSize) break;
+  }
+
+  return totalDeleted;
 }

@@ -129,7 +129,8 @@ export class InvitationService {
     // Role escalation check
     if (currentRole) {
       const currentLevel = ROLE_HIERARCHY[currentRole] ?? 0;
-      const requestedLevel = ROLE_HIERARCHY[invitation.role] ?? 0;
+      const requestedLevel =
+        ROLE_HIERARCHY[invitation.role as InvitationRole] ?? 0;
       if (requestedLevel > currentLevel + 1) {
         return {
           success: false,

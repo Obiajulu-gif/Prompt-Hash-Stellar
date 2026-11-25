@@ -11,7 +11,7 @@ import {
   setPromptArchived,
   updateCollection,
 } from "../services/buyerLibrary";
-import type { EntitlementHealth } from "../../../src/lib/prompts/entitlementHealth";
+import type { EntitlementHealth } from "../shared/entitlementHealth.js";
 
 /**
  * Buyer library (#784). Every route requires a wallet session for the

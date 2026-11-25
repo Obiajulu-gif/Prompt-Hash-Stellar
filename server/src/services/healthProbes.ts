@@ -6,8 +6,13 @@
  * preflight, and purchase preflight workflows.
  */
 
-import { Keypair, Horizon } from "@stellar/stellar-sdk";
-import { Server as RpcServer } from "@stellar/stellar-sdk/rpc";
+import { createRequire } from "node:module";
+
+// stellar-sdk exposes CommonJS builds through the `require` condition but its
+// `types` entry is ESM-only, so load the values through createRequire.
+const nodeRequire = createRequire(__filename);
+const { Keypair, Horizon } = nodeRequire("@stellar/stellar-sdk") as typeof import("@stellar/stellar-sdk", { with: { "resolution-mode": "import" } });
+const { Server: RpcServer } = nodeRequire("@stellar/stellar-sdk/rpc") as typeof import("@stellar/stellar-sdk/rpc", { with: { "resolution-mode": "import" } });
 const StellarServer = Horizon.Server;
 import { logger } from "./structuredLogger.js";
 

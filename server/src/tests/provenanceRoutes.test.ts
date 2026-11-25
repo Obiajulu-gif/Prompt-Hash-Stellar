@@ -93,6 +93,8 @@ const mockStandaloneFunctions = {
   })),
 };
 
+const mockProvenanceService = mockServiceInstance;
+
 vi.mock("../services/provenanceService", () => ({
   provenanceService: mockServiceInstance,
   ...mockStandaloneFunctions,

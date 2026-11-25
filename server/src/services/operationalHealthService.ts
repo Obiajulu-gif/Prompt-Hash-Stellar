@@ -255,7 +255,7 @@ export class OperationalHealthService {
       if (LedgerEntry?.find) {
         const unsettledEntries = await LedgerEntry.find({
           entryType: { $in: ["payout", "escrow_settlement"] },
-          stellarTxRef: { $in: [null, "", undefined] },
+          stellarTxRef: { $in: [null, ""] },
         }).lean();
 
         const count = unsettledEntries.length;

@@ -8,7 +8,7 @@ import {
   deriveEntitlementHealth,
   isEntitled,
   type EntitlementHealth,
-} from "../../../src/lib/prompts/entitlementHealth";
+} from "../shared/entitlementHealth.js";
 
 /**
  * Buyer library (#784): collections, archive state, search, and entitlement

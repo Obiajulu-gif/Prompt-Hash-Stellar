@@ -31,17 +31,29 @@ import mongoose from "mongoose";
 export type NotificationType =
   | "prompt_update"
   | "purchase_receipt"
+  | "purchase_confirmed"
+  | "dispute_opened"
+  | "dispute_resolved"
+  | "payout_available"
+  | "ownership_transfer"
   | "security_alert"
   | "account_lifecycle"
   | "entitlement_update"
+  | "moderation_action"
   | "support_access_notice";
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "prompt_update",
   "purchase_receipt",
+  "purchase_confirmed",
+  "dispute_opened",
+  "dispute_resolved",
+  "payout_available",
+  "ownership_transfer",
   "security_alert",
   "account_lifecycle",
   "entitlement_update",
+  "moderation_action",
   "support_access_notice",
 ];
 

@@ -101,11 +101,64 @@ export const AUDIT_ACTIONS = [
   "maintainer_grant_revoked",
   "maintainer_grant_used",
   "maintainer_grant_denied",
+  // bulk import (#1173)
+  "bulk_import_completed",
+  // moderation decisions
+  "moderation_approve",
+  "moderation_reject",
+  "moderation_hide",
+  "moderation_restore",
+  "moderation_rollback",
+  // category taxonomy
+  "category_created",
+  "category_renamed",
+  "category_merged",
+  "category_deprecated",
+  // provenance tracking (#929)
+  "provenance_record_created",
+  "provenance_verified",
+  "provenance_disputed",
+  "provenance_deleted",
+  "prompt.derived",
+  "prompt.updated",
+  "prompt.archived",
+  "prompt.restored",
+  // permalinks
+  "prompt_permalink_renamed",
+  "prompt_permalink_archived",
+  "prompt_permalink_restored",
+  "prompt_permalink_restricted",
+  "prompt_permalink_deleted",
+  // privileged action receipts
+  "privileged_action",
 ] as const;
 
-export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+/**
+ * Outcome codes written by the audit trail. `denied` records a policy
+ * rejection, `partial_success` a batch that only partly succeeded, and
+ * `pending` an action whose final outcome is recorded later.
+ */
+export type AuditResult =
+  | "success"
+  | "failure"
+  | "blocked"
+  | "denied"
+  | "partial_success"
+  | "pending";
 
-export type AuditResult = "success" | "failure" | "blocked";
+const LEGACY_SCHEMA_ACTIONS = [
+  "notification_preference_updated",
+  "notification_mandatory_delivered",
+  "support_access_granted",
+  "support_access_revoked",
+  "support_access_used",
+  "support_access_denied",
+] as const;
+
+/** Actions the schema accepts that predate the typed contract above. */
+export type AuditAction =
+  | (typeof AUDIT_ACTIONS)[number]
+  | (typeof LEGACY_SCHEMA_ACTIONS)[number];
 
 /**
  * Actions the schema historically accepted on top of `AUDIT_ACTIONS`. They are
@@ -116,14 +169,6 @@ export type AuditResult = "success" | "failure" | "blocked";
  * persisted instead of being silently dropped by Mongoose validation
  * (regression fixed for `abuse_risk_*` in #1046).
  */
-const LEGACY_SCHEMA_ACTIONS = [
-  "notification_preference_updated",
-  "notification_mandatory_delivered",
-  "support_access_granted",
-  "support_access_revoked",
-  "support_access_used",
-  "support_access_denied",
-] as const;
 
 export const AUDIT_SCHEMA_ACTIONS: readonly string[] = [
   ...AUDIT_ACTIONS,
@@ -141,7 +186,14 @@ const auditLogSchema = new mongoose.Schema(
     result: {
       type: String,
       required: true,
-      enum: ["success", "failure", "blocked"] as AuditResult[],
+      enum: [
+        "success",
+        "failure",
+        "blocked",
+        "denied",
+        "partial_success",
+        "pending",
+      ] as AuditResult[],
       index: true,
     },
     promptId: {

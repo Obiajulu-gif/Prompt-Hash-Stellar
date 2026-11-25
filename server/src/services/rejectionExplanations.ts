@@ -17,7 +17,7 @@ export interface RejectionExplanation {
   /** Actionable recovery hint */
   hint: string;
   /** Suggested API path or UI navigation for recovery */
-  recoveryPath?: string;
+  recoveryPath?: string | null;
   /** HTTP status code typically associated with this rejection */
   status: number;
 }
