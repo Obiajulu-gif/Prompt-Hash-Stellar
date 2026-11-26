@@ -43,6 +43,11 @@ import {
   recordUnlockSuccess,
 } from "../../server/src/services/purchaseDisputes";
 import { logSensitiveFieldAccess } from "../../server/src/services/sensitiveFieldAudit";
+import {
+  resolvePromptUnlockKey,
+  UnlockKeyError,
+  validateUnlockKeyring,
+} from "../../server/src/services/unlockKeyring";
 import { apiError, ErrorCode } from "../../src/lib/api/errorCodes";
 import {
   validateUnlockSecrets,
@@ -138,6 +143,10 @@ function currentListingSnapshotHash(
 // Fail-fast module load validation
 try {
   validateUnlockSecrets();
+  const unlockKeyProblems = validateUnlockKeyring(process.env);
+  if (unlockKeyProblems.length > 0) {
+    console.error(`[Unlock Key Config Error]:\n- ${unlockKeyProblems.join("\n- ")}`);
+  }
 } catch (err: any) {
   console.error(err.message);
 }
@@ -363,11 +372,16 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   }
 
   const challengeSecret = process.env.CHALLENGE_TOKEN_SECRET;
-  const unlockPublicKey = process.env.UNLOCK_PUBLIC_KEY;
-  const unlockPrivateKey = process.env.UNLOCK_PRIVATE_KEY;
 
-  if (!challengeSecret || !unlockPublicKey || !unlockPrivateKey) {
-    req.logger.error("Unlock service is missing configuration secrets.");
+  // Unlock keys come from the key ring (#27). The ring fails closed on any
+  // inconsistency, and its problem list names variables only, never values.
+  const unlockKeyProblems = validateUnlockKeyring(process.env);
+
+  if (!challengeSecret || unlockKeyProblems.length > 0) {
+    req.logger.error(
+      { unlockKeyProblems: unlockKeyProblems.length },
+      "Unlock service is missing configuration secrets.",
+    );
     res
       .status(500)
       .json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
@@ -763,10 +777,31 @@ async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
       }
     }
 
+    // Select the unlock key by the version recorded with this prompt (#27).
+    // An unresolvable version is an operator/configuration problem, so the
+    // buyer gets a configuration error and the log records only the version id.
+    let unlockKey: ReturnType<typeof resolvePromptUnlockKey>;
+    try {
+      unlockKey = resolvePromptUnlockKey(prompt.wrappedKey, process.env);
+    } catch (err) {
+      if (err instanceof UnlockKeyError) {
+        req.logger.error(
+          { code: err.code, keyId: err.keyId, promptId, address },
+          "Unlock key version could not be resolved",
+        );
+        metrics.trackUnlockFailure(String(address), String(promptId), "configuration_error");
+        res
+          .status(500)
+          .json(apiError(ErrorCode.CONFIGURATION_ERROR, "Configuration error."));
+        return;
+      }
+      throw err;
+    }
+
     const keyBytes = await unwrapPromptKey(
-      prompt.wrappedKey,
-      unlockPublicKey,
-      unlockPrivateKey,
+      unlockKey.sealed,
+      unlockKey.publicKey,
+      unlockKey.privateKey,
     );
 
     // Large payloads are stored on IPFS with only an `ipfs://<cid>` reference
