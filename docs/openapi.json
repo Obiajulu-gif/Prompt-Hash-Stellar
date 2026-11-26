@@ -957,6 +957,262 @@
         }
       }
     },
+    "/api/prompts/{promptId}/rename": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Rename a prompt record and preserve permalink redirect (#936)",
+        "operationId": "renamePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt renamed with historical slug redirect preserved."
+          },
+          "400": {
+            "description": "Invalid rename payload."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/archive-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Archive a prompt permalink (#936)",
+        "operationId": "archivePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt permalink archived."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restore-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restore an archived prompt permalink (#936)",
+        "operationId": "restorePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt permalink restored."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restrict-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restrict a prompt permalink (admin moderation, #936)",
+        "operationId": "restrictPromptPermalink",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt permalink restricted."
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/duplicate/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Check prompt content for exact or semantic duplicates",
+        "operationId": "checkPromptDuplicate",
+        "responses": {
+          "200": {
+            "description": "Duplicate check result."
+          },
+          "400": {
+            "description": "Invalid request payload."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/disputes": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Open an ownership transfer dispute (#907)",
+        "operationId": "openOwnershipDispute",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Ownership dispute opened."
+          },
+          "400": {
+            "description": "Invalid dispute request."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Get ownership transfer dispute details (#907)",
+        "operationId": "getOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership dispute record."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/evidence": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Attach evidence to an ownership transfer dispute (#907)",
+        "operationId": "addOwnershipDisputeEvidence",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence attached to dispute."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/withdraw": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Withdraw an ownership transfer dispute (#907)",
+        "operationId": "withdrawOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership dispute withdrawn."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
     "/api/prompts/receipt": {
       "get": {
         "tags": [
