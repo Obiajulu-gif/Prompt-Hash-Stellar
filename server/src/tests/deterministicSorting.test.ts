@@ -13,6 +13,7 @@ import {
   sortMaintenanceBannersDeterministically,
   sortOperationalAlertsDeterministically,
   sortEventListDeterministically,
+  getStatusRank,
   SortableRecord,
 } from "../services/deterministicSorting";
 import { derivePublicStatus } from "../services/publicStatus";
@@ -271,5 +272,11 @@ describe("Deterministic Sorting for Mixed-Status Records and Events (#1032)", ()
     const evReversed = sortEventListDeterministically([...events].reverse(), { direction: "desc" });
     expect(evForward.map((e) => e._id)).toEqual(["ev-d", "ev-c", "ev-b", "ev-a"]);
     expect(evReversed.map((e) => e._id)).toEqual(evForward.map((e) => e._id));
+  });
+
+  it("ignores Object.prototype keys when resolving status rank", () => {
+    expect(getStatusRank("constructor")).toBe(999);
+    expect(getStatusRank("toString")).toBe(999);
+    expect(getStatusRank("__proto__")).toBe(999);
   });
 });

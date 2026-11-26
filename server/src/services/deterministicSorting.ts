@@ -154,7 +154,7 @@ export function getStatusRank(
     const parsed = Number.parseInt(norm.slice(7), 10);
     if (Number.isFinite(parsed)) return parsed;
   }
-  return precedence[norm] ?? 999;
+  return Object.prototype.hasOwnProperty.call(precedence, norm) ? precedence[norm] : 999;
 }
 
 /**
@@ -403,7 +403,7 @@ export function sortOperationalAlertsDeterministically<
  *   3. Secondary sequence/attempt metric (`sequence` ?? `attemptCount` ?? `attempts`)
  *   4. Canonical lexicographic `_id` / `id` / `eventId` tie-breaker
  */
-export function sortEventListDeterministically<T extends Record<string, any>>(
+export function sortEventListDeterministically<T extends object>(
   events: readonly T[],
   options: {
     direction?: "asc" | "desc";
@@ -416,22 +416,27 @@ export function sortEventListDeterministically<T extends Record<string, any>>(
   const groupByStatus = options.groupByStatus ?? false;
 
   return [...events].sort((a, b) => {
-    const idA = String(a._id ?? a.id ?? a.eventId ?? a.idempotencyKey ?? "");
-    const idB = String(b._id ?? b.id ?? b.eventId ?? b.idempotencyKey ?? "");
+    const recA = a as Record<string, unknown>;
+    const recB = b as Record<string, unknown>;
+
+    const idA = String(recA._id ?? recA.id ?? recA.eventId ?? recA.idempotencyKey ?? "");
+    const idB = String(recB._id ?? recB.id ?? recB.eventId ?? recB.idempotencyKey ?? "");
     if (idA && idA === idB) return 0;
 
-    const statusA = String(a.processingStatus ?? a.status ?? "");
-    const statusB = String(b.processingStatus ?? b.status ?? "");
+    const statusA = String(recA.processingStatus ?? recA.status ?? "");
+    const statusB = String(recB.processingStatus ?? recB.status ?? "");
     const rankA = getStatusRank(statusA, JOB_AND_WEBHOOK_STATUS_PRECEDENCE);
     const rankB = getStatusRank(statusB, JOB_AND_WEBHOOK_STATUS_PRECEDENCE);
 
     const tsField = options.timestampField;
-    const timeA = toEpochMs(
-      tsField ? a[tsField] : (a.deadLetteredAt ?? a.createdAt ?? a.updatedAt ?? a.occurredAt),
-    );
-    const timeB = toEpochMs(
-      tsField ? b[tsField] : (b.deadLetteredAt ?? b.createdAt ?? b.updatedAt ?? b.occurredAt),
-    );
+    const rawTimeA = tsField
+      ? (Object.prototype.hasOwnProperty.call(recA, tsField) ? recA[tsField] : undefined)
+      : (recA.deadLetteredAt ?? recA.createdAt ?? recA.updatedAt ?? recA.occurredAt);
+    const rawTimeB = tsField
+      ? (Object.prototype.hasOwnProperty.call(recB, tsField) ? recB[tsField] : undefined)
+      : (recB.deadLetteredAt ?? recB.createdAt ?? recB.updatedAt ?? recB.occurredAt);
+    const timeA = toEpochMs(rawTimeA);
+    const timeB = toEpochMs(rawTimeB);
 
     if (groupByStatus) {
       if (rankA !== rankB) return rankA - rankB;
@@ -441,8 +446,8 @@ export function sortEventListDeterministically<T extends Record<string, any>>(
       if (rankA !== rankB) return rankA - rankB;
     }
 
-    const seqA = Number(a.sequence ?? a.attemptCount ?? a.attempts ?? 0);
-    const seqB = Number(b.sequence ?? b.attemptCount ?? b.attempts ?? 0);
+    const seqA = Number(recA.sequence ?? recA.attemptCount ?? recA.attempts ?? 0);
+    const seqB = Number(recB.sequence ?? recB.attemptCount ?? recB.attempts ?? 0);
     if (Number.isFinite(seqA) && Number.isFinite(seqB) && seqA !== seqB) {
       return (seqA - seqB) * factor;
     }

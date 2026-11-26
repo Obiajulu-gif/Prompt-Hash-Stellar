@@ -343,10 +343,10 @@ export class OperationalHealthService {
     }
 
     const sortedExceptions = sortOperationalAlertsDeterministically(exceptions, "desc");
-    const sortedStaleJobs = sortEventListDeterministically(
-      staleJobs.map((j) => ({ ...j, _sortKey: j.stuckDurationMinutes })),
-      { direction: "desc", timestampField: "_sortKey" },
-    ).map(({ _sortKey: _ignored, ...rest }) => rest as StaleJobItem);
+    const sortedStaleJobs = sortEventListDeterministically(staleJobs, {
+      direction: "desc",
+      timestampField: "stuckDurationMinutes",
+    });
     const sortedIncidents = sortOperationalAlertsDeterministically(incidents, "desc");
 
     return {
