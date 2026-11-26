@@ -4,20 +4,9 @@
  */
 
 import { createHash } from "crypto";
+import { isPlaceholder } from "./placeholders";
 
-const PLACEHOLDER_PATTERNS = [
-  /^replace-with/i,
-  /^BASE64_/i,
-  /^[CG]X{10,}/,
-  /^your[-_]/i,
-  /_here$/i,
-  /^<.*>$/,
-];
-
-export function isPlaceholder(val: string | undefined): boolean {
-  if (!val) return true;
-  return PLACEHOLDER_PATTERNS.some((re) => re.test(val));
-}
+export { isPlaceholder };
 
 /** Networks accepted by the frontend schema (src/lib/env.ts) and their passphrases. */
 export const NETWORK_PASSPHRASES: Record<string, string> = {
@@ -207,20 +196,25 @@ export function validateUnlockSecrets() {
 
   const BASE64_KEY = /^[A-Za-z0-9+/=]{20,}$/;
 
-  if (!unlockPublicKey) {
-    errors.push("UNLOCK_PUBLIC_KEY is not configured.");
-  } else if (isPlaceholder(unlockPublicKey)) {
-    errors.push("UNLOCK_PUBLIC_KEY still has a placeholder value.");
-  } else if (!BASE64_KEY.test(unlockPublicKey)) {
-    errors.push("UNLOCK_PUBLIC_KEY does not match base64 format.");
-  }
+  // In key-ring mode (UNLOCK_KEYS_JSON set) the single-key variables are not
+  // required. The unlock handler validates the ring itself (#27), so this
+  // check covers only the single-key deployment shape.
+  if (!process.env.UNLOCK_KEYS_JSON) {
+    if (!unlockPublicKey) {
+      errors.push("UNLOCK_PUBLIC_KEY is not configured.");
+    } else if (isPlaceholder(unlockPublicKey)) {
+      errors.push("UNLOCK_PUBLIC_KEY still has a placeholder value.");
+    } else if (!BASE64_KEY.test(unlockPublicKey)) {
+      errors.push("UNLOCK_PUBLIC_KEY does not match base64 format.");
+    }
 
-  if (!unlockPrivateKey) {
-    errors.push("UNLOCK_PRIVATE_KEY is not configured.");
-  } else if (isPlaceholder(unlockPrivateKey)) {
-    errors.push("UNLOCK_PRIVATE_KEY still has a placeholder value.");
-  } else if (!BASE64_KEY.test(unlockPrivateKey)) {
-    errors.push("UNLOCK_PRIVATE_KEY does not match base64 format.");
+    if (!unlockPrivateKey) {
+      errors.push("UNLOCK_PRIVATE_KEY is not configured.");
+    } else if (isPlaceholder(unlockPrivateKey)) {
+      errors.push("UNLOCK_PRIVATE_KEY still has a placeholder value.");
+    } else if (!BASE64_KEY.test(unlockPrivateKey)) {
+      errors.push("UNLOCK_PRIVATE_KEY does not match base64 format.");
+    }
   }
 
   if (errors.length > 0) {
