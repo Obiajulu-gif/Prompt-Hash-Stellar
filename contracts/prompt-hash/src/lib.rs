@@ -11,6 +11,7 @@ mod load_test;
 mod ownership_transfer_test;
 mod pagination;
 mod pagination_test;
+mod replay_test;
 mod storage;
 mod test;
 mod ttl_policy;
