@@ -1,5 +1,6 @@
 import SupportCase, { SupportCaseType, SupportCaseStatus, CaseResolution } from "../models/SupportCase.js";
 import Purchase from "../models/Purchase.js";
+import { enforceUrlAllowList } from "./allowListPolicy.js";
 import { logger } from "./auditTrail.js";
 import { supportCaseTimelineService } from "./supportCaseTimelineService.js";
 
@@ -29,6 +30,19 @@ export interface AddNoteInput {
 
 class SupportCaseService {
   async createCase(input: CreateCaseInput): Promise<any> {
+    const normalizedEvidenceUrls: string[] = [];
+    if (Array.isArray(input.evidenceUrls)) {
+      for (const [index, rawUrl] of input.evidenceUrls.entries()) {
+        const decision = enforceUrlAllowList(rawUrl, "dispute_evidence", {
+          context: "support_case_evidence",
+        });
+        if (!decision.allowed) {
+          throw new Error(`evidenceUrls[${index}]: ${decision.message}`);
+        }
+        normalizedEvidenceUrls.push(decision.normalizedUrl ?? String(rawUrl).trim());
+      }
+    }
+
     const caseDoc = new SupportCase({
       type: input.type,
       promptId: input.promptId,
@@ -37,7 +51,7 @@ class SupportCaseService {
       title: input.title,
       description: input.description,
       purchaseId: input.purchaseId,
-      evidenceUrls: input.evidenceUrls || [],
+      evidenceUrls: normalizedEvidenceUrls,
       status: "open",
     });
 

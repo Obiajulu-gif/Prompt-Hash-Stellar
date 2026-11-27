@@ -1,5 +1,9 @@
 import type { MaintenanceBannerPublic } from "./maintenanceBannerService.js";
 import type { ProbeResult } from "./healthProbes.js";
+import {
+  sortMaintenanceBannersDeterministically,
+  sortStatusComponentsDeterministically,
+} from "./deterministicSorting.js";
 
 /**
  * Safe public-status model (#986).
@@ -42,6 +46,8 @@ export interface PublicStatusInput {
   maintenance: MaintenanceBannerPublic[];
   /** On-chain `is_paused`; `null` when it could not be read. */
   contractPaused: boolean | null;
+  /** When true, sorts services, probes, and maintenance windows by deterministic status/severity precedence (#1184). */
+  deterministicOrder?: boolean;
 }
 
 export interface PublicStatus {
@@ -107,17 +113,26 @@ export function derivePublicStatus(input: PublicStatusInput): PublicStatus {
   else if (upCount < components.length) state = "degraded";
   else state = "operational";
 
+  const mappedServices = components.map(toPublicComponent);
+  const mappedProbes = probes.map(({ name, status, latencyMs, timestamp }) => ({
+    name,
+    status,
+    latencyMs,
+    timestamp,
+  }));
+
   return {
     state,
     status: toLegacyStatus(state),
     paused: contractPaused,
-    services: components.map(toPublicComponent),
-    probes: probes.map(({ name, status, latencyMs, timestamp }) => ({
-      name,
-      status,
-      latencyMs,
-      timestamp,
-    })),
-    maintenance,
+    services: input.deterministicOrder
+      ? sortStatusComponentsDeterministically(mappedServices)
+      : mappedServices,
+    probes: input.deterministicOrder
+      ? sortStatusComponentsDeterministically(mappedProbes)
+      : mappedProbes,
+    maintenance: input.deterministicOrder
+      ? sortMaintenanceBannersDeterministically(maintenance)
+      : maintenance,
   };
 }

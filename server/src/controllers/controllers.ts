@@ -7,6 +7,13 @@ import Report from "../models/Report.js";
 import Purchase from "../models/Purchase.js";
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
+import {
+  AiProviderError,
+  aiProviderErrorStatus,
+  callAiProvider,
+} from "../services/aiProvider.js";
+
+const AI_CHAT_TIMEOUT_MS = 60_000;
 import { validateListingMetadata } from "../services/listingValidation.js";
 import { enforceEvidenceUrl } from "../services/allowListPolicy.js";
 import {
@@ -35,7 +42,31 @@ import {
   stripSensitivePromptFields,
 } from "../services/visibilityService.js";
 
-const API_BASE_URL = "https://secret-ai-gateway.onrender.com";
+/* AI PROVIDER BOUNDARY (#29)
+ *
+ * Provider URL and credentials come only from validated env (see
+ * services/aiProvider.ts). Errors returned to clients are structured
+ * `{ error: <code>, message, retryable }` and never echo provider bodies
+ * or prompt text. */
+
+const MAX_IMPROVE_PROMPT_CHARS = 20_000;
+
+function sendAiProviderError(res: Response, err: unknown, action: string): Response {
+  if (err instanceof AiProviderError) {
+    logger.warn("AI provider call failed", { action, code: err.code });
+    return res.status(aiProviderErrorStatus(err.code)).json({
+      error: err.code,
+      message: err.message,
+      retryable: err.retryable,
+    });
+  }
+  logger.error("AI boundary unexpected error", { action, error: err instanceof Error ? err.name : "unknown" });
+  return res.status(500).json({
+    error: "INTERNAL_ERROR",
+    message: "Unexpected error while contacting the AI service.",
+    retryable: false,
+  });
+}
 
 /* CHAT CONTROLLER */
 
@@ -45,6 +76,13 @@ export const PostChat = async (req: Request, res: Response): Promise<any> => {
     if (!Array.isArray(messages)) {
       return res.status(400).json({ error: "messages array is required" });
     }
+    if (!process.env.OPENAI_API_KEY) {
+      return sendAiProviderError(
+        res,
+        new AiProviderError("AI_PROVIDER_NOT_CONFIGURED", "AI chat is not configured on this deployment.", false),
+        "chat",
+      );
+    }
     const formattedMessages = messages.map((message: any) => ({
       role: message.role === "ai" ? "assistant" : "user",
       content: message.content,
@@ -53,11 +91,18 @@ export const PostChat = async (req: Request, res: Response): Promise<any> => {
     const result = streamText({
       model: openai("gpt-4o"),
       messages: formattedMessages as any,
+      // Bound the upstream call so a hung provider cannot hold the request open.
+      abortSignal: AbortSignal.timeout(AI_CHAT_TIMEOUT_MS),
     });
 
     return (result as any).toDataStreamResponse ? (result as any).toDataStreamResponse() : res.json({ result });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || "Failed to process chat" });
+    logger.error("Chat controller error", { action: "chat", error: err instanceof Error ? err.name : "unknown" });
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to process chat.",
+      retryable: true,
+    });
   }
 };
 
@@ -67,45 +112,30 @@ export const ImproveProxy = async (
   req: Request,
   res: Response,
 ): Promise<Response<any>> => {
+  const promptText = req.body;
+  if (typeof promptText !== "string" || promptText.trim().length === 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Prompt text is required.", retryable: false });
+  }
+  if (promptText.length > MAX_IMPROVE_PROMPT_CHARS) {
+    return res.status(413).json({
+      error: "PAYLOAD_TOO_LARGE",
+      message: `Prompt text must be at most ${MAX_IMPROVE_PROMPT_CHARS} characters.`,
+      retryable: false,
+    });
+  }
+
   try {
-    const promptText = req.body;
-
     logger.info("Improve prompt request received", { action: "improveProxy" });
-
-    const response = await fetch(`${API_BASE_URL}/api/improve-prompt`, {
+    // Prompt text is sent to the configured provider only; it is not logged.
+    const data = await callAiProvider({
+      path: "/api/improve-prompt",
       method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        Accept: "application/json",
-      },
       body: promptText,
+      contentType: "text/plain",
     });
-
-    // Get the response data
-    const responseData = await response.json().catch(() => {});
-    const responseText = await response.text().catch(() => {});
-
-    logger.debug("Improve prompt response", {
-      action: "improveProxy",
-      status: response.status,
-    });
-
-    // If the response is not OK, return the error details
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "API Error",
-        details: responseData || responseText,
-      });
-    }
-
-    return res.json(responseData);
+    return res.json(data);
   } catch (err) {
-    logger.error("Improve proxy error", { action: "improveProxy", error: err });
-    return res.status(500).json({
-      error: "Internal Server Error",
-      message: err instanceof Error ? err.message : String(err),
-    });
-    // { status: 500 }
+    return sendAiProviderError(res, err, "improveProxy");
   }
 };
 

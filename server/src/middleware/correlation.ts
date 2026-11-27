@@ -208,9 +208,11 @@ function safeRoute(req: Request): string | undefined {
 
 export function correlationMiddleware(req: Request, res: Response, next: NextFunction) {
   const incomingId = req.headers["x-correlation-id"] || req.headers["x-request-id"];
-  const correlationId = (typeof incomingId === "string" && incomingId)
-    ? incomingId
-    : crypto.randomUUId();
+  const candidate = typeof incomingId === "string" ? incomingId.trim() : "";
+  const correlationId =
+    /^[A-Za-z0-9._:-]{1,128}$/.test(candidate)
+      ? candidate
+      : crypto.randomUUID();
 
   req.correlationId = correlationId;
   res.setHeader("X-Correlation-ID", correlationId);
