@@ -50,11 +50,7 @@ class JourneyFailure extends Error {
   public readonly status?: number;
   public readonly code?: string;
 
-  constructor(
-    message: string,
-    status?: number,
-    code?: string,
-  ) {
+  constructor(message: string, status?: number, code?: string) {
     super(message);
     this.status = status;
     this.code = code;
@@ -261,7 +257,7 @@ export async function runSyntheticJourney(
               promptId: config.promptId,
               token: challengeBody!.token,
               signedMessage,
-            idempotencyKey,
+              idempotencyKey,
             }),
           },
           timeoutMs,
@@ -287,9 +283,10 @@ export async function runSyntheticJourney(
   }
 
   const failed = steps.find((step) => !step.success);
+  const expectedSteps = config.mode === "authorized" ? 3 : 3;
   return {
     timestamp: new Date().toISOString(),
-    success: !failed && steps.length === 3,
+    success: !failed && steps.length === expectedSteps,
     mode: config.mode,
     totalDurationMs: now() - startedAt,
     steps,
