@@ -1,33 +1,74 @@
 import { Router, type Response } from "express";
 import { requireAdminScope, type AdminRequest } from "../middleware/adminAuth";
+import { rateLimit } from "../middleware/rateLimiter";
+import { recordAuditEvent } from "../services/auditTrail";
 import {
   ALLOW_LIST_POLICIES,
+  CONTENT_ALLOW_LIST_POLICIES,
   FILE_TYPE_ALLOW_LIST,
+  checkContentAgainstPolicy,
   checkFileType,
   checkUrlAgainstPolicy,
+  clearRuntimeAllowListOverride,
   describeAllowListPolicies,
+  getRuntimeAllowListOverride,
+  setRuntimeAllowListOverride,
+  type AllowListMode,
   type AllowListPolicyName,
+  type ContentPolicyName,
   type FileKind,
 } from "../services/allowListPolicy";
 
 /**
- * Operator view of the allow-list policies (#1025).
+ * Operator view and runtime control of destination and content allow-list policies (#1025, #1177).
  *
- * GET  /api/admin/allow-list        — effective policies and enforcement mode
- * POST /api/admin/allow-list/check  — dry-run a URL or file descriptor against
- *                                     a policy without storing anything
- *
- * Both require `allowlist:read`; neither can change a policy (policies are
- * code + environment, so changes go through review and deploy).
+ * GET    /api/admin/allow-list           — effective policies, content rules, and enforcement mode (`allowlist:read`)
+ * POST   /api/admin/allow-list/check     — dry-run a URL, file descriptor, or content payload (`allowlist:read`)
+ * PUT    /api/admin/allow-list/override  — set audited runtime mode/host allow-list overrides (`allowlist:write`)
+ * DELETE /api/admin/allow-list/override  — roll back runtime overrides to environment defaults (`allowlist:write`)
  */
 export const allowListRouter = Router();
+
+const allowListAdminLimiter = rateLimit({
+  actionName: "allow-list-admin",
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  message: "Too many allow-list admin requests.",
+});
+
+const allowListOverrideLimiter = rateLimit({
+  actionName: "allow-list-override",
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  message: "Too many allow-list override requests.",
+});
+
+allowListRouter.use(allowListAdminLimiter);
 
 allowListRouter.get("/", requireAdminScope("allowlist:read"), (_req: AdminRequest, res: Response) => {
   res.json(describeAllowListPolicies());
 });
 
 allowListRouter.post("/check", requireAdminScope("allowlist:read"), (req: AdminRequest, res: Response) => {
-  const { policy, url, expectedKind, file } = req.body ?? {};
+  const { policy, url, expectedKind, file, content } = req.body ?? {};
+
+  if (content !== undefined) {
+    const contentPolicy = content?.policy as ContentPolicyName;
+    if (!(contentPolicy in CONTENT_ALLOW_LIST_POLICIES)) {
+      return res.status(400).json({
+        error: `content.policy must be one of: ${Object.keys(CONTENT_ALLOW_LIST_POLICIES).join(", ")}`,
+      });
+    }
+    return res.json(
+      checkContentAgainstPolicy(
+        {
+          content: content.value,
+          contentType: typeof content.contentType === "string" ? content.contentType : undefined,
+        },
+        contentPolicy,
+      ),
+    );
+  }
 
   if (file !== undefined) {
     const kind = file?.kind as FileKind;
@@ -57,4 +98,70 @@ allowListRouter.post("/check", requireAdminScope("allowlist:read"), (req: AdminR
   return res.json(
     checkUrlAgainstPolicy(url, policy as AllowListPolicyName, { expectedKind: expectedKind as FileKind | undefined }),
   );
+});
+
+allowListRouter.put("/override", allowListOverrideLimiter, requireAdminScope("allowlist:write"), (req: AdminRequest, res: Response) => {
+  const { mode, hostAllowLists, reason } = req.body ?? {};
+  if (typeof reason !== "string" || reason.trim().length < 4) {
+    return res.status(400).json({ error: "A reason (at least 4 characters) is required for allow-list overrides." });
+  }
+  if (mode !== undefined && mode !== null && mode !== "enforce" && mode !== "report") {
+    return res.status(400).json({ error: "mode must be 'enforce', 'report', or null." });
+  }
+  if (hostAllowLists !== undefined && (typeof hostAllowLists !== "object" || hostAllowLists === null || Array.isArray(hostAllowLists))) {
+    return res.status(400).json({ error: "hostAllowLists must be an object keyed by policy name." });
+  }
+  if (hostAllowLists) {
+    for (const key of Object.keys(hostAllowLists)) {
+      if (!(key in ALLOW_LIST_POLICIES)) {
+        return res.status(400).json({
+          error: `Unknown policy '${key}'. Must be one of: ${Object.keys(ALLOW_LIST_POLICIES).join(", ")}`,
+        });
+      }
+    }
+  }
+
+  const beforeState = getRuntimeAllowListOverride();
+  const actor = req.admin?.sub ?? "admin";
+  const updated = setRuntimeAllowListOverride({
+    mode: mode as AllowListMode | null | undefined,
+    hostAllowLists,
+    actor,
+    reason: reason.trim(),
+  });
+
+  void recordAuditEvent({
+    action: "admin_config_change",
+    result: "success",
+    actor,
+    target: "system_config:allow_list_override",
+    targetType: "admin_config",
+    beforeState,
+    afterState: updated,
+    reason: reason.trim(),
+    requestId: req.requestId ?? null,
+  });
+
+  return res.json(describeAllowListPolicies());
+});
+
+allowListRouter.delete("/override", allowListOverrideLimiter, requireAdminScope("allowlist:write"), (req: AdminRequest, res: Response) => {
+  const beforeState = getRuntimeAllowListOverride();
+  const actor = req.admin?.sub ?? "admin";
+  const reason = typeof req.body?.reason === "string" && req.body.reason.trim() ? req.body.reason.trim() : "Rollback runtime allow-list override";
+  const cleared = clearRuntimeAllowListOverride(actor, reason);
+
+  void recordAuditEvent({
+    action: "admin_config_change",
+    result: "success",
+    actor,
+    target: "system_config:allow_list_override",
+    targetType: "admin_config",
+    beforeState,
+    afterState: cleared,
+    reason,
+    requestId: req.requestId ?? null,
+  });
+
+  return res.json(describeAllowListPolicies());
 });

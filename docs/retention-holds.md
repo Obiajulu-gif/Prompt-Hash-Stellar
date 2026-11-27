@@ -15,22 +15,22 @@ Tests: `server/src/tests/retentionHoldService.test.ts`,
 A **hold** = one case + the specific records it protects.
 
 | Field         | Meaning                                                              |
-| ------------- | --------------------------------------------------------------------- |
-| `caseType`    | `dispute` \\| `investigation` \\| `legal`                                  |
-| `caseRef`      | Your case/ticket/dispute id (max 200 chars)                          |
-| `reason`        | 10–500 chars: why preservation is needed                             |
-| `links`         | `[{ collection, recordId }]`, at most 500                                |
-| `reviewBy`      | Date the hold must be re-examined (default 90 days, max 365)         |
-| `status`        | `active` \\| `released`; release records actor, time and reason       |
+| ------------- | -------------------------------------------------------------------- |
+| `caseType`    | `dispute` \| `investigation` \| `legal`                              |
+| `caseRef`     | Your case/ticket/dispute id (max 200 chars)                          |
+| `reason`      | 10–500 chars: why preservation is needed                             |
+| `links`       | `[{ collection, recordId }]`, at most 500                            |
+| `reviewBy`    | Date the hold must be re-examined (default 90 days, max 365)         |
+| `status`      | `active` \| `released`; release records actor, time and reason       |
 | `alreadyArchived` | Linked records cleanup had already scrubbed before the hold       |
 
 **Eligible linked records** are exactly the collections cleanup can archive:
 
-| `collection`          | Model                 | Notes                                         |
-| --------------------- | ------------------- | ----------------------------------------------------- |
-| `inboundWebhookEvents` | `InboundWebhookEvent` | 30-day policy                                         |
-| `quarantinedEvents`    | `QuarantinedEvent`   | 30-day policy                                         |
-| `exports`              | `JabRecord` (export) | 30-day policy                                         |
+| `collection`           | Model                | Notes                                   |
+| ---------------------- | -------------------- | --------------------------------------- |
+| `inboundWebhookEvents` | `InboundWebhookEvent`| 30-day policy                           |
+| `quarantinedEvents`    | `QuarantinedEvent`   | 30-day policy                           |
+| `exports`              | `JobRecord` (export) | 30-day policy                           |
 | `supportEvidence`      | `Report`             | 365-day policy; `includePromptReportsFor` links every report on a prompt |
 
 `AuditLog`, `LedgerEntry`, `Purchase`, `PayoutStatement` and `ProcessedEvent`
@@ -43,16 +43,16 @@ retention only when the **last** active hold covering it is released.
 ## How cleanup skips held records
 
 1. At the start of each run, cleanup reads all active holds
-(`getActiveHeldRecordIds`) and adds `_id: { $nin: heldIds }` to the
-eligibility count, the candidate lookup and the archive update.
+   (`getActiveHeldRecordIds`) and adds `_id: { $nin: heldIds }` to the
+   eligibility count, the candidate lookup and the archive update.
 2. Each held record also carries `retentionHold: true`
-(`retentionHoldReason: "retention-hold-ledger"`). The archive update still
-re-checks `retentionHold: { $ne: true }`, so a hold placed while a batch is
-running wins.
+   (`retentionHoldReason: "retention-hold-ledger"`). The archive update still
+   re-checks `retentionHold: { $ne: true }`, so a hold placed while a batch is
+   running wins.
 3. `held` in the cleanup summary counts flag-held **and** ledger-held records
-(ledger-held records whose flag is missing are still counted and skipped).
+   (ledger-held records whose flag is missing are still counted and skipped).
 4. **Fail closed:** if the ledger cannot be read the run throws, nothing is
-archived, and the worker retries.
+   archived, and the worker retries.
 
 Ordering on place: flags → ledger document → flags re-asserted. On release:
 ledger marked released → flags cleared only for records no other active hold
@@ -67,41 +67,75 @@ POST /api/admin/retention-holds
     "reason": "Buyer dispute open; preserve webhook and report evidence",
     "links": [{ "collection": "supportEvidence", "recordId": "<24-hex>" }],
     "includePromptReportsFor": "<promptId, optional>", "reviewDays": 60 }
-POST /api/admin/retention-holds/:id/release   { "reason": "Dispute resolved, no legal request" }
+POST /api/admin/retention-holds/:id/release     { "reason": "Dispute resolved, no legal request" }
 GET  /api/admin/retention-holds?status=active&caseRef=DSP-1042
-GET  /api/admin/retention-holds/overdue        # active holds past reviewBy
-POST /api/admin/retention-holds/reconcile      { "dryRun": true }
+GET  /api/admin/retention-holds/overdue          # active holds past reviewBy
+POST /api/admin/retention-holds/reconcile        { "dryRun": true }
+GET  /api/admin/retention-holds/policies         # retention windows, cutoffs, and verifiable collections (#1181)
+POST /api/admin/retention-holds/verify-deletion  { "sampleLimit": 500, "repairIncompleteScrubs": false }
+POST /api/admin/retention-holds/enforce          { "dryRun": false, "batchSize": 500, "sampleLimit": 500, "repairIncompleteScrubs": true }
 ```
-
-Body fields are validated before any write: `caseType` must be one of
-`dispute`/`investigation`/`legal`, `caseRef` and `reason` must meet the
-length bounds above, `reviewDays` must be 1-365, and `reason` is required on
-release. Every link is resolved against its collection before the hold is
-written.
 
 `POST` returns `201` for a new hold and `200` if an identical active hold
 (same case and records) already existed, so client retries are safe. Errors:
-`400 invalid_request`, `404 record_not_found | hold_not_found`,
-`409 already_released`, `503 ledger_unavailable`.
+`400 invalid_request`, `403 insufficient_scope`, `404 record_not_found | hold_not_found`,
+`409 already_released`, `503 ledger_unavailable | hold_ledger_unavailable`.
+
+## Retention Enforcement & Deletion Verification (#1181)
+
+Code: `server/src/services/retentionVerificationService.ts`,
+`server/src/routes/retentionHoldRoutes.ts`,
+`server/src/tests/retentionHoldService.test.ts`.
+
+Beyond placing holds and running background archival, operators can run
+on-demand **retention enforcement** and **deletion/scrub verification** with
+cryptographic attestation:
+
+1. **Field-level scrub verification (`findResidualScrubFields` / `verifyRetentionDeletion`)**:
+   - Scans archived documents (`archivedAt != null`) across
+     `inboundWebhookEvents`, `quarantinedEvents`, `exports` (`JobRecord`), and
+     `supportEvidence` (`Report`) to prove sensitive payload fields were
+     physically removed:
+     - `inboundWebhookEvents`: `rawBody === ""`, `rawHeaders` empty, `errorMessage === null`
+     - `quarantinedEvents`: `rawTopic`, `rawValue`, `rawXdr`, `errorDetails` unset/empty
+     - `exports`: `payload` reduced to `{ version: 1, archived: true }`, `lastError === null`, `attemptHistory` empty
+     - `supportEvidence`: `reporterAddress` redacted (`[REDACTED]`), `description` and `adminNotes` empty, `evidence` array empty
+   - Counts any unheld eligible records still past their retention cutoff
+     (`overdueUnheldCount`) and any expired terminal `ExportRecord` artifacts
+     still awaiting purge (`expiredExportArtifactsRemaining`).
+   - Computes a deterministic SHA-256 `attestationHash` over the verification
+     summary (counts, cutoffs, and violation IDs, never raw payload content) and
+     writes a `retention_deletion_verified` audit trail event.
+2. **Self-healing scrub repair (`repairIncompleteScrubs: true`)**:
+   - If a legacy record was marked `archivedAt` without completing its field
+     scrub, passing `repairIncompleteScrubs: true` (requires
+     `retention-holds:write`) re-scrubs the violating records (unless currently
+     held), re-verifies them, and reports `totalRepaired`.
+3. **End-to-end enforcement (`POST /api/admin/retention-holds/enforce`)**:
+   - Runs hold-aware retention cleanup (`runRetentionCleanup`), purges expired
+     terminal `ExportRecord` artifacts (when `dryRun: false`), and executes
+     post-cleanup deletion verification in one audited operation
+     (`retention_enforcement_executed`).
 
 ## Audit
 
 Every action is written to the tamper-evident audit trail:
 `retention_hold_created`, `retention_hold_released` (result `failure` if flags
-could not be cleared) and `retention_hold_reconciled`, with actor, case,
-record counts and the justification text. Export with
-`GET /api/audit/export?action=retention_hold_created,retention_hold_released`.
+could not be cleared), `retention_hold_reconciled`,
+`retention_enforcement_executed`, and `retention_deletion_verified`, with actor,
+case/attestation target, record counts and the justification text. Export with
+`GET /api/audit/export?action=retention_hold_created,retention_hold_released,retention_enforcement_executed,retention_deletion_verified`.
 
 ## Operating procedure
 
 1. **Place** a hold as soon as a dispute/investigation is opened, *before* the
-next scheduled cleanup. Check the response `alreadyArchived`: those records
-were scrubbed earlier and cannot be restored except from backup.
+   next scheduled cleanup. Check the response `alreadyArchived`: those records
+   were scrubbed earlier and cannot be restored except from backup.
 2. **Review** weekly: `GET .../overdue`. Release or consciously extend
-(release and re-place) holds past `reviewBy`; forgotten holds keep personal
-data forever.
+   (release and re-place) holds past `reviewBy`; forgotten holds keep personal
+   data forever.
 3. **Release** only with a documented reason. Normal retention resumes at the
-next cleanup run; nothing is archived immediately.
+   next cleanup run; nothing is archived immediately.
 4. After any incident, run `reconcile` with `dryRun: true` and inspect.
 
 ## Edge cases and failure modes
@@ -112,29 +146,17 @@ next cleanup run; nothing is archived immediately.
   useful) but reported in `alreadyArchived`; scrubbed fields are gone.
 - **Ledger write fails after flags were set:** the flags this call set are
   rolled back; the error is returned.
-- `503 ledger_unavailable` on `POST` means no hold was recorded and any
-  flags set by the attempt were undone; retry the request once the ledger
-  is reachable. The retry is idempotent because an identical active hold
-  returns `200`.
 - **Clearing flags fails on release:** the hold is released, the record stays
   flagged (over-retained, never under-retained), the response has
   `flagsCleared: false` and the audit result is `failure`. Run
   `reconcile` (`dryRun: false`) once the database recovers.
-- **Release racing a new hold on the same record:** the ledger still protects the
-  record from cleanup; the new hold re-asserts the flag after its ledger
-  insert.
+- **Release racing a new hold on the same record:** the ledger still
+  protects the record from cleanup; the new hold re-asserts the flag after
+  its ledger insert.
 - **Hold placed mid-run:** the archive update's flag re-check protects the
   record; at worst that batch skips it and the next run honours the ledger.
-- `503 ledger_unavailable` during cleanup: the run fails closed and the
-  worker retries; the next successful run re-reads the ledger.
-- `409 already_released` on release means the hold was already released;
-  the audit trail keeps the original release actor/time/reason.
 - **Manual flags** set directly on a record before this feature remain
   honoured and are not cleared by releases or `reconcile`.
-- `reconcile` with `dryRun: true` reports flags missing for active holds
-  (ledger-held but unflagged) and flags whose ledger hold is gone, without
-  mutating anything. `dryRun: false` re-asserts missing ledger flags and
-  clears only ledger-marker flags no active hold covers.
 - **Backups** still contain pre-scrub copies; legal holds on backups must be
   arranged with the backup provider.
 - A hold limit of 500 records keeps `$nin` filters bounded. Split very large
@@ -154,5 +176,3 @@ next cleanup run; nothing is archived immediately.
 - The `RetentionHold` collection is additive; dropping it reverts to
   flag-only protection (flags set by released/active holds remain until
   cleared manually).
-- No existing contracts change: the cleanup handler adds only the hold
-  filters and the flag re-check; the admin API is new and scoped.

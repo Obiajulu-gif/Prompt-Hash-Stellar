@@ -4,12 +4,16 @@ vi.mock("../models/InboundWebhookEvent", () => ({ default: {} }));
 vi.mock("../models/QuarantinedEvent", () => ({ default: {} }));
 vi.mock("../models/JobRecord", () => ({ default: {} }));
 vi.mock("../models/Report", () => ({ default: {} }));
+vi.mock("../models/ExportRecord", () => ({ ExportRecord: {} }));
 vi.mock("../models/RetentionHold", async () => ({
   default: {},
   HOLD_CASE_TYPES: ["dispute", "investigation", "legal"],
   HOLDABLE_COLLECTIONS: ["inboundWebhookEvents", "quarantinedEvents", "exports", "supportEvidence"],
 }));
 vi.mock("../services/auditTrail", () => ({ recordAuditEvent: vi.fn() }));
+vi.mock("../services/structuredLogger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
 import {
   HOLDABLE_COLLECTIONS,
@@ -27,6 +31,16 @@ import {
   type RetentionHoldDeps,
   type RetentionHoldRecord,
 } from "../services/retentionHoldService";
+import {
+  RetentionEnforcementError,
+  computeDeletionAttestationHash,
+  describeRetentionEnforcementPolicies,
+  enforceAndVerifyRetention,
+  findResidualScrubFields,
+  verifyRetentionDeletion,
+  type CollectionVerificationAdapter,
+  type RetentionVerificationDeps,
+} from "../services/retentionVerificationService";
 
 const id = (n: number) => n.toString(16).padStart(24, "0");
 const NOW = new Date("2026-10-01T00:00:00.000Z");
@@ -360,5 +374,267 @@ describe("getActiveHeldRecordIds / overdue / reconcile", () => {
     expect(res.cleared).toBe(0);
     expect(ctx.targets.supportEvidence.records[id(1)].retentionHold).toBe(true);
     expect(ctx.targets.supportEvidence.records[id(2)].retentionHold).toBe(true);
+  });
+});
+
+// ─── Retention Enforcement & Deletion Verification (#1181) ───────────────────
+
+function makeVerificationDeps(overrides: {
+  archived?: Partial<Record<HoldableCollection, Array<Record<string, unknown>>>>;
+  overdueCounts?: Partial<Record<HoldableCollection, number>>;
+  expiredExports?: number;
+  failHeldIds?: boolean;
+  failCleanup?: boolean;
+} = {}) {
+  const archivedStore: Record<HoldableCollection, Array<Record<string, unknown>>> = {
+    inboundWebhookEvents: overrides.archived?.inboundWebhookEvents ?? [
+      { _id: id(10), archivedAt: NOW, rawBody: "", rawHeaders: {}, errorMessage: null },
+    ],
+    quarantinedEvents: overrides.archived?.quarantinedEvents ?? [
+      { _id: id(20), archivedAt: NOW },
+    ],
+    exports: overrides.archived?.exports ?? [
+      { _id: id(30), archivedAt: NOW, payload: { version: 1, archived: true }, lastError: null, attemptHistory: [] },
+    ],
+    supportEvidence: overrides.archived?.supportEvidence ?? [
+      { _id: id(40), archivedAt: NOW, reporterAddress: "[REDACTED]", description: "", adminNotes: "", evidence: [] },
+    ],
+  };
+
+  const makeAdapter = (collection: HoldableCollection): CollectionVerificationAdapter => ({
+    async listArchived(limit) {
+      return archivedStore[collection].slice(0, limit);
+    },
+    async countOverdueUnheld() {
+      return overrides.overdueCounts?.[collection] ?? 0;
+    },
+    async repairScrub(recordIds) {
+      let repaired = 0;
+      for (const doc of archivedStore[collection]) {
+        if (!recordIds.includes(String(doc._id))) continue;
+        repaired++;
+        if (collection === "inboundWebhookEvents") {
+          doc.rawBody = "";
+          doc.rawHeaders = {};
+          doc.errorMessage = null;
+        } else if (collection === "quarantinedEvents") {
+          delete doc.rawTopic;
+          delete doc.rawValue;
+          delete doc.rawXdr;
+          delete doc.errorDetails;
+        } else if (collection === "exports") {
+          doc.payload = { version: 1, archived: true };
+          doc.lastError = null;
+          doc.attemptHistory = [];
+        } else if (collection === "supportEvidence") {
+          doc.reporterAddress = "[REDACTED]";
+          doc.description = "";
+          doc.adminNotes = "";
+          doc.evidence = [];
+        }
+      }
+      return repaired;
+    },
+  });
+
+  let expiredExportCount = overrides.expiredExports ?? 0;
+  const audit = vi.fn(async () => undefined);
+
+  const deps: RetentionVerificationDeps = {
+    collections: {
+      inboundWebhookEvents: makeAdapter("inboundWebhookEvents"),
+      quarantinedEvents: makeAdapter("quarantinedEvents"),
+      exports: makeAdapter("exports"),
+      supportEvidence: makeAdapter("supportEvidence"),
+    },
+    async getHeldIds() {
+      if (overrides.failHeldIds) throw new Error("hold ledger offline");
+      return {
+        inboundWebhookEvents: [],
+        quarantinedEvents: [],
+        exports: [],
+        supportEvidence: [],
+      };
+    },
+    async runCleanup({ dryRun }) {
+      if (overrides.failCleanup) throw new Error("cleanup write error");
+      const item = { eligible: 1, held: 0, skipped: 0, archived: dryRun ? 0 : 1, failed: 0, dryRun };
+      return {
+        inboundWebhookEvents: item,
+        quarantinedEvents: item,
+        exports: item,
+        supportEvidence: item,
+      };
+    },
+    async purgeExpiredExportArtifacts() {
+      const purged = expiredExportCount;
+      expiredExportCount = 0;
+      return purged;
+    },
+    async countExpiredExportArtifacts() {
+      return expiredExportCount;
+    },
+    audit,
+    now: () => NOW,
+  };
+
+  return { deps, audit, archivedStore };
+}
+
+describe("findResidualScrubFields (#1181)", () => {
+  it("identifies clean vs unscrubbed archived records across all 4 collections", () => {
+    expect(
+      findResidualScrubFields("inboundWebhookEvents", { rawBody: "", rawHeaders: {}, errorMessage: null }),
+    ).toEqual([]);
+    expect(
+      findResidualScrubFields("inboundWebhookEvents", {
+        rawBody: "secret-body",
+        rawHeaders: { trace: "1" },
+        errorMessage: "err",
+      }),
+    ).toEqual(["rawBody", "rawHeaders", "errorMessage"]);
+
+    expect(findResidualScrubFields("quarantinedEvents", {})).toEqual([]);
+    expect(
+      findResidualScrubFields("quarantinedEvents", { rawXdr: "AAAA", errorDetails: "stack" }),
+    ).toEqual(["rawXdr", "errorDetails"]);
+
+    expect(
+      findResidualScrubFields("exports", {
+        payload: { version: 1, archived: true },
+        lastError: null,
+        attemptHistory: [],
+      }),
+    ).toEqual([]);
+    expect(
+      findResidualScrubFields("exports", {
+        payload: { version: 1, creatorWallet: "GSECRET" },
+        lastError: "boom",
+        attemptHistory: [{ attempt: 1 }],
+      }),
+    ).toEqual(["payload", "lastError", "attemptHistory"]);
+
+    expect(
+      findResidualScrubFields("supportEvidence", {
+        reporterAddress: "[REDACTED]",
+        description: "",
+        adminNotes: "",
+        evidence: [],
+      }),
+    ).toEqual([]);
+    expect(
+      findResidualScrubFields("supportEvidence", {
+        reporterAddress: "guser123",
+        description: "leak",
+        adminNotes: "note",
+        evidence: [{ url: "https://example.com/a.png" }],
+      }),
+    ).toEqual(["reporterAddress", "description", "adminNotes", "evidence"]);
+  });
+});
+
+describe("verifyRetentionDeletion & enforceAndVerifyRetention (#1181)", () => {
+  it("normal path: verifies clean archived records, zero overdue rows, and emits deterministic attestationHash", async () => {
+    const { deps, audit } = makeVerificationDeps();
+    const report = await verifyRetentionDeletion({ actor: "ops-admin" }, deps);
+
+    expect(report.verified).toBe(true);
+    expect(report.totalArchivedChecked).toBe(4);
+    expect(report.totalResidualViolations).toBe(0);
+    expect(report.totalOverdueUnheld).toBe(0);
+    expect(report.expiredExportArtifactsRemaining).toBe(0);
+    expect(report.attestationHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "retention_deletion_verified",
+        result: "success",
+        actor: "ops-admin",
+      }),
+    );
+
+    // Deterministic attestation hash
+    expect(
+      computeDeletionAttestationHash({
+        checkedAt: report.checkedAt,
+        collections: report.collections,
+        expiredExportArtifactsRemaining: report.expiredExportArtifactsRemaining,
+      }),
+    ).toBe(report.attestationHash);
+  });
+
+  it("failure + retry repair path: detects residual sensitive fields on archived rows and self-heals on repairIncompleteScrubs", async () => {
+    const { deps, audit } = makeVerificationDeps({
+      archived: {
+        inboundWebhookEvents: [
+          { _id: id(11), archivedAt: NOW, rawBody: "leaked-webhook-payload", rawHeaders: { x: "1" }, errorMessage: null },
+        ],
+        supportEvidence: [
+          { _id: id(41), archivedAt: NOW, reporterAddress: "gwallet", description: "unscrubbed", adminNotes: "", evidence: [] },
+        ],
+      },
+    });
+
+    // Without repair: verification fails and reports exact residual fields
+    const failedReport = await verifyRetentionDeletion({ repairIncompleteScrubs: false }, deps);
+    expect(failedReport.verified).toBe(false);
+    expect(failedReport.totalResidualViolations).toBe(2);
+    expect(failedReport.collections.inboundWebhookEvents.violations[0]).toEqual({
+      collection: "inboundWebhookEvents",
+      recordId: id(11),
+      residualFields: ["rawBody", "rawHeaders"],
+    });
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "retention_deletion_verified", result: "failure" }),
+    );
+
+    // Retry with repairIncompleteScrubs: true -> repairs and passes verification
+    const repairedReport = await verifyRetentionDeletion({ repairIncompleteScrubs: true, actor: "ops-admin" }, deps);
+    expect(repairedReport.verified).toBe(true);
+    expect(repairedReport.totalRepaired).toBe(2);
+    expect(repairedReport.totalResidualViolations).toBe(0);
+  });
+
+  it("fails closed when the hold ledger is unavailable or parameters are invalid", async () => {
+    const { deps } = makeVerificationDeps({ failHeldIds: true });
+    await expect(verifyRetentionDeletion({}, deps)).rejects.toMatchObject({
+      code: "hold_ledger_unavailable",
+    });
+    await expect(verifyRetentionDeletion({ sampleLimit: 0 }, deps)).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+    await expect(enforceAndVerifyRetention({ batchSize: 9999 }, deps)).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+  });
+
+  it("enforces cleanup, purges expired export artifacts, and verifies deletion end to end", async () => {
+    const { deps, audit } = makeVerificationDeps({ expiredExports: 3 });
+
+    // Dry run does not purge export artifacts
+    const dryReport = await enforceAndVerifyRetention({ dryRun: true, actor: "ops-admin" }, deps);
+    expect(dryReport.dryRun).toBe(true);
+    expect(dryReport.expiredExportArtifactsPurged).toBe(0);
+    expect(dryReport.verification.expiredExportArtifactsRemaining).toBe(3);
+
+    // Live enforcement purges expired exports and verifies clean state
+    const liveReport = await enforceAndVerifyRetention({ dryRun: false, actor: "ops-admin" }, deps);
+    expect(liveReport.dryRun).toBe(false);
+    expect(liveReport.expiredExportArtifactsPurged).toBe(3);
+    expect(liveReport.verification.verified).toBe(true);
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "retention_enforcement_executed",
+        result: "success",
+        actor: "ops-admin",
+      }),
+    );
+  });
+
+  it("describes retention enforcement policies with calculated cutoff timestamps", () => {
+    const desc = describeRetentionEnforcementPolicies(NOW);
+    expect(desc.verifiableCollections).toEqual(HOLDABLE_COLLECTIONS);
+    expect(desc.policies.promptEvents.retentionDays).toBe(30);
+    expect(desc.policies.auditLogs.action).toBe("preserve");
+    expect(desc.policies.auditLogs.cutoff).toBeNull();
   });
 });
