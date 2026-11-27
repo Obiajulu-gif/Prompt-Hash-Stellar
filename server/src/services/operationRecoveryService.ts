@@ -24,6 +24,13 @@ export interface InitiateOperationParams {
   maxRetries?: number;
 }
 
+export interface ExternalStepOptions {
+  /** Persist only a deterministic external reference, never the effect result or payload. */
+  externalReference?: string;
+  txHash?: string;
+  data?: Record<string, unknown>;
+}
+
 export interface RecoveryPlan {
   operationId: string;
   canResume: boolean;
@@ -162,6 +169,64 @@ export class OperationRecoveryService {
 
     await checkpoint.save();
     return checkpoint;
+  }
+
+  /**
+   * Execute an external side effect with durable lifecycle checkpoints.
+   *
+   * The preflight checkpoint is written before the effect runs. A successful
+   * effect is recorded as resolved (or on-chain submitted when a transaction
+   * hash is supplied); failures become retryable and retain only the error
+   * message and caller-provided diagnostic metadata. Callers must provide a
+   * deterministic external reference when the remote system supports
+   * idempotency so recovery can reconcile an ambiguous response safely.
+   */
+  static async executeExternalStep<T>(
+    operationId: string,
+    stepName: string,
+    effect: () => Promise<T>,
+    options: ExternalStepOptions = {},
+  ): Promise<T> {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(stepName)) {
+      throw new Error("Invalid checkpoint name");
+    }
+
+    const checkpointData = {
+      ...(options.externalReference
+        ? { externalReference: options.externalReference }
+        : {}),
+      ...options.data,
+    };
+
+    await this.recordStep(operationId, stepName, "PREVALIDATED", {
+      data: checkpointData,
+    });
+
+    try {
+      const result = await effect();
+      await this.recordStep(
+        operationId,
+        stepName,
+        options.txHash ? "ONCHAIN_SUBMITTED" : "RESOLVED",
+        { txHash: options.txHash, data: checkpointData },
+      );
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        await this.recordStep(operationId, stepName, "RETRYABLE", {
+          error: message,
+          data: checkpointData,
+        });
+      } catch (checkpointError) {
+        logger.warn("Could not persist external step failure checkpoint", {
+          operationId,
+          stepName,
+          error: checkpointError,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
