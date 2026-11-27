@@ -268,8 +268,8 @@
         "tags": [
           "Admin Operations"
         ],
-        "summary": "Effective allow-list policies",
-        "description": "Requires `allowlist:read` (#1025).",
+        "summary": "Effective destination and content allow-list policies",
+        "description": "Requires `allowlist:read` (#1025, #1177).",
         "operationId": "getAllowListPolicies",
         "security": [
           {
@@ -278,7 +278,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Mode, URL policies and file-type allow-list"
+            "description": "Mode, runtime overrides, URL policies, content policies, and file-type allow-list"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -291,8 +291,8 @@
         "tags": [
           "Admin Operations"
         ],
-        "summary": "Dry-run a URL or file against the allow-list",
-        "description": "Requires `allowlist:read` (#1025). Always reports what enforce mode would decide.",
+        "summary": "Dry-run a URL, file, or content payload against the allow-list",
+        "description": "Requires `allowlist:read` (#1025, #1177). Always reports what enforce mode would decide.",
         "operationId": "checkAllowList",
         "security": [
           {
@@ -311,7 +311,9 @@
                     "enum": [
                       "webhook_destination",
                       "listing_image",
-                      "report_evidence"
+                      "report_evidence",
+                      "dispute_evidence",
+                      "external_reference"
                     ]
                   },
                   "url": {
@@ -343,6 +345,24 @@
                         "type": "string"
                       }
                     }
+                  },
+                  "content": {
+                    "type": "object",
+                    "properties": {
+                      "policy": {
+                        "type": "string",
+                        "enum": [
+                          "prompt_content",
+                          "evidence_note",
+                          "webhook_payload",
+                          "import_manifest"
+                        ]
+                      },
+                      "value": {},
+                      "contentType": {
+                        "type": "string"
+                      }
+                    }
                   }
                 }
               }
@@ -355,6 +375,83 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/allow-list/override": {
+      "put": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "summary": "Set audited runtime allow-list mode or host overrides",
+        "description": "Requires `allowlist:write` (#1177). Records an `admin_config_change` audit event.",
+        "operationId": "setAllowListOverride",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "enforce",
+                      "report"
+                    ]
+                  },
+                  "hostAllowLists": {
+                    "type": "object"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 4
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated effective allow-list policies"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "summary": "Roll back runtime allow-list overrides to environment defaults",
+        "description": "Requires `allowlist:write` (#1177). Records an `admin_config_change` audit event.",
+        "operationId": "clearAllowListOverride",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restored effective allow-list policies"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"

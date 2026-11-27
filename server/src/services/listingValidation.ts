@@ -1,5 +1,5 @@
 import { PROMPT_CATEGORIES, PROMPT_METADATA_LIMITS } from "@prompthash/schema";
-import { enforceUrlAllowList } from "./allowListPolicy";
+import { enforceContentAllowList, enforceUrlAllowList } from "./allowListPolicy";
 
 const CATEGORY_ALIASES: Record<string, string> = Object.fromEntries(
   PROMPT_CATEGORIES.map((category: string) => [category.toLowerCase(), category]),
@@ -109,6 +109,15 @@ export function validateListingMetadata(
     errors.content = "Content must be at least 10 characters long.";
   } else if (normalized.content.length > LISTING_LIMITS.content) {
     errors.content = `Content must be ${LISTING_LIMITS.content} characters or fewer.`;
+  } else {
+    const contentDecision = enforceContentAllowList(
+      { content: normalized.content, contentType: "text/markdown" },
+      "prompt_content",
+      { context: "listing_metadata_content" },
+    );
+    if (!contentDecision.allowed) {
+      errors.content = contentDecision.message ?? "Content is not allowed.";
+    }
   }
 
   if (!normalized.category) {
