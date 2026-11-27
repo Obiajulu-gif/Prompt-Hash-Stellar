@@ -12,6 +12,22 @@
     "lifecycleState": "published",
     "licence": "standard",
     "moderationStatus": "approved"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90031",
+    "schemaVersion": 3,
+    "title": "Archived V3 Prompt With Custom Provenance",
+    "category": "Marketing",
+    "description": "Retained v3 prompt carrying custom extension fields.",
+    "tags": ["archive", "v3"],
+    "imageUrl": "https://example.com/images/v3-archived.png",
+    "priceStroops": 12000000,
+    "active": false,
+    "lifecycleState": "archived",
+    "licence": "extended",
+    "moderationStatus": "retired",
+    "customProvenanceTag": "import-batch-2026"
   }
 ]
+
 

@@ -45,6 +45,7 @@ import { capabilityGrantRouter } from "./routes/capabilityGrantRoutes"; // #1171
 import { recordMergeRouter } from "./routes/recordMergeRoutes"; // #902
 import { maintainerNoteRouter } from "./routes/maintainerNoteRoutes"; // #903
 import { failureEscalationRouter } from "./routes/failureEscalationRoutes"; // #904
+import { schemaMigrationRouter } from "./routes/schemaMigrationRoutes";
 import { payoutLedgerRouter } from "./routes/payoutLedgerRoutes";
 import { entitlementRouter } from "./routes/entitlementRoutes";
 import { bundleRouter } from "./routes/bundleRoutes";
@@ -133,6 +134,7 @@ app.use("/api/capabilities", capabilityGrantRouter); // #1171
 app.use("/api/admin/record-merges", recordMergeRouter); // #902
 app.use("/api/admin/maintainer-notes", maintainerNoteRouter); // #903
 app.use("/api/admin/escalations", failureEscalationRouter); // #904
+app.use("/api/admin/schema-migrations", schemaMigrationRouter);
 app.use("/api/analytics/lifecycle", lifecycleCaptureRouter);
 app.use("/api/admin/lifecycle-analytics", lifecycleReportRouter);
 
