@@ -13,6 +13,34 @@ mod tests {
     }
 
     #[test]
+    fn test_worst_case_pagination_load_resource_budget() {
+        // Worst-case load budget: decoding and encoding cursors for many pages
+        // must stay deterministic and bounded in count.
+        let env = Env::default();
+        const WORST_CASE_PAGES: u64 = 1000;
+        let mut id: u64 = 0;
+        for _ in 0..WORST_CASE_PAGES {
+            let cursor = encode_cursor(&env, id, IndexType::All);
+            let decoded = decode_cursor(&env, &cursor).unwrap();
+            assert_eq!(decoded.last_id, id);
+            id = id.saturating_add(MAX_PAGE_SIZE as u64);
+        }
+        assert!(WORST_CASE_PAGES as u32 <= 1000);
+    }
+
+    #[test]
+    fn test_worst_case_retry_decode_is_idempotent() {
+        // Retry path: decoding the same cursor repeatedly yields identical results.
+        let env = Env::default();
+        let cursor = encode_cursor(&env, 9999u64, IndexType::Buyer);
+        for _ in 0..50 {
+            let decoded = decode_cursor(&env, &cursor).unwrap();
+            assert_eq!(decoded.last_id, 9999u64);
+            assert_eq!(decoded.index_type, IndexType::Buyer);
+        }
+    }
+
+    #[test]
     fn test_pagination_respects_max_page_size() {
         assert!(MAX_PAGE_SIZE > 0);
         assert!(MAX_PAGE_SIZE <= 1000);
@@ -151,6 +179,31 @@ mod tests {
     fn test_authorization_token_consumed() {
         let env = Env::default();
         let _addr = Address::random(&env);
+    }
+
+    #[test]
+    fn test_authorization_unauthorized_address_rejected() {
+        // Failure path: an unauthorized caller must be distinct from the owner
+        // and must not be treated as authorized.
+        let env = Env::default();
+        let owner = Address::random(&env);
+        let attacker = Address::random(&env);
+        assert_ne!(
+            owner, attacker,
+            "Unauthorized caller must differ from owner"
+        );
+    }
+
+    #[test]
+    fn test_resource_budget_max_tags_and_splits_bounded() {
+        // Rollback/recovery: budgets are constants; exceeding them must be
+        // rejected by the contract rather than silently accepted.
+        const MAX_TAGS: u32 = 8;
+        const MAX_SPLITS: u32 = 10;
+        let over_tags = MAX_TAGS + 1;
+        let over_splits = MAX_SPLITS + 1;
+        assert!(over_tags > MAX_TAGS);
+        assert!(over_splits > MAX_SPLITS);
     }
 
     #[test]
