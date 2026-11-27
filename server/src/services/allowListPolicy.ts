@@ -557,18 +557,85 @@ export function checkFileType(input: {
  */
 // eslint-disable-next-line no-control-regex
 const BINARY_CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffd]/;
-const HTML_TAG_MATCHER = /<\s*\/?\s*([a-zA-Z][a-zA-Z0-9:-]*)\b([^>]*)>/g;
 const DANGEROUS_ATTR_MATCHER = /\b(?:on[a-z0-9_-]+|style|formaction|xmlns|xlink:href|srcdoc)\s*=/i;
-const MARKDOWN_OR_ATTR_URI_MATCHER =
-  /(?:\]\(\s*|(?:\bhref|\bsrc|\baction)\s*=\s*["']?\s*)([a-zA-Z][a-zA-Z0-9+.-]*:[^\s)"'>]+)/gi;
+const MARKDOWN_URI_MATCHER = /\]\(\s*([a-zA-Z][a-zA-Z0-9+.-]*:[^\s)"'>]+)/g;
+const HTML_ATTR_URI_MATCHER =
+  /\b(?:href|src|action)\s*=\s*(?:"\s*([a-zA-Z][a-zA-Z0-9+.-]*:[^\s"'>]+)|'\s*([a-zA-Z][a-zA-Z0-9+.-]*:[^\s"'>]+)|([a-zA-Z][a-zA-Z0-9+.-]*:[^\s)"'>]+))/gi;
+
+function isAsciiWhitespace(code: number): boolean {
+  return code === 32 || code === 9 || code === 10 || code === 13 || code === 12 || code === 11;
+}
+
+function isAsciiLetter(code: number): boolean {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isTagNameChar(code: number): boolean {
+  return isAsciiLetter(code) || (code >= 48 && code <= 57) || code === 58 || code === 45;
+}
+
+function isWordChar(code: number): boolean {
+  return isAsciiLetter(code) || (code >= 48 && code <= 57) || code === 95;
+}
+
+/**
+ * Linear-time O(n) HTML tag scanner (avoids polynomial ReDoS on adversarial `<` + whitespace input).
+ */
+function extractHtmlTags(text: string): Array<{ tagName: string; attrs: string }> {
+  const tags: Array<{ tagName: string; attrs: string }> = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const open = text.indexOf("<", cursor);
+    if (open === -1) break;
+    const close = text.indexOf(">", open + 1);
+    if (close === -1) break;
+
+    let i = open + 1;
+    while (i < close && isAsciiWhitespace(text.charCodeAt(i))) i++;
+    if (i < close && text.charCodeAt(i) === 47 /* '/' */) {
+      i++;
+      while (i < close && isAsciiWhitespace(text.charCodeAt(i))) i++;
+    }
+
+    if (i < close && isAsciiLetter(text.charCodeAt(i))) {
+      const nameStart = i;
+      i++;
+      while (i < close && isTagNameChar(text.charCodeAt(i))) i++;
+      if (i === close || !isWordChar(text.charCodeAt(i))) {
+        tags.push({
+          tagName: text.slice(nameStart, i).toLowerCase(),
+          attrs: text.slice(i, close),
+        });
+      }
+    }
+
+    const nextOpen = text.indexOf("<", open + 1);
+    cursor = nextOpen !== -1 && nextOpen < close ? nextOpen : close + 1;
+  }
+
+  return tags;
+}
+
+function extractCandidateUris(text: string): string[] {
+  const uris: string[] = [];
+  for (const match of text.matchAll(MARKDOWN_URI_MATCHER)) {
+    if (match[1]) uris.push(match[1]);
+  }
+  for (const match of text.matchAll(HTML_ATTR_URI_MATCHER)) {
+    const uri = match[1] ?? match[2] ?? match[3];
+    if (uri) uris.push(uri);
+  }
+  return uris;
+}
 
 function decodeNumericEntities(text: string): string {
   return text
-    .replace(/&#x([0-9a-fA-F]+);?/gi, (_, hex) => {
+    .replace(/&#x([0-9a-fA-F]{1,8});?/gi, (_, hex) => {
       const code = Number.parseInt(hex, 16);
       return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : "";
     })
-    .replace(/&#([0-9]+);?/g, (_, dec) => {
+    .replace(/&#([0-9]{1,8});?/g, (_, dec) => {
       const code = Number.parseInt(dec, 10);
       return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : "";
     });
@@ -636,9 +703,7 @@ export function checkContentAgainstPolicy(
 
   // Check HTML tags and attributes against the policy's tag allow-list.
   const allowedTags = new Set(policy.allowHtmlTags.map((t) => t.toLowerCase()));
-  for (const match of text.matchAll(HTML_TAG_MATCHER)) {
-    const tagName = (match[1] ?? "").toLowerCase();
-    const attrs = match[2] ?? "";
+  for (const { tagName, attrs } of extractHtmlTags(text)) {
     if (!allowedTags.has(tagName)) {
       return violation(
         "content_tag_not_allowed",
@@ -662,8 +727,7 @@ export function checkContentAgainstPolicy(
     );
   }
 
-  for (const match of decodedForUriScan.matchAll(MARKDOWN_OR_ATTR_URI_MATCHER)) {
-    const candidateUri = match[1] ?? "";
+  for (const candidateUri of extractCandidateUris(decodedForUriScan)) {
     const colonIdx = candidateUri.indexOf(":");
     if (colonIdx <= 0) continue;
     const scheme = candidateUri.slice(0, colonIdx + 1).toLowerCase();

@@ -1,5 +1,6 @@
 import { Router, type Response } from "express";
 import { requireAdminScope, type AdminRequest } from "../middleware/adminAuth";
+import { rateLimit } from "../middleware/rateLimiter";
 import { recordAuditEvent } from "../services/auditTrail";
 import {
   ALLOW_LIST_POLICIES,
@@ -27,6 +28,22 @@ import {
  * DELETE /api/admin/allow-list/override  — roll back runtime overrides to environment defaults (`allowlist:write`)
  */
 export const allowListRouter = Router();
+
+const allowListAdminLimiter = rateLimit({
+  actionName: "allow-list-admin",
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  message: "Too many allow-list admin requests.",
+});
+
+const allowListOverrideLimiter = rateLimit({
+  actionName: "allow-list-override",
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  message: "Too many allow-list override requests.",
+});
+
+allowListRouter.use(allowListAdminLimiter);
 
 allowListRouter.get("/", requireAdminScope("allowlist:read"), (_req: AdminRequest, res: Response) => {
   res.json(describeAllowListPolicies());
@@ -83,7 +100,7 @@ allowListRouter.post("/check", requireAdminScope("allowlist:read"), (req: AdminR
   );
 });
 
-allowListRouter.put("/override", requireAdminScope("allowlist:write"), (req: AdminRequest, res: Response) => {
+allowListRouter.put("/override", allowListOverrideLimiter, requireAdminScope("allowlist:write"), (req: AdminRequest, res: Response) => {
   const { mode, hostAllowLists, reason } = req.body ?? {};
   if (typeof reason !== "string" || reason.trim().length < 4) {
     return res.status(400).json({ error: "A reason (at least 4 characters) is required for allow-list overrides." });
@@ -128,7 +145,7 @@ allowListRouter.put("/override", requireAdminScope("allowlist:write"), (req: Adm
   return res.json(describeAllowListPolicies());
 });
 
-allowListRouter.delete("/override", requireAdminScope("allowlist:write"), (req: AdminRequest, res: Response) => {
+allowListRouter.delete("/override", allowListOverrideLimiter, requireAdminScope("allowlist:write"), (req: AdminRequest, res: Response) => {
   const beforeState = getRuntimeAllowListOverride();
   const actor = req.admin?.sub ?? "admin";
   const reason = typeof req.body?.reason === "string" && req.body.reason.trim() ? req.body.reason.trim() : "Rollback runtime allow-list override";
