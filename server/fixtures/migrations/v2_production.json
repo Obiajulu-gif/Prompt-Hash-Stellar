@@ -16,6 +16,21 @@
     "listingStatus": "published",
     "licence": "standard",
     "moderationStatus": "approved"
+  },
+  {
+    "_id": "64f1a2b3c4d5e6f7a8b90021",
+    "schemaVersion": 2,
+    "title": "Canonical V2 Production Prompt Without Aliases",
+    "category": "Programming",
+    "description": "Clean v2 production record with no deprecated aliases.",
+    "tags": ["stellar", "soroban"],
+    "imageUrl": "https://example.com/images/stellar.png",
+    "priceStroops": 40000000,
+    "active": true,
+    "lifecycleState": "published",
+    "licence": "commercial",
+    "moderationStatus": "none"
   }
 ]
+
 
