@@ -64,6 +64,8 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
+        env:
+          YARN_ENABLE_IMMUTABLE_INSTALLS: "true"
 
       - name: Validate environment template
         run: yarn check:setup --warn-only

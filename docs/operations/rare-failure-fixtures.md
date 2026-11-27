@@ -12,10 +12,20 @@ The Rare Failure Fixture Generator framework (`server/src/services/rareFailureFi
 | :--- | :--- | :--- |
 | **Soroban RPC Timeout** | RPC `TRY_AGAIN_LATER` $\to$ `tx_too_late` when `maxLedger` expires. | Re-simulate resource footprint, query latest ledger sequence, extend `maxLedger` time-bounds, and re-broadcast (`RETRY`). |
 | **Account Sequence Desync** | Stellar protocol error `tx_bad_seq` due to concurrent transactions. | Fetch latest source account sequence from network, re-increment, re-sign, and submit (`RESYNC`). |
-| **Contract Finality Collision** | Soroban error `InvalidStatusTransition` when modifying an already `Retired` listing. | Isolate the permanent failure, prevent retry storms, commit remaining active items, and render a finality warning (`ROLLBACK`). |
-| **Content Hash Tampering** | Content hash mismatch during unlock (`ContentHashMismatch`). | Terminate decryption, halt plaintext delivery, quarantine asset in database, and emit forensic security log (`QUARANTINE`). |
+| **Contract Finality Collision** | Soroban error `InvalidStatusTransition` when modifying an already `Retired` listing. | Isolate the permanent failure, prevent retry storms, commit remaining active items, and render a finality warning (`ROLLBACK`). Not retryable. |
+| **Content Hash Tampering** | Content hash mismatch during unlock (`ContentHashMismatch`). | Terminate decryption, halt plaintext delivery, quarantine asset in database, and emit forensic security log (`QUARANTINE`). Not retryable. |
 | **Event Journal Ledger Gap** | Sequence gap $[L_{last} + 1 \dots L_{in} - 1]$ detected in event stream. | Pause live indexer projection cursor, enqueue targeted backfill replay job, and resume upon gap closure (`RESYNC`). |
 | **Security Revocation Race** | Token invalidated by security event while transaction is in flight. | Reject request with `401 Unauthorized` and prompt for step-up challenge signature. |
+
+### Edge cases and recovery behavior
+- **Retry bounds:** only faults marked `canRetry: true` may be retried; `ROLLBACK` and `QUARANTINE` scenarios must never be re-submitted automatically.
+- **Partial failure:** bulk operations report itemized failures; successful items are committed and not rolled back.
+- **Forensics:** quarantine events are journaled before any plaintext is withheld, preserving an audit trail.
+- **Gap closure:** the indexer cursor advances only after the backfill covers the full gap range.
+- **Authorization path:** a security revocation mid-flight must fail closed; no fixture may proceed past the authorization check after revocation is observed.
+
+### CI dependency failure (YN0078)
+The CI check runs (`Lint, Test, Typecheck, Build`, `test`, `Frontend (TypeScript / Vite)`) fail during Yarn resolution with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. The resolution override pins `typescript` to a version that does not satisfy the declared `^5.0.0` range, so installation aborts before any lint, test, typecheck, or build step runs. Recovery: align the `resolutions` entry in the root `package.json` with the `^5.0.0` range (or bump the declared range deliberately and update all workspaces together), regenerate `yarn.lock`, and re-run CI. Until fixed, the `dependency-license-inventory.json` artifact is not produced, which is expected and not a separate fault.
 
 ---
 
@@ -37,3 +47,6 @@ Every generated fixture returns:
 - `simulatedFault`: The exact injected error payload, status codes, and retry flags
 - `expectedRecovery`: The expected recovery action (`RETRY`, `ROLLBACK`, `QUARANTINE`, `RESYNC`), compensation steps, expected state, and `assertFinalState` verification predicate.
 - `fingerprint`: Cryptographic SHA-256 hash verifying fixture immutability.
+
+### Compatibility
+The exported function names and return shape are unchanged. The generator's internal fingerprint input is now a canonical JSON body; fingerprints from earlier revisions are not stable and must not be persisted or compared across versions.
