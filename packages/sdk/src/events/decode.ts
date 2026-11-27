@@ -8,6 +8,27 @@
  * `{ recognized: false }` instead of throwing or silently mis-decoding —
  * see `docs/event-versioning.md` for the compatibility policy this
  * supports.
+ *
+ * Schema drift detection: when a payload carries fields that the checked-in
+ * schema for its (type, version) does not declare, or lacks fields the schema
+ * requires, the decoder reports the mismatch via `drift` on the decoded result
+ * rather than silently dropping or fabricating data. Drift never throws;
+ * callers decide whether to log, alert, or reject.
+ *
+ * Edge cases and recovery:
+ * - Unknown event type or unsupported version: returned as `recognized: false`
+ *   with the raw payload preserved for replay once a build with the schema ships.
+ * - Missing required field: decoded as `undefined` (or the type's zero value)
+ *   and listed in `drift.missingFields`; the event is still `recognized: true`
+ *   so indexers keep progressing. Consumers relying on the field must check
+ *   `drift`.
+ * - Extra field not in schema: ignored for `data` (preserving the existing
+ *   contract) but listed in `drift.extraFields` so it is visible to operators.
+ * - Coercion failure (e.g. non-numeric value for u64): the field is returned
+ *   as `undefined` and recorded in `drift.invalidFields` instead of throwing.
+ * - Drift is detected identically on the `version` fallback path: the version
+ *   is read from the payload when present, otherwise from the `version`
+ *   argument, and the same schema lookup/drift comparison runs for both.
  */
 import {
   CURRENT_EVENT_SCHEMA_VERSION,
@@ -16,11 +37,22 @@ import {
   type EventFieldType,
 } from "./schema.js";
 
+export interface SchemaDrift {
+  /** Schema-declared fields absent from the payload. */
+  missingFields: string[];
+  /** Payload fields not declared in the schema for this type/version. */
+  extraFields: string[];
+  /** Fields whose value could not be coerced to the declared type. */
+  invalidFields: string[];
+}
+
 export interface DecodedEvent<T = Record<string, unknown>> {
   recognized: true;
   type: string;
   version: number;
   data: T;
+  /** Present only when the payload diverged from the checked-in schema. */
+  drift?: SchemaDrift;
 }
 
 export interface UnrecognizedEvent {
@@ -34,6 +66,8 @@ export interface UnrecognizedEvent {
 }
 
 export type DecodeResult<T = Record<string, unknown>> = DecodedEvent<T> | UnrecognizedEvent;
+
+const RESERVED_KEYS = new Set(["version"]);
 
 function coerceField(type: EventFieldType, value: unknown): unknown {
   switch (type) {
@@ -103,10 +137,39 @@ export function decodeEvent(
     return { recognized: false, type, version: targetVersion, reason: "unsupported_version", raw };
   }
 
+  const declared = new Set(schema.fields.map((f) => f.name));
+  const drift: SchemaDrift = { missingFields: [], extraFields: [], invalidFields: [] };
+
   const data: Record<string, unknown> = {};
   for (const field of schema.fields) {
-    data[field.name] = coerceField(field.type, source[field.name]);
+    const present = Object.prototype.hasOwnProperty.call(source, field.name);
+    if (!present) {
+      drift.missingFields.push(field.name);
+    }
+    try {
+      const coerced = coerceField(field.type, source[field.name]);
+      if (typeof coerced === "number" && Number.isNaN(coerced)) {
+        drift.invalidFields.push(field.name);
+      }
+      data[field.name] = coerced;
+    } catch {
+      drift.invalidFields.push(field.name);
+      data[field.name] = undefined;
+    }
   }
 
-  return { recognized: true, type, version: targetVersion, data };
+  for (const key of Object.keys(source)) {
+    if (!declared.has(key) && !RESERVED_KEYS.has(key)) {
+      drift.extraFields.push(key);
+    }
+  }
+
+  const hasDrift =
+    drift.missingFields.length > 0 ||
+    drift.extraFields.length > 0 ||
+    drift.invalidFields.length > 0;
+
+  return hasDrift
+    ? { recognized: true, type, version: targetVersion, data, drift }
+    : { recognized: true, type, version: targetVersion, data };
 }

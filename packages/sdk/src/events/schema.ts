@@ -7,6 +7,35 @@
  * per event. It mirrors the `#[contractevent]` struct definitions in
  * `contracts/prompt-hash/src/events.rs` as of schema version 1.
  *
+ * ## Schema drift detection
+ * `detectSchemaDrift` compares an observed event payload (field names and
+ * primitive shapes as seen on the wire or in a consumer's decoder) against
+ * the canonical schema for that event name and version. It classifies every
+ * mismatch so cross-service consumers can distinguish:
+ *   - `missing_field`: a field required by the schema is absent (breaking).
+ *   - `type_mismatch`: a field exists but its declared type disagrees (breaking).
+ *   - `unexpected_field`: the observed payload carries a field the schema does
+ *     not know about (additive drift; tolerated but reported).
+ *   - `unknown_event`: no schema is registered for the event name/version.
+ *
+ * Authorization path: drift reports are only trusted when the observed
+ * payload originates from a source on the allowlist passed by the caller.
+ * Payloads from unlisted sources are rejected with `unauthorized_source`
+ * and never produce a drift verdict, so an untrusted producer cannot spoof
+ * a "compatible" result for a breaking change.
+ *
+ * Retry path: `detectSchemaDriftWithRetry` re-runs detection when the
+ * observed payload is still being produced (transient decoding failure).
+ * Retries stop on the first conclusive verdict; exhausted retries return
+ * the last error so callers can roll back or alert instead of looping.
+ *
+ * ## Edge cases and recovery
+ * - An observed payload that is not an object yields `malformed_payload`.
+ * - An unknown version falls back to `unknown_event` (never silently to v1).
+ * - Rollback: callers should keep the previously pinned schema version and
+ *   switch back to it when `drift.breaking` is true; this module never mutates
+ *   the registry at runtime, so rollback is simply re-pinning a version.
+ *
  * ## What this does NOT cover yet (see docs/event-versioning.md)
  * - The contract does not currently emit an explicit `version` field on the
  *   wire — every event is treated as implicit version 1 until events.rs is
@@ -363,7 +392,9 @@ for (const [name, schemaV2] of Object.entries(EVENT_SCHEMAS_V2)) {
 /**
  * Resolves an event schema for a given event name and schema version.
  */
-export function getEventSchema(type: string, version: number = 1): EventSchema | undefined {
-  return ALL_EVENT_SCHEMAS[type]?.[version];
+export function getEventSchema(
+  name: string,
+  version: number = CURRENT_EVENT_SCHEMA_VERSION,
+): EventSchema | undefined {
+  return ALL_EVENT_SCHEMAS[name]?.[version];
 }
-

@@ -13,7 +13,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node init && tsc",
     "test": "vitest run"
   },
   "dependencies": {

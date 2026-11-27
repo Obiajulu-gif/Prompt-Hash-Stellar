@@ -16,6 +16,39 @@ Enforced by `packages/sdk/src/events/contractMap.test.ts`.
 Required fields per event are exactly `EVENT_SCHEMAS[event].fields` —
 see `contractMap.ts`; they are asserted by test so the map cannot drift.
 
+## Schema drift detection
+
+Drift is detected by comparing three views of each event and failing the
+build on any mismatch:
+
+1. **Producer view** — event fields emitted by the contract (`contracts/prompt-hash`).
+2. **Registry view** — `EVENT_SCHEMAS[event].fields` in `schema.ts`, mirrored in `contractMap.ts`.
+3. **Consumer view** — fields read by `indexer.ts`, `webhookOutbox.ts`, and `payoutLedgerService.ts`.
+
+Checks performed by `contractMap.test.ts`:
+
+| Check | Path exercised | Failure result |
+|---|---|---|
+| Registry matches map (normal) | Every domain event present in both `EVENT_SCHEMAS` and `contractMap.ts` with identical fields | Test passes |
+| Missing event (failure) | Event emitted by producer but absent from registry | Test fails: `UNREGISTERED_EVENT` |
+| Field added without registry update (drift) | Producer emits field not in `EVENT_SCHEMAS[event].fields` | Test fails: `SCHEMA_DRIFT` with event and field name |
+| Consumer reads unknown field (drift) | Consumer references field not in registry | Test fails: `CONSUMER_DRIFT` |
+| Re-run after fix (retry) | Same inputs re-evaluated; detection is pure and deterministic | Identical result, no side effects |
+| Unauthorized producer (authorization) | Event emitted by a source not listed as producer for its domain | Test fails: `PRODUCER_NOT_AUTHORIZED`; event is not indexed |
+
+Drift reports are advisory in CI for additive-only diffs and blocking for
+removals or type changes (see Version rules).
+
+## CI prerequisite: dependency resolution
+
+The Playwright and Frontend workflows currently fail during `Install dependencies`
+with `YN0078: Invalid resolution typescript@npm:^5.0.0 → npm:6.0.3`. The
+`resolutions` entry pins `typescript` to a version outside the range the
+workspace declares. Until the resolution is aligned (either move the pin into
+`^5.0.0` or bump the declared range deliberately in a separate PR), the drift
+tests in `contractMap.test.ts` cannot run in CI. Treat this as a blocking
+prerequisite for the drift gate, not as part of the schema change itself.
+
 ## Version rules
 
 - Contract events are implicit V1 (no on-wire `version` field); explicit
@@ -28,11 +61,21 @@ see `contractMap.ts`; they are asserted by test so the map cannot drift.
 - Hash proofs: `contentHashVersion:1` + `SHA-256` only; a new algorithm needs
   a new field + discriminator (`docs/prompt-integrity-verification.md`).
 
+## Migration plan for drift-breaking changes
+
+1. Add the new field as optional in `EVENT_SCHEMAS` and `contractMap.ts` in the same PR as the producer change.
+2. Deploy consumers that tolerate the field being absent or present.
+3. Confirm drift test is green with both views updated.
+4. After the grace window, mark the old field deprecated; remove only after the 30-day notice.
+
+Existing contracts are preserved: no field is removed or retyped by this change.
+
 ## Allowed failure behavior
 
 | Situation | Behavior | Mechanism |
 |---|---|---|
 | Unknown event type / unsupported version | Quarantine and continue (never crash indexer) | `decodeEvent` → `{recognized:false}` → `QuarantinedEvent`, replay via `POST /api/admin/replay-quarantined` |
+| Schema drift detected at runtime | Quarantine event with `SCHEMA_DRIFT` reason; do not index partial payload | `QuarantinedEvent` with drift reason, replay after consumer upgrade |
 | Entitlement / settlement processing error | Retry with backoff, idempotent | `ProcessedEvent` dedupe, outbox lease CAS, `MAX_ATTEMPTS=8`, exp backoff + jitter |
 | Unlock auth / hash mismatch / stale terms | Fail closed | `401 INVALID_SIGNATURE`, `403 ACCESS_NOT_PURCHASED`, `409 STALE_PROMPT_TERMS`, `500 INTEGRITY_FAILURE` — no plaintext |
 | Solvency violation / contract upgrade | Dead-letter and alert | Pause contract, page maintainer, forward-fix or downgrade via `previous WASM_HASH` (`docs/operations/contract-upgrades.md`) |
@@ -43,7 +86,10 @@ Delivery is at-least-once everywhere; consumers must be idempotent
 ## Operational edge cases & recovery
 
 - Quarantine spike (>10/min) or new reason → alert, inspect `QuarantinedEvent`, upgrade consumer, replay.
+- `SCHEMA_DRIFT` quarantine → update `EVENT_SCHEMAS` and `contractMap.ts` together, re-run `contractMap.test.ts`, replay.
 - Stuck settlement (`settlementStatus: pending` > threshold) → `settlementPoll` retries, then `MANUAL_REVIEW` via `operationRecoveryService`.
 - Rollback: consumer rollback = revert consumer deploy + replay quarantine;
   contract rollback = downgrade to previous `WASM_HASH`; migration rollback =
   `yarn --cwd server db:rollback`. Never grant/revoke access off-chain.
+- CI install failure (`YN0078` on `typescript`) → fix the `resolutions` pin or
+  declared range first; drift checks cannot be trusted until install succeeds.
