@@ -50,7 +50,9 @@ changed by this workflow.
   after a timeout or error from repeating a partial side effect.
 
 Keys must be non-empty, no longer than 255 characters, and contain no line
-breaks. Never reuse a key for a different business operation or payload.
+breaks. A missing or invalid key is refused before the handler runs with
+`400 IDEMPOTENCY_KEY_REQUIRED`. Never reuse a key for a different business
+operation or payload.
 
 ## Deployment
 
@@ -64,4 +66,27 @@ Migration `006_idempotency_records` creates the unique `(scope, key)` index and
 lookup indexes. Existing routes keep their response bodies; only requests to
 the protected routes need the new header.
 
-An overlapping duplicate receives an in-progress response without entering the controller. Once the original response finishes, retrying the same request replays that outcome, including a denial captured from the controller. Correct the authorization issue before starting a new operation.
+## Purchase re-submission
+
+`POST /api/versions/purchase` records one purchase per buyer and prompt, pinned
+to the prompt's `currentVersionIndex` at the time of purchase. The first accepted
+write returns `201 { "message": "Purchase recorded." }`. A later submission for the
+same buyer and prompt returns `200 { "message": "Already purchased; no new purchase
+recorded." }` and creates no second row. The idempotency key protects retries of
+the same request. The controller's own check protects a new key for an existing
+purchase.
+
+## Verification
+
+```bash
+cd server
+npx vitest run src/tests/idempotency.test.ts \
+  src/tests/idempotencyMiddleware.test.ts \
+  src/tests/concurrencyContracts.test.ts
+```
+
+These cover retry after success (replayed body, `Idempotent-Replayed: true`), retry
+after failure (stored `500` replayed, handler not re-run), key collision with a
+different payload (`409 IDEMPOTENCY_KEY_CONFLICT`), an expired key (`409
+IDEMPOTENCY_KEY_EXPIRED`), a concurrent duplicate (`409
+IDEMPOTENCY_REQUEST_IN_PROGRESS`), and duplicate purchases against real MongoDB.

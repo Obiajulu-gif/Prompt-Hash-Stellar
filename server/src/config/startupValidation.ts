@@ -18,6 +18,9 @@
  *   - Space Complexity: O(1) constant auxiliary space.
  */
 
+import { parseAiProviderConfig } from "../services/aiProvider";
+import { validateUnlockKeyring } from "../services/unlockKeyring";
+
 export interface ConfigValidationError {
   key: string;
   code:
@@ -410,8 +413,36 @@ export function validateStartupConfig(
     }
   };
 
-  validateBase64Key("UNLOCK_PUBLIC_KEY", unlockPubKey);
-  validateBase64Key("UNLOCK_PRIVATE_KEY", unlockPrivKey);
+  if (env.UNLOCK_KEYS_JSON) {
+    // Key-ring mode (#27): every version is checked as a whole. Problems name
+    // variables and key ids only, never key material.
+    for (const problem of validateUnlockKeyring(env)) {
+      errors.push({
+        key: "UNLOCK_KEYS_JSON",
+        code: "MALFORMED_FORMAT",
+        message: problem,
+        remediation: "Fix UNLOCK_KEYS_JSON / UNLOCK_ACTIVE_KEY_ID (see docs/UNLOCK_KEY_CUSTODY.md).",
+      });
+    }
+  } else {
+    validateBase64Key("UNLOCK_PUBLIC_KEY", unlockPubKey);
+    validateBase64Key("UNLOCK_PRIVATE_KEY", unlockPrivKey);
+  }
+
+  // AI provider boundary (#29). Leaving AI_PROVIDER_BASE_URL unset is a valid
+  // "disabled" state; setting it with a bad value fails startup instead of
+  // surfacing as errors on the first AI request.
+  try {
+    parseAiProviderConfig(env);
+  } catch (err) {
+    errors.push({
+      key: "AI_PROVIDER_BASE_URL",
+      code: "MALFORMED_FORMAT",
+      message: (err as Error).message,
+      remediation:
+        "Fix the AI_PROVIDER_* settings (see docs/AI_PROVIDER_BOUNDARY.md) or unset AI_PROVIDER_BASE_URL to disable AI features.",
+    });
+  }
 
   const report: StartupValidationReport = {
     valid: errors.length === 0,

@@ -22,13 +22,19 @@ vi.mock("../middleware/adminAuth", () => ({
 vi.mock("../db/connectDb", () => ({ default: async () => undefined }));
 
 import {
+  checkContentAgainstPolicy,
   checkFileType,
   checkUrlAgainstPolicy,
+  clearRuntimeAllowListOverride,
+  enforceContentAllowList,
   enforceEvidenceUrl,
   enforceUrlAllowList,
   hostMatchesAllowList,
+  setRuntimeAllowListOverride,
   sniffFileKind,
 } from "../services/allowListPolicy";
+import { assertSafeWebhookUrlShape, UnsafeWebhookUrlError } from "../services/ssrfGuard";
+import { validateEvidence } from "../services/ownershipTransferDisputes";
 import { validateListingMetadata } from "../services/listingValidation";
 import { allowListRouter } from "../routes/allowListRoutes";
 import { webhookRouter } from "../routes/webhookRoutes";
@@ -37,15 +43,23 @@ import IdempotencyRecord from "../models/IdempotencyRecord";
 import { jsonCall, startHttpServer, type HttpTestServer } from "./helpers/httpApp";
 import { resetRealMongo, setupRealMongo, teardownRealMongo } from "./helpers/realMongo";
 
-const ENV_KEYS = ["ALLOWLIST_MODE", "WEBHOOK_ALLOWED_HOSTS", "IMAGE_ALLOWED_HOSTS"] as const;
+const ENV_KEYS = [
+  "ALLOWLIST_MODE",
+  "WEBHOOK_ALLOWED_HOSTS",
+  "IMAGE_ALLOWED_HOSTS",
+  "DISPUTE_EVIDENCE_ALLOWED_HOSTS",
+  "EXTERNAL_REFERENCE_ALLOWED_HOSTS",
+] as const;
 const savedEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
+  clearRuntimeAllowListOverride();
   for (const key of ENV_KEYS) {
     savedEnv[key] = process.env[key];
     delete process.env[key];
   }
 });
 afterEach(() => {
+  clearRuntimeAllowListOverride();
   for (const key of ENV_KEYS) {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
@@ -132,6 +146,160 @@ describe("report_evidence policy", () => {
     expect(enforceEvidenceUrl("https://blog.example.com/post.html", "link").allowed).toBe(true);
     expect(enforceEvidenceUrl("https://dl.example.com/payload.exe", "pdf").code).toBe("file_type_not_allowed");
     expect(enforceEvidenceUrl("javascript:alert(1)", "link").code).toBe("scheme_not_allowed");
+  });
+});
+
+describe("dispute_evidence & external_reference destination policies (#1177)", () => {
+  it("enforces https, public DNS hosts, and allowed document/image extensions for dispute evidence", () => {
+    expect(checkUrlAgainstPolicy("https://evidence.example.com/receipt.pdf", "dispute_evidence").allowed).toBe(true);
+    expect(checkUrlAgainstPolicy("https://evidence.example.com/case-123", "dispute_evidence").allowed).toBe(true);
+    expect(checkUrlAgainstPolicy("http://evidence.example.com/receipt.pdf", "dispute_evidence").code).toBe(
+      "scheme_not_allowed",
+    );
+    expect(checkUrlAgainstPolicy("https://169.254.169.254/latest", "dispute_evidence").code).toBe(
+      "ip_literal_not_allowed",
+    );
+    expect(checkUrlAgainstPolicy("https://metadata.aws/iam", "dispute_evidence").code).toBe("host_not_allowed");
+    expect(checkUrlAgainstPolicy("https://evidence.example.com/payload.exe", "dispute_evidence").code).toBe(
+      "file_type_not_allowed",
+    );
+
+    // Wired into ownershipTransferDisputes.validateEvidence
+    expect(
+      validateEvidence({ note: "Valid proof", evidenceUrl: "https://127.0.0.1/receipt.pdf" }, 0),
+    ).toMatchObject({ ok: false, status: 400 });
+    expect(
+      validateEvidence({ note: "<script>alert(1)</script>", evidenceUrl: "https://example.com/receipt.pdf" }, 0),
+    ).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("enforces https and operator host allow-lists for external_reference and delivery-time ssrfGuard", () => {
+    process.env.EXTERNAL_REFERENCE_ALLOWED_HOSTS = "catalog.partner.io, *.trusted.org";
+    expect(checkUrlAgainstPolicy("https://catalog.partner.io/item/42", "external_reference").allowed).toBe(true);
+    expect(checkUrlAgainstPolicy("https://sub.trusted.org/item/42", "external_reference").allowed).toBe(true);
+    expect(checkUrlAgainstPolicy("https://untrusted.org/item/42", "external_reference").code).toBe("host_not_allowed");
+
+    // Delivery-time ssrfGuard enforces WEBHOOK_ALLOWED_HOSTS and rejects internal DNS hosts
+    process.env.WEBHOOK_ALLOWED_HOSTS = "hooks.partner.io";
+    expect(() => assertSafeWebhookUrlShape("https://hooks.partner.io/webhook")).not.toThrow();
+    expect(() => assertSafeWebhookUrlShape("https://unapproved.example.com/webhook")).toThrow(UnsafeWebhookUrlError);
+    expect(() => assertSafeWebhookUrlShape("https://localhost/webhook")).toThrow(UnsafeWebhookUrlError);
+  });
+});
+
+describe("strict content allow-list policies (#1177)", () => {
+  it("allows safe markdown and plain text in prompt_content while rejecting unsafe tags, attributes, URIs, and control bytes", () => {
+    expect(
+      checkContentAgainstPolicy(
+        {
+          content: "# Prompt guide\n\nUse **clear** steps and a [reference](https://example.com/docs).",
+          contentType: "text/markdown",
+        },
+        "prompt_content",
+      ).allowed,
+    ).toBe(true);
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: "Hello <script>alert(1)</script>", contentType: "text/markdown" },
+        "prompt_content",
+      ).code,
+    ).toBe("content_tag_not_allowed");
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: '<img src="https://example.com/a.png" onerror="alert(1)">', contentType: "text/markdown" },
+        "prompt_content",
+      ).code,
+    ).toBe("content_tag_not_allowed");
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: "[Click](javascript:alert(1))", contentType: "text/markdown" },
+        "prompt_content",
+      ).code,
+    ).toBe("content_uri_not_allowed");
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: "[Obfuscated](&#x6a;avascript:alert(1))", contentType: "text/markdown" },
+        "prompt_content",
+      ).code,
+    ).toBe("content_uri_not_allowed");
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: "Binary null\u0000byte", contentType: "text/plain" },
+        "prompt_content",
+      ).code,
+    ).toBe("content_encoding_invalid");
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: "Valid text", contentType: "application/x-sh" },
+        "prompt_content",
+      ).code,
+    ).toBe("content_type_not_allowed");
+
+    // Wired into listing metadata validation
+    const base = { title: "Launch plan", image: "https://cdn.example.com/a.png", price: 1, category: "Marketing" };
+    expect(
+      validateListingMetadata({ ...base, content: "Safe prompt instructions for the marketing launch." }).errors
+        .content,
+    ).toBeUndefined();
+    expect(
+      validateListingMetadata({ ...base, content: "Unsafe prompt <script> evil() </script> content" }).errors.content,
+    ).toMatch(/script/);
+  });
+
+  it("validates webhook_payload and import_manifest content policies", () => {
+    expect(
+      checkContentAgainstPolicy(
+        { content: { event: "PromptPurchased", promptId: "1" }, contentType: "application/json" },
+        "webhook_payload",
+      ).allowed,
+    ).toBe(true);
+
+    expect(
+      checkContentAgainstPolicy({ content: "not-json", contentType: "application/json" }, "webhook_payload").code,
+    ).toBe("content_structure_invalid");
+
+    expect(
+      checkContentAgainstPolicy({ content: '["array-not-object"]', contentType: "application/json" }, "webhook_payload")
+        .code,
+    ).toBe("content_structure_invalid");
+
+    expect(
+      checkContentAgainstPolicy(
+        { content: "title,category,price\nLaunch,Marketing,10", contentType: "text/csv" },
+        "import_manifest",
+      ).allowed,
+    ).toBe(true);
+  });
+
+  it("supports report mode and runtime overrides for content and destination policies", () => {
+    setRuntimeAllowListOverride({
+      mode: "report",
+      hostAllowLists: { webhook_destination: ["hooks.only.io"] },
+      actor: "ops-admin",
+      reason: "Rollout verification",
+    });
+
+    expect(enforceUrlAllowList("https://other.example.com/hook", "webhook_destination")).toMatchObject({
+      allowed: true,
+      reportOnly: true,
+      code: "host_not_allowed",
+    });
+    expect(
+      enforceContentAllowList({ content: "<script>x</script>", contentType: "text/plain" }, "prompt_content"),
+    ).toMatchObject({
+      allowed: true,
+      reportOnly: true,
+      code: "content_tag_not_allowed",
+    });
+
+    clearRuntimeAllowListOverride();
+    expect(enforceUrlAllowList("https://other.example.com/hook", "webhook_destination").allowed).toBe(true);
   });
 });
 
@@ -261,5 +429,65 @@ describe("HTTP paths", () => {
       body: JSON.stringify({ policy: "everything", url: "https://x.example.com" }),
     });
     expect(badPolicy.status).toBe(400);
+
+    const contentCheck = await jsonCall(http.baseUrl, "/api/admin/allow-list/check", {
+      method: "POST",
+      headers: admin,
+      body: JSON.stringify({
+        content: { policy: "prompt_content", contentType: "text/markdown", value: "<iframe src='https://evil.test'>" },
+      }),
+    });
+    expect(contentCheck.body).toMatchObject({ allowed: false, code: "content_tag_not_allowed" });
+  });
+
+  it("authorization + rollback path: runtime overrides require allowlist:write and can be rolled back cleanly", async () => {
+    const readOnly = { "x-test-admin": "allowlist:read" };
+    const writeAdmin = { "x-test-admin": "allowlist:read,allowlist:write" };
+
+    // Read-only admin cannot mutate overrides
+    const deniedPut = await jsonCall(http.baseUrl, "/api/admin/allow-list/override", {
+      method: "PUT",
+      headers: readOnly,
+      body: JSON.stringify({ mode: "report", reason: "Emergency rollback" }),
+    });
+    expect(deniedPut.status).toBe(401);
+
+    // Missing reason is rejected with 400
+    const missingReason = await jsonCall(http.baseUrl, "/api/admin/allow-list/override", {
+      method: "PUT",
+      headers: writeAdmin,
+      body: JSON.stringify({ mode: "report", reason: "" }),
+    });
+    expect(missingReason.status).toBe(400);
+
+    // Apply runtime host allow-list override
+    const applied = await jsonCall(http.baseUrl, "/api/admin/allow-list/override", {
+      method: "PUT",
+      headers: writeAdmin,
+      body: JSON.stringify({
+        mode: "enforce",
+        hostAllowLists: { webhook_destination: ["hooks.approved.io"] },
+        reason: "Restrict webhook destinations during incident #1177",
+      }),
+    });
+    expect(applied.status).toBe(200);
+    expect(applied.body.urlPolicies.webhook_destination.hostAllowList).toEqual(["hooks.approved.io"]);
+
+    // Dry-run reflects the active runtime override
+    const blockedHost = await jsonCall(http.baseUrl, "/api/admin/allow-list/check", {
+      method: "POST",
+      headers: readOnly,
+      body: JSON.stringify({ policy: "webhook_destination", url: "https://hooks.other.io/x" }),
+    });
+    expect(blockedHost.body).toMatchObject({ allowed: false, code: "host_not_allowed" });
+
+    // Roll back override via DELETE
+    const rolledBack = await jsonCall(http.baseUrl, "/api/admin/allow-list/override", {
+      method: "DELETE",
+      headers: writeAdmin,
+      body: JSON.stringify({ reason: "Incident resolved" }),
+    });
+    expect(rolledBack.status).toBe(200);
+    expect(rolledBack.body.urlPolicies.webhook_destination.hostAllowList).toEqual([]);
   });
 });

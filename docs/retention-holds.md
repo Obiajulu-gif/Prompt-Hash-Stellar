@@ -67,24 +67,64 @@ POST /api/admin/retention-holds
     "reason": "Buyer dispute open; preserve webhook and report evidence",
     "links": [{ "collection": "supportEvidence", "recordId": "<24-hex>" }],
     "includePromptReportsFor": "<promptId, optional>", "reviewDays": 60 }
-POST /api/admin/retention-holds/:id/release   { "reason": "Dispute resolved, no legal request" }
+POST /api/admin/retention-holds/:id/release     { "reason": "Dispute resolved, no legal request" }
 GET  /api/admin/retention-holds?status=active&caseRef=DSP-1042
-GET  /api/admin/retention-holds/overdue        # active holds past reviewBy
-POST /api/admin/retention-holds/reconcile      { "dryRun": true }
+GET  /api/admin/retention-holds/overdue          # active holds past reviewBy
+POST /api/admin/retention-holds/reconcile        { "dryRun": true }
+GET  /api/admin/retention-holds/policies         # retention windows, cutoffs, and verifiable collections (#1181)
+POST /api/admin/retention-holds/verify-deletion  { "sampleLimit": 500, "repairIncompleteScrubs": false }
+POST /api/admin/retention-holds/enforce          { "dryRun": false, "batchSize": 500, "sampleLimit": 500, "repairIncompleteScrubs": true }
 ```
 
 `POST` returns `201` for a new hold and `200` if an identical active hold
 (same case and records) already existed, so client retries are safe. Errors:
-`400 invalid_request`, `404 record_not_found | hold_not_found`,
-`409 already_released`, `503 ledger_unavailable`.
+`400 invalid_request`, `403 insufficient_scope`, `404 record_not_found | hold_not_found`,
+`409 already_released`, `503 ledger_unavailable | hold_ledger_unavailable`.
+
+## Retention Enforcement & Deletion Verification (#1181)
+
+Code: `server/src/services/retentionVerificationService.ts`,
+`server/src/routes/retentionHoldRoutes.ts`,
+`server/src/tests/retentionHoldService.test.ts`.
+
+Beyond placing holds and running background archival, operators can run
+on-demand **retention enforcement** and **deletion/scrub verification** with
+cryptographic attestation:
+
+1. **Field-level scrub verification (`findResidualScrubFields` / `verifyRetentionDeletion`)**:
+   - Scans archived documents (`archivedAt != null`) across
+     `inboundWebhookEvents`, `quarantinedEvents`, `exports` (`JobRecord`), and
+     `supportEvidence` (`Report`) to prove sensitive payload fields were
+     physically removed:
+     - `inboundWebhookEvents`: `rawBody === ""`, `rawHeaders` empty, `errorMessage === null`
+     - `quarantinedEvents`: `rawTopic`, `rawValue`, `rawXdr`, `errorDetails` unset/empty
+     - `exports`: `payload` reduced to `{ version: 1, archived: true }`, `lastError === null`, `attemptHistory` empty
+     - `supportEvidence`: `reporterAddress` redacted (`[REDACTED]`), `description` and `adminNotes` empty, `evidence` array empty
+   - Counts any unheld eligible records still past their retention cutoff
+     (`overdueUnheldCount`) and any expired terminal `ExportRecord` artifacts
+     still awaiting purge (`expiredExportArtifactsRemaining`).
+   - Computes a deterministic SHA-256 `attestationHash` over the verification
+     summary (counts, cutoffs, and violation IDs, never raw payload content) and
+     writes a `retention_deletion_verified` audit trail event.
+2. **Self-healing scrub repair (`repairIncompleteScrubs: true`)**:
+   - If a legacy record was marked `archivedAt` without completing its field
+     scrub, passing `repairIncompleteScrubs: true` (requires
+     `retention-holds:write`) re-scrubs the violating records (unless currently
+     held), re-verifies them, and reports `totalRepaired`.
+3. **End-to-end enforcement (`POST /api/admin/retention-holds/enforce`)**:
+   - Runs hold-aware retention cleanup (`runRetentionCleanup`), purges expired
+     terminal `ExportRecord` artifacts (when `dryRun: false`), and executes
+     post-cleanup deletion verification in one audited operation
+     (`retention_enforcement_executed`).
 
 ## Audit
 
 Every action is written to the tamper-evident audit trail:
 `retention_hold_created`, `retention_hold_released` (result `failure` if flags
-could not be cleared) and `retention_hold_reconciled`, with actor, case,
-record counts and the justification text. Export with
-`GET /api/audit/export?action=retention_hold_created,retention_hold_released`.
+could not be cleared), `retention_hold_reconciled`,
+`retention_enforcement_executed`, and `retention_deletion_verified`, with actor,
+case/attestation target, record counts and the justification text. Export with
+`GET /api/audit/export?action=retention_hold_created,retention_hold_released,retention_enforcement_executed,retention_deletion_verified`.
 
 ## Operating procedure
 
