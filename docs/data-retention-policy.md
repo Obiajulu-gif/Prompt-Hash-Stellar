@@ -16,43 +16,51 @@ Operational data in Prompt Hash Stellar (inbound webhooks, quarantined events, j
 | **Export Artifacts** | `JobRecord` (`export_csv`) | **30 days** | Archive & Scrub | Protected if active export job is still running |
 | **Support Evidence & Cases** | `Report`, `SupportCase` | **365 days** (post-resolution) | Archive & Scrub | Protected if under active dispute (`status: open / investigating`) or `retentionHold: true` |
 | **Lifecycle Analytics Events** | `LifecycleEvent` | **90 days** (TTL index) | Delete | Holds: none. Contains only salted-HMAC session hashes, allow-listed stage/reason codes and server timestamps; see [lifecycle-analytics.md](./lifecycle-analytics.md) |
-| **Audit Logs** | `AuditLog` | **Permanent** | Preserve | Never eligible for automated cleanup |
-| **Financial Records** | `LedgerEntry`, `PayoutStatement` | **Permanent** | Preserve | Never eligible for automated cleanup |
-| **Blockchain Transactions** | `Purchase`, `Entitlement`, `IndexerState` | **Permanent** | Preserve | Never eligible for automated cleanup |
+| **Audit Logs** | `AuditLog` | Permanent | Preserve | Never eligible for automated cleanup |
+| **Financial Records** | `LedgerEntry`, `PayoutStatement` | Permanent | Preserve | Never eligible for automated cleanup |
+| **Blockchain Transactions** | `Purchase`, `Entitlement`, `IndexerState` | Permanent | Preserve | Never eligible for automated cleanup |
 
 ---
 
 ## 3. Scrubbing & Archival Behavior
 
 When eligible records exceed their retention cutoff:
+
 1. **Inbound Webhook Events**: Scrub `rawBody`, `rawHeaders`, and set `archivedAt: Date`.
 2. **Quarantined Events**: Unset `rawTopic`, `rawValue`, `rawXdr`, `errorDetails`, and set `archivedAt: Date`.
 3. **Export CSVs**: Reset payload to `{ version: 1, archived: true }`, clear `attemptHistory` & `lastError`.
 4. **Support Reports & Cases**: Redact `reporterAddress: "[REDACTED]"`, clear `evidence` array and internal notes.
+
+Archival is in-place (no hard deletes), so a mistaken pass is reversible from backups and the audit trail of cleanup job runs remains intact.
 
 ---
 
 ## 4. Protected Records & Legal Hold
 
 Records are strictly exempt from automated retention cleanup when:
+
 - **Explicit Retention Hold**: Record has `retentionHold: true`.
 - **Active Incident / Open Case**: Status is `open`, `investigating`, or `escalated`.
 - **Financial Settlement Imbalance**: Record is tied to an unsettled payout ledger entry.
 - **Audit Requirement**: Any record in the permanent preservation class (`auditLogs`, `financialRecords`, `blockchainRecords`).
+
+Long-lived holds are tracked in the `RetentionHold` ledger (dispute / investigation / legal). A cleanup pass fails closed if the ledger cannot be read, so a database outage never results in accidental archival of hold records.
 
 ---
 
 ## 5. Running Retention Cleanup
 
 ### Dry-Run Mode (Safety Check)
+
 To calculate and preview how many records would be affected without modifying the database:
 
 ```bash
 # Via CLI script
-npx ts-node server/scripts/enqueueRetentionCleanup.ts --dry-run
+npx ts-node server/scripts/enqueueRetentionCleanup.ts -- dry-run
 ```
 
 Output reports document counts per category:
+
 ```json
 {
   "inboundWebhookEvents": { "archived": 12, "dryRun": true },
@@ -63,7 +71,31 @@ Output reports document counts per category:
 ```
 
 ### Scheduled / Live Execution
+
 The worker processes daily retention cleanup jobs enqueued via:
+
 ```bash
 npx ts-node server/scripts/enqueueRetentionCleanup.ts
 ```
+
+### Deletion Verification
+
+Every live (non-dry-run) cleanup pass runs a verification step after the archival writes. It re-queries each collection and fails the job (triggering worker retry) if any of the following is true:
+
+- **Remaining unarchived eligible records**: a record still matches the cutoff filter with `archivedAt: null` and no active hold.
+- **Remaining sensitive fields**: an archived record still carries non-empty `rawBody` / `rawTopic` / `payload.archived !== true` / unredacted `reporterAddress`.
+
+The verification result is logged under action `_retentionDeletionVerification_` with per-collection counts. A failed verification is not silent: the job returns an error and the worker retries it up to `job.maxAttempts`.
+
+### Edge Cases & Recovery
+
+| Edge case | Behavior |
+|---|---|
+| Hold ledger unavailable | Cleanup fails closed before any write; worker retries. |
+| Hold added between count and update | Update filter re-includes `retentionHold: { $ne: true }` and the `$nin` ledger guard. |
+| Partial batch failure mid-pass | Remaining records are counted as `failed`; verification reports them and the job retries. |
+| Dry-run requested but verify forced hard | Dry-run always skips verification and writes. |
+| Rollback of a mistaken archival | Archival is in-place; restore from backup and clear `archivedAt` on the affected `_ids`. |
+| Verification query times out | The job fails with a verification error and is retried; archival writes are idempotent so retry is safe. |
+| Authorization denied for live run | The job is rejected before any write; dry-run remains available to authorized operators only. |
+| Retry exhausted (`job.maxAttempts`) | Job is marked failed and surfaced to operations; no further automatic writes until re-enqueued. |

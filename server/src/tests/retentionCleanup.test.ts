@@ -291,4 +291,96 @@ describe("retention cleanup job", () => {
   it("registers the retention handler with the worker", () => {
     expect(getHandler("retention_cleanup")).toBe(handleRetentionCleanup);
   });
+
+  it("verifies deletion by re-querying archived records and reports residual matches", async () => {
+    const now = new Date("2026-09-26T00:00:00.000Z");
+    mocks.inboundWebhookEvent.find.mockReturnValue({
+      limit: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ _id: "event-1" }]),
+      }),
+    });
+    mocks.inboundWebhookEvent.updateMany.mockResolvedValue({ modifiedCount: 1 });
+    // Simulate a record that still matches the archive filter after the update
+    // (e.g. a concurrent writer re-populated rawBody).
+    mocks.inboundWebhookEvent.countDocuments.mockImplementation(async (filter: any) => {
+      if (filter._id?.$in) return 1;
+      return 0;
+    });
+
+    const result = await runRetentionCleanup({ now, batchSize: 10 });
+
+    expect(result.inboundWebhookEvents.archived).toBe(1);
+    expect(result.inboundWebhookEvents.failed).toBe(1);
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      "Retention deletion verification failed",
+      expect.objectContaining({
+        action: "retentionCleanup",
+        category: "inboundWebhookEvents",
+        residual: 1,
+      }),
+    );
+  });
+
+  it("retries verification and succeeds once residual records clear", async () => {
+    const now = new Date("2026-09-26T00:00:00.000Z");
+    mocks.inboundWebhookEvent.find.mockReturnValue({
+      limit: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ _id: "event-1" }]),
+      }),
+    });
+    mocks.inboundWebhookEvent.updateMany.mockResolvedValue({ modifiedCount: 1 });
+    let verifyCalls = 0;
+    mocks.inboundWebhookEvent.countDocuments.mockImplementation(async (filter: any) => {
+      if (filter._id?.$in) {
+        verifyCalls += 1;
+        return verifyCalls === 1 ? 1 : 0;
+      }
+      return 0;
+    });
+
+    const result = await runRetentionCleanup({ now, batchSize: 10 });
+
+    expect(result.inboundWebhookEvents.archived).toBe(1);
+    expect(result.inboundWebhookEvents.failed).toBe(0);
+    expect(verifyCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not verify deletion for held or skipped records", async () => {
+    const now = new Date("2026-09-26T00:00:00.000Z");
+    mocks.inboundWebhookEvent.find.mockReturnValue({
+      limit: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    });
+
+    await runRetentionCleanup({ now, batchSize: 10 });
+
+    expect(mocks.inboundWebhookEvent.updateMany).not.toHaveBeenCalled();
+    expect(mocks.inboundWebhookEvent.countDocuments).not.toHaveBeenCalledWith(
+      expect.objectContaining({ _id: expect.anything() }),
+    );
+  });
+
+  it("rejects unauthorized callers before touching any model", async () => {
+    await expect(
+      runRetentionCleanup({
+        now: new Date("2026-09-26T00:00:00.000Z"),
+        actor: { id: "user-1", role: "viewer" },
+      }),
+    ).rejects.toThrow(/authoriz/i);
+    for (const model of modelMocks) {
+      expect(model.countDocuments).not.toHaveBeenCalled();
+      expect(model.find).not.toHaveBeenCalled();
+      expect(model.updateMany).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows authorized operators to run cleanup", async () => {
+    const result = await runRetentionCleanup({
+      now: new Date("2026-09-26T00:00:00.000Z"),
+      dryRun: true,
+      actor: { id: "admin-1", role: "admin" },
+    });
+    expect(result.inboundWebhookEvents.dryRun).toBe(true);
+  });
 });

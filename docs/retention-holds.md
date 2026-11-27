@@ -1,6 +1,6 @@
 # Granular Retention Holds for Disputes and Investigations
 
-Records linked to an active dispute, investigation or legal matter are
+Records linked to an active dispute, investigation, or legal matter are
 protected from the `retention_cleanup` job until the hold is released.
 
 Code: `server/src/models/RetentionHold.ts` (ledger),

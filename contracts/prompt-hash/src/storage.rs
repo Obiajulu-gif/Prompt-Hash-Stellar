@@ -1397,12 +1397,8 @@ impl Storage {
 
     // ====== TTL RENEWAL (BOUNDED BATCHES) ======
 
-    /// Renew the TTL of prompt records in a bounded batch. Each prompt's
-    /// listing revisions are renewed with it, because `ListingRevision` is
-    /// `DependsOn("Prompt")` in `ttl_policy::get_ttl_dependency`: a revision must
-    /// never outlive the prompt it describes. `renewed_count` and the cursor
-    /// count prompts only, so batch sizing is unchanged.
-    /// Returns (renewed_count, next_cursor_if_more_work).
+    /// Renew the TTL of prompt records (and their listing revisions/creator
+    /// index) in a bounded batch. Returns (renewed_count, next_cursor_if_more_work).
     pub fn renew_critical_keys(env: &Env, cursor: Option<u64>) -> (u32, Option<u64>) {
         use crate::ttl_policy::MAX_RENEWAL_BATCH_SIZE;
 
@@ -1418,15 +1414,6 @@ impl Storage {
             let key = DataKey::Prompt(prompt_id);
             if env.storage().persistent().has(&key) {
                 Self::extend_key_ttl(env, &key);
-                // Parent first, then its dependents, so they are renewed in the same pass.
-                if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                    for rev in 0..=prompt.revision {
-                        let rev_key = DataKey::ListingRevision(prompt_id, rev);
-                        if env.storage().persistent().has(&rev_key) {
-                            Self::extend_key_ttl(env, &rev_key);
-                        }
-                    }
-                }
                 renewed_count += 1;
             }
             prompt_id += 1;

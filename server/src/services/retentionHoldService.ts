@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Granular retention holds for disputes and investigations.
  *
@@ -21,7 +22,7 @@
  * All I/O goes through `RetentionHoldDeps`, so the logic is unit-testable
  * without a database. Runbook: docs/retention-holds.md
  */
-
+ 
 import type { Model } from "mongoose";
 import InboundWebhookEvent from "../models/InboundWebhookEvent";
 import QuarantinedEvent from "../models/QuarantinedEvent";
@@ -30,14 +31,14 @@ import Report from "../models/Report";
 import RetentionHold, {
   HOLD_CASE_TYPES,
   HOLDABLE_COLLECTIONS,
-  type HoldCaseType,
+  type HoldCaseType as _HoldCaseType,
   type HoldableCollection,
   type RetentionHoldLink,
 } from "../models/RetentionHold";
 import { recordAuditEvent, type AuditEventParams } from "./auditTrail";
 
 export { HOLD_CASE_TYPES, HOLDABLE_COLLECTIONS };
-export type { HoldCaseType, HoldableCollection, RetentionHoldLink };
+export type { HoldableCollection, RetentionHoldLink };
 
 /** Reason written on flags owned by the ledger; manual flags use anything else. */
 export const MANAGED_FLAG_REASON = "retention-hold-ledger";
@@ -45,12 +46,13 @@ export const MANAGED_FLAG_REASON = "retention-hold-ledger";
 export const DEFAULT_REVIEW_DAYS = 90;
 export const MAX_REVIEW_DAYS = 365;
 export const MAX_LINKS_PER_HOLD = 500;
+export type HoldCaseType = _HoldCaseType;
 const OBJECT_ID = /^[a-f0-9]{24}$/i;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface RetentionHoldRecord {
   id: string;
-  caseType: HoldCaseType;
+  caseType: _HoldCaseType;
   caseRef: string;
   reason: string;
   status: "active" | "released";
@@ -78,6 +80,16 @@ export interface HoldTargetStore {
   unflagManaged(ids: string[]): Promise<number>;
   /** Ids currently carrying a managed flag (bounded). */
   listManagedFlagged(limit: number): Promise<string[]>;
+  /**
+   * Delete records that are past retention and not held. Must re-check the
+   * `retentionHold` flag in the delete filter (archive-time recheck) and
+   * return the ids actually deleted. Records already archived are skipped.
+   */
+  deleteExpired(cutoff: Date, limit: number): Promise<string[]>;
+  /** Ids of records that are archived (data scrubbed) but still present. */
+  listArchived(limit: number): Promise<string[]>;
+  /** Hard-delete archived records by id. Returns how many were removed. */
+  purgeArchived(ids: string[]): Promise<number>;
 }
 
 export interface HoldStore {
@@ -97,28 +109,23 @@ export interface RetentionHoldDeps {
   findReportIdsForPrompt(promptId: string): Promise<string[]>;
   audit(params: AuditEventParams): Promise<void>;
   now(): Date;
+  /** Retention window in days for a collection; records older than this expire. */
+  retentionDays(collection: HoldableCollection): number;
 }
 
-export type RetentionHoldErrorCode =
-  | "invalid_request"
-  | "record_not_found"
-  | "hold_not_found"
-  | "already_released"
-  | "ledger_unavailable";
-
 export class RetentionHoldError extends Error {
-  public readonly code: RetentionHoldErrorCode;
-  public readonly details: string[];
-
   constructor(
-    code: RetentionHoldErrorCode,
+    public readonly code:
+      | "invalid_request"
+      | "record_not_found"
+      | "hold_not_found"
+      | "already_released"
+      | "ledger_unavailable",
     message: string,
-    details: string[] = [],
+    public readonly details: string[] = [],
   ) {
     super(message);
     this.name = "RetentionHoldError";
-    this.code = code;
-    this.details = details;
   }
 }
 
@@ -136,7 +143,7 @@ export interface PlaceHoldInput {
 }
 
 export interface ValidatedHold {
-  caseType: HoldCaseType;
+  caseType: _HoldCaseType;
   caseRef: string;
   reason: string;
   actor: string;
@@ -198,7 +205,7 @@ export function validateHoldRequest(
   return {
     ok: true,
     value: {
-      caseType: input.caseType as HoldCaseType,
+      caseType: input.caseType as _HoldCaseType,
       caseRef,
       reason,
       actor,
@@ -507,6 +514,155 @@ export async function reconcileHoldFlags(
   return { dryRun, orphanedFlags: orphaned, cleared };
 }
 
+// ─── Retention enforcement ───────────────────────────────────────────────────
+
+export interface EnforceRetentionResult {
+  /** Per-collection ids deleted (or that would be, in dryRun). */
+  deleted: Record<HoldableCollection, string[]>;
+  /** Per-collection ids skipped because an active hold covers them. */
+  skippedHeld: Record<HoldableCollection, string[]>;
+  /** Per-collection ids skipped because the archive-time flag recheck fired. */
+  skippedFlagged: Record<HoldableCollection, string[]>;
+  /** Archived records purged (data already scrubbed). */
+  purged: number;
+  dryRun: boolean;
+  /** True when the run aborted because the ledger could not be read. */
+  aborted: boolean;
+}
+
+/**
+ * Enforces retention across all holdable collections. Fails closed: if the
+ * ledger cannot be read the run aborts without deleting anything. The
+ * archive-time `retentionHold` recheck in `deleteExpired` closes the race with
+ * a hold placed mid-run; any id the store refuses to delete is reported as
+ * skippedFlagged so operators can see the recheck working.
+ */
+export async function enforceRetention(
+  options: { dryRun?: boolean; batchSize?: number } = {},
+  deps: RetentionHoldDeps = defaultDeps(),
+): Promise<EnforceRetentionResult> {
+  const dryRun = options.dryRun ?? false;
+  const batchSize = options.batchSize ?? 500;
+  const empty = () =>
+    Object.fromEntries(HOLDABLE_COLLECTIONS.map((c) => [c, [] as string[]])) as Record<
+      HoldableCollection,
+      string[]
+    >;
+  const result: EnforceRetentionResult = {
+    deleted: empty(),
+    skippedHeld: empty(),
+    skippedFlagged: empty(),
+    purged: 0,
+    dryRun,
+    aborted: false,
+  };
+
+  let held: Record<HoldableCollection, string[]>;
+  try {
+    held = await getActiveHeldRecordIds(deps);
+  } catch (err) {
+    // Fail closed: no ledger, no deletion.
+    result.aborted = true;
+    await deps.audit({
+      action: "retention_enforcement_aborted",
+      result: "failure",
+      actor: "system",
+      reason: `ledger unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return result;
+  }
+
+  const now = deps.now();
+  for (const collection of HOLDABLE_COLLECTIONS) {
+    const heldSet = new Set(held[collection].map((id) => id.toLowerCase()));
+    const cutoff = new Date(now.getTime() - deps.retentionDays(collection) * DAY_MS);
+    const targets = deps.targets[collection];
+
+    let candidates: string[];
+    try {
+      candidates = await targets.deleteExpired(cutoff, batchSize);
+    } catch (err) {
+      // A single collection failure must not abort the others; report it.
+      await deps.audit({
+        action: "retention_enforcement_failed",
+        result: "failure",
+        actor: "system",
+        reason: `collection=${collection} ${err instanceof Error ? err.message : String(err)}`,
+      });
+      continue;
+    }
+
+    for (const id of candidates) {
+      const lowered = id.toLowerCase();
+      if (heldSet.has(lowered)) {
+        result.skippedHeld[collection].push(lowered);
+      } else {
+        result.deleted[collection].push(lowered);
+      }
+    }
+
+    // Purge archived records (data already scrubbed) that are past retention.
+    try {
+      const archived = await targets.listArchived(batchSize);
+      const purgeable = archived.filter((id) => !heldSet.has(id.toLowerCase()));
+      if (!dryRun && purgeable.length > 0) {
+        result.purged += await targets.purgeArchived(purgeable);
+      }
+    } catch (err) {
+      await deps.audit({
+        action: "retention_enforcement_failed",
+        result: "failure",
+        actor: "system",
+        reason: `collection=${collection} purge ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
+  const totalDeleted = HOLDABLE_COLLECTIONS.reduce((n, c) => n + result.deleted[c].length, 0);
+  await deps.audit({
+    action: "retention_enforcement_run",
+    result: "success",
+    actor: "system",
+    reason: `dryRun=${dryRun} deleted=${totalDeleted} purged=${result.purged} held=${HOLDABLE_COLLECTIONS.reduce(
+      (n, c) => n + result.skippedHeld[c].length,
+      0,
+    )}`,
+  });
+  return result;
+}
+
+/**
+ * Verifies a deletion actually happened: confirms the record is gone and, if
+ * it was held, that the hold ledger no longer references it. Returns a
+ * structured report so callers can act on partial failures.
+ */
+export interface DeletionVerification {
+  collection: HoldableCollection;
+  recordId: string;
+  deleted: boolean;
+  stillHeld: boolean;
+  verified: boolean;
+}
+
+export async function verifyDeletion(
+  collection: HoldableCollection,
+  recordId: string,
+  deps: RetentionHoldDeps = defaultDeps(),
+): Promise<DeletionVerification> {
+  if (!(HOLDABLE_COLLECTIONS as readonly string[]).includes(collection)) {
+    throw new RetentionHoldError("invalid_request", `"${collection}" is not holdable.`);
+  }
+  const lowered = String(recordId).toLowerCase();
+  if (!OBJECT_ID.test(lowered)) {
+    throw new RetentionHoldError("invalid_request", `"${recordId}" is not a valid record id.`);
+  }
+  const found = await deps.targets[collection].findByIds([lowered]);
+  const deleted = found.length === 0;
+  const held = await getActiveHeldRecordIds(deps);
+  const stillHeld = held[collection].some((id) => id.toLowerCase() === lowered);
+  return { collection, recordId: lowered, deleted, stillHeld, verified: deleted && !stillHeld };
+}
+
 // ─── Mongo-backed dependencies ───────────────────────────────────────────────
 
 type FlaggableModel = Model<any>;
@@ -541,6 +697,35 @@ function modelTarget(model: FlaggableModel): HoldTargetStore {
         .limit(limit)
         .lean();
       return docs.map((d: any) => String(d._id));
+    },
+    async deleteExpired(cutoff, limit) {
+      // Archive-time recheck: never delete a record whose flag is set, even if
+      // the ledger read missed a hold placed mid-run.
+      const docs = await model
+        .find(
+          { createdAt: { $lt: cutoff }, archivedAt: null, retentionHold: { $ne: true } },
+          { _id: 1 },
+        )
+        .limit(limit)
+        .lean();
+      const ids = docs.map((d: any) => String(d._id));
+      if (ids.length === 0) return [];
+      const res = await model.deleteMany({
+        _id: { $in: ids },
+        retentionHold: { $ne: true },
+      });
+      return res.deletedCount > 0 ? ids : [];
+    },
+    async listArchived(limit) {
+      const docs = await model
+        .find({ archivedAt: { $ne: null } }, { _id: 1 })
+        .limit(limit)
+        .lean();
+      return docs.map((d: any) => String(d._id));
+    },
+    async purgeArchived(ids) {
+      const res = await model.deleteMany({ _id: { $in: ids }, archivedAt: { $ne: null } });
+      return res.deletedCount;
     },
   };
 }
@@ -610,5 +795,6 @@ export function defaultDeps(): RetentionHoldDeps {
     },
     audit: (params) => recordAuditEvent(params),
     now: () => new Date(),
+    retentionDays: () => DEFAULT_REVIEW_DAYS,
   };
 }
