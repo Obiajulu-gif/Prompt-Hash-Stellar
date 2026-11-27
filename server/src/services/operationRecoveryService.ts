@@ -51,6 +51,66 @@ export interface StuckOperationDiagnostic {
   updatedAt: Date;
 }
 
+/**
+ * Resumable orphan-repair checkpoint record. Each repair pass persists its
+ * cursor (`lastProcessedId`) and progress counters so that an interrupted run
+ * can be resumed from the last committed checkpoint instead of restarting.
+ */
+export interface OrphanRepairCheckpoint {
+  runId: string;
+  lastProcessedId: string | null;
+  processed: number;
+  repaired: number;
+  skipped: number;
+  failed: number;
+  status: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  startedAt: Date;
+  updatedAt: Date;
+  lastError?: string;
+}
+
+export interface OrphanRecord {
+  id: string;
+  ownerId: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Storage/adapter contract used by the orphan-repair command. Injected so the
+ * command is testable without a live database and so the production adapter
+ * can be swapped without changing recovery semantics.
+ */
+export interface OrphanRepairStore {
+  loadCheckpoint(runId: string): Promise<OrphanRepairCheckpoint | null>;
+  saveCheckpoint(cp: OrphanRepairCheckpoint): Promise<void>;
+  /** Returns up to `limit` orphans with id strictly greater than `afterId`, ordered by id. */
+  findOrphansAfter(afterId: string | null, limit: number): Promise<OrphanRecord[]>;
+  repairOrphan(orphan: OrphanRecord): Promise<"REPAIRED" | "SKIPPED">;
+}
+
+export interface OrphanRepairOptions {
+  runId: string;
+  actorId: string;
+  /** Only actors with this role-check result may run/resume repairs. */
+  isAuthorized: (actorId: string) => boolean | Promise<boolean>;
+  batchSize?: number;
+  /** Maximum consecutive failures of a single orphan before the run is FAILED. */
+  maxOrphanFailures?: number;
+}
+
+export interface OrphanRepairResult {
+  runId: string;
+  status: OrphanRepairCheckpoint["status"];
+  processed: number;
+  repaired: number;
+  skipped: number;
+  failed: number;
+  resumed: boolean;
+}
+
+export const DEFAULT_ORPHAN_REPAIR_BATCH_SIZE = 100;
+export const DEFAULT_MAX_ORPHAN_FAILURES = 3;
+
 export const DEFAULT_STUCK_THRESHOLD_MINUTES = 15;
 
 export class OperationRecoveryService {
@@ -291,166 +351,140 @@ export class OperationRecoveryService {
   }
 
   /**
-   * Maintainer-triggered resolution or manual intervention for stuck operations.
+   * Resumable orphan-repair command.
+   *
+   * Processes orphans in id-ordered batches, persisting a cursor checkpoint
+   * after every batch. If the process crashes or is interrupted, calling this
+   * again with the same `runId` resumes from `lastProcessedId` instead of
+   * re-scanning from the beginning.
+   *
+   * Semantics:
+   * - Authorization is checked on every invocation (including resumes).
+   * - A run that is already COMPLETED is returned as-is (idempotent).
+   * - A run that is FAILED or CANCELLED is not silently restarted; the caller
+   *   must use a new runId.
+   * - Per-orphan failures are retried in place up to `maxOrphanFailures`; once
+   *   exceeded the run is marked FAILED and the cursor is left at the last
+   *   successful id so a retry with the same runId reprocesses the failing
+   *   orphan.
+   * - Repair is expected to be idempotent per orphan; a crash between
+   *   `repairOrphan` and `saveCheckpoint` may repeat that single orphan on
+   *   resume, which the store must tolerate.
    */
-  static async maintainerResolve(
-    operationId: string,
-    action: "RESOLVE" | "FAIL" | "RETRY" | "MANUAL_REVIEW",
-    maintainerId: string,
-    reason: string
-  ): Promise<IOperationCheckpoint> {
-    if (!reason || reason.trim().length === 0) {
-      throw new Error("A justification reason is required for maintainer recovery actions.");
+  static async runOrphanRepair(
+    store: OrphanRepairStore,
+    options: OrphanRepairOptions
+  ): Promise<OrphanRepairResult> {
+    const batchSize = options.batchSize ?? DEFAULT_ORPHAN_REPAIR_BATCH_SIZE;
+    const maxOrphanFailures = options.maxOrphanFailures ?? DEFAULT_MAX_ORPHAN_FAILURES;
+
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new Error("batchSize must be a positive integer");
+    }
+    if (!Number.isInteger(maxOrphanFailures) || maxOrphanFailures <= 0) {
+      throw new Error("maxOrphanFailures must be a positive integer");
     }
 
-    const checkpoint = await OperationCheckpoint.findOne({ operationId });
-    if (!checkpoint) {
-      throw new Error(`Operation not found: ${operationId}`);
+    const authorized = await options.isAuthorized(options.actorId);
+    if (!authorized) {
+      throw new Error("Unauthorized: actor may not run orphan repair.");
     }
 
-    const priorState = checkpoint.overallState;
-    const targetStateMap: Record<string, OperationStepState> = {
-      RESOLVE: "RESOLVED",
-      FAIL: "FAILED",
-      RETRY: "RETRYABLE",
-      MANUAL_REVIEW: "MANUALLY_REVIEWED",
-    };
+    const existing = await store.loadCheckpoint(options.runId);
+    let cp: OrphanRepairCheckpoint;
+    let resumed = false;
 
-    const newState = targetStateMap[action];
-    checkpoint.overallState = newState;
-    checkpoint.nextRecoveryAction = `MAINTAINER_${action}`;
-
-    checkpoint.steps.push({
-      stepName: `MAINTAINER_ACTION_${action}`,
-      state: newState,
-      timestamp: new Date(),
-      data: { maintainerId, reason, priorStep: checkpoint.currentStep },
-    });
-
-    await checkpoint.save();
-
-    // Audit maintainer recovery action
-    try {
-      await recordAccessOrOwnershipChange({
-        action: "operation_recovery",
-        result: "success",
-        actor: maintainerId,
-        target: operationId,
-        targetType: "system",
-        beforeState: { priorState, action },
-        afterState: { newState, maintainerId },
-        reason,
-      });
-    } catch (err) {
-      logger.warn("Could not audit maintainer operation recovery", { error: err });
+    if (existing) {
+      if (existing.status === "COMPLETED") {
+        return toResult(existing, true);
+      }
+      if (existing.status === "FAILED" || existing.status === "CANCELLED") {
+        throw new Error(
+          `Run ${options.runId} is ${existing.status}; use a new runId to start a fresh repair.`
+        );
+      }
+      cp = { ...existing, status: "RUNNING", updatedAt: new Date() };
+      resumed = true;
+    } else {
+      const now = new Date();
+      cp = {
+        runId: options.runId,
+        lastProcessedId: null,
+        processed: 0,
+        repaired: 0,
+        skipped: 0,
+        failed: 0,
+        status: "RUNNING",
+        startedAt: now,
+        updatedAt: now,
+      };
     }
+    await store.saveCheckpoint(cp);
 
-    return checkpoint;
-  }
+    let consecutiveFailures = 0;
 
-  /**
-   * Expose diagnostics for stuck pending operations exceeding a configured threshold.
-   */
-  static async getStuckOperationsDiagnostics(
-    thresholdMinutes: number = DEFAULT_STUCK_THRESHOLD_MINUTES
-  ): Promise<{
-    thresholdMinutes: number;
-    totalStuck: number;
-    diagnostics: StuckOperationDiagnostic[];
-  }> {
-    const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
-    const stuckList = await OperationCheckpoint.find({
-      overallState: {
-        $in: [
-          "PENDING",
-          "INITIALIZED",
-          "PREVALIDATED",
-          "ONCHAIN_SUBMITTED",
-          "RETRYABLE",
-          "RECOVERABLE",
-          "MANUALLY_REVIEWED",
-        ],
-      },
-      updatedAt: { $lt: cutoff },
-    }).sort({ updatedAt: 1 });
-
-    const now = Date.now();
-    const diagnostics: StuckOperationDiagnostic[] = stuckList.map((doc: any) => {
-      const minutesStale = Math.round((now - new Date(doc.updatedAt).getTime()) / (60 * 1000));
-      const hasOnchainBroadcast = doc.steps.some(
-        (s: ICheckpointStep) => s.state === "ONCHAIN_SUBMITTED" || !!s.txHash
-      );
-      const onchainStep = doc.steps.find((s: ICheckpointStep) => !!s.txHash);
-
-      const canonicalState = this.normalizeState(doc.overallState);
-
-      let recommendedAction: "RETRY" | "ROLLBACK" | "MANUAL_REVIEW" = "RETRY";
-      if (doc.retryCount >= doc.maxRetries || canonicalState === "MANUALLY_REVIEWED") {
-        recommendedAction = "MANUAL_REVIEW";
-      } else if (canonicalState === "FAILED") {
-        recommendedAction = "ROLLBACK";
+    while (true) {
+      const batch = await store.findOrphansAfter(cp.lastProcessedId, batchSize);
+      if (batch.length === 0) {
+        break;
       }
 
-      return {
-        operationId: doc.operationId,
-        operationType: doc.operationType,
-        userId: doc.userId,
-        currentStep: doc.currentStep,
-        overallState: doc.overallState,
-        canonicalState,
-        minutesStale,
-        retryCount: doc.retryCount,
-        maxRetries: doc.maxRetries,
-        lastError: doc.lastError,
-        recommendedAction,
-        hasOnchainBroadcast,
-        onchainTxHash: onchainStep?.txHash,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-      };
-    });
+      for (const orphan of batch) {
+        let outcome: "REPAIRED" | "SKIPPED" | null = null;
+        let lastErr: unknown = null;
 
-    return {
-      thresholdMinutes,
-      totalStuck: diagnostics.length,
-      diagnostics,
-    };
-  }
+        for (let attempt = 0; attempt < maxOrphanFailures; attempt++) {
+          try {
+            outcome = await store.repairOrphan(orphan);
+            break;
+          } catch (err) {
+            lastErr = err;
+            logger.warn("Orphan repair attempt failed", {
+              runId: cp.runId,
+              orphanId: orphan.id,
+              attempt: attempt + 1,
+              error: String(err),
+            });
+          }
+        }
 
-  /**
-   * Diagnostic query to find stuck operations (legacy helper).
-   */
-  static async findStuckOperations(olderThanMinutes: number = 30): Promise<IOperationCheckpoint[]> {
-    const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000);
-    return OperationCheckpoint.find({
-      overallState: {
-        $in: [
-          "PENDING",
-          "INITIALIZED",
-          "PREVALIDATED",
-          "ONCHAIN_SUBMITTED",
-          "RETRYABLE",
-          "RECOVERABLE",
-        ],
-      },
-      updatedAt: { $lt: cutoff },
-    }).sort({ updatedAt: 1 });
-  }
+        if (outcome === null) {
+          cp.failed += 1;
+          cp.status = "FAILED";
+          cp.lastError = `orphan ${orphan.id}: ${String(lastErr)}`;
+          cp.updatedAt = new Date();
+          await store.saveCheckpoint(cp);
+          return toResult(cp, resumed);
+        }
 
-  /**
-   * Maintainer action to forcefully resolve or abandon an abandoned operation (legacy helper).
-   */
-  static async forceResolveOperation(
-    operationId: string,
-    action: "MARK_CONFIRMED" | "ABANDON" | "FORCE_RETRY",
-    maintainerId: string,
-    reason: string
-  ): Promise<IOperationCheckpoint> {
-    const actionMap: Record<string, "RESOLVE" | "FAIL" | "RETRY"> = {
-      MARK_CONFIRMED: "RESOLVE",
-      ABANDON: "FAIL",
-      FORCE_RETRY: "RETRY",
-    };
-    return this.maintainerResolve(operationId, actionMap[action] || "RETRY", maintainerId, reason);
+        if (outcome === "REPAIRED") {
+          cp.repaired += 1;
+        } else {
+          cp.skipped += 1;
+        }
+        cp.processed += 1;
+        cp.lastProcessedId = orphan.id;
+        cp.updatedAt = new Date();
+        consecutiveFailures = 0;
+        await store.saveCheckpoint(cp);
+      }
+    }
+
+    cp.status = "COMPLETED";
+    cp.updatedAt = new Date();
+    await store.saveCheckpoint(cp);
+    return toResult(cp, resumed);
   }
+}
+
+function toResult(cp: OrphanRepairCheckpoint, resumed: boolean): OrphanRepairResult {
+  return {
+    runId: cp.runId,
+    status: cp.status,
+    processed: cp.processed,
+    repaired: cp.repaired,
+    skipped: cp.skipped,
+    failed: cp.failed,
+    resumed,
+  };
 }
