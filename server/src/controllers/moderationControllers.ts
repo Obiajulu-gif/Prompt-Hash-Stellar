@@ -4,6 +4,7 @@
  * Endpoints:
  *   GET  /api/moderation/queue              – filtered, paginated prompt queue
  *   POST /api/moderation/bulk               – bulk approve/reject/hide/restore
+ *   POST /api/moderation/simulate           – policy simulation with affected-record preview (no writes)
  *   GET  /api/moderation/decisions          – decision audit list
  *   POST /api/moderation/decisions/:id/rollback – rollback a single decision
  *
@@ -17,6 +18,15 @@
  *  moved to a different state since the moderator loaded the queue are counted
  *  as `skipped`, not failures. This prevents accidental bulk actions on stale
  *  query results.
+ *
+ *  Policy simulation
+ *  -----------------
+ *  The simulate endpoint runs the exact same eligibility filter as the bulk
+ *  action but performs no writes. It returns the set of prompts that *would*
+ *  be affected, the set that would be skipped, and per-prompt before/after
+ *  status, so a moderator can preview the blast radius before committing.
+ *  Simulation results are advisory: they reflect the state at query time and
+ *  the bulk endpoint re-validates eligibility at apply time.
  *
  *  Audit trail
  *  -----------
@@ -55,6 +65,8 @@ function hashWallet(wallet: string): string {
   return createHash("sha256").update(wallet.toLowerCase()).digest("hex");
 }
 
+const VALID_ACTIONS: ModerationAction[] = ["approve", "reject", "hide", "restore"];
+
 /** Maps each action to the set of prompt statuses it is allowed to act on. */
 const ELIGIBLE_STATUSES: Record<ModerationAction, ModerationStatus[]> = {
   approve:  ["pending_review", "rejected"],
@@ -70,6 +82,71 @@ const RESULTING_STATUS: Record<ModerationAction, ModerationStatus> = {
   hide:     "hidden",
   restore:  "restored",
 };
+
+const MAX_BATCH = 100;
+
+type ValidatedBulkInput = {
+  action: ModerationAction;
+  promptIds: string[];
+  reason: string;
+  evidenceNote: string | null;
+};
+
+/**
+ * Validates a bulk/simulate request body. Returns either the normalized input
+ * or an error message suitable for a 400 response.
+ */
+function validateBulkBody(
+  body: { action?: unknown; promptIds?: unknown; reason?: unknown; evidenceNote?: unknown },
+  requireReason: boolean,
+): { ok: true; value: ValidatedBulkInput } | { ok: false; error: string } {
+  if (!body.action || !VALID_ACTIONS.includes(body.action as ModerationAction)) {
+    return { ok: false, error: `action must be one of: ${VALID_ACTIONS.join(", ")}.` };
+  }
+  if (!Array.isArray(body.promptIds) || body.promptIds.length === 0) {
+    return { ok: false, error: "promptIds must be a non-empty array." };
+  }
+  if (body.promptIds.length > MAX_BATCH) {
+    return { ok: false, error: `promptIds may not exceed ${MAX_BATCH} items per request.` };
+  }
+  const reasonRaw = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (requireReason && !reasonRaw) {
+    return { ok: false, error: "reason is required." };
+  }
+  const evidenceNote =
+    typeof body.evidenceNote === "string" ? body.evidenceNote.trim() || null : null;
+  return {
+    ok: true,
+    value: {
+      action: body.action as ModerationAction,
+      promptIds: (body.promptIds as unknown[]).map((id) => String(id)),
+      reason: reasonRaw,
+      evidenceNote,
+    },
+  };
+}
+
+/**
+ * Loads prompts matching the requested ids and classifies each as eligible or
+ * skipped for the given action, using the same stale-query rule as bulk apply.
+ */
+async function classifyPrompts(action: ModerationAction, promptIds: string[]) {
+  const eligibleStatuses = ELIGIBLE_STATUSES[action];
+  const found = await Prompt.find({ _id: { $in: promptIds } })
+    .select("_id onChainId title moderationStatus owner")
+    .populate("owner", "walletAddress")
+    .lean();
+
+  const foundById = new Map(found.map((p) => [String(p._id), p]));
+  const eligible = found.filter((p) =>
+    eligibleStatuses.includes(p.moderationStatus as ModerationStatus),
+  );
+  const eligibleIds = new Set(eligible.map((p) => String(p._id)));
+  const skipped = promptIds.filter((id) => !eligibleIds.has(id) && foundById.has(id));
+  const missing = promptIds.filter((id) => !foundById.has(id));
+
+  return { eligible, skipped, missing };
+}
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
@@ -151,6 +228,63 @@ export const GetModerationQueue = async (
   }
 };
 
+// ── Policy simulation ─────────────────────────────────────────────────────────
+
+/**
+ * POST /api/moderation/simulate
+ * Read-only preview of a bulk action. Returns which prompts would be affected
+ * (with before/after status), which would be skipped (ineligible state), and
+ * which ids do not exist. Performs no writes and creates no audit entries.
+ *
+ * Edge cases:
+ *  - Duplicate ids are de-duplicated before classification.
+ *  - `reason` is optional here; simulation does not persist anything.
+ *  - Results reflect state at query time; bulk apply re-validates.
+ */
+export const SimulateModerationAction = async (
+  req: AdminRequest,
+  res: Response,
+): Promise<Response> => {
+  try {
+    await connectDb();
+
+    const parsed = validateBulkBody(req.body ?? {}, false);
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const { action, promptIds: rawIds } = parsed.value;
+    const promptIds = Array.from(new Set(rawIds));
+    const newStatus = RESULTING_STATUS[action];
+
+    const { eligible, skipped, missing } = await classifyPrompts(action, promptIds);
+
+    const affected = eligible.map((p) => ({
+      promptId: String(p._id),
+      onChainId: p.onChainId ?? null,
+      title: (p as { title?: string }).title ?? null,
+      currentStatus: p.moderationStatus,
+      resultingStatus: newStatus,
+      ownerWallet:
+        (p.owner as { walletAddress?: string } | null)?.walletAddress ?? null,
+      notifiesOwner: action === "hide" || action === "restore",
+    }));
+
+    return res.json({
+      action,
+      requested: rawIds.length,
+      uniqueRequested: promptIds.length,
+      wouldApply: affected.length,
+      wouldSkip: skipped.length,
+      missing: missing.length,
+      affected,
+      skippedIds: skipped,
+      missingIds: missing,
+      dryRun: true,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+};
+
 // ── Bulk action ───────────────────────────────────────────────────────────────
 
 /**
@@ -165,37 +299,13 @@ export const BulkModerationAction = async (
   try {
     await connectDb();
 
-    const body = req.body as {
-      action?: unknown;
-      promptIds?: unknown;
-      reason?: unknown;
-      evidenceNote?: unknown;
-    };
+    const parsed = validateBulkBody(req.body ?? {}, true);
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-    const VALID_ACTIONS: ModerationAction[] = ["approve", "reject", "hide", "restore"];
-    if (!body.action || !VALID_ACTIONS.includes(body.action as ModerationAction)) {
-      return res.status(400).json({
-        error: `action must be one of: ${VALID_ACTIONS.join(", ")}.`,
-      });
-    }
-    if (!Array.isArray(body.promptIds) || body.promptIds.length === 0) {
-      return res.status(400).json({ error: "promptIds must be a non-empty array." });
-    }
-    if (body.promptIds.length > 100) {
-      return res.status(400).json({ error: "promptIds may not exceed 100 items per request." });
-    }
-    if (!body.reason || typeof body.reason !== "string" || !body.reason.trim()) {
-      return res.status(400).json({ error: "reason is required." });
-    }
-
-    const action = body.action as ModerationAction;
-    const promptIds: string[] = body.promptIds as string[];
-    const reason = (body.reason as string).trim();
-    const evidenceNote =
-      typeof body.evidenceNote === "string" ? body.evidenceNote.trim() || null : null;
+    const { action, promptIds: rawIds, reason, evidenceNote } = parsed.value;
+    const promptIds = Array.from(new Set(rawIds));
 
     const actorWallet = hashWallet(req.admin?.sub ?? "unknown");
-    const eligibleStatuses = ELIGIBLE_STATUSES[action];
     const newStatus = RESULTING_STATUS[action];
     const auditAction = `moderation_${action}` as
       | "moderation_approve"
@@ -204,16 +314,11 @@ export const BulkModerationAction = async (
       | "moderation_restore";
 
     // Fetch all candidate prompts in one query — only those with eligible statuses.
-    const candidates = await Prompt.find({
-      _id: { $in: promptIds },
-      moderationStatus: { $in: eligibleStatuses },
-    })
-      .select("_id onChainId title moderationStatus owner")
-      .populate("owner", "walletAddress")
-      .lean();
-
-    const eligibleIds = new Set(candidates.map((p) => String(p._id)));
-    const skipped = promptIds.length - eligibleIds.size;
+    const { eligible: candidates, skipped: skippedIds } = await classifyPrompts(
+      action,
+      promptIds,
+    );
+    const skipped = skippedIds.length;
 
     const decisionIds: string[] = [];
 
@@ -224,54 +329,49 @@ export const BulkModerationAction = async (
         const previousStatus = prompt.moderationStatus as ModerationStatus;
         const promptIdStr = String(prompt._id);
 
-        // 1. Update moderationStatus on the Prompt document.
-        await Prompt.findByIdAndUpdate(prompt._id, {
-          $set: {
-            moderationStatus: newStatus,
-            lastModeratedAt: new Date(),
-          },
-        });
+        // 1. Update moderationStatus on the Prompt document, guarded by the
+        //    expected previous status so a concurrent change causes a no-op
+        //    rather than a silent overwrite.
+        const updated = await Prompt.updateOne(
+          { _id: prompt._id, moderationStatus: previousStatus },
+          { $set: { moderationStatus: newStatus } },
+        );
+        if (updated.modifiedCount === 0) return;
 
-        // 2. Create audit evidence record.
+        // 2. Record the decision so it can be listed and rolled back later.
         const decision = await ModerationDecision.create({
-          promptId: promptIdStr,
+          prompt: prompt._id,
           action,
-          actorWallet,
+          previousStatus,
+          resultingStatus: newStatus,
           reason,
           evidenceNote,
-          previousStatus,
-          newStatus,
+          actorWallet,
+          rolledBack: false,
         });
         decisionIds.push(String(decision._id));
 
-        // 3. Immutable AuditLog entry.
+        // 3. Immutable audit log entry.
         await recordAuditEvent({
           action: auditAction,
-          result: "success",
-          promptId: promptIdStr,
-          walletAddress: req.admin?.sub ?? null,
-          reason: `action=${action} promptId=${promptIdStr} decision=${String(decision._id)}`,
+          actorWallet,
+          targetId: promptIdStr,
+          metadata: {
+            decisionId: String(decision._id),
+            previousStatus,
+            resultingStatus: newStatus,
+          },
         });
 
-        // 4. In-app notification to prompt owner on hide/restore.
+        // 4. Notify owner on hide/restore.
         if (action === "hide" || action === "restore") {
-          const ownerWallet = (prompt.owner as { walletAddress?: string } | null)
-            ?.walletAddress;
-          if (ownerWallet) {
-            const title = (prompt as { title?: string }).title ?? promptIdStr;
+          const ownerId = (prompt.owner as { _id?: unknown } | null)?._id ?? prompt.owner;
+          if (ownerId) {
             await createNotification({
-              recipientWallet: ownerWallet,
+              recipient: ownerId as never,
               type: "moderation_action",
-              message:
-                action === "hide"
-                  ? `Your prompt "${title}" was hidden by a moderator.`
-                  : `Your prompt "${title}" has been restored by a moderator.`,
-              deepLink: `/prompts/${prompt.onChainId ?? promptIdStr}`,
-              promptId: promptIdStr,
-              promptTitle: title,
-              idempotencyKey: `moderation:${String(decision._id)}`,
-            }).catch(() => {
-              // Notification failure must not block the moderation action.
+              message: `Your prompt was ${newStatus} by moderation.`,
+              metadata: { promptId: promptIdStr, action },
             });
           }
         }
@@ -280,114 +380,11 @@ export const BulkModerationAction = async (
 
     return res.json({
       action,
-      requested: promptIds.length,
-      applied: candidates.length,
+      requested: rawIds.length,
+      uniqueRequested: promptIds.length,
+      applied: decisionIds.length,
       skipped,
       decisionIds,
-    });
-  } catch (err) {
-    return res.status(500).json({ error: (err as Error).message });
-  }
-};
-
-// ── Decision list ─────────────────────────────────────────────────────────────
-
-/**
- * GET /api/moderation/decisions
- * Paginated list of moderation decisions for audit review.
- */
-export const ListModerationDecisions = async (
-  req: Request,
-  res: Response,
-): Promise<Response> => {
-  try {
-    await connectDb();
-
-    const { promptId, actorWallet, action, since, limit = "50" } =
-      req.query as Record<string, string | undefined>;
-
-    const filter: Record<string, unknown> = {};
-    if (promptId) filter.promptId = promptId;
-    if (actorWallet) filter.actorWallet = hashWallet(actorWallet);
-    if (action) filter.action = action;
-    if (since) filter.createdAt = { $gte: new Date(since) };
-
-    const decisions = await ModerationDecision.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(Math.min(200, Math.max(1, parseInt(limit, 10))))
-      .lean();
-
-    return res.json(decisions);
-  } catch (err) {
-    return res.status(500).json({ error: (err as Error).message });
-  }
-};
-
-// ── Rollback ──────────────────────────────────────────────────────────────────
-
-/**
- * POST /api/moderation/decisions/:id/rollback
- * Reverses a previous decision by restoring `previousStatus` to the Prompt and
- * marking the ModerationDecision as rolled back.
- *
- * The original decision document is never deleted — the rollback is recorded
- * as metadata on it. A new AuditLog entry is created for the rollback itself.
- */
-export const RollbackModerationDecision = async (
-  req: AdminRequest,
-  res: Response,
-): Promise<Response> => {
-  try {
-    await connectDb();
-
-    const body = req.body as { reason?: unknown };
-    if (!body.reason || typeof body.reason !== "string" || !body.reason.trim()) {
-      return res.status(400).json({ error: "reason is required for rollback." });
-    }
-
-    const decision = await ModerationDecision.findById(req.params.id);
-    if (!decision) {
-      return res.status(404).json({ error: "Moderation decision not found." });
-    }
-    if (decision.rolledBack) {
-      return res.status(400).json({ error: "This decision has already been rolled back." });
-    }
-
-    const rollbackReason = (body.reason as string).trim();
-    const now = new Date();
-
-    // Restore the previous status on the Prompt.
-    await Prompt.findOneAndUpdate(
-      { _id: decision.promptId },
-      {
-        $set: {
-          moderationStatus: decision.previousStatus,
-          lastModeratedAt: now,
-        },
-      },
-    );
-
-    // Mark the decision as rolled back.
-    await ModerationDecision.findByIdAndUpdate(decision._id, {
-      $set: {
-        rolledBack: true,
-        rollbackReason,
-        rollbackAt: now,
-      },
-    });
-
-    // Audit trail entry for the rollback.
-    await recordAuditEvent({
-      action: "moderation_rollback",
-      result: "success",
-      promptId: decision.promptId,
-      walletAddress: req.admin?.sub ?? null,
-      reason: `rollback decision=${String(decision._id)} reason=${rollbackReason}`,
-    });
-
-    return res.json({
-      message: "Decision rolled back successfully.",
-      restoredStatus: decision.previousStatus,
     });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });

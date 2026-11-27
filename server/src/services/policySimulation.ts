@@ -1,21 +1,41 @@
 /**
  * Issue 999: Policy Simulation Preview
- * 
+ *
  * Preview affected records/users, expected side effects, and rollback constraints
  * before applying policy changes.
+ *
+ * Vertical slice: a single entry point `simulatePolicyChange` that validates the
+ * request, checks authorization, loads affected-record previews with bounded
+ * retries, and returns a result. Recovery behavior is documented inline.
+ *
+ * Edge cases / recovery:
+ * - unauthorized actors are rejected before any database read.
+ * - invalid change payloads are rejected before any database read.
+ * - transient query failures are retried (bounded); exhausted retries surface
+ *   `query_failed` and no partial result is returned.
+ * - simulation is read-only: it never mutates state, so there is nothing to roll
+ *   back. Rollback constraints in the result describe how the *real* change could
+ *   be reverted later.
  */
 
 import { db } from '../db/connection';
 import { logger } from '../util/logger';
 
-interface PolicyChange {
-  type: 'fee_adjustment' | 'price_limit' | 'access_revocation' | 'creator_suspension' | 'bulk_refund';
+export type PolicyChangeType =
+  | 'fee_adjustment'
+  | 'price_limit'
+  | 'access_revocation'
+  | 'creator_suspension'
+  | 'bulk_refund';
+
+export interface PolicyChange {
+  type: PolicyChangeType;
   parameters: Record<string, any>;
   reason: string;
   scheduledBy: string;
 }
 
-interface SimulationResult {
+export interface SimulationResult {
   policyChange: PolicyChange;
   timestamp: string;
   affectedRecords: AffectedRecords;
@@ -26,7 +46,7 @@ interface SimulationResult {
   preview: PreviewData;
 }
 
-interface AffectedRecords {
+export interface AffectedRecords {
   users: number;
   prompts: number;
   purchases: number;
@@ -34,446 +54,509 @@ interface AffectedRecords {
   totalXlmImpact: number;
 }
 
-interface SideEffect {
+export interface SideEffect {
   description: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   affectedEntities: string[];
   reversible: boolean;
 }
 
-interface RollbackConstraint {
+export interface RollbackConstraint {
   constraint: string;
   canRollback: boolean;
   rollbackProcedure?: string;
   timeWindow?: string;
 }
 
-interface Risk {
+export interface Risk {
   description: string;
   probability: 'low' | 'medium' | 'high';
   impact: 'low' | 'medium' | 'high' | 'critical';
   mitigation: string;
 }
 
-interface PreviewData {
+export interface PreviewData {
   sampleAffectedUsers: any[];
   sampleAffectedPrompts: any[];
   sampleTransactions: any[];
 }
 
-/**
- * Simulate fee adjustment policy
- */
+/** Maximum number of sample rows returned in any preview. */
+export const MAX_PREVIEW_SAMPLE = 10;
+/** Attempts for read-only preview queries on transient DB failures. */
+export const SIMULATION_QUERY_ATTEMPTS = 3;
+
+/** Roles allowed to run simulations. Simulation is read-only but reveals business data. */
+const SIMULATION_ROLES = new Set(['admin', 'policy_reviewer']);
+
+const POLICY_CHANGE_TYPES: readonly PolicyChangeType[] = [
+  'fee_adjustment',
+  'price_limit',
+  'access_revocation',
+  'creator_suspension',
+  'bulk_refund',
+];
+
+export class PolicySimulationError extends Error {
+  constructor(
+    public readonly code:
+      | 'unauthorized'
+      | 'invalid_change'
+      | 'not_found'
+      | 'query_failed',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PolicySimulationError';
+  }
+}
+
+export interface SimulationActor {
+  id: string;
+  roles: string[];
+}
+
+function assertAuthorized(actor: SimulationActor | undefined): asserts actor is SimulationActor {
+  if (!actor || !actor.id || !Array.isArray(actor.roles) || !actor.roles.some((r) => SIMULATION_ROLES.has(r))) {
+    throw new PolicySimulationError('unauthorized', 'Actor is not permitted to run policy simulations');
+  }
+}
+
+/** Runs a read-only query, retrying transient failures with linear backoff. */
+async function queryWithRetry<T = any>(text: string, params: any[] = []): Promise<T[]> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= SIMULATION_QUERY_ATTEMPTS; attempt++) {
+    try {
+      const res = await db.query(text, params);
+      return (res.rows ?? []) as T[];
+    } catch (err) {
+      lastErr = err;
+      logger.warn({ attempt, err }, 'policy simulation query failed, retrying');
+      if (attempt < SIMULATION_QUERY_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 50 * attempt));
+      }
+    }
+  }
+  throw new PolicySimulationError(
+    'query_failed',
+    `Simulation query failed after ${SIMULATION_QUERY_ATTEMPTS} attempts: ${(lastErr as Error)?.message ?? 'unknown'}`,
+  );
+}
+
+function validateChange(change: PolicyChange): void {
+  if (!POLICY_CHANGE_TYPES.includes(change.type)) {
+    throw new PolicySimulationError('invalid_change', `Unknown policy change type: ${change.type}`);
+  }
+  if (!change.reason || !change.scheduledBy) {
+    throw new PolicySimulationError('invalid_change', 'reason and scheduledBy are required');
+  }
+  if (!change.parameters || typeof change.parameters !== 'object') {
+    throw new PolicySimulationError('invalid_change', 'parameters must be an object');
+  }
+  if (change.type === 'fee_adjustment') {
+    const pct = Number(change.parameters.newFeePercentage);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 1) {
+      throw new PolicySimulationError('invalid_change', 'newFeePercentage must be between 0 and 1');
+    }
+  }
+  if (change.type === 'creator_suspension' && !change.parameters.creatorAddress) {
+    throw new PolicySimulationError('invalid_change', 'creatorAddress is required');
+  }
+  if (change.type === 'bulk_refund' && !change.parameters.promptId) {
+    throw new PolicySimulationError('invalid_change', 'promptId is required');
+  }
+}
+
 async function simulateFeeAdjustment(
-  newFeePercentage: number,
-  effectiveDate: Date
-): Promise<SimulationResult> {
-  const currentFee = 0.05; // 5% current fee
-  
-  // Query affected records
-  const futurePrompts = await db.query(`
-    SELECT COUNT(*) as count, SUM(price_xlm) as total_value
-    FROM prompts
-    WHERE is_active = true AND created_at >= $1
-  `, [effectiveDate]);
-  
-  const activeSellers = await db.query(`
-    SELECT COUNT(DISTINCT creator_address) as count
-    FROM prompts
-    WHERE is_active = true
-  `);
-  
-  const estimatedMonthlySales = await db.query(`
-    SELECT COUNT(*) as count, SUM(amount_xlm) as total_volume
-    FROM purchases
-    WHERE created_at >= NOW() - INTERVAL '30 days'
-  `);
-  
-  const promptCount = futurePrompts.rows[0]?.count || 0;
-  const totalValue = parseFloat(futurePrompts.rows[0]?.total_value || '0');
-  const sellerCount = activeSellers.rows[0]?.count || 0;
-  const monthlySales = estimatedMonthlySales.rows[0]?.count || 0;
-  const monthlyVolume = parseFloat(estimatedMonthlySales.rows[0]?.total_volume || '0');
-  
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const newFeePercentage = Number(change.parameters.newFeePercentage);
+  const effectiveDate = new Date(change.parameters.effectiveDate ?? Date.now());
+  const currentFee = 0.05;
+
+  const [future] = await queryWithRetry<{ count: string; total_value: string }>(
+    `SELECT COUNT(*) as count, SUM(price_xlm) as total_value
+     FROM prompts WHERE is_active = true AND created_at >= $1`,
+    [effectiveDate],
+  );
+  const [sellers] = await queryWithRetry<{ count: string }>(
+    `SELECT COUNT(DISTINCT creator_address) as count FROM prompts WHERE is_active = true`,
+  );
+  const [monthly] = await queryWithRetry<{ total_volume: string }>(
+    `SELECT SUM(amount_xlm) as total_volume FROM purchases
+     WHERE created_at >= NOW() - INTERVAL '30 days'`,
+  );
+  const sampleSellers = await queryWithRetry(
+    `SELECT p.creator_address, COUNT(p.id) as active_prompts,
+            COALESCE(SUM(pu.amount_xlm), 0) as total_sales_xlm
+     FROM prompts p
+     LEFT JOIN purchases pu ON p.id = pu.prompt_id
+     WHERE p.is_active = true
+     GROUP BY p.creator_address
+     ORDER BY total_sales_xlm DESC
+     LIMIT $1`,
+    [MAX_PREVIEW_SAMPLE],
+  );
+
   const feeChange = newFeePercentage - currentFee;
+  const monthlyVolume = parseFloat(monthly?.total_volume ?? '0') || 0;
   const estimatedImpact = monthlyVolume * feeChange;
-  
-  // Sample affected users
-  const sampleSellers = await db.query(`
-    SELECT 
-      creator_address,
-      COUNT(p.id) as active_prompts,
-      COALESCE(SUM(pu.amount_xlm), 0) as total_sales_xlm
-    FROM creators c
-    JOIN prompts p ON c.wallet_address = p.creator_address
-    LEFT JOIN purchases pu ON p.id = pu.prompt_id
-    WHERE p.is_active = true
-    GROUP BY creator_address
-    ORDER BY total_sales_xlm DESC
-    LIMIT 10
-  `);
-  
-  const result: SimulationResult = {
-    policyChange: {
-      type: 'fee_adjustment',
-      parameters: { newFeePercentage, effectiveDate },
-      reason: 'Platform fee adjustment',
-      scheduledBy: 'admin'
-    },
-    timestamp: new Date().toISOString(),
+
+  return {
     affectedRecords: {
-      users: sellerCount,
-      prompts: promptCount,
-      purchases: 0, // Future purchases
+      users: Number(sellers?.count ?? 0),
+      prompts: Number(future?.count ?? 0),
+      purchases: 0,
       settlements: 0,
-      totalXlmImpact: estimatedImpact
+      totalXlmImpact: estimatedImpact,
     },
     sideEffects: [
       {
         description: `Creator revenue ${feeChange > 0 ? 'decreases' : 'increases'} by ${Math.abs(feeChange * 100)}%`,
         severity: Math.abs(feeChange) > 0.02 ? 'high' : 'medium',
         affectedEntities: ['creators', 'future_purchases'],
-        reversible: false
+        reversible: false,
       },
       {
         description: 'Existing purchases unaffected',
         severity: 'low',
         affectedEntities: ['past_purchases'],
-        reversible: true
-      }
+        reversible: true,
+      },
     ],
     rollbackConstraints: [
       {
         constraint: 'Fee changes apply only to future purchases',
         canRollback: true,
         rollbackProcedure: 'Revert fee percentage in contract configuration',
-        timeWindow: 'immediate'
+        timeWindow: 'immediate',
       },
-      {
-        constraint: 'Past settlements cannot be adjusted',
-        canRollback: false
-      }
+      { constraint: 'Past settlements cannot be adjusted', canRollback: false },
     ],
     risks: [
       {
         description: 'Creator backlash if fee increase is significant',
         probability: feeChange > 0.02 ? 'high' : 'low',
         impact: 'medium',
-        mitigation: 'Announce change 30 days in advance with clear communication'
+        mitigation: 'Announce change 30 days in advance with clear communication',
       },
       {
         description: 'Price competitiveness affected',
         probability: 'medium',
         impact: 'medium',
-        mitigation: 'Monitor sales volume for 60 days post-change'
-      }
+        mitigation: 'Monitor sales volume for 60 days post-change',
+      },
     ],
-    estimatedDuration: 5, // seconds
+    estimatedDuration: 5,
     preview: {
-      sampleAffectedUsers: sampleSellers.rows,
+      sampleAffectedUsers: sampleSellers,
       sampleAffectedPrompts: [],
-      sampleTransactions: []
-    }
+      sampleTransactions: [],
+    },
   };
-  
-  return result;
 }
 
-/**
- * Simulate creator suspension
- */
 async function simulateCreatorSuspension(
-  creatorAddress: string,
-  reason: string
-): Promise<SimulationResult> {
-  // Query creator's data
-  const creatorData = await db.query(`
-    SELECT 
-      c.wallet_address,
-      COUNT(p.id) as prompt_count,
-      SUM(p.purchase_count) as total_sales,
-      COALESCE(SUM(pu.amount_xlm), 0) as lifetime_revenue_xlm
-    FROM creators c
-    LEFT JOIN prompts p ON c.wallet_address = p.creator_address
-    LEFT JOIN purchases pu ON p.id = pu.prompt_id
-    WHERE c.wallet_address = $1
-    GROUP BY c.wallet_address
-  `, [creatorAddress]);
-  
-  if (creatorData.rows.length === 0) {
-    throw new Error(`Creator ${creatorAddress} not found`);
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const creatorAddress = String(change.parameters.creatorAddress);
+
+  const [creator] = await queryWithRetry<any>(
+    `SELECT c.wallet_address,
+            COUNT(DISTINCT p.id) as prompt_count,
+            COUNT(pu.id) as total_sales,
+            COALESCE(SUM(pu.amount_xlm), 0) as lifetime_revenue_xlm
+     FROM creators c
+     LEFT JOIN prompts p ON c.wallet_address = p.creator_address
+     LEFT JOIN purchases pu ON p.id = pu.prompt_id
+     WHERE c.wallet_address = $1
+     GROUP BY c.wallet_address`,
+    [creatorAddress],
+  );
+  if (!creator) {
+    throw new PolicySimulationError('not_found', `Creator ${creatorAddress} not found`);
   }
-  
-  const creator = creatorData.rows[0];
-  
-  // Query active buyers
-  const activeBuyers = await db.query(`
-    SELECT COUNT(DISTINCT buyer_address) as count
-    FROM purchases
-    WHERE prompt_id IN (
-      SELECT id FROM prompts WHERE creator_address = $1
-    )
-  `, [creatorAddress]);
-  
-  const buyerCount = activeBuyers.rows[0]?.count || 0;
-  
-  // Sample affected prompts
-  const affectedPrompts = await db.query(`
-    SELECT id, title, price_xlm, purchase_count, is_active
-    FROM prompts
-    WHERE creator_address = $1
-    LIMIT 10
-  `, [creatorAddress]);
-  
-  const result: SimulationResult = {
-    policyChange: {
-      type: 'creator_suspension',
-      parameters: { creatorAddress, reason },
-      reason,
-      scheduledBy: 'admin'
-    },
-    timestamp: new Date().toISOString(),
+
+  const [buyers] = await queryWithRetry<{ count: string }>(
+    `SELECT COUNT(DISTINCT buyer_address) as count FROM purchases
+     WHERE prompt_id IN (SELECT id FROM prompts WHERE creator_address = $1)`,
+    [creatorAddress],
+  );
+  const affectedPrompts = await queryWithRetry(
+    `SELECT id, title, price_xlm, purchase_count, is_active
+     FROM prompts WHERE creator_address = $1 LIMIT $2`,
+    [creatorAddress, MAX_PREVIEW_SAMPLE],
+  );
+
+  const buyerCount = Number(buyers?.count ?? 0);
+  const lifetime = parseFloat(creator.lifetime_revenue_xlm) || 0;
+  const promptCount = Number(creator.prompt_count ?? 0);
+
+  return {
     affectedRecords: {
-      users: buyerCount + 1, // Buyers + creator
-      prompts: creator.prompt_count,
-      purchases: creator.total_sales,
+      users: buyerCount + 1,
+      prompts: promptCount,
+      purchases: Number(creator.total_sales ?? 0),
       settlements: 0,
-      totalXlmImpact: parseFloat(creator.lifetime_revenue_xlm)
+      totalXlmImpact: lifetime,
     },
     sideEffects: [
       {
-        description: `${creator.prompt_count} prompts will be delisted`,
+        description: `${promptCount} prompts will be delisted`,
         severity: 'high',
         affectedEntities: ['prompts', 'marketplace_listings'],
-        reversible: true
+        reversible: true,
       },
       {
         description: `${buyerCount} buyers retain access to purchased prompts`,
         severity: 'medium',
         affectedEntities: ['buyers', 'purchased_access'],
-        reversible: false
+        reversible: false,
       },
       {
         description: 'Creator cannot list new prompts',
         severity: 'critical',
         affectedEntities: ['creator_account'],
-        reversible: true
+        reversible: true,
       },
       {
         description: 'Pending settlements will still process',
         severity: 'low',
         affectedEntities: ['settlements'],
-        reversible: false
-      }
+        reversible: false,
+      },
     ],
     rollbackConstraints: [
       {
         constraint: 'Suspension can be reversed',
         canRollback: true,
         rollbackProcedure: 'Reactivate creator account via admin panel',
-        timeWindow: 'any time'
+        timeWindow: 'any time',
       },
-      {
-        constraint: 'Buyer access is permanent',
-        canRollback: false
-      },
+      { constraint: 'Buyer access is permanent', canRollback: false },
       {
         constraint: 'Delisted prompts can be re-enabled',
         canRollback: true,
         rollbackProcedure: 'Set is_active=true for all creator prompts',
-        timeWindow: 'any time'
-      }
+        timeWindow: 'any time',
+      },
     ],
     risks: [
       {
         description: 'Legal challenge from creator',
         probability: 'medium',
         impact: 'high',
-        mitigation: 'Document violation clearly, follow terms of service'
+        mitigation: 'Document violation clearly, follow terms of service',
       },
       {
         description: 'Buyer complaints about delisted content',
         probability: 'low',
         impact: 'medium',
-        mitigation: 'Maintain buyer access to purchased prompts'
+        mitigation: 'Maintain buyer access to purchased prompts',
       },
       {
         description: 'Revenue loss from high-performing creator',
         probability: 'high',
-        impact: creator.lifetime_revenue_xlm > 1000 ? 'high' : 'medium',
-        mitigation: 'Ensure suspension is justified and documented'
-      }
+        impact: lifetime > 1000 ? 'high' : 'medium',
+        mitigation: 'Ensure suspension is justified and documented',
+      },
     ],
     estimatedDuration: 10,
     preview: {
-      sampleAffectedUsers: [creatorData.rows[0]],
-      sampleAffectedPrompts: affectedPrompts.rows,
-      sampleTransactions: []
-    }
+      sampleAffectedUsers: [creator],
+      sampleAffectedPrompts: affectedPrompts,
+      sampleTransactions: [],
+    },
   };
-  
-  return result;
 }
 
-/**
- * Simulate bulk refund
- */
 async function simulateBulkRefund(
-  promptId: string,
-  reason: string
-): Promise<SimulationResult> {
-  // Query all purchases for the prompt
-  const purchases = await db.query(`
-    SELECT 
-      p.id,
-      p.buyer_address,
-      p.amount_xlm,
-      p.created_at,
-      p.tx_hash
-    FROM purchases p
-    WHERE p.prompt_id = $1 AND p.status = 'completed'
-    ORDER BY p.created_at DESC
-  `, [promptId]);
-  
-  const purchaseCount = purchases.rows.length;
-  const totalRefund = purchases.rows.reduce((sum, p) => sum + parseFloat(p.amount_xlm), 0);
-  const uniqueBuyers = new Set(purchases.rows.map(p => p.buyer_address)).size;
-  
-  const result: SimulationResult = {
-    policyChange: {
-      type: 'bulk_refund',
-      parameters: { promptId, reason },
-      reason,
-      scheduledBy: 'admin'
-    },
-    timestamp: new Date().toISOString(),
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const promptId = String(change.parameters.promptId);
+  const purchases = await queryWithRetry<any>(
+    `SELECT p.id, p.buyer_address, p.amount_xlm, p.created_at, p.tx_hash
+     FROM purchases p
+     WHERE p.prompt_id = $1 AND p.status = 'completed'
+     ORDER BY p.created_at DESC`,
+    [promptId],
+  );
+
+  const purchaseCount = purchases.length;
+  const totalRefund = purchases.reduce((sum, p) => sum + (parseFloat(p.amount_xlm) || 0), 0);
+  const uniqueBuyers = new Set(purchases.map((p) => p.buyer_address)).size;
+
+  return {
     affectedRecords: {
       users: uniqueBuyers,
       prompts: 1,
       purchases: purchaseCount,
-      settlements: purchaseCount,
-      totalXlmImpact: totalRefund
+      settlements: 0,
+      totalXlmImpact: -totalRefund,
     },
     sideEffects: [
       {
-        description: `${totalRefund} XLM will be refunded to ${uniqueBuyers} buyers`,
-        severity: 'critical',
-        affectedEntities: ['buyers', 'platform_treasury'],
-        reversible: false
+        description: `${purchaseCount} completed purchases will be refunded`,
+        severity: purchaseCount > 100 ? 'critical' : 'high',
+        affectedEntities: ['purchases', 'buyers'],
+        reversible: false,
       },
       {
-        description: 'Prompt will be delisted permanently',
+        description: 'Creator revenue for this prompt is reversed',
         severity: 'high',
-        affectedEntities: ['prompt', 'marketplace'],
-        reversible: false
+        affectedEntities: ['creator_settlements'],
+        reversible: false,
       },
-      {
-        description: 'Buyer access will be revoked',
-        severity: 'high',
-        affectedEntities: ['access_rights'],
-        reversible: false
-      },
-      {
-        description: 'Creator revenue clawed back',
-        severity: 'critical',
-        affectedEntities: ['creator_balance'],
-        reversible: false
-      }
     ],
     rollbackConstraints: [
       {
-        constraint: 'Refunds are irreversible once processed',
-        canRollback: false
+        constraint: 'Refunds submitted on-chain cannot be recalled',
+        canRollback: false,
       },
-      {
-        constraint: 'On-chain transactions cannot be undone',
-        canRollback: false
-      },
-      {
-        constraint: 'Access revocation is permanent',
-        canRollback: false
-      }
     ],
     risks: [
       {
-        description: 'Treasury may lack sufficient XLM for refunds',
-        probability: totalRefund > 10000 ? 'medium' : 'low',
+        description: 'Refund wave exceeds available treasury balance',
+        probability: 'medium',
         impact: 'critical',
-        mitigation: 'Verify treasury balance before execution'
+        mitigation: 'Verify treasury balance covers totalXlmImpact before execution',
       },
-      {
-        description: 'Creator dispute and reputation damage',
-        probability: 'high',
-        impact: 'high',
-        mitigation: 'Clear violation evidence, legal review'
-      },
-      {
-        description: 'Processing time for large refund batch',
-        probability: purchaseCount > 100 ? 'high' : 'low',
-        impact: 'medium',
-        mitigation: 'Batch refunds in groups of 50, monitor progress'
-      }
     ],
-    estimatedDuration: purchaseCount * 2, // 2 seconds per refund
+    estimatedDuration: Math.max(5, Math.ceil(purchaseCount / 10)),
     preview: {
-      sampleAffectedUsers: purchases.rows.slice(0, 10),
-      sampleAffectedPrompts: [],
-      sampleTransactions: purchases.rows.slice(0, 10)
-    }
+      sampleAffectedUsers: [],
+      sampleAffectedPrompts: [{ id: promptId }],
+      sampleTransactions: purchases.slice(0, MAX_PREVIEW_SAMPLE),
+    },
   };
-  
-  return result;
 }
 
-/**
- * Main simulation entry point
- */
-export async function simulatePolicyChange(policyChange: PolicyChange): Promise<SimulationResult> {
-  logger.info('Simulating policy change', { type: policyChange.type });
-  
-  let result: SimulationResult;
-  
-  switch (policyChange.type) {
-    case 'fee_adjustment':
-      result = await simulateFeeAdjustment(
-        policyChange.parameters.newFeePercentage,
-        new Date(policyChange.parameters.effectiveDate)
-      );
-      break;
-      
-    case 'creator_suspension':
-      result = await simulateCreatorSuspension(
-        policyChange.parameters.creatorAddress,
-        policyChange.reason
-      );
-      break;
-      
-    case 'bulk_refund':
-      result = await simulateBulkRefund(
-        policyChange.parameters.promptId,
-        policyChange.reason
-      );
-      break;
-      
-    default:
-      throw new Error(`Unknown policy change type: ${policyChange.type}`);
+async function simulatePriceLimit(
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const maxPriceXlm = Number(change.parameters.maxPriceXlm ?? NaN);
+  if (!Number.isFinite(maxPriceXlm) || maxPriceXlm < 0) {
+    throw new PolicySimulationError('invalid_change', 'maxPriceXlm must be a non-negative number');
   }
-  
-  logger.info('Policy simulation completed', {
-    type: policyChange.type,
-    affectedRecords: result.affectedRecords,
-    risks: result.risks.length
-  });
-  
-  return result;
+  const [over] = await queryWithRetry<{ count: string }>(
+    `SELECT COUNT(*) as count FROM prompts WHERE is_active = true AND price_xlm > $1`,
+    [maxPriceXlm],
+  );
+  const sample = await queryWithRetry(
+    `SELECT id, title, price_xlm FROM prompts
+     WHERE is_active = true AND price_xlm > $1 ORDER BY price_xlm DESC LIMIT $2`,
+    [maxPriceXlm, MAX_PREVIEW_SAMPLE],
+  );
+  const count = Number(over?.count ?? 0);
+  return {
+    affectedRecords: { users: 0, prompts: count, purchases: 0, settlements: 0, totalXlmImpact: 0 },
+    sideEffects: [
+      {
+        description: `${count} active prompts priced above ${maxPriceXlm} XLM would be repriced`,
+        severity: count > 0 ? 'medium' : 'low',
+        affectedEntities: ['prompts'],
+        reversible: true,
+      },
+    ],
+    rollbackConstraints: [
+      { constraint: 'Repricing applies to listings going forward', canRollback: true, timeWindow: 'any time' },
+    ],
+    risks: [
+      {
+        description: 'Creators object to forced repricing',
+        probability: 'medium',
+        impact: 'medium',
+        mitigation: 'Notify affected creators before applying',
+      },
+    ],
+    estimatedDuration: 3,
+    preview: { sampleAffectedUsers: [], sampleAffectedPrompts: sample, sampleTransactions: [] },
+  };
+}
+
+async function simulateAccessRevocation(
+  change: PolicyChange,
+): Promise<Omit<SimulationResult, 'policyChange' | 'timestamp'>> {
+  const buyerAddress = String(change.parameters.buyerAddress ?? '');
+  if (!buyerAddress) {
+    throw new PolicySimulationError('invalid_change', 'buyerAddress is required');
+  }
+  const sample = await queryWithRetry(
+    `SELECT id, prompt_id, amount_xlm, created_at FROM purchases
+     WHERE buyer_address = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT $2`,
+    [buyerAddress, MAX_PREVIEW_SAMPLE],
+  );
+  const [totals] = await queryWithRetry<{ count: string; total: string }>(
+    `SELECT COUNT(*) as count, COALESCE(SUM(amount_xlm), 0) as total FROM purchases
+     WHERE buyer_address = $1 AND status = 'completed'`,
+    [buyerAddress],
+  );
+  const count = Number(totals?.count ?? 0);
+  return {
+    affectedRecords: {
+      users: 1,
+      prompts: 0,
+      purchases: count,
+      settlements: 0,
+      totalXlmImpact: 0,
+    },
+    sideEffects: [
+      {
+        description: `Buyer loses access to ${count} purchased prompts`,
+        severity: count > 0 ? 'high' : 'low',
+        affectedEntities: ['buyer_access'],
+        reversible: true,
+      },
+    ],
+    rollbackConstraints: [
+      { constraint: 'Access can be restored by re-granting', canRollback: true, timeWindow: 'any time' },
+    ],
+    risks: [
+      {
+        description: 'Buyer dispute over revoked access',
+        probability: 'medium',
+        impact: 'medium',
+        mitigation: 'Require documented reason and support escalation path',
+      },
+    ],
+    estimatedDuration: 2,
+    preview: { sampleAffectedUsers: [{ buyerAddress }], sampleAffectedPrompts: [], sampleTransactions: sample },
+  };
 }
 
 /**
- * Export for testing and API usage
+ * Simulates a policy change and returns an affected-record preview.
+ * Read-only: performs no writes. Throws PolicySimulationError on failure.
  */
-export const policySimulator = {
-  simulatePolicyChange,
-  simulateFeeAdjustment,
-  simulateCreatorSuspension,
-  simulateBulkRefund
-};
+export async function simulatePolicyChange(
+  actor: SimulationActor | undefined,
+  change: PolicyChange,
+): Promise<SimulationResult> {
+  assertAuthorized(actor);
+  validateChange(change);
+
+  let body: Omit<SimulationResult, 'policyChange' | 'timestamp'>;
+  switch (change.type) {
+    case 'fee_adjustment':
+      body = await simulateFeeAdjustment(change);
+      break;
+    case 'creator_suspension':
+      body = await simulateCreatorSuspension(change);
+      break;
+    case 'bulk_refund':
+      body = await simulateBulkRefund(change);
+      break;
+    case 'price_limit':
+      body = await simulatePriceLimit(change);
+      break;
+    case 'access_revocation':
+      body = await simulateAccessRevocation(change);
+      break;
+  }
+
+  return {
+    policyChange: change,
+    timestamp: new Date().toISOString(),
+    ...body,
+  };
+}
