@@ -48,7 +48,7 @@ jobs:
           SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
 
       - name: Attest WASM provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             target/wasm32v1-none/release/*.wasm
@@ -90,7 +90,7 @@ jobs:
         working-directory: server
 
       - name: Attest Node.js provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             sbom-root.cdx.json
