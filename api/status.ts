@@ -190,6 +190,7 @@ async function handler(req: any, res: any) {
       probes: probeResults,
       maintenance,
       contractPaused,
+      deterministicOrder: true,
     });
 
     res.status(200).json({
