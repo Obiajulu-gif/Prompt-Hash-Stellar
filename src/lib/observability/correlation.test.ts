@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { generateCorrelationId } from "./correlation";
+import { generateCorrelationId, initializeCorrelation } from "./correlation";
 
 describe("generateCorrelationId", () => {
   beforeEach(() => {
@@ -128,6 +128,33 @@ describe("generateCorrelationId", () => {
 
     // Variant is at position 0 of the fourth group (should be 8, 9, a, or b)
     expect(["8", "9", "a", "b", "A", "B"]).toContain(parts[3][0]);
+  });
+
+  it("keeps an existing request correlation id instead of replacing it", async () => {
+    const originalWindow = (globalThis as typeof globalThis & { window?: Window }).window;
+    const originalFetch = originalWindow?.fetch;
+    const seen: Headers[] = [];
+    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers));
+      return new Response("ok", { status: 200 });
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { fetch },
+    });
+
+    initializeCorrelation();
+    await window.fetch("/api/prompts/1", {
+      headers: { "X-Request-ID": "caller-request-42" },
+    });
+
+    expect(seen[0].get("x-request-id")).toBe("caller-request-42");
+    expect(seen[0].get("x-correlation-id")).toBeNull();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow,
+    });
+    void originalFetch;
   });
 
   it("correlation IDs are safe for logging (no sensitive data leaked)", () => {

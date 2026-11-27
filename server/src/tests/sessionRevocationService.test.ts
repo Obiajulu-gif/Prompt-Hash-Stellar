@@ -73,6 +73,24 @@ describe("Stale Session and Token Revocation After Security Events (#1031)", () 
     expect(checkNew.revoked).toBe(false);
   });
 
+  it("treats the security-event cutoff as inclusive and keeps later sessions valid", () => {
+    const subject = "ops-boundary";
+    const cutoff = 2_000_000;
+    registry.recordSecurityEvent(
+      {
+        type: "credential_change",
+        targetSubject: subject,
+        reason: "Credential rotated",
+        revokedBefore: cutoff,
+        actor: ADMIN_ACTOR,
+      },
+      cutoff,
+    );
+
+    expect(registry.isRevoked(subject, cutoff, "at-cutoff", cutoff + 1).revoked).toBe(true);
+    expect(registry.isRevoked(subject, cutoff + 1, "after-cutoff", cutoff + 1).revoked).toBe(false);
+  });
+
   it("revokes a specific token nonce without affecting other tokens for the same subject", () => {
     const subject = "ops-alice";
     const t0 = 1_000_000;

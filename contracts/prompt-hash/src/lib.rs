@@ -3,6 +3,8 @@
 #![allow(clippy::too_many_arguments)]
 
 mod capability_tokens;
+#[cfg(test)]
+mod capability_tokens_test;
 mod conflict_resolver;
 mod contract;
 mod contract_tests;
