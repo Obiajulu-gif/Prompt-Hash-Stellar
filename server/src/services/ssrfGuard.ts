@@ -14,9 +14,10 @@
  * same validation as the original URL.
  */
 
-import { lookup as dnsLookupCb, LookupAddress } from "dns";
+import { lookup as dnsLookupCb, type LookupAddress } from "dns";
 import { request as httpsRequest } from "https";
 import * as net from "net";
+import { enforceUrlAllowList } from "./allowListPolicy";
 
 export class UnsafeWebhookUrlError extends Error {
   constructor(message: string) {
@@ -58,7 +59,7 @@ export function isDisallowedAddress(address: string): boolean {
   return true; // not a recognizable IP — fail closed
 }
 
-/** Rejects anything that isn't a plain https:// URL with no embedded credentials. */
+/** Rejects anything that isn't a plain https:// URL with no embedded credentials or destination allow-list violation (#1177). */
 export function assertSafeWebhookUrlShape(rawUrl: string): URL {
   let url: URL;
   try {
@@ -72,9 +73,18 @@ export function assertSafeWebhookUrlShape(rawUrl: string): URL {
   if (url.username || url.password) {
     throw new UnsafeWebhookUrlError("Webhook URLs may not carry credentials.");
   }
-  const literalFamily = net.isIP(url.hostname);
-  if (literalFamily && isDisallowedAddress(url.hostname)) {
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const literalFamily = net.isIP(host);
+  if (literalFamily && isDisallowedAddress(host)) {
     throw new UnsafeWebhookUrlError("Webhook URL resolves to a disallowed address.");
+  }
+  const allowListDecision = enforceUrlAllowList(rawUrl, "webhook_destination", {
+    context: "webhook_delivery",
+  });
+  if (!allowListDecision.allowed) {
+    throw new UnsafeWebhookUrlError(
+      allowListDecision.message ?? `Webhook destination rejected (${allowListDecision.code}).`,
+    );
   }
   return url;
 }
