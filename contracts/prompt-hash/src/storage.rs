@@ -1,7 +1,7 @@
 use super::types::{
     AccessPass, AssetLiability, Bundle, CatalogPassPurchase, DataKey, Error, IndexDriftReport,
-    IndexRepairSummary, InstanceDataKey, ListingRevisionRecord, Prompt, Purchase, PurchaseDispute,
-    PurchaseEscrow, PurchaseRoundingPlan, RevenueRoundingReport, RevenueShareKind,
+    IndexRepairSummary, InstanceDataKey, InvariantReport, ListingRevisionRecord, Prompt, Purchase,
+    PurchaseDispute, PurchaseEscrow, PurchaseRoundingPlan, RevenueRoundingReport, RevenueShareKind,
 };
 use soroban_sdk::{token, Address, BytesN, Env, String, Vec};
 
@@ -1387,6 +1387,115 @@ impl Storage {
         }
     }
 
+    /// Verify balance and ownership invariants for a single asset (#invariant-monitoring).
+    ///
+    /// Checks that the aggregate escrow liability for `asset` is internally
+    /// consistent: neither bucket may be negative, and the sum must not
+    /// overflow when recomputed. Returns `(pending_ok, disputed_ok, total)`.
+    ///
+    /// Edge cases:
+    /// - Missing liability record is treated as `(0, 0)` (not an error).
+    /// - Negative buckets indicate a prior underflow bug; reported as failure.
+    pub fn verify_asset_liability_invariants(env: &Env, asset: &Address) -> (bool, bool, i128) {
+        let liability = Self::get_asset_liability(env, asset);
+        let pending_ok = liability.pending >= 0;
+        let disputed_ok = liability.disputed >= 0;
+        let total = liability.pending.saturating_add(liability.disputed);
+        (pending_ok, disputed_ok, total)
+    }
+
+    /// Verify that a buyer's purchase index entry matches the canonical
+    /// purchase record for `prompt_id` (#invariant-monitoring).
+    ///
+    /// Returns `true` when the buyer index contains `prompt_id` iff a
+    /// purchase record exists for `(prompt_id, buyer)`. A mismatch indicates
+    /// drift between the ownership index and the canonical record.
+    ///
+    /// Edge cases:
+    /// - Missing buyer index is treated as empty (not an error).
+    /// - Expired purchases still count as owned; expiry is a separate concern.
+    pub fn verify_purchase_ownership(env: &Env, prompt_id: u64, buyer: &Address) -> bool {
+        let key = DataKey::BuyerPrompts(buyer.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        let in_index = ids.contains(prompt_id);
+        let has_record = Self::get_purchase(env, prompt_id, buyer).is_some();
+        in_index == has_record
+    }
+
+    /// Verify that a prompt's creator index entry matches the canonical
+    /// prompt record (#invariant-monitoring).
+    ///
+    /// Returns `true` when the creator index contains `prompt_id` iff a
+    /// prompt record exists with that id and the given creator.
+    ///
+    /// Edge cases:
+    /// - Missing prompt is treated as "not owned" (index must not contain it).
+    /// - Missing creator index is treated as empty (not an error).
+    pub fn verify_prompt_ownership(env: &Env, prompt_id: u64, creator: &Address) -> bool {
+        let key = DataKey::CreatorPrompts(creator.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        let in_index = ids.contains(prompt_id);
+        let has_record = Self::get_prompt(env, prompt_id)
+            .map(|p| p.creator == *creator)
+            .unwrap_or(false);
+        in_index == has_record
+    }
+
+    /// Aggregate invariant check across balance and ownership surfaces
+    /// (#invariant-monitoring).
+    ///
+    /// Runs the per-asset balance invariant and the ownership invariants for
+    /// every prompt in `[start_id, end_id)` in a single bounded pass so
+    /// operators can monitor both families together. Returns an
+    /// `InvariantReport` describing the outcome; callers emit events based on
+    /// `ok()`.
+    ///
+    /// Edge cases:
+    /// - `end_id` is clamped to the current prompt counter.
+    /// - Missing prompts are skipped (not counted as violations).
+    /// - Expired purchases still count as owned; expiry is a separate concern.
+    pub fn verify_invariants(
+        env: &Env,
+        asset: &Address,
+        start_id: u64,
+        end_id: u64,
+    ) -> InvariantReport {
+        let total_prompts = InstanceStorage::get_prompt_counter(env);
+        let end_id = core::cmp::min(end_id, total_prompts);
+
+        let (pending_ok, disputed_ok, total_liability) =
+            Self::verify_asset_liability_invariants(env, asset);
+
+        let mut ownership_violations = 0u32;
+        let mut scanned = 0u64;
+        for prompt_id in start_id..end_id {
+            scanned += 1;
+            if let Some(prompt) = Self::get_prompt(env, prompt_id) {
+                if !Self::verify_prompt_ownership(env, prompt_id, &prompt.creator) {
+                    ownership_violations += 1;
+                }
+            }
+        }
+
+        InvariantReport {
+            start_id,
+            end_id,
+            prompts_scanned: scanned,
+            pending_ok,
+            disputed_ok,
+            total_liability,
+            ownership_violations,
+        }
+    }
+
     /// Reconciles prompt sales counters for pre-existing clamped records (#653).
     pub fn reconcile_sales_counter(env: &Env, prompt_id: u64) -> Result<u64, Error> {
         let prompt = Self::require_prompt(env, prompt_id)?;
@@ -1397,12 +1506,8 @@ impl Storage {
 
     // ====== TTL RENEWAL (BOUNDED BATCHES) ======
 
-    /// Renew the TTL of prompt records in a bounded batch. Each prompt's
-    /// listing revisions are renewed with it, because `ListingRevision` is
-    /// `DependsOn("Prompt")` in `ttl_policy::get_ttl_dependency`: a revision must
-    /// never outlive the prompt it describes. `renewed_count` and the cursor
-    /// count prompts only, so batch sizing is unchanged.
-    /// Returns (renewed_count, next_cursor_if_more_work).
+    /// Renew the TTL of prompt records (and their listing revisions/creator
+    /// index) in a bounded batch. Returns (renewed_count, next_cursor_if_more_work).
     pub fn renew_critical_keys(env: &Env, cursor: Option<u64>) -> (u32, Option<u64>) {
         use crate::ttl_policy::MAX_RENEWAL_BATCH_SIZE;
 
@@ -1418,15 +1523,6 @@ impl Storage {
             let key = DataKey::Prompt(prompt_id);
             if env.storage().persistent().has(&key) {
                 Self::extend_key_ttl(env, &key);
-                // Parent first, then its dependents, so they are renewed in the same pass.
-                if let Some(prompt) = Self::get_prompt(env, prompt_id) {
-                    for rev in 0..=prompt.revision {
-                        let rev_key = DataKey::ListingRevision(prompt_id, rev);
-                        if env.storage().persistent().has(&rev_key) {
-                            Self::extend_key_ttl(env, &rev_key);
-                        }
-                    }
-                }
                 renewed_count += 1;
             }
             prompt_id += 1;

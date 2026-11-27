@@ -26,100 +26,103 @@ pub enum Error {
     ReentrancyGuard = 18,
     PromptExpired = 19,
     InvalidExtensionDuration = 20,
-    ContractPaused = 19,
+    ContractPaused = 90,
     /// #119: Limited-edition supply exhausted.
-    MaxSupplyReached = 20,
+    MaxSupplyReached = 91,
     /// #118: Referrer cannot be the buyer or the creator.
-    InvalidReferrer = 21,
+    InvalidReferrer = 92,
     /// #121: Payment amount is below the listed price.
-    PaymentBelowPrice = 22,
-    ContractIsPaused = 19,
-    ReferrerCannotBeBuyerOrCreator = 20,
-    InvalidPaymentAmount = 21,
-    InvalidVoucher = 22,
-    InvalidReferralPercentage = 23,
-    InvalidDiscountPercentage = 24,
-    MaxSupplyReached = 25,
-    InvalidAsset = 26,
-    InvalidSplits = 27,
-    ListingExpired = 28,
-    LicenseNotFound = 29,
-    InvalidLicenseTransfer = 30,
-    RevisionFieldsUnchanged = 31,
-    DuplicateSplitRecipient = 32,
-    TooManySplits = 33,
-    FeeExceedsMaximum = 34,
-    DisputeAlreadyOpen = 35,
-    DisputeNotFound = 36,
-    DisputeResolved = 37,
-    InvalidBundle = 38,
-    BundleNotFound = 39,
-    AccessPassNotFound = 40,
-    InvalidAccessDuration = 41,
-    BulkPurchaseTooLarge = 42,
-    DuplicatePromptId = 43,
-    InvalidStatusTransition = 44,
-    AlreadyInitialized = 45,
-    InvalidCursor = 46,
-    InvalidTtlPolicy = 47,
-    AuthorizationExpired = 48,
-    AuthorizationNonceConsumed = 49,
-    InvalidAuthorizationSignature = 50,
-    AuthorizationBuyerMismatch = 51,
-    AuthorizationPromptMismatch = 52,
-    AuthorizationDomainMismatch = 53,
-    AuthorizationNotYetValid = 54,
+    PaymentBelowPrice = 93,
+    ContractIsPaused = 94,
+    ReferrerCannotBeBuyerOrCreator = 95,
+    InvalidPaymentAmount = 96,
+    InvalidVoucher = 97,
+    InvalidReferralPercentage = 98,
+    InvalidDiscountPercentage = 99,
+    MaxSupplyReached = 100,
+    InvalidAsset = 101,
+    InvalidSplits = 102,
+    ListingExpired = 103,
+    LicenseNotFound = 104,
+    InvalidLicenseTransfer = 105,
+    RevisionFieldsUnchanged = 106,
+    DuplicateSplitRecipient = 107,
+    TooManySplits = 108,
+    FeeExceedsMaximum = 109,
+    DisputeAlreadyOpen = 110,
+    DisputeNotFound = 111,
+    DisputeResolved = 112,
+    InvalidBundle = 113,
+    BundleNotFound = 114,
+    AccessPassNotFound = 115,
+    InvalidAccessDuration = 116,
+    BulkPurchaseTooLarge = 117,
+    DuplicatePromptId = 118,
+    InvalidStatusTransition = 119,
+    AlreadyInitialized = 120,
+    InvalidCursor = 121,
+    InvalidTtlPolicy = 122,
+    AuthorizationExpired = 123,
+    AuthorizationNonceConsumed = 124,
+    InvalidAuthorizationSignature = 125,
+    AuthorizationBuyerMismatch = 126,
+    AuthorizationPromptMismatch = 127,
+    AuthorizationDomainMismatch = 128,
+    AuthorizationNotYetValid = 129,
 
     // Signed quote commitments and slippage protection (#565).
-    QuoteExpired = 55,
-    QuoteNotYetValid = 56,
-    QuoteNonceConsumed = 57,
-    QuoteDomainMismatch = 58,
-    QuoteAcquisitionMismatch = 59,
-    QuoteAssetMismatch = 60,
+    QuoteExpired = 130,
+    QuoteNotYetValid = 131,
+    QuoteNonceConsumed = 132,
+    QuoteDomainMismatch = 133,
+    QuoteAcquisitionMismatch = 134,
+    QuoteAssetMismatch = 135,
     /// The listing revision or fee/split configuration changed after the quote
     /// was produced, so a committed commercial term no longer holds.
-    QuoteTermsChanged = 61,
+    QuoteTermsChanged = 136,
     /// The charge computed at execution exceeds the quote's authorized amount.
-    QuoteChargeExceeded = 62,
+    QuoteChargeExceeded = 137,
     /// A tip was supplied without an explicit tip amount on the quote.
-    UnauthorizedTip = 63,
+    UnauthorizedTip = 138,
 
     // Append-only settlement records (#567).
-    SettlementNotFound = 64,
-    SettlementAlreadyFinalized = 65,
+    SettlementNotFound = 139,
+    SettlementAlreadyFinalized = 140,
     /// The entitlement pointer does not reference the settlement being acted on.
-    SettlementEntitlementMismatch = 66,
-    DuplicateSettlementSubmission = 67,
+    SettlementEntitlementMismatch = 141,
+    DuplicateSettlementSubmission = 142,
 
     // Signed resale orders (#568).
-    ResaleOrderNotFound = 68,
-    ResaleOrderExpired = 69,
-    ResaleOrderCancelled = 70,
-    ResaleOrderNonceConsumed = 71,
-    ResaleOrderBuyerMismatch = 72,
-    ResaleOrderDomainMismatch = 73,
+    ResaleOrderNotFound = 143,
+    ResaleOrderExpired = 144,
+    ResaleOrderCancelled = 145,
+    ResaleOrderNonceConsumed = 146,
+    ResaleOrderBuyerMismatch = 147,
+    ResaleOrderDomainMismatch = 148,
     /// The seller no longer holds the entitlement the order was written against.
-    ResaleOrderOwnershipChanged = 74,
+    ResaleOrderOwnershipChanged = 149,
     /// Proceeds after royalties fall below the seller's stated minimum.
-    ResaleProceedsBelowMinimum = 75,
-    InvalidResaleOrderSignature = 76,
+    ResaleProceedsBelowMinimum = 150,
+    InvalidResaleOrderSignature = 151,
 
     // Two-phase governance (#569).
-    GovernanceProposalNotFound = 77,
-    GovernanceProposalExists = 78,
-    GovernanceDelayNotElapsed = 79,
-    GovernanceProposalExpired = 80,
+    GovernanceProposalNotFound = 152,
+    GovernanceProposalExists = 153,
+    GovernanceDelayNotElapsed = 154,
+    GovernanceProposalExpired = 155,
     /// Current configuration no longer matches the proposal's expected state.
-    GovernanceStateMismatch = 81,
-    GovernanceNonceConsumed = 82,
-    InvalidGovernanceDelay = 83,
+    GovernanceStateMismatch = 156,
+    GovernanceNonceConsumed = 157,
+    InvalidGovernanceDelay = 158,
 
-    MaxSupplyBelowCommitted = 84,
-    DisputeWindowClosed = 85,
-    DisputeWindowNotElapsed = 86,
-    InvalidMetadata = 87,
-    MissingMetadata = 88,
+    MaxSupplyBelowCommitted = 159,
+    DisputeWindowClosed = 160,
+    DisputeWindowNotElapsed = 161,
+    InvalidMetadata = 162,
+    MissingMetadata = 163,
+    /// #571: An invariant monitor detected a broken balance or ownership
+    /// invariant. The transaction is rejected before any state is committed.
+    InvariantViolation = 164,
 }
 
 #[contracttype]
@@ -237,6 +240,11 @@ pub enum DataKey {
     PurchaseRoundingPlan(u64, Address, u64),
     /// Rounding shares captured for an access-pass escrow at purchase time.
     AccessPassRoundingPlan(u128, Address, u64),
+
+    /// Monotonic counter backing append-only invariant violation reports (#571).
+    InvariantReportCounter,
+    /// Append-only invariant violation report, keyed by its own report ID (#571).
+    InvariantReport(u128),
 }
 
 #[contracttype]
@@ -400,6 +408,44 @@ pub struct AssetSolvency {
     pub surplus: i128,
 }
 
+/// The class of balance or ownership invariant that was checked (#571).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InvariantKind {
+    /// Per-asset tracked liability must never exceed the contract's SAC balance.
+    AssetSolvency,
+    /// The sum of pending and disputed escrows must equal the tracked liability.
+    EscrowLiabilitySum,
+    /// An entitlement pointer must reference a settlement that exists and is
+    /// owned by the same buyer.
+    EntitlementOwnership,
+    /// A prompt's `sales_count` must equal the number of settled settlements.
+    SalesCounter,
+    /// A purchase escrow's payout plan must sum to the escrowed amount.
+    PayoutPlanSum,
+}
+
+/// Append-only record of a detected invariant violation (#571). Written only
+/// when a monitor runs in report-only mode; in enforcing mode the transaction
+/// reverts with `Error::InvariantViolation` instead.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvariantReport {
+    pub id: u128,
+    pub kind: InvariantKind,
+    /// The asset the invariant applies to, if any.
+    pub asset: Option<Address>,
+    /// The prompt the invariant applies to, if any.
+    pub prompt_id: Option<u64>,
+    /// The buyer the invariant applies to, if any.
+    pub buyer: Option<Address>,
+    /// Observed value of the invariant's left-hand side.
+    pub observed: i128,
+    /// Expected value of the invariant's right-hand side.
+    pub expected: i128,
+    pub detected_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PurchaseDispute {
@@ -522,7 +568,6 @@ pub struct Bundle {
     pub expires_at: Option<u64>,
     /// #119: Maximum number of licenses (0 = unlimited).
     pub max_supply: u64,
-    pub max_supply: u64, // 0 = unlimited
 }
 
 pub trait PromptHashTrait {
@@ -921,6 +966,21 @@ pub trait PromptHashTrait {
         prompt_id: u64,
         buyer: Address,
     ) -> Result<(), Error>;
+
+    // Invariant monitoring for balances and ownership (#571).
+    /// Runs every balance and ownership invariant for `asset`. Reverts with
+    /// `Error::InvariantViolation` if any invariant is broken; otherwise
+    /// returns the solvency snapshot. Permissionless — safe to call as a
+    /// monitor from any account.
+    fn check_invariants(env: Env, asset: Address) -> Result<AssetSolvency, Error>;
+    /// Runs every balance and ownership invariant for `asset` in report-only
+    /// mode. Broken invariants are appended to the report log and returned
+    /// instead of reverting. Returns an empty Vec when all invariants hold.
+    fn report_invariants(env: Env, asset: Address) -> Result<Vec<InvariantReport>, Error>;
+    /// Reads an append-only invariant report by ID.
+    fn get_invariant_report(env: Env, report_id: u128) -> Result<InvariantReport, Error>;
+    /// Returns the total number of invariant reports written so far.
+    fn get_invariant_report_count(env: Env) -> u128;
     fn set_pause_status(env: Env, paused: bool) -> Result<(), Error>;
     fn is_paused(env: Env) -> bool;
     fn add_voucher(

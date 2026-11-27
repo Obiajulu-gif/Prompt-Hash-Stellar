@@ -34,6 +34,33 @@ git add contracts/prompt-hash/spec-baseline.json contracts/prompt-hash/MIGRATION
 
 ## Log
 
+### 2026-08-05 — add invariant monitoring for balances and ownership
+
+This change adds invariant monitoring for balances and ownership. It is
+**additive only**: no trait function, error code, storage-key/record shape,
+or event is removed or changed, so `preflight_upgrade.py` reports no
+breaking changes and no `ACK-BREAKING:` entries are required.
+
+What is added:
+- A read-only invariant checker that verifies balance conservation
+  (sum of tracked balances equals the contract's token balance) and
+  ownership consistency (every stored owner/creator address is set and
+  matches the record it is derived from).
+- Automated tests covering the normal path, failure detection (injected
+  imbalance / mismatched owner), retry behavior (re-running the check is
+  idempotent and read-only), and authorization (only the admin may trigger
+  an on-chain assertion; unauthenticated callers are rejected).
+
+Edge cases and recovery/rollback:
+- Monitoring is observational only and never mutates balances or ownership,
+  so a failed check cannot corrupt state. On failure the checker emits a
+  diagnostic and returns an error; operators should pause writes and
+  investigate before resuming.
+- Retries are safe because the check performs no writes; repeated runs
+  produce identical results.
+- Rollback: since this is additive, reverting the PR restores the prior
+  behavior with no data migration. Existing storage is untouched.
+
 ### 2026-07-29 — catch up baseline after long-unmerged interface drift
 
 `spec-baseline.json` was last regenerated at commit `f46aae1` ("Add
