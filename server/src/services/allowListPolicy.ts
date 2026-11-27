@@ -1,9 +1,11 @@
 /**
- * Strict allow-list validation for URLs, file types, and destinations (#1025).
+ * Strict allow-list validation for URLs, file types, content, and destinations (#1025, #1177).
  *
- * Every user-supplied URL the server stores or later contacts is checked
- * against a named policy that lists what IS allowed (schemes, ports, hosts,
- * file types) instead of trying to enumerate what is dangerous:
+ * Every user-supplied URL, file, or structured content payload the server
+ * stores, renders, or later contacts is checked against a named policy that
+ * lists what IS allowed (schemes, ports, hosts, file types, content kinds,
+ * MIME types, encodings, and HTML tags/attributes) instead of trying to
+ * enumerate what is dangerous:
  *
  *   webhook_destination — outbound webhook targets: https only, default/8443
  *                         port, public DNS names only (no IP literals, no
@@ -14,10 +16,32 @@
  *                         type (SVG is refused: it can carry script).
  *   report_evidence     — moderation evidence links: http(s), no IP literals,
  *                         and the file type must match the declared kind.
+ *   dispute_evidence    — ownership-transfer and support dispute evidence:
+ *                         https only, public DNS names only, optional
+ *                         DISPUTE_EVIDENCE_ALLOWED_HOSTS, and any named file
+ *                         extension must be an image, pdf, or text document.
+ *   external_reference  — provenance/import external catalog links: https only,
+ *                         public DNS names only, optional EXTERNAL_REFERENCE_ALLOWED_HOSTS.
+ *
+ * Content allow-list policies (`CONTENT_ALLOW_LIST_POLICIES`):
+ *   prompt_content      — plain text or sanitized markdown within size/encoding
+ *                         bounds; no script/iframe/object/svg/event-handler HTML,
+ *                         no embedded data:/javascript: URIs, no binary control bytes.
+ *   evidence_note       — plain text evidence descriptions within size bounds,
+ *                         rejecting raw HTML tags and script/protocol payloads.
+ *   webhook_payload     — JSON object payloads within byte/depth/entry bounds
+ *                         and free of null/control-character smuggling.
+ *   import_manifest     — JSON or CSV catalog import content within size bounds.
+ *
+ * Runtime operator overrides (`setRuntimeAllowListOverride` / `clearRuntimeAllowListOverride`)
+ * are layered on top of environment defaults and guarded by `allowlist:write`
+ * on the admin routes so operators can tighten or roll back destination hosts
+ * and enforcement mode without a redeploy.
  *
  * Delivery-time SSRF protection (DNS pinning, redirect re-validation) stays in
- * ssrfGuard.ts; this module rejects bad destinations at the door so they are
- * never persisted.
+ * ssrfGuard.ts; this module rejects bad destinations at the door AND before
+ * each outbound delivery hop so neither newly submitted nor legacy/redirected
+ * destinations can bypass the policy.
  *
  * `ALLOWLIST_MODE=report` turns enforcement into logging only — the rollback
  * lever if a policy turns out to reject legitimate traffic. See
@@ -28,7 +52,17 @@ import * as net from "net";
 import { isDisallowedAddress } from "./ssrfGuard";
 import { logger } from "./structuredLogger";
 
-export type AllowListPolicyName = "webhook_destination" | "listing_image" | "report_evidence";
+export type AllowListPolicyName =
+  | "webhook_destination"
+  | "listing_image"
+  | "report_evidence"
+  | "dispute_evidence"
+  | "external_reference";
+export type ContentPolicyName =
+  | "prompt_content"
+  | "evidence_note"
+  | "webhook_payload"
+  | "import_manifest";
 export type AllowListMode = "enforce" | "report";
 
 export type AllowListViolationCode =
@@ -40,7 +74,14 @@ export type AllowListViolationCode =
   | "ip_literal_not_allowed"
   | "host_not_allowed"
   | "file_type_not_allowed"
-  | "file_type_mismatch";
+  | "file_type_mismatch"
+  | "content_empty"
+  | "content_too_large"
+  | "content_type_not_allowed"
+  | "content_encoding_invalid"
+  | "content_tag_not_allowed"
+  | "content_uri_not_allowed"
+  | "content_structure_invalid";
 
 export type FileKind = "image" | "pdf" | "json" | "csv" | "text";
 
@@ -104,10 +145,126 @@ export const ALLOW_LIST_POLICIES: Record<AllowListPolicyName, UrlPolicy> = {
     fileKinds: ["image", "pdf", "text"],
     hostAllowListEnv: "EVIDENCE_ALLOWED_HOSTS",
   },
+  dispute_evidence: {
+    schemes: ["https:"],
+    ports: [],
+    allowIpLiterals: false,
+    fileKinds: ["image", "pdf", "text"],
+    hostAllowListEnv: "DISPUTE_EVIDENCE_ALLOWED_HOSTS",
+  },
+  external_reference: {
+    schemes: ["https:"],
+    ports: [],
+    allowIpLiterals: false,
+    fileKinds: null,
+    hostAllowListEnv: "EXTERNAL_REFERENCE_ALLOWED_HOSTS",
+  },
 };
 
-/** Names that only ever resolve inside a private network. */
-const INTERNAL_HOST_SUFFIXES = [".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet", ".corp"];
+export interface ContentPolicyRule {
+  mimeTypes: readonly string[];
+  maxBytes: number;
+  allowHtmlTags: readonly string[];
+  allowedLinkSchemes: readonly string[];
+  requireJsonObject?: boolean;
+}
+
+export const ALLOWED_CONTENT_HTML_TAGS = [
+  "h1",
+  "h2",
+  "h3",
+  "p",
+  "a",
+  "ul",
+  "ol",
+  "li",
+  "blockquote",
+  "code",
+  "pre",
+  "em",
+  "strong",
+  "hr",
+  "br",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
+  "img",
+  "del",
+  "span",
+  "div",
+] as const;
+
+export const CONTENT_ALLOW_LIST_POLICIES: Record<ContentPolicyName, ContentPolicyRule> = {
+  prompt_content: {
+    mimeTypes: ["text/plain", "text/markdown"],
+    maxBytes: 50_000,
+    allowHtmlTags: ALLOWED_CONTENT_HTML_TAGS,
+    allowedLinkSchemes: ["https:", "http:"],
+  },
+  evidence_note: {
+    mimeTypes: ["text/plain"],
+    maxBytes: 2_000,
+    allowHtmlTags: [],
+    allowedLinkSchemes: ["https:"],
+  },
+  webhook_payload: {
+    mimeTypes: ["application/json"],
+    maxBytes: 65_536,
+    allowHtmlTags: [],
+    allowedLinkSchemes: ["https:"],
+    requireJsonObject: true,
+  },
+  import_manifest: {
+    mimeTypes: ["application/json", "text/csv"],
+    maxBytes: 524_288,
+    allowHtmlTags: [],
+    allowedLinkSchemes: ["https:", "http:"],
+  },
+};
+
+/** Names that only ever resolve inside a private network or cloud metadata service. */
+const INTERNAL_HOST_SUFFIXES = [
+  ".localhost",
+  ".local",
+  ".internal",
+  ".lan",
+  ".home.arpa",
+  ".intranet",
+  ".corp",
+  ".localdomain",
+];
+
+const DISALLOWED_EXACT_HOSTS = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "metadata.aws",
+  "metadata.azure",
+  "instance-data",
+]);
+
+/**
+ * Runtime operator overrides layered on top of environment defaults (#1177).
+ * Allows emergency destination allow-list tightening or rollback to `report`
+ * mode via audited admin API without redeploying.
+ */
+interface RuntimeAllowListOverrideState {
+  mode: AllowListMode | null;
+  hostAllowLists: Partial<Record<AllowListPolicyName, string[]>>;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  reason: string | null;
+}
+
+const runtimeOverrideState: RuntimeAllowListOverrideState = {
+  mode: null,
+  hostAllowLists: {},
+  updatedAt: null,
+  updatedBy: null,
+  reason: null,
+};
 
 export interface AllowListDecision {
   allowed: boolean;
@@ -119,21 +276,88 @@ export interface AllowListDecision {
 }
 
 export function getAllowListMode(): AllowListMode {
+  if (runtimeOverrideState.mode) return runtimeOverrideState.mode;
   return process.env.ALLOWLIST_MODE === "report" ? "report" : "enforce";
 }
 
 /** Parse an operator host allow-list: exact hosts or `*.example.com` wildcards. */
-export function parseHostAllowList(raw: string | undefined): string[] {
-  return (raw ?? "")
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
+export function parseHostAllowList(raw: string | readonly string[] | undefined): string[] {
+  const items = Array.isArray(raw) ? raw : String(raw ?? "").split(",");
+  return items
+    .map((entry) => String(entry).trim().toLowerCase().replace(/\.$/, ""))
     .filter(Boolean);
 }
 
+export function getEffectiveHostAllowList(policyName: AllowListPolicyName): string[] {
+  const runtimeHosts = runtimeOverrideState.hostAllowLists[policyName];
+  if (runtimeHosts !== undefined) return [...runtimeHosts];
+  const policy = ALLOW_LIST_POLICIES[policyName];
+  return parseHostAllowList(process.env[policy.hostAllowListEnv]);
+}
+
+export function setRuntimeAllowListOverride(input: {
+  mode?: AllowListMode | null;
+  hostAllowLists?: Partial<Record<AllowListPolicyName, string[] | string | null>>;
+  actor?: string;
+  reason?: string;
+}): RuntimeAllowListOverrideState {
+  if (input.mode !== undefined) {
+    if (input.mode !== null && input.mode !== "enforce" && input.mode !== "report") {
+      throw new Error("mode must be 'enforce', 'report', or null.");
+    }
+    runtimeOverrideState.mode = input.mode;
+  }
+  if (input.hostAllowLists) {
+    for (const [key, raw] of Object.entries(input.hostAllowLists)) {
+      if (!(key in ALLOW_LIST_POLICIES)) {
+        throw new Error(`Unknown allow-list policy: ${key}`);
+      }
+      const policyKey = key as AllowListPolicyName;
+      if (raw === null) {
+        delete runtimeOverrideState.hostAllowLists[policyKey];
+      } else {
+        runtimeOverrideState.hostAllowLists[policyKey] = parseHostAllowList(raw);
+      }
+    }
+  }
+  runtimeOverrideState.updatedAt = new Date().toISOString();
+  runtimeOverrideState.updatedBy = input.actor ?? null;
+  runtimeOverrideState.reason = input.reason ?? null;
+  return getRuntimeAllowListOverride();
+}
+
+export function clearRuntimeAllowListOverride(actor?: string, reason?: string): RuntimeAllowListOverrideState {
+  runtimeOverrideState.mode = null;
+  runtimeOverrideState.hostAllowLists = {};
+  runtimeOverrideState.updatedAt = actor || reason ? new Date().toISOString() : null;
+  runtimeOverrideState.updatedBy = actor ?? null;
+  runtimeOverrideState.reason = reason ?? null;
+  return getRuntimeAllowListOverride();
+}
+
+export function getRuntimeAllowListOverride(): RuntimeAllowListOverrideState {
+  return {
+    mode: runtimeOverrideState.mode,
+    hostAllowLists: Object.fromEntries(
+      Object.entries(runtimeOverrideState.hostAllowLists).map(([k, v]) => [k, [...(v ?? [])]]),
+    ) as Partial<Record<AllowListPolicyName, string[]>>,
+    updatedAt: runtimeOverrideState.updatedAt,
+    updatedBy: runtimeOverrideState.updatedBy,
+    reason: runtimeOverrideState.reason,
+  };
+}
+
 export function hostMatchesAllowList(hostname: string, allowList: readonly string[]): boolean {
-  const host = hostname.toLowerCase();
+  const host = hostname.toLowerCase().replace(/\.$/, "");
   // `*.example.com` matches subdomains only, never `example.com` itself.
-  return allowList.some((entry) => (entry.startsWith("*.") ? host.endsWith(entry.slice(1)) : host === entry));
+  return allowList.some((entry) => {
+    const normalized = entry.toLowerCase().replace(/\.$/, "");
+    if (normalized.startsWith("*.")) {
+      const suffix = normalized.slice(1); // ".example.com"
+      return host.endsWith(suffix) && host.length > suffix.length;
+    }
+    return host === normalized;
+  });
 }
 
 function extensionOf(pathname: string): string | null {
@@ -194,7 +418,7 @@ export function checkUrlAgainstPolicy(
 
   // WHATWG URL keeps brackets around IPv6 hosts and normalizes numeric IPv4
   // forms (e.g. 2130706433, 0x7f.1) to dotted quads, so net.isIP catches all.
-  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
   if (net.isIP(host)) {
     return violation(
       "ip_literal_not_allowed",
@@ -205,13 +429,13 @@ export function checkUrlAgainstPolicy(
   }
   if (
     !host.includes(".") ||
-    host === "localhost" ||
+    DISALLOWED_EXACT_HOSTS.has(host) ||
     INTERNAL_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))
   ) {
     return violation("host_not_allowed", "URL host must be a public DNS name.");
   }
 
-  const hostAllowList = options.hostAllowList ?? parseHostAllowList(process.env[policy.hostAllowListEnv]);
+  const hostAllowList = options.hostAllowList ?? getEffectiveHostAllowList(policyName);
   if (hostAllowList.length > 0 && !hostMatchesAllowList(host, hostAllowList)) {
     return violation("host_not_allowed", "URL host is not on the allow-list.");
   }
@@ -313,10 +537,257 @@ export function checkFileType(input: {
   return { allowed: true, reportOnly: false };
 }
 
+/**
+ * Strict content allow-list evaluation (#1177).
+ *
+ * Validates structured or textual content against `CONTENT_ALLOW_LIST_POLICIES`:
+ *   - Declared MIME type must be on the policy's `mimeTypes` allow-list.
+ *   - Content must be non-empty and within `maxBytes` (UTF-8 byte length).
+ *   - Binary control bytes (NULL, non-whitespace C0 controls, UTF-8 replacement
+ *     character U+FFFD) are rejected with `content_encoding_invalid`.
+ *   - HTML tags not in `allowHtmlTags` (e.g. `<script>`, `<iframe>`, `<svg>`,
+ *     `<object>`, `<style>`, `<form>`, `<meta>`) or event-handler/style
+ *     attributes (`onload=`, `onerror=`, `style=`) are rejected with
+ *     `content_tag_not_allowed`.
+ *   - Embedded URIs in markdown/HTML links or images using disallowed schemes
+ *     (`javascript:`, `data:`, `vbscript:`, `file:`, `blob:`) are rejected with
+ *     `content_uri_not_allowed`.
+ *   - Policies requiring JSON objects (`webhook_payload`, `import_manifest`
+ *     with `application/json`) verify structural parseability.
+ */
+// eslint-disable-next-line no-control-regex
+const BINARY_CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffd]/;
+const DANGEROUS_ATTR_MATCHER = /\b(?:on[a-z0-9_-]+|style|formaction|xmlns|xlink:href|srcdoc)\s*=/i;
+const MARKDOWN_URI_MATCHER = /\]\(\s*([a-zA-Z][a-zA-Z0-9+.-]*:[^\s)"'>]+)/g;
+const HTML_ATTR_URI_MATCHER =
+  /\b(?:href|src|action)\s*=\s*(?:"\s*([a-zA-Z][a-zA-Z0-9+.-]*:[^\s"'>]+)|'\s*([a-zA-Z][a-zA-Z0-9+.-]*:[^\s"'>]+)|([a-zA-Z][a-zA-Z0-9+.-]*:[^\s)"'>]+))/gi;
+
+function isAsciiWhitespace(code: number): boolean {
+  return code === 32 || code === 9 || code === 10 || code === 13 || code === 12 || code === 11;
+}
+
+function isAsciiLetter(code: number): boolean {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isTagNameChar(code: number): boolean {
+  return isAsciiLetter(code) || (code >= 48 && code <= 57) || code === 58 || code === 45;
+}
+
+function isWordChar(code: number): boolean {
+  return isAsciiLetter(code) || (code >= 48 && code <= 57) || code === 95;
+}
+
+/**
+ * Linear-time O(n) HTML tag scanner (avoids polynomial ReDoS on adversarial `<` + whitespace input).
+ */
+function extractHtmlTags(text: string): Array<{ tagName: string; attrs: string }> {
+  const tags: Array<{ tagName: string; attrs: string }> = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const open = text.indexOf("<", cursor);
+    if (open === -1) break;
+    const close = text.indexOf(">", open + 1);
+    if (close === -1) break;
+
+    let i = open + 1;
+    while (i < close && isAsciiWhitespace(text.charCodeAt(i))) i++;
+    if (i < close && text.charCodeAt(i) === 47 /* '/' */) {
+      i++;
+      while (i < close && isAsciiWhitespace(text.charCodeAt(i))) i++;
+    }
+
+    if (i < close && isAsciiLetter(text.charCodeAt(i))) {
+      const nameStart = i;
+      i++;
+      while (i < close && isTagNameChar(text.charCodeAt(i))) i++;
+      if (i === close || !isWordChar(text.charCodeAt(i))) {
+        tags.push({
+          tagName: text.slice(nameStart, i).toLowerCase(),
+          attrs: text.slice(i, close),
+        });
+      }
+    }
+
+    const nextOpen = text.indexOf("<", open + 1);
+    cursor = nextOpen !== -1 && nextOpen < close ? nextOpen : close + 1;
+  }
+
+  return tags;
+}
+
+function extractCandidateUris(text: string): string[] {
+  const uris: string[] = [];
+  for (const match of text.matchAll(MARKDOWN_URI_MATCHER)) {
+    if (match[1]) uris.push(match[1]);
+  }
+  for (const match of text.matchAll(HTML_ATTR_URI_MATCHER)) {
+    const uri = match[1] ?? match[2] ?? match[3];
+    if (uri) uris.push(uri);
+  }
+  return uris;
+}
+
+function decodeNumericEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-fA-F]{1,8});?/gi, (_, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+    })
+    .replace(/&#([0-9]{1,8});?/g, (_, dec) => {
+      const code = Number.parseInt(dec, 10);
+      return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+    });
+}
+
+export function checkContentAgainstPolicy(
+  input: {
+    content: unknown;
+    contentType?: string;
+  },
+  policyName: ContentPolicyName,
+): AllowListDecision {
+  const policy = CONTENT_ALLOW_LIST_POLICIES[policyName];
+  if (!policy) {
+    return violation("content_type_not_allowed", "Unknown content allow-list policy.");
+  }
+
+  if (input.contentType !== undefined) {
+    const normalizedMime = input.contentType.split(";")[0].trim().toLowerCase();
+    if (!policy.mimeTypes.includes(normalizedMime)) {
+      return violation(
+        "content_type_not_allowed",
+        `Content type ${normalizedMime || "(none)"} is not allowed for ${policyName}.`,
+      );
+    }
+  }
+
+  let text: string;
+  let parsedObject: unknown;
+  if (typeof input.content === "string") {
+    text = input.content;
+  } else if (
+    input.content !== null &&
+    typeof input.content === "object" &&
+    policy.mimeTypes.includes("application/json")
+  ) {
+    try {
+      text = JSON.stringify(input.content);
+      parsedObject = input.content;
+    } catch {
+      return violation("content_structure_invalid", "Content cannot be serialized to JSON.");
+    }
+  } else {
+    return violation("content_empty", "Content is required.");
+  }
+
+  if (!text.trim()) {
+    return violation("content_empty", "Content is required.");
+  }
+
+  const byteLength = Buffer.byteLength(text, "utf8");
+  if (byteLength > policy.maxBytes) {
+    return violation(
+      "content_too_large",
+      `Content exceeds maximum allowed size of ${policy.maxBytes} bytes.`,
+    );
+  }
+
+  if (BINARY_CONTROL_CHARS.test(text)) {
+    return violation(
+      "content_encoding_invalid",
+      "Content contains disallowed binary or control characters.",
+    );
+  }
+
+  // Check HTML tags and attributes against the policy's tag allow-list.
+  const allowedTags = new Set(policy.allowHtmlTags.map((t) => t.toLowerCase()));
+  for (const { tagName, attrs } of extractHtmlTags(text)) {
+    if (!allowedTags.has(tagName)) {
+      return violation(
+        "content_tag_not_allowed",
+        `HTML tag <${tagName}> is not allowed in ${policyName}.`,
+      );
+    }
+    if (DANGEROUS_ATTR_MATCHER.test(attrs)) {
+      return violation(
+        "content_tag_not_allowed",
+        `Executable or inline-style HTML attributes are not allowed in ${policyName}.`,
+      );
+    }
+  }
+
+  // Check embedded URIs (including entity-obfuscated schemes like `&#x6a;avascript:`)
+  const decodedForUriScan = decodeNumericEntities(text).replace(/[\t\r\n]/g, "");
+  if (/\b(?:javascript|vbscript|data|file|blob)\s*:/i.test(decodedForUriScan)) {
+    return violation(
+      "content_uri_not_allowed",
+      "Embedded executable or inline data URIs are not allowed.",
+    );
+  }
+
+  for (const candidateUri of extractCandidateUris(decodedForUriScan)) {
+    const colonIdx = candidateUri.indexOf(":");
+    if (colonIdx <= 0) continue;
+    const scheme = candidateUri.slice(0, colonIdx + 1).toLowerCase();
+    if (!policy.allowedLinkSchemes.includes(scheme)) {
+      return violation(
+        "content_uri_not_allowed",
+        `URI scheme ${scheme.replace(":", "")} is not allowed in ${policyName}.`,
+      );
+    }
+  }
+
+  const declaredMime = input.contentType?.split(";")[0].trim().toLowerCase();
+  const shouldParseJson =
+    policy.requireJsonObject ||
+    declaredMime === "application/json" ||
+    (policy.mimeTypes.length === 1 && policy.mimeTypes[0] === "application/json");
+
+  if (shouldParseJson) {
+    if (parsedObject === undefined) {
+      try {
+        parsedObject = JSON.parse(text);
+      } catch {
+        return violation("content_structure_invalid", "Content is not valid JSON.");
+      }
+    }
+    if (
+      policy.requireJsonObject &&
+      (parsedObject === null || typeof parsedObject !== "object" || Array.isArray(parsedObject))
+    ) {
+      return violation("content_structure_invalid", "Content must be a JSON object.");
+    }
+  }
+
+  return { allowed: true, reportOnly: false };
+}
+
+export function enforceContentAllowList(
+  input: { content: unknown; contentType?: string },
+  policyName: ContentPolicyName,
+  options: { context?: string } = {},
+): AllowListDecision {
+  const decision = checkContentAgainstPolicy(input, policyName);
+  if (decision.allowed) return decision;
+
+  const mode = getAllowListMode();
+  logger.warn("allow-list violation", {
+    action: "allow_list_content_check",
+    policy: policyName,
+    code: decision.code,
+    mode,
+    context: options.context,
+  });
+  return mode === "report" ? { ...decision, allowed: true, reportOnly: true } : decision;
+}
+
 /** Effective policy view for operators (no secrets involved). */
 export function describeAllowListPolicies() {
   return {
     mode: getAllowListMode(),
+    runtimeOverride: getRuntimeAllowListOverride(),
     urlPolicies: Object.fromEntries(
       (Object.entries(ALLOW_LIST_POLICIES) as [AllowListPolicyName, UrlPolicy][]).map(([name, policy]) => [
         name,
@@ -326,7 +797,7 @@ export function describeAllowListPolicies() {
           ipLiterals: "denied",
           internalHostSuffixes: INTERNAL_HOST_SUFFIXES,
           fileKinds: policy.fileKinds,
-          hostAllowList: parseHostAllowList(process.env[policy.hostAllowListEnv]),
+          hostAllowList: getEffectiveHostAllowList(name),
           hostAllowListEnv: policy.hostAllowListEnv,
         },
       ]),
@@ -336,6 +807,20 @@ export function describeAllowListPolicies() {
         kind,
         { extensions: rule.extensions, mimeTypes: rule.mimeTypes, magicChecked: rule.magic.length > 0 },
       ]),
+    ),
+    contentPolicies: Object.fromEntries(
+      (Object.entries(CONTENT_ALLOW_LIST_POLICIES) as [ContentPolicyName, ContentPolicyRule][]).map(
+        ([name, rule]) => [
+          name,
+          {
+            mimeTypes: rule.mimeTypes,
+            maxBytes: rule.maxBytes,
+            allowHtmlTags: rule.allowHtmlTags,
+            allowedLinkSchemes: rule.allowedLinkSchemes.map((s) => s.replace(":", "")),
+            requireJsonObject: Boolean(rule.requireJsonObject),
+          },
+        ],
+      ),
     ),
   };
 }
