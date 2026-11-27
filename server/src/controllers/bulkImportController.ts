@@ -14,6 +14,7 @@ import { provenanceService } from "../services/provenanceService";
 import { policyLimitService } from "../services/policyLimitService";
 import { logger } from "../services/structuredLogger";
 import { recordAuditEvent } from "../services/auditTrail";
+import { enforceContentAllowList, enforceUrlAllowList } from "../services/allowListPolicy";
 
 /**
  * Bulk Import Controller (Issue #929)
@@ -173,6 +174,33 @@ export async function bulkImportPrompts(
           throw new Error(
             "Missing required fields: title, content, image, category",
           );
+        }
+
+        // Strict destination and content allow-lists (#1177)
+        const imageDecision = enforceUrlAllowList(item.image, "listing_image", {
+          expectedKind: "image",
+          context: "bulk_import_image",
+        });
+        if (!imageDecision.allowed) {
+          throw new Error(`image: ${imageDecision.message}`);
+        }
+        if (item.externalUrl) {
+          const extDecision = enforceUrlAllowList(
+            item.externalUrl,
+            "external_reference",
+            { context: "bulk_import_external_url" },
+          );
+          if (!extDecision.allowed) {
+            throw new Error(`externalUrl: ${extDecision.message}`);
+          }
+        }
+        const contentDecision = enforceContentAllowList(
+          { content: item.content, contentType: "text/markdown" },
+          "prompt_content",
+          { context: "bulk_import_content" },
+        );
+        if (!contentDecision.allowed) {
+          throw new Error(`content: ${contentDecision.message}`);
         }
 
         if (dryRun) {
