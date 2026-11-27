@@ -9,15 +9,24 @@ import {
   releaseHold,
   defaultDeps,
 } from "../services/retentionHoldService";
+import {
+  RetentionEnforcementError,
+  describeRetentionEnforcementPolicies,
+  enforceAndVerifyRetention,
+  verifyRetentionDeletion,
+} from "../services/retentionVerificationService";
 
 /**
- * Retention holds for disputes and investigations. See docs/retention-holds.md.
+ * Retention holds, enforcement, and deletion verification (#1181). See docs/retention-holds.md.
  *
  * GET  /api/admin/retention-holds?status=active|released&caseRef=
  * GET  /api/admin/retention-holds/overdue
- * POST /api/admin/retention-holds            { caseType, caseRef, reason, links[] | includePromptReportsFor, reviewDays? }
- * POST /api/admin/retention-holds/:id/release { reason }
- * POST /api/admin/retention-holds/reconcile  { dryRun? }   (defaults to dry run)
+ * GET  /api/admin/retention-holds/policies
+ * POST /api/admin/retention-holds                 { caseType, caseRef, reason, links[] | includePromptReportsFor, reviewDays? }
+ * POST /api/admin/retention-holds/:id/release     { reason }
+ * POST /api/admin/retention-holds/reconcile       { dryRun? }   (defaults to dry run)
+ * POST /api/admin/retention-holds/verify-deletion { sampleLimit?, repairIncompleteScrubs? }
+ * POST /api/admin/retention-holds/enforce         { dryRun?, batchSize?, sampleLimit?, repairIncompleteScrubs? }
  */
 export const retentionHoldRouter = Router();
 
@@ -28,6 +37,14 @@ function sendError(res: Response, err: unknown): void {
       : err.code === "hold_not_found" || err.code === "record_not_found" ? 404
       : err.code === "already_released" ? 409
       : 503;
+    res.status(status).json({ error: err.message, code: err.code, details: err.details });
+    return;
+  }
+  if (err instanceof RetentionEnforcementError) {
+    const status =
+      err.code === "invalid_request" ? 400
+      : err.code === "hold_ledger_unavailable" ? 503
+      : 500;
     res.status(status).json({ error: err.message, code: err.code, details: err.details });
     return;
   }
@@ -100,3 +117,60 @@ retentionHoldRouter.post("/:id/release", requireAdminScope("retention-holds:writ
     sendError(res, err);
   }
 });
+
+retentionHoldRouter.get("/policies", requireAdminScope("retention-holds:read"), (_req: AdminRequest, res: Response) => {
+  res.json(describeRetentionEnforcementPolicies());
+});
+
+retentionHoldRouter.post(
+  "/verify-deletion",
+  requireAdminScope("retention-holds:read"),
+  async (req: AdminRequest, res: Response) => {
+    try {
+      await connectDb();
+      const body = req.body ?? {};
+      const repairIncompleteScrubs = body.repairIncompleteScrubs === true;
+      if (repairIncompleteScrubs) {
+        const scopes = req.admin?.scopes ?? [];
+        if (!scopes.includes("retention-holds:write") && !scopes.includes("*")) {
+          res.status(403).json({
+            error: "repairIncompleteScrubs requires retention-holds:write scope.",
+            code: "insufficient_scope",
+          });
+          return;
+        }
+      }
+      const report = await verifyRetentionDeletion({
+        sampleLimit: body.sampleLimit !== undefined ? Number(body.sampleLimit) : undefined,
+        repairIncompleteScrubs,
+        actor: req.admin?.sub ?? "admin",
+        requestId: req.requestId ?? null,
+      });
+      res.json(report);
+    } catch (err) {
+      sendError(res, err);
+    }
+  },
+);
+
+retentionHoldRouter.post(
+  "/enforce",
+  requireAdminScope("retention-holds:write"),
+  async (req: AdminRequest, res: Response) => {
+    try {
+      await connectDb();
+      const body = req.body ?? {};
+      const report = await enforceAndVerifyRetention({
+        dryRun: body.dryRun === true,
+        batchSize: body.batchSize !== undefined ? Number(body.batchSize) : undefined,
+        sampleLimit: body.sampleLimit !== undefined ? Number(body.sampleLimit) : undefined,
+        repairIncompleteScrubs: body.repairIncompleteScrubs !== false,
+        actor: req.admin?.sub ?? "admin",
+        requestId: req.requestId ?? null,
+      });
+      res.json(report);
+    } catch (err) {
+      sendError(res, err);
+    }
+  },
+);
