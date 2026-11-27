@@ -92,10 +92,12 @@ export const AUDIT_ACTIONS = [
   "maintainer_note_accessed",
   // failure escalation (#904)
   "failure_escalated",
-  // retention holds
+  // retention holds & enforcement / deletion verification (#1181)
   "retention_hold_created",
   "retention_hold_released",
   "retention_hold_reconciled",
+  "retention_enforcement_executed",
+  "retention_deletion_verified",
   // time-boxed maintainer access grants (#912)
   "maintainer_grant_issued",
   "maintainer_grant_revoked",

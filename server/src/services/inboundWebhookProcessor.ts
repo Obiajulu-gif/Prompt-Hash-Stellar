@@ -384,7 +384,7 @@ export async function listFailedEvents(filter: {
 
   const [events, total] = await Promise.all([
     InboundWebhookEvent.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),
@@ -408,7 +408,7 @@ export async function listEventsByStatus(filter: {
 
   const [events, total] = await Promise.all([
     InboundWebhookEvent.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),
