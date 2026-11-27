@@ -85,3 +85,59 @@ audit trail.
 **Unaffected sessions.** Subject events only cut off that account. Other
 accounts' sessions keep working, and sessions issued after the event sign in
 normally.
+
+---
+
+## 7. Wallet Session Guard: Edge Cases, Recovery and Verification (#1133)
+
+`requireWalletSession` (`server/src/middleware/walletSession.ts`) is the admission
+point for `Authorization: Bearer` wallet sessions. It checks revocation after the
+token signature, expiry, wallet binding and action. The table lists the outcome for
+each path.
+
+| Path | Result | Client-visible `code` |
+| --- | --- | --- |
+| Valid session for its own wallet | `next()`; `req.sessionWallet` set | none |
+| Wallet param lower-case | Normalized to the account form, then admitted | none |
+| Malformed wallet address | `400` before the token is read | none |
+| Missing bearer token | `401` | none |
+| Expired token, or token for another wallet | `401` | none |
+| Unlock challenge replayed as a session | `401` (action mismatch) | none |
+| Session secret not configured | `503`, no detail returned | none |
+| Session issued before a subject security event | `401` with the policy's user-safe message | `subject_revoked_by_security_event` |
+| Session issued after the event | `next()`; the user signs in again | none |
+| Other accounts after one subject event | Unaffected | none |
+
+**Edge cases**
+
+- Wallet addresses are 56-character Stellar strkeys (`G` plus 55 base32 characters).
+  The guard previously required 56 characters after the `G`, which rejected every
+  real wallet. Revocation normalization uses the same 55-character form.
+- The internal revocation `reason` never appears in a response. Check it in the
+  audit trail and the registry status only.
+- A cutoff more than 60 seconds in the future is refused (`invalid_timestamp`), so a
+  mis-set clock cannot pre-revoke sessions that do not exist yet.
+- Revocation records are retained for `MAX_REVOCATION_RETENTION_MS`. A token older
+  than that has already expired, so pruning cannot readmit a revoked session.
+
+**Recovery and rollback**
+
+- For a false alarm, an authorized operator (`admin` or `security:revoke`) calls
+  `reinstateSubject(subject, actor, reason)`. Pre-event sessions work again, and the
+  reinstatement is audited. A viewer call throws `unauthorized` and changes nothing.
+- A user whose session was revoked signs a new challenge. The new session is
+  admitted because it was issued after the cutoff.
+
+**Verification**
+
+```bash
+cd server
+npx vitest run src/tests/walletSessionRevocation.test.ts \
+  src/tests/sessionRevocationService.test.ts \
+  src/tests/sessionInvalidationPolicy.test.ts \
+  src/tests/abuseRiskGuard.test.ts
+```
+
+Step-up decisions use `hasFreshWalletSession`, so a session older than the step-up
+window (5 minutes by default) does not count as a fresh signature, and a revoked
+session does not either.
