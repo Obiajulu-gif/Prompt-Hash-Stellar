@@ -19,6 +19,7 @@
  */
 
 import type { TransferStatus } from "../models/OwnershipTransfer";
+import { enforceContentAllowList, enforceUrlAllowList } from "./allowListPolicy";
 
 export const DISPUTE_STATUSES = ["open", "accepted", "rejected", "withdrawn"] as const;
 export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
@@ -126,6 +127,18 @@ export function validateEvidence(
   if (input.note.trim().length > MAX_EVIDENCE_NOTE_LENGTH) {
     return { ok: false, status: 400, error: `Evidence note must be at most ${MAX_EVIDENCE_NOTE_LENGTH} characters.` };
   }
+  const noteContentDecision = enforceContentAllowList(
+    { content: input.note.trim(), contentType: "text/plain" },
+    "evidence_note",
+    { context: "ownership_dispute_note" },
+  );
+  if (!noteContentDecision.allowed) {
+    return {
+      ok: false,
+      status: 400,
+      error: noteContentDecision.message ?? "Evidence note contains disallowed content.",
+    };
+  }
 
   let evidenceUrl = "";
   if (input.evidenceUrl !== undefined && input.evidenceUrl !== null && input.evidenceUrl !== "") {
@@ -141,7 +154,17 @@ export function validateEvidence(
     if (parsed.protocol !== "https:") {
       return { ok: false, status: 400, error: "Evidence URL must use https." };
     }
-    evidenceUrl = parsed.toString();
+    const urlDecision = enforceUrlAllowList(input.evidenceUrl, "dispute_evidence", {
+      context: "ownership_dispute_evidence",
+    });
+    if (!urlDecision.allowed) {
+      return {
+        ok: false,
+        status: 400,
+        error: urlDecision.message ?? "Evidence URL is not allowed.",
+      };
+    }
+    evidenceUrl = urlDecision.normalizedUrl ?? parsed.toString();
   }
 
   return { ok: true, note: input.note.trim(), evidenceUrl };
