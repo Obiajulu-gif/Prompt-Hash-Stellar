@@ -84,6 +84,44 @@ on top of already-changed storage shapes from prior merges. Any testnet
 instance deployed against an older interface must be redeployed fresh
 rather than upgraded in place.
 
+### 2026-11-28 — catch up baseline after further interface drift
+
+`spec-baseline.json` was last regenerated at commit `6c9f233`
+("feat(contracts): per-asset escrow liability tracking..."). Contract
+interface changes merged since then (including the TTL and storage changes
+from #685/#1200 and later cleanups) left the checked-in baseline stale, so
+`preflight_upgrade.py check --self-check` failed on any PR touching
+`contracts/`, even when that PR made no interface change of its own. None
+of the changes below originate in the durable-side-effect-checkpoint PR;
+they are another one-time catch-up so future PRs are checked against the
+current interface.
+
+ACK-BREAKING: function `admin_set_prompt_sale_status` signature changed
+ACK-BREAKING: function `extend_all_ttl` was removed from PromptHashTrait
+ACK-BREAKING: type `AccessPass` was removed
+ACK-BREAKING: type `AcquisitionKind` was removed
+ACK-BREAKING: `Bundle`: `pub expires_at: u64` was removed or changed shape
+ACK-BREAKING: type `CatalogPassPurchase` was removed
+ACK-BREAKING: `DataKey`: `// Index: category → Vec<prompt_ids> TagPrompts(String)` was removed or changed shape
+ACK-BREAKING: `DataKey`: `// Index: tag → Vec<prompt_ids> ActivePrompts` was removed or changed shape
+ACK-BREAKING: `DataKey`: `// Index: all active → Vec<prompt_ids> AllPrompts` was removed or changed shape
+ACK-BREAKING: `DataKey`: `// Index: all → Vec<prompt_ids> Purchase(u64` was removed or changed shape
+ACK-BREAKING: type `GovernanceAction` was removed
+ACK-BREAKING: type `GovernanceProposal` was removed
+ACK-BREAKING: type `ListingRevisionRecord` was removed
+ACK-BREAKING: type `QuoteCommitment` was removed
+ACK-BREAKING: type `ResaleOrder` was removed
+ACK-BREAKING: type `ResaleOrderStatus` was removed
+ACK-BREAKING: type `SettlementRecord` was removed
+ACK-BREAKING: type `SignedDiscountAuthorization` was removed
+ACK-BREAKING: event `PromptAdminModerated` field list changed
+
+Migration: this is still a pre-launch contract with no live mainnet state
+to migrate. Removed helper types and the TTL helper removal do not affect
+stored records; the reshaped `DataKey` index comments and `Bundle` shape
+are index-only changes. Any testnet instance deployed against the older
+interface must be redeployed fresh rather than upgraded in place.
+
 <!--
 Example:
 
