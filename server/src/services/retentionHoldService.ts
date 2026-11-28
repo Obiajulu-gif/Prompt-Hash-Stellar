@@ -99,19 +99,26 @@ export interface RetentionHoldDeps {
   now(): Date;
 }
 
+export type RetentionHoldErrorCode =
+  | "invalid_request"
+  | "record_not_found"
+  | "hold_not_found"
+  | "already_released"
+  | "ledger_unavailable";
+
 export class RetentionHoldError extends Error {
+  public readonly code: RetentionHoldErrorCode;
+  public readonly details: string[];
+
   constructor(
-    public readonly code:
-      | "invalid_request"
-      | "record_not_found"
-      | "hold_not_found"
-      | "already_released"
-      | "ledger_unavailable",
+    code: RetentionHoldErrorCode,
     message: string,
-    public readonly details: string[] = [],
+    details: string[] = [],
   ) {
     super(message);
     this.name = "RetentionHoldError";
+    this.code = code;
+    this.details = details;
   }
 }
 

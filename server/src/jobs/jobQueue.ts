@@ -243,7 +243,7 @@ export async function listJobs(filter: { status?: string; type?: JobType; limit?
   const query: any = {};
   if (filter.status) query.status = filter.status;
   if (filter.type) query.type = filter.type;
-  const docs = await JobRecord.find(query).sort({ createdAt: -1 }).limit(filter.limit ?? 50);
+  const docs = await JobRecord.find(query).sort({ createdAt: -1, _id: -1 }).limit(filter.limit ?? 50);
   return docs.map(toDto);
 }
 
