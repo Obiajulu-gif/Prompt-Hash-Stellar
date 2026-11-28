@@ -51,7 +51,35 @@ export interface StuckOperationDiagnostic {
   updatedAt: Date;
 }
 
+export interface CancelOperationResult {
+  checkpoint: IOperationCheckpoint;
+  /** True when the operation was already cancelled (idempotent no-op). */
+  alreadyCancelled: boolean;
+  /** True when an on-chain transaction was broadcast, so cancellation only halts local work. */
+  onchainBroadcastPresent: boolean;
+  /** Recommended follow-up for operators/users. */
+  recoveryGuidance: string;
+}
+
 export const DEFAULT_STUCK_THRESHOLD_MINUTES = 15;
+
+/** Overall states from which an operation may be cancelled. */
+const CANCELLABLE_STATES: ReadonlySet<OperationStepState> = new Set<OperationStepState>([
+  "PENDING",
+  "INITIALIZED",
+  "PREVALIDATED",
+  "RETRYABLE",
+  "RECOVERABLE",
+  "MANUALLY_REVIEWED",
+]);
+
+/** Overall states that are terminal and must never transition again via cancellation. */
+const TERMINAL_STATES: ReadonlySet<OperationStepState> = new Set<OperationStepState>([
+  "RESOLVED",
+  "CONFIRMED",
+  "FAILED",
+  "ABANDONED",
+]);
 
 export class OperationRecoveryService {
   /**
@@ -136,6 +164,13 @@ export class OperationRecoveryService {
       throw new Error(`Operation checkpoint not found: ${operationId}`);
     }
 
+    // A cancelled operation must not be advanced by late-arriving workers.
+    if (checkpoint.overallState === "CANCELLED" && state !== "CANCELLED") {
+      throw new Error(
+        `Operation ${operationId} is cancelled; refusing to record step ${stepName} as ${state}.`
+      );
+    }
+
     checkpoint.currentStep = stepName;
     checkpoint.overallState = state;
     if (options?.error) {
@@ -158,10 +193,114 @@ export class OperationRecoveryService {
       checkpoint.nextRecoveryAction = `RETRY_${stepName.toUpperCase()}`;
     } else if (canonical === "FAILED") {
       checkpoint.nextRecoveryAction = "TERMINATED";
+    } else if (state === "CANCELLED") {
+      checkpoint.nextRecoveryAction = "CANCELLED";
     }
 
     await checkpoint.save();
     return checkpoint;
+  }
+
+  /**
+   * Cancels a long-running operation and performs local cleanup.
+   *
+   * Authorization: only the initiating user may cancel their own operation.
+   *
+   * Semantics:
+   * - Idempotent: cancelling an already-cancelled operation returns it unchanged.
+   * - Terminal operations (RESOLVED/CONFIRMED/FAILED/ABANDONED) cannot be cancelled.
+   * - If an on-chain transaction was already broadcast (any step with a txHash or
+   *   ONCHAIN_SUBMITTED state), cancellation cannot reverse it. The checkpoint is
+   *   still moved to CANCELLED to halt further local side effects, and the result
+   *   flags `onchainBroadcastPresent` so callers verify on-chain status.
+   * - Cleanup clears transient retry bookkeeping (`nextRecoveryAction`) so no
+   *   automated retry can resume the operation.
+   * - The cancellation is audited on success.
+   */
+  static async cancelOperation(
+    operationId: string,
+    actorWallet: string,
+    reason?: string
+  ): Promise<CancelOperationResult> {
+    const checkpoint = await OperationCheckpoint.findOne({ operationId });
+    if (!checkpoint) {
+      throw new Error(`Operation not found: ${operationId}`);
+    }
+
+    if (checkpoint.userId.toLowerCase() !== actorWallet.toLowerCase()) {
+      throw new Error("Unauthorized: Only the initiator of this operation can cancel it.");
+    }
+
+    const onchainBroadcastPresent = checkpoint.steps.some(
+      (s: ICheckpointStep) => s.state === "ONCHAIN_SUBMITTED" || !!s.txHash
+    );
+
+    if (checkpoint.overallState === "CANCELLED") {
+      return {
+        checkpoint,
+        alreadyCancelled: true,
+        onchainBroadcastPresent,
+        recoveryGuidance: onchainBroadcastPresent
+          ? "Operation was already cancelled. A transaction was broadcast; verify its on-chain status."
+          : "Operation was already cancelled. No further action required.",
+      };
+    }
+
+    if (TERMINAL_STATES.has(checkpoint.overallState)) {
+      throw new Error(
+        `Cannot cancel operation in terminal state ${checkpoint.overallState}.`
+      );
+    }
+
+    if (!CANCELLABLE_STATES.has(checkpoint.overallState)) {
+      throw new Error(
+        `Cannot cancel operation in state ${checkpoint.overallState}.`
+      );
+    }
+
+    const priorState = checkpoint.overallState;
+    const priorStep = checkpoint.currentStep;
+
+    checkpoint.overallState = "CANCELLED";
+    checkpoint.nextRecoveryAction = "CANCELLED";
+    checkpoint.lastError = reason
+      ? `Cancelled by user: ${reason}`
+      : "Cancelled by user";
+
+    checkpoint.steps.push({
+      stepName: `USER_CANCEL_${priorStep}`,
+      state: "CANCELLED",
+      timestamp: new Date(),
+      data: { reason: reason ?? null, priorState, onchainBroadcastPresent },
+    });
+
+    await checkpoint.save();
+
+    const recoveryGuidance = onchainBroadcastPresent
+      ? "A transaction was already broadcast before cancellation; cancellation only halted local processing. Verify the transaction's on-chain status before taking any further action."
+      : "No on-chain side effects were recorded; the operation was fully cancelled and may be re-initiated with a new idempotency key.";
+
+    try {
+      await recordAccessOrOwnershipChange({
+        action: "operation_recovery",
+        result: "success",
+        actor: actorWallet.toLowerCase(),
+        target: operationId,
+        targetType: "system",
+        beforeState: { priorState, priorStep },
+        afterState: { newState: "CANCELLED", onchainBroadcastPresent },
+        reason: reason ?? "User cancellation",
+      });
+    } catch (err) {
+      logger.warn("Could not audit user operation cancellation", { error: err });
+    }
+
+    return {
+      checkpoint,
+      alreadyCancelled: false,
+      onchainBroadcastPresent,
+      recoveryGuidance,
+    };
   }
 
   /**
@@ -171,6 +310,17 @@ export class OperationRecoveryService {
     const checkpoint = await OperationCheckpoint.findOne({ operationId });
     if (!checkpoint) {
       throw new Error(`Operation not found: ${operationId}`);
+    }
+
+    if (checkpoint.overallState === "CANCELLED") {
+      return {
+        operationId,
+        canResume: false,
+        resumeStep: checkpoint.currentStep,
+        canonicalState: "FAILED",
+        recommendedAction: "MANUAL_REVIEW",
+        instructions: "Operation was cancelled by the user and cannot be resumed.",
+      };
     }
 
     const canonicalState = this.normalizeState(checkpoint.overallState);
@@ -230,227 +380,6 @@ export class OperationRecoveryService {
       resumeStep: checkpoint.currentStep,
       canonicalState: "RETRYABLE",
       recommendedAction: "RETRY",
-      instructions: `Safe to re-execute step ${checkpoint.currentStep}; no external on-chain side effects were recorded.`,
     };
-  }
-
-  /**
-   * User-triggered deterministic retry for a stuck or retryable operation.
-   */
-  static async userRetry(operationId: string, userWallet: string): Promise<IOperationCheckpoint> {
-    const checkpoint = await OperationCheckpoint.findOne({ operationId });
-    if (!checkpoint) {
-      throw new Error(`Operation not found: ${operationId}`);
-    }
-
-    if (checkpoint.userId.toLowerCase() !== userWallet.toLowerCase()) {
-      throw new Error("Unauthorized: Only the initiator of this operation can retry it.");
-    }
-
-    const plan = await this.evaluateRecovery(operationId);
-
-    if (!plan.canResume) {
-      if (checkpoint.retryCount >= checkpoint.maxRetries) {
-        checkpoint.overallState = "MANUALLY_REVIEWED";
-        await checkpoint.save();
-      }
-      throw new Error(`Cannot resume operation: ${plan.instructions}`);
-    }
-
-    const priorState = checkpoint.overallState;
-    checkpoint.retryCount += 1;
-    checkpoint.overallState = "RETRYABLE";
-    checkpoint.nextRecoveryAction = `RESUMING_${plan.resumeStep}`;
-
-    checkpoint.steps.push({
-      stepName: `USER_RETRY_${checkpoint.retryCount}`,
-      state: "RETRYABLE",
-      timestamp: new Date(),
-      data: { plan, resumeStep: plan.resumeStep },
-    });
-
-    await checkpoint.save();
-
-    // Audit recovery action
-    try {
-      await recordAccessOrOwnershipChange({
-        action: "operation_recovery",
-        result: "success",
-        actor: userWallet.toLowerCase(),
-        target: operationId,
-        targetType: "system",
-        beforeState: { priorState, retryCount: checkpoint.retryCount - 1 },
-        afterState: { newState: "RETRYABLE", retryCount: checkpoint.retryCount, resumeStep: plan.resumeStep },
-        reason: "User retry initiated",
-      });
-    } catch (err) {
-      logger.warn("Could not audit user operation recovery", { error: err });
-    }
-
-    return checkpoint;
-  }
-
-  /**
-   * Maintainer-triggered resolution or manual intervention for stuck operations.
-   */
-  static async maintainerResolve(
-    operationId: string,
-    action: "RESOLVE" | "FAIL" | "RETRY" | "MANUAL_REVIEW",
-    maintainerId: string,
-    reason: string
-  ): Promise<IOperationCheckpoint> {
-    if (!reason || reason.trim().length === 0) {
-      throw new Error("A justification reason is required for maintainer recovery actions.");
-    }
-
-    const checkpoint = await OperationCheckpoint.findOne({ operationId });
-    if (!checkpoint) {
-      throw new Error(`Operation not found: ${operationId}`);
-    }
-
-    const priorState = checkpoint.overallState;
-    const targetStateMap: Record<string, OperationStepState> = {
-      RESOLVE: "RESOLVED",
-      FAIL: "FAILED",
-      RETRY: "RETRYABLE",
-      MANUAL_REVIEW: "MANUALLY_REVIEWED",
-    };
-
-    const newState = targetStateMap[action];
-    checkpoint.overallState = newState;
-    checkpoint.nextRecoveryAction = `MAINTAINER_${action}`;
-
-    checkpoint.steps.push({
-      stepName: `MAINTAINER_ACTION_${action}`,
-      state: newState,
-      timestamp: new Date(),
-      data: { maintainerId, reason, priorStep: checkpoint.currentStep },
-    });
-
-    await checkpoint.save();
-
-    // Audit maintainer recovery action
-    try {
-      await recordAccessOrOwnershipChange({
-        action: "operation_recovery",
-        result: "success",
-        actor: maintainerId,
-        target: operationId,
-        targetType: "system",
-        beforeState: { priorState, action },
-        afterState: { newState, maintainerId },
-        reason,
-      });
-    } catch (err) {
-      logger.warn("Could not audit maintainer operation recovery", { error: err });
-    }
-
-    return checkpoint;
-  }
-
-  /**
-   * Expose diagnostics for stuck pending operations exceeding a configured threshold.
-   */
-  static async getStuckOperationsDiagnostics(
-    thresholdMinutes: number = DEFAULT_STUCK_THRESHOLD_MINUTES
-  ): Promise<{
-    thresholdMinutes: number;
-    totalStuck: number;
-    diagnostics: StuckOperationDiagnostic[];
-  }> {
-    const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
-    const stuckList = await OperationCheckpoint.find({
-      overallState: {
-        $in: [
-          "PENDING",
-          "INITIALIZED",
-          "PREVALIDATED",
-          "ONCHAIN_SUBMITTED",
-          "RETRYABLE",
-          "RECOVERABLE",
-          "MANUALLY_REVIEWED",
-        ],
-      },
-      updatedAt: { $lt: cutoff },
-    }).sort({ updatedAt: 1 });
-
-    const now = Date.now();
-    const diagnostics: StuckOperationDiagnostic[] = stuckList.map((doc: any) => {
-      const minutesStale = Math.round((now - new Date(doc.updatedAt).getTime()) / (60 * 1000));
-      const hasOnchainBroadcast = doc.steps.some(
-        (s: ICheckpointStep) => s.state === "ONCHAIN_SUBMITTED" || !!s.txHash
-      );
-      const onchainStep = doc.steps.find((s: ICheckpointStep) => !!s.txHash);
-
-      const canonicalState = this.normalizeState(doc.overallState);
-
-      let recommendedAction: "RETRY" | "ROLLBACK" | "MANUAL_REVIEW" = "RETRY";
-      if (doc.retryCount >= doc.maxRetries || canonicalState === "MANUALLY_REVIEWED") {
-        recommendedAction = "MANUAL_REVIEW";
-      } else if (canonicalState === "FAILED") {
-        recommendedAction = "ROLLBACK";
-      }
-
-      return {
-        operationId: doc.operationId,
-        operationType: doc.operationType,
-        userId: doc.userId,
-        currentStep: doc.currentStep,
-        overallState: doc.overallState,
-        canonicalState,
-        minutesStale,
-        retryCount: doc.retryCount,
-        maxRetries: doc.maxRetries,
-        lastError: doc.lastError,
-        recommendedAction,
-        hasOnchainBroadcast,
-        onchainTxHash: onchainStep?.txHash,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-      };
-    });
-
-    return {
-      thresholdMinutes,
-      totalStuck: diagnostics.length,
-      diagnostics,
-    };
-  }
-
-  /**
-   * Diagnostic query to find stuck operations (legacy helper).
-   */
-  static async findStuckOperations(olderThanMinutes: number = 30): Promise<IOperationCheckpoint[]> {
-    const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000);
-    return OperationCheckpoint.find({
-      overallState: {
-        $in: [
-          "PENDING",
-          "INITIALIZED",
-          "PREVALIDATED",
-          "ONCHAIN_SUBMITTED",
-          "RETRYABLE",
-          "RECOVERABLE",
-        ],
-      },
-      updatedAt: { $lt: cutoff },
-    }).sort({ updatedAt: 1 });
-  }
-
-  /**
-   * Maintainer action to forcefully resolve or abandon an abandoned operation (legacy helper).
-   */
-  static async forceResolveOperation(
-    operationId: string,
-    action: "MARK_CONFIRMED" | "ABANDON" | "FORCE_RETRY",
-    maintainerId: string,
-    reason: string
-  ): Promise<IOperationCheckpoint> {
-    const actionMap: Record<string, "RESOLVE" | "FAIL" | "RETRY"> = {
-      MARK_CONFIRMED: "RESOLVE",
-      ABANDON: "FAIL",
-      FORCE_RETRY: "RETRY",
-    };
-    return this.maintainerResolve(operationId, actionMap[action] || "RETRY", maintainerId, reason);
   }
 }
