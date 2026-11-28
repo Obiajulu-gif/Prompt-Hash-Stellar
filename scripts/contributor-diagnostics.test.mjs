@@ -79,7 +79,7 @@ test("authorization path: validates key encoding format and operator privilege b
   assert.equal(badKeyChecks.some((c) => c.id.startsWith("auth.secret_format") && c.status === "fail"), true);
 
   const validKeyEnv = {
-    UNLOCK_PRIVATE_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+    UNLOCK_PRIVATE_KEY: Buffer.alloc(32, 7).toString("base64"),
   };
   const goodKeyChecks = checkAuthorization(validKeyEnv);
   assert.equal(goodKeyChecks.some((c) => c.id.startsWith("auth.secret_format") && c.status === "pass"), true);
