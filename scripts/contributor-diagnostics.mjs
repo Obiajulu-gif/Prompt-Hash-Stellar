@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 /**
- * Contributor diagnostics — one command that verifies a local checkout.
+ * Contributor diagnostics - one command that verifies a local checkout.
  *
  * Checks tooling, dependencies, env config (including cross-variable
- * consistency), seed/fixture data, and the external services the app assumes
- * (Soroban RPC, Horizon, optional MongoDB/Redis/chat gateway). Every non-pass
- * result carries a concrete fix. Secret values are never printed.
+ * consistency), seed/fixture data, authorization configuration, and the
+ * external services the app assumes (Soroban RPC, Horizon, optional
+ * MongoDB/Redis/chat gateway). Every non-pass result carries a concrete fix.
+ * Secret values are never printed.
  *
  * Usage:
- *   node scripts/contributor-diagnostics.mjs [--offline] [--json] [--strict] [--fix] [--verbose]
+ *   node scripts/contributor-diagnostics.mjs [--offline] [--json] [--strict] [--fix] [--verbose] [--retries=<n>]
  *   yarn diagnose
  *
- *   --offline  skip every network probe (checks are reported as "skip")
- *   --json     machine-readable report on stdout
- *   --strict   treat warnings as failures (useful in CI)
- *   --fix      apply SAFE fixes only: create .env from .env.example if missing
+ *   --offline    skip every network probe (checks are reported as "skip")
+ *   --json       machine-readable report on stdout
+ *   --strict     treat warnings as failures (useful in CI)
+ *   --fix        apply SAFE fixes only: create .env from .env.example if missing
+ *   --retries=n  number of retry attempts for transient network probes (default: 1)
  *
  * Exit code: 0 = no failures, 1 = at least one failure (or warning with --strict).
  * See docs/operations/contributor-diagnostics.md for failure modes and recovery.
@@ -90,6 +92,9 @@ export const FIXES = {
   "seed.fixtures": "Restore the file from git (git checkout -- <path>); deterministic tests depend on it.",
   "seed.script": "Restore server/scripts/seedPreview.mjs; it must keep its production guardrail.",
   "seed.env_guard": "Seeding is refused when APP_ENV/VERCEL_ENV/NODE_ENV is production. Unset it for preview seeding.",
+  "auth.private_key_leak": "Remove private keys from PUBLIC_* and VITE_* environment variables to prevent leaking them to the frontend.",
+  "auth.secret_format": "Ensure private keys are valid base64-encoded strings with at least 32 bytes or 64 hex characters.",
+  "auth.operator_boundary": "Ensure operator credentials are appropriately configured for the execution environment.",
   "net.rpc": "Check connectivity/VPN, status.stellar.org, or switch PUBLIC_STELLAR_RPC_URL to another provider.",
   "net.rpc_network": "RPC reports a different network than PUBLIC_STELLAR_NETWORK_PASSPHRASE; fix the URL or the passphrase.",
   "net.horizon": "Check connectivity or switch PUBLIC_STELLAR_HORIZON_URL; Horizon outages degrade balances only.",
@@ -346,6 +351,82 @@ export function checkEnvironment(env, ctx = {}) {
   return out;
 }
 
+export function checkAuthorization(env) {
+  const g = "authorization";
+  const out = [];
+
+  // 1. Prevent leaking private keys into public-facing variables
+  const leakedKeys = Object.keys(env).filter((k) => {
+    const isPublic = k.startsWith("PUBLIC_") || k.startsWith("VITE_");
+    const containsSecretName = /PRIVATE|SECRET|PASS(?:WORD|PHRASE)?_KEY/i.test(k);
+    return isPublic && containsSecretName;
+  });
+
+  if (leakedKeys.length > 0) {
+    out.push(
+      result(
+        "auth.private_key_leak",
+        g,
+        "fail",
+        `Private key detected in public environment variable (${leakedKeys.join(", ")})`,
+        "PUBLIC_* and VITE_* variables are exposed to client bundles"
+      )
+    );
+  } else {
+    out.push(result("auth.private_key_leak", g, "pass", "no private keys leaked into public variables"));
+  }
+
+  // 2. Validate cryptographic key encoding format for sensitive private keys
+  const privateKeyVars = ["UNLOCK_PRIVATE_KEY", "RECEIPT_SIGNING_PRIVATE_KEY"];
+  for (const k of privateKeyVars) {
+    if (env[k] && !isPlaceholder(env[k])) {
+      const val = env[k];
+      const isBase64Key = BASE64.test(val) && val.length >= 32;
+      const isHexKey = /^[0-9a-fA-F]{64}$/.test(val);
+      if (isBase64Key || isHexKey) {
+        out.push(result(`auth.secret_format:${k}`, g, "pass", `${k} has valid cryptographic key encoding`));
+      } else {
+        out.push(
+          result(
+            `auth.secret_format:${k}`,
+            g,
+            "fail",
+            `${k} does not meet cryptographic key format requirements`,
+            "expected at least 32 bytes in base64 or 64 hex characters"
+          )
+        );
+      }
+    }
+  }
+
+  // 3. Operator boundary and capability checks
+  const hasOperatorPrivilege = Boolean(env.UNLOCK_PRIVATE_KEY && !isPlaceholder(env.UNLOCK_PRIVATE_KEY));
+  const isOperatorMode = env.STELLAR_SCAFFOLD_ENV === "production" || env.NODE_ENV === "production";
+  if (isOperatorMode && !hasOperatorPrivilege) {
+    out.push(
+      result(
+        "auth.operator_boundary",
+        g,
+        "warn",
+        "running in production mode without configured operator unlock key"
+      )
+    );
+  } else {
+    out.push(
+      result(
+        "auth.operator_boundary",
+        g,
+        "pass",
+        hasOperatorPrivilege
+          ? "operator authorization keys configured"
+          : "contributor scope (unprivileged local mode)"
+      )
+    );
+  }
+
+  return out;
+}
+
 export function checkSeedData(root, exists = existsSync, read = (f) => readFileSync(f, "utf8"), env = {}) {
   const g = "seed";
   const p = (f) => resolve(root, f);
@@ -401,6 +482,21 @@ async function fetchWithTimeout(fetchImpl, url, init, timeoutMs) {
   }
 }
 
+async function retryWithBackoff(fn, retries = 1, delayMs = 150) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export function tcpProbe(host, port, timeoutMs = NETWORK_TIMEOUT_MS) {
   return new Promise((done) => {
     const sock = connect({ host, port });
@@ -423,7 +519,7 @@ function hostPort(uri, defaultPort) {
   }
 }
 
-export async function checkNetwork(env, { fetchImpl = globalThis.fetch, probe = tcpProbe, offline = false } = {}) {
+export async function checkNetwork(env, { fetchImpl = globalThis.fetch, probe = tcpProbe, offline = false, retries = 1 } = {}) {
   const g = "network";
   const out = [];
   const skip = (id, label) => out.push(result(id, g, "skip", `${label} (offline)`));
@@ -435,14 +531,16 @@ export async function checkNetwork(env, { fetchImpl = globalThis.fetch, probe = 
   else {
     try {
       const rpcCall = async (method) => {
-        const res = await fetchWithTimeout(
-          fetchImpl,
-          rpc,
-          { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method }) },
-          NETWORK_TIMEOUT_MS,
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()).result ?? {};
+        return await retryWithBackoff(async () => {
+          const res = await fetchWithTimeout(
+            fetchImpl,
+            rpc,
+            { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method }) },
+            NETWORK_TIMEOUT_MS,
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()).result ?? {};
+        }, retries);
       };
       const health = await rpcCall("getHealth");
       if (health.status && health.status !== "healthy") {
@@ -468,8 +566,11 @@ export async function checkNetwork(env, { fetchImpl = globalThis.fetch, probe = 
   else if (!horizon || !isHttpUrl(horizon)) out.push(result("net.horizon", g, "skip", "Horizon URL not configured"));
   else {
     try {
-      const res = await fetchWithTimeout(fetchImpl, horizon, { headers: { accept: "application/json" } }, NETWORK_TIMEOUT_MS);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await retryWithBackoff(async () => {
+        const r = await fetchWithTimeout(fetchImpl, horizon, { headers: { accept: "application/json" } }, NETWORK_TIMEOUT_MS);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r;
+      }, retries);
       const body = await res.json();
       out.push(result("net.horizon", g, "pass", "Horizon reachable"));
       if (body.network_passphrase && expected) {
@@ -495,12 +596,23 @@ export async function checkNetwork(env, { fetchImpl = globalThis.fetch, probe = 
     }
     const target = hostPort(env[key], port);
     if (!target) out.push(result(id, g, "warn", `${key} is not a valid URI`));
-    else
+    else {
+      let isReachable = false;
+      try {
+        isReachable = await retryWithBackoff(async () => {
+          const ok = await probe(target.host, target.port);
+          if (!ok) throw new Error("probe failed");
+          return true;
+        }, retries);
+      } catch {
+        isReachable = false;
+      }
       out.push(
-        (await probe(target.host, target.port))
+        isReachable
           ? result(id, g, "pass", `${label} reachable`)
           : result(id, g, "warn", `${label} unreachable at ${target.host}:${target.port}`),
       );
+    }
   }
 
   const chat = env.PUBLIC_CHAT_API_BASE;
@@ -508,7 +620,9 @@ export async function checkNetwork(env, { fetchImpl = globalThis.fetch, probe = 
     if (offline) skip("net.chat", "chat gateway");
     else {
       try {
-        await fetchWithTimeout(fetchImpl, chat, { method: "HEAD" }, NETWORK_TIMEOUT_MS);
+        await retryWithBackoff(async () => {
+          await fetchWithTimeout(fetchImpl, chat, { method: "HEAD" }, NETWORK_TIMEOUT_MS);
+        }, retries);
         out.push(result("net.chat", g, "pass", "chat gateway reachable"));
       } catch {
         out.push(result("net.chat", g, "warn", "chat gateway unreachable"));
@@ -549,6 +663,7 @@ export async function runDiagnostics({
   probe = tcpProbe,
   offline = false,
   strict = false,
+  retries = 1,
 } = {}) {
   const envPath = resolve(root, ".env");
   const examplePath = resolve(root, ".env.example");
@@ -563,8 +678,9 @@ export async function runDiagnostics({
     ...checkTooling(run),
     ...checkDependencies(root),
     ...checkEnvironment(env, { example, envFilePresent: existsSync(envPath), templatePresent: existsSync(examplePath) }),
+    ...checkAuthorization(env),
     ...checkSeedData(root, existsSync, (f) => readFileSync(f, "utf8"), env),
-    ...(await checkNetwork(env, { fetchImpl, probe, offline })),
+    ...(await checkNetwork(env, { fetchImpl, probe, offline, retries })),
   ];
   return { checks, summary: summarize(checks, { strict }) };
 }
@@ -578,7 +694,7 @@ function defaultRun(cmd) {
 }
 
 export function formatReport({ checks, summary }, { verbose = false } = {}) {
-  const icon = { pass: "✔", warn: "⚠", fail: "✖", skip: "–" };
+  const icon = { pass: "[PASS]", warn: "[WARN]", fail: "[FAIL]", skip: "[SKIP]" };
   const lines = [];
   let group = "";
   for (const c of checks) {
@@ -588,11 +704,11 @@ export function formatReport({ checks, summary }, { verbose = false } = {}) {
     }
     if (c.status === "pass" && !verbose && c.group !== "network") continue;
     lines.push(`  ${icon[c.status]}  ${c.label}${c.detail ? `  (${c.detail})` : ""}`);
-    if (c.fix) lines.push(`       → ${c.fix}`);
+    if (c.fix) lines.push(`       -> ${c.fix}`);
   }
   lines.push(
     `\n${summary.pass} passed, ${summary.warn} warnings, ${summary.fail} failed, ${summary.skip} skipped`,
-    summary.ok ? "Diagnostics OK." : "Diagnostics FAILED — apply the fixes marked → above and re-run.",
+    summary.ok ? "Diagnostics OK." : "Diagnostics FAILED - apply the fixes marked -> above and re-run.",
     "Recovery notes: docs/operations/contributor-diagnostics.md",
   );
   return lines.join("\n");
@@ -600,19 +716,36 @@ export function formatReport({ checks, summary }, { verbose = false } = {}) {
 
 const isCli = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isCli) {
-  const args = new Set(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  let retries = 1;
+  const filteredArgs = [];
+
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg.startsWith("--retries=")) {
+      const val = parseInt(arg.split("=")[1], 10);
+      if (!Number.isNaN(val) && val >= 0) retries = val;
+    } else if (arg === "--retries" && i + 1 < rawArgs.length) {
+      const val = parseInt(rawArgs[++i], 10);
+      if (!Number.isNaN(val) && val >= 0) retries = val;
+    } else {
+      filteredArgs.push(arg);
+    }
+  }
+
+  const args = new Set(filteredArgs);
   const supported = new Set(["--offline", "--json", "--strict", "--fix", "--verbose", "--help"]);
   if ([...args].some((arg) => !supported.has(arg))) {
     console.error("Unknown option. Run yarn diagnose --help for usage.");
     process.exit(2);
   }
   if (args.has("--help")) {
-    console.log("Usage: yarn diagnose [--offline] [--json] [--strict] [--fix] [--verbose]");
+    console.log("Usage: yarn diagnose [--offline] [--json] [--strict] [--fix] [--verbose] [--retries=<n>]");
     process.exit(0);
   }
   const root = process.cwd();
   const applied = args.has("--fix") ? applySafeFixes(root) : [];
-  const report = await runDiagnostics({ root, offline: args.has("--offline"), strict: args.has("--strict") });
+  const report = await runDiagnostics({ root, offline: args.has("--offline"), strict: args.has("--strict"), retries });
   if (args.has("--json")) {
     console.log(JSON.stringify({ ...report, applied }, null, 2));
   } else {
