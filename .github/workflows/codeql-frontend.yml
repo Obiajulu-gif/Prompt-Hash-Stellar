@@ -7,6 +7,9 @@ on:
       - develop
     paths:
       - ".github/workflows/codeql-frontend.yml"
+      - "api/**"
+      - "packages/**"
+      - "server/**"
       - "src/**"
       - "public/**"
       - "package.json"
@@ -24,6 +27,9 @@ on:
       - develop
     paths:
       - ".github/workflows/codeql-frontend.yml"
+      - "api/**"
+      - "packages/**"
+      - "server/**"
       - "src/**"
       - "public/**"
       - "package.json"

@@ -268,8 +268,8 @@
         "tags": [
           "Admin Operations"
         ],
-        "summary": "Effective allow-list policies",
-        "description": "Requires `allowlist:read` (#1025).",
+        "summary": "Effective destination and content allow-list policies",
+        "description": "Requires `allowlist:read` (#1025, #1177).",
         "operationId": "getAllowListPolicies",
         "security": [
           {
@@ -278,7 +278,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Mode, URL policies and file-type allow-list"
+            "description": "Mode, runtime overrides, URL policies, content policies, and file-type allow-list"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -291,8 +291,8 @@
         "tags": [
           "Admin Operations"
         ],
-        "summary": "Dry-run a URL or file against the allow-list",
-        "description": "Requires `allowlist:read` (#1025). Always reports what enforce mode would decide.",
+        "summary": "Dry-run a URL, file, or content payload against the allow-list",
+        "description": "Requires `allowlist:read` (#1025, #1177). Always reports what enforce mode would decide.",
         "operationId": "checkAllowList",
         "security": [
           {
@@ -311,7 +311,9 @@
                     "enum": [
                       "webhook_destination",
                       "listing_image",
-                      "report_evidence"
+                      "report_evidence",
+                      "dispute_evidence",
+                      "external_reference"
                     ]
                   },
                   "url": {
@@ -343,6 +345,24 @@
                         "type": "string"
                       }
                     }
+                  },
+                  "content": {
+                    "type": "object",
+                    "properties": {
+                      "policy": {
+                        "type": "string",
+                        "enum": [
+                          "prompt_content",
+                          "evidence_note",
+                          "webhook_payload",
+                          "import_manifest"
+                        ]
+                      },
+                      "value": {},
+                      "contentType": {
+                        "type": "string"
+                      }
+                    }
                   }
                 }
               }
@@ -355,6 +375,83 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/allow-list/override": {
+      "put": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "summary": "Set audited runtime allow-list mode or host overrides",
+        "description": "Requires `allowlist:write` (#1177). Records an `admin_config_change` audit event.",
+        "operationId": "setAllowListOverride",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "enforce",
+                      "report"
+                    ]
+                  },
+                  "hostAllowLists": {
+                    "type": "object"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 4
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated effective allow-list policies"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "summary": "Roll back runtime allow-list overrides to environment defaults",
+        "description": "Requires `allowlist:write` (#1177). Records an `admin_config_change` audit event.",
+        "operationId": "clearAllowListOverride",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restored effective allow-list policies"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -602,6 +699,133 @@
         }
       }
     },
+    "/api/admin/retention-holds/policies": {
+      "get": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "summary": "Describe retention windows, cutoffs, and verifiable collections (#1181)",
+        "operationId": "getRetentionEnforcementPolicies",
+        "description": "Requires `retention-holds:read`.",
+        "responses": {
+          "200": {
+            "description": "Retention policy matrix and cutoff timestamps"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/retention-holds/verify-deletion": {
+      "post": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "summary": "Verify post-retention deletion and scrubbing with cryptographic attestation (#1181)",
+        "operationId": "verifyRetentionDeletion",
+        "description": "Requires `retention-holds:read` (and `retention-holds:write` when `repairIncompleteScrubs: true`).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sampleLimit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000,
+                    "default": 500
+                  },
+                  "repairIncompleteScrubs": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deletion verification report with SHA-256 attestationHash"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/retention-holds/enforce": {
+      "post": {
+        "tags": [
+          "Admin Operations"
+        ],
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "summary": "Execute hold-aware retention cleanup, expired export purge, and deletion verification (#1181)",
+        "operationId": "enforceAndVerifyRetention",
+        "description": "Requires `retention-holds:write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dryRun": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "batchSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000,
+                    "default": 500
+                  },
+                  "sampleLimit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000,
+                    "default": 500
+                  },
+                  "repairIncompleteScrubs": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Enforcement report and deletion verification attestation"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -826,6 +1050,262 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/rename": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Rename a prompt record and preserve permalink redirect (#936)",
+        "operationId": "renamePromptRecord",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt renamed with historical slug redirect preserved."
+          },
+          "400": {
+            "description": "Invalid rename payload."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/archive-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Archive a prompt permalink (#936)",
+        "operationId": "archivePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt permalink archived."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restore-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restore an archived prompt permalink (#936)",
+        "operationId": "restorePromptPermalink",
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt permalink restored."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/{promptId}/restrict-permalink": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Restrict a prompt permalink (admin moderation, #936)",
+        "operationId": "restrictPromptPermalink",
+        "security": [
+          {
+            "adminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "promptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt permalink restricted."
+          },
+          "401": {
+            "description": "Missing or invalid admin token."
+          },
+          "404": {
+            "description": "Prompt not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/duplicate/check": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Check prompt content for exact or semantic duplicates",
+        "operationId": "checkPromptDuplicate",
+        "responses": {
+          "200": {
+            "description": "Duplicate check result."
+          },
+          "400": {
+            "description": "Invalid request payload."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/{transferId}/disputes": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Open an ownership transfer dispute (#907)",
+        "operationId": "openOwnershipDispute",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Ownership dispute opened."
+          },
+          "400": {
+            "description": "Invalid dispute request."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Get ownership transfer dispute details (#907)",
+        "operationId": "getOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership dispute record."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/evidence": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Attach evidence to an ownership transfer dispute (#907)",
+        "operationId": "addOwnershipDisputeEvidence",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence attached to dispute."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
+          }
+        }
+      }
+    },
+    "/api/prompts/transfers/disputes/{disputeId}/withdraw": {
+      "post": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Withdraw an ownership transfer dispute (#907)",
+        "operationId": "withdrawOwnershipDispute",
+        "parameters": [
+          {
+            "name": "disputeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership dispute withdrawn."
+          },
+          "401": {
+            "description": "Valid wallet session required."
+          },
+          "404": {
+            "description": "Dispute not found."
           }
         }
       }
