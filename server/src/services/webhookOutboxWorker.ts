@@ -8,6 +8,22 @@
  * with an atomic `findOneAndUpdate` that only succeeds if no other worker
  * currently holds a valid lease on it, so two replicas racing the same row
  * never both deliver it.
+ *
+ * Failure-injection hooks: `setWebhookFailureInjector` lets end-to-end tests
+ * force network errors, HTTP statuses, or crashes at the exact points where
+ * real failures occur (before/after the network boundary, during claim, and
+ * during ack persistence). In production the injector is never set and every
+ * hook is a no-op.
+ *
+ * Recovery / rollback behavior:
+ * - A crash after the `prepared` checkpoint but before `acknowledged` leaves
+ * the row in `prepared`; on the next claim the row is re-sent with the same
+ * deliveryId (at-least-once, receivers dedupe on X-PromptHash-Delivery).
+ * - A row whose lease expires (worker crashed mid-claim) becomes claimable
+ * again once `leaseExpiresAt < now`.
+ * - Exhausted attempts, SSRF-unsafe URLs, and 4xx rejections dead-letter the
+ * row and increment the subscription failure counter; repeated failures
+ * deactivate the subscription. Dead letters are never auto-replayed.
  */
 
 import os from "os";
@@ -40,6 +56,42 @@ const MAX_INACTIVE_DEFERRALS = Math.ceil((24 * 60 * 60 * 1000) / INACTIVE_RECHEC
 const RETRYABLE_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 425]);
 const REPLICA_ID = `${process.pid}@${os.hostname()}`;
 const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000;
+
+/** Points at which a test may inject a failure. */
+export type WebhookFailurePoint =
+  | "claim"
+  | "before_network"
+  | "network"
+  | "ack_persist";
+
+/**
+ * Injected failure: a thrown Error simulates a crash/network failure at that
+ * point; a `{ status, headers? }` object simulates an HTTP response at the
+ * "network" point (ignored elsewhere).
+ */
+export type WebhookFailureInjection =
+  | Error
+  | { status: number; headers?: Record<string, string | string[] | undefined> };
+
+export type WebhookFailureInjector = (
+  point: WebhookFailurePoint,
+  context: { rowId?: unknown; attempt?: number },
+) => WebhookFailureInjection | undefined | Promise<WebhookFailureInjection | undefined>;
+
+let failureInjector: WebhookFailureInjector | null = null;
+
+/** Test-only: install or clear the failure injector. */
+export function setWebhookFailureInjector(injector: WebhookFailureInjector | null): void {
+  failureInjector = injector;
+}
+
+async function maybeInject(
+  point: WebhookFailurePoint,
+  context: { rowId?: unknown; attempt?: number } = {},
+): Promise<WebhookFailureInjection | undefined> {
+  if (!failureInjector) return undefined;
+  return failureInjector(point, context);
+}
 
 /** Exported so the retry contract is asserted against the real policy, not a copy. */
 export const WEBHOOK_RETRY_POLICY = {
@@ -131,6 +183,8 @@ export async function claimRow(now: Date) {
   if (workerPaused) {
     return null;
   }
+  const injected = await maybeInject("claim");
+  if (injected instanceof Error) throw injected;
   return WebhookOutboxEvent.findOneAndUpdate(
     {
       status: "pending",
@@ -296,9 +350,19 @@ export async function deliverRow(row: InstanceType<typeof WebhookOutboxEvent>): 
     $set: { deliveryCheckpoint: "prepared", attempts: attempt },
   });
   try {
-    const result = await postSignedWebhook(sub.url, headers, body, DELIVERY_TIMEOUT_MS);
+    const beforeNetwork = await maybeInject("before_network", { rowId: row._id, attempt });
+    if (beforeNetwork instanceof Error) throw beforeNetwork;
+
+    const injectedNetwork = await maybeInject("network", { rowId: row._id, attempt });
+    if (injectedNetwork instanceof Error) throw injectedNetwork;
+    const result =
+      injectedNetwork && !(injectedNetwork instanceof Error)
+        ? { status: injectedNetwork.status, headers: injectedNetwork.headers ?? {} }
+        : await postSignedWebhook(sub.url, headers, body, DELIVERY_TIMEOUT_MS);
 
     if (result.status >= 200 && result.status < 300) {
+      const ackFailure = await maybeInject("ack_persist", { rowId: row._id, attempt });
+      if (ackFailure instanceof Error) throw ackFailure;
       await WebhookOutboxEvent.findByIdAndUpdate(row._id, {
         $set: { deliveryCheckpoint: "acknowledged", responseStatus: result.status },
       });

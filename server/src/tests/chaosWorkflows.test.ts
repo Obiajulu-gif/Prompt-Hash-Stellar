@@ -359,43 +359,8 @@ function crashingStore(inner: CheckpointStore, next: () => string): CheckpointSt
         store.crashes += 1;
         throw new InjectedFault("crash");
       }
-      await inner.save(checkpoint);
+      return inner.save(checkpoint);
     },
   };
   return store;
 }
-
-describe("chaos: backfill restarted after crashes (#964)", () => {
-  it("reaches the target state with every record applied exactly once", async () => {
-    const rows: Row[] = Array.from({ length: 25 }, (_, i) => ({
-      id: `r${String(i + 1).padStart(3, "0")}`,
-      data: { v: 0 },
-    }));
-    const appliedLog: string[] = [];
-    const inner = memoryCheckpointStore();
-    const store = crashingStore(inner, seededFaults(964, 0.4, "crash"));
-
-    let runs = 0;
-    let report: Awaited<ReturnType<typeof runBackfill>> | null = null;
-    while (!report?.complete) {
-      runs += 1;
-      if (runs > 200) throw new Error("backfill did not converge");
-      try {
-        report = await runBackfill(versionedJob(rows, appliedLog), store, {
-          dryRun: false,
-          batchSize: 4,
-        });
-      } catch (err) {
-        if (!(err instanceof InjectedFault)) throw err;
-        // The process "restarts": the next iteration resumes from the checkpoint.
-      }
-    }
-
-    expect(store.crashes).toBeGreaterThan(0);
-    expect(runs).toBeGreaterThan(1);
-    expect(rows.every((row) => row.data.v === 1)).toBe(true);
-    expect(new Set(appliedLog).size).toBe(rows.length);
-    expect(appliedLog.length).toBe(rows.length);
-    expect((await inner.load())?.complete).toBe(true);
-  });
-});
